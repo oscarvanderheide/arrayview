@@ -7,7 +7,7 @@ import matplotlib.animation as animation
 class ArrayShower:
     def __init__(self, ax, array):
         """
-        Initialize the ArrayShower with the given axis and array.
+        Initialize the NDTracker with the given axis and array.
 
         Parameters:
         ax (matplotlib.axes.Axes): The axis to plot on.
@@ -23,13 +23,6 @@ class ArrayShower:
         self.im = ax.imshow(self.get_current_slice(), cmap="gray")
         self.update_title()
         self.ani = None
-
-        # Connect events
-        self.im.figure.canvas.mpl_connect("scroll_event", self.onscroll)
-        self.im.figure.canvas.mpl_connect("key_press_event", self.onkeypress)
-
-        # Create UI elements
-        self.create_ui()
 
     def get_current_slice(self):
         """
@@ -167,47 +160,57 @@ class ArrayShower:
         self.display_mode = label
         self.update()
 
-    def create_ui(self):
-        """
-        Create the user interface elements for changing dimensions and display modes.
-        """
-        dim_labels = [str(i) for i in range(self.array.ndim)]
-
-        slice1_ax = plt.axes([0.1, 0.01, 0.2, 0.08], frameon=False)
-        slice1_radio = RadioButtons(slice1_ax, dim_labels)
-        slice1_radio.on_clicked(lambda label: self.change_dim("slice_dim1", label))
-
-        slice2_ax = plt.axes([0.35, 0.01, 0.2, 0.08], frameon=False)
-        slice2_radio = RadioButtons(slice2_ax, dim_labels)
-        slice2_radio.on_clicked(lambda label: self.change_dim("slice_dim2", label))
-
-        scroll_ax = plt.axes([0.6, 0.01, 0.2, 0.08], frameon=False)
-        scroll_radio = RadioButtons(scroll_ax, dim_labels)
-        scroll_radio.on_clicked(lambda label: self.change_dim("scroll_dim", label))
-
-        scroll_button_ax = plt.axes([0.85, 0.01, 0.1, 0.08])
-        scroll_button = Button(scroll_button_ax, "Auto Scroll")
-        scroll_button.on_clicked(self.start_auto_scroll)
-
-        display_mode_ax = plt.axes([0.85, 0.15, 0.1, 0.08])
-        display_mode_radio = RadioButtons(
-            display_mode_ax, ["real", "imag", "abs", "angle"]
-        )
-        display_mode_radio.on_clicked(self.change_display_mode)
-
 
 def npshow(array):
-    """
-    Create a figure and axis, and initialize the ArrayShower to visualize the array.
-
-    Parameters:
-    array (numpy.ndarray): The n-dimensional array to visualize.
-    """
     fig, ax = plt.subplots(1, 1)
-    ArrayShower(ax, array)
+    tracker = ArrayShower(ax, array)
+    fig.canvas.mpl_connect("scroll_event", tracker.onscroll)
+    fig.canvas.mpl_connect("key_press_event", tracker.onkeypress)
+
+    dim_labels = [str(i) for i in range(array.ndim)]
+    slice1_ax = plt.axes([0.1, 0.01, 0.2, 0.08], frameon=False)
+    slice1_radio = RadioButtons(slice1_ax, dim_labels)
+    slice1_radio.on_clicked(lambda label: tracker.change_dim("slice_dim1", label))
+
+    slice2_ax = plt.axes([0.35, 0.01, 0.2, 0.08], frameon=False)
+    slice2_radio = RadioButtons(slice2_ax, dim_labels)
+    slice2_radio.on_clicked(lambda label: tracker.change_dim("slice_dim2", label))
+
+    scroll_ax = plt.axes([0.6, 0.01, 0.2, 0.08], frameon=False)
+    scroll_radio = RadioButtons(scroll_ax, dim_labels)
+    scroll_radio.on_clicked(lambda label: tracker.change_dim("scroll_dim", label))
+
+    scroll_button_ax = plt.axes([0.85, 0.01, 0.1, 0.08])
+    scroll_button = Button(scroll_button_ax, "Auto Scroll")
+    scroll_button.on_clicked(tracker.start_auto_scroll)
+
+    display_mode_ax = plt.axes([0.85, 0.15, 0.1, 0.08])
+    display_mode_radio = RadioButtons(display_mode_ax, ["real", "imag", "abs", "angle"])
+    display_mode_radio.on_clicked(tracker.change_display_mode)
+
     plt.show()
 
 
-# Example usage:
+# read in a npy array:
 array = np.random.rand(224, 224, 192, 32)
 npshow(array)
+
+# xx = np.load("/Users/oscar/tmp/npy_export/20250205_174704_SENSE_2_Acq_@@_CSM.npy")
+# x = np.transpose(xx, (1, 2, 0))  # put coils last
+# x.shape
+#
+# fig, ax = plt.subplots(4, 4)
+#
+# for i in range(x.shape[-1]):
+#     # get div and rem mod 4
+#     div, rem = divmod(i, 4)
+#     print(div, rem)
+#     ax[div, rem].imshow(np.abs(x[:, :, i]), cmap="viridis", vmin=0, vmax=1)
+#     ax[div, rem].axis("off")
+#     # set the color limits to the range of the data
+#     ax[div, rem].set_title(f"coil {i}")
+#     ax[div, rem].set_aspect("equal")
+#
+# plt.show()
+# plt.clim(vmin=0, vmax=2)  # Adjust these values as needed
+# #
