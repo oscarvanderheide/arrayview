@@ -3,8 +3,9 @@ import matplotlib
 
 # matplotlib.use("Qt5Agg")  # Or "TkAgg"
 import numpy as np
+import math
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Button, TextBox
+from matplotlib.widgets import Button, TextBox, CheckButtons
 import matplotlib.animation as animation
 
 ## Main class
@@ -17,35 +18,9 @@ class ArrayShow:
     It has "viewing" dimensions and a "slice" dimension:
         - Viewing dimensions are the two dimensions that are displayed as a 2D slice.
         - The slice dimension is the dimension through which the array is scrolled.
-
-    Initialization:
-        - The class is initialized with a numpy array.
-        - It checks that the array has at least 3 dimensions and sets up initial viewing parameters,
-        including the dimensions to view and the dimension to scroll through.
-
-    View Setup:
-        - Initializes the current view slice and sets the display mode (real, imaginary, absolute, or angle).
-        - Creates a matplotlib figure and axis to display the array slice.
-
-    Slice Management:
-        - Methods like `initialize_current_view`, `get_current_slice`, and `update_view` manage the current slice of the array being displayed.
-        - The slice index can be changed via scrolling or key presses.
-
-    User Interaction:
-        - Sets up buttons and text boxes for user interaction.
-        - Users can change the slice index, view dimensions, and display mode using these controls.
-        - Supports auto-scrolling through slices.
-
-    Event Handling:
-        - Connects scroll and key press events to their respective handlers to update the view dynamically.
-
-    Main Execution:
-        - When run as a script, it creates an instance of `ArrayShower` with a random array and displays the matplotlib window.
-
-    This class provides an interactive way to explore multi-dimensional arrays visually.
     """
 
-    def __init__(self, array, view_dims=[0,1], scroll_dim=2):
+    def __init__(self, array, view_dims=[0, 1], scroll_dim=2, cmap="viridis"):
         self.array = array
         self.ndim = array.ndim
 
@@ -67,8 +42,8 @@ class ArrayShow:
 
         # Initialize the figure and axis
         self.fig, self.ax = plt.subplots(1, 1)
-        self.cmap = "gray"
-        self.im = self.ax.imshow(self.get_current_slice(), cmap=self.cmap)
+        self.cmap = cmap
+        self.im = self.ax.imshow(self.get_current_slice(), cmap=self.cmap, vmin=0, vmax=2)
 
         # self.ani = None
         # Create UI components for user interaction
@@ -102,6 +77,20 @@ class ArrayShow:
     def get_current_slice(self):
         """Given the slice indices, extract the current slice from the array"""
         current_slice = self.array[tuple(self.slice_indices)]
+        # if current_slice.ndim > 2:
+            # current_slice = np.reshape(current_slice, (-1, current_slice.shape[0]))
+            # current_slice = np.concatenate([current_slice[:, :, i] for i in range(current_slice.shape[2])], axis=1)
+        if current_slice.ndim == 3:
+            num_slices = current_slice.shape[2]
+            grid_cols = int(math.ceil(math.sqrt(num_slices * 16 / 9)))
+            grid_rows = int(math.ceil(num_slices / grid_cols))
+            padded_slices = np.zeros((current_slice.shape[0], current_slice.shape[1], grid_rows * grid_cols))
+            padded_slices[:, :, :num_slices] = current_slice
+            reshaped_slices = padded_slices.reshape(current_slice.shape[0], current_slice.shape[1], grid_rows, grid_cols)
+            current_slice = np.block([[reshaped_slices[:, :, i, j] for j in range(grid_cols)] for i in range(grid_rows)])
+        elif current_slice.ndim > 3:
+            raise NotImplementedError("Display for arrays with more than 3 dimensions is not implemented yet.")
+        
         if self.display_mode == "real":
             return np.real(current_slice)
         elif self.display_mode == "imag":
@@ -110,6 +99,8 @@ class ArrayShow:
             return np.abs(current_slice)
         elif self.display_mode == "angle":
             return np.angle(current_slice)
+        else:
+            raise ValueError(f"Invalid display mode: {self.display_mode}")
 
     def update_view(self):
         """Update the image data and redraw the canvas"""
@@ -262,7 +253,7 @@ class ArrayShow:
         self.text_boxes = []
 
         for i in range(self.array.ndim):
-            ax_up = plt.axes([0.1 + i * 0.2, 0.15, 0.03, 0.05])
+            ax_up = plt.axes([0.1 + i * 0.075, 0.15, 0.05, 0.05])
             self.button_up.append(Button(ax_up, "↑"))
             self.button_up[i].on_clicked(
                 lambda event, dim=i: (
@@ -274,20 +265,20 @@ class ArrayShow:
                 else None
             )
 
-            ax_text = plt.axes([0.1 + i * 0.2, 0.1, 0.03, 0.05])
-            self.text_boxes.append(TextBox(ax_text, f"Dim {i}"))
+            ax_text = plt.axes([0.1 + i * 0.075, 0.1, 0.05, 0.05])
+            self.text_boxes.append(TextBox(ax_text, f""))
             self.text_boxes[i].set_val(
                 ":" if i in self.view_dims else str(self.slice_indices[i])
             )
             self.text_boxes[i].on_submit(
                 lambda text, dim=i: (
                     self.change_scroll_dim(dim),
-                    self.update_scroll_index(int(text)-self.scroll_index),
+                    self.update_scroll_index(int(text) - self.scroll_index),
                     self.update_view(),
                 )
             )
 
-            ax_down = plt.axes([0.1 + i * 0.2, 0.05, 0.03, 0.05])
+            ax_down = plt.axes([0.1 + i * 0.075, 0.05, 0.05, 0.05])
             self.button_down.append(Button(ax_down, "↓"))
             self.button_down[i].on_clicked(
                 lambda event, dim=i: (
@@ -299,12 +290,58 @@ class ArrayShow:
                 else None
             )
 
+        # Add checkbuttons for each dim and the view_dims are selected
+        ax_check = plt.axes([0.1, 0.8, 0.2, 0.15])
+        labels = [str(i) for i in range(self.ndim)]
+        visibility = [i in self.view_dims for i in range(self.ndim)]
+        self.view_dim_buttons = CheckButtons(ax_check, labels, visibility)
+
+        def update_view_dims(label):
+            index = int(label)
+            if index in self.view_dims:
+                if len(self.view_dims) <= 2:
+                    return None  # Must have at least 2 view dims
+                else:
+                    # Remove viewing dim
+                    self.view_dims.remove(index)
+                    self.slice_indices[index] = 0
+                    self.text_boxes[index].set_val("0")
+                    self.fixed_dims = self.calculate_fixed_dims()
+            else:
+                # Add new viewing dim
+                self.view_dims.append(index)
+                self.slice_indices[index] = slice(None)
+                self.text_boxes[index].set_val(":")
+                if self.scroll_dim == index:
+                    self.scroll_dim = self.calculate_next_scroll_dim("next")
+                self.fixed_dims = self.calculate_fixed_dims()
+
+            print(f"Viewing dimensions: {self.view_dims}")
+            print(f"Slice indices: {self.slice_indices}")
+            # Update the image because the size of the thing to plot has changed
+            self.im = self.ax.imshow(self.get_current_slice(), cmap=self.cmap, vmin=0, vmax=2)
+            self.update_view()
+
+        self.view_dim_buttons.on_clicked(update_view_dims)
+
         # scroll_button_ax = plt.axes([0.85, 0.01, 0.1, 0.08])
         # scroll_button = Button(scroll_button_ax, "Auto Scroll")
         # scroll_button.on_clicked(self.start_auto_scroll)
 
 
 if __name__ == "__main__":
-    array = np.random.rand(224, 224, 192, 32)
+    # array = np.random.rand(224, 224, 4, 2)
+    array = np.load(
+        "/Users/oscar/tmp/npy_export/20250205_174627_sense_test_protoarray_Acq_@@_CSM.npy"
+    )
+    # permute
+    array = np.permute_dims(array, [1,2,0])
+    print(array.shape)
+    # array is 3d, i want to make it 4d by repeating the last dimension
+    array = np.repeat(array[..., np.newaxis], 3, axis=-1)
+    array[:,:,:,1] *= 0.5
+    array[:,:,:,2] *= 1.2
+
+    print(array.shape)
     viewer = ArrayShow(array)
     plt.show()
