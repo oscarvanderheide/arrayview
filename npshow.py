@@ -15,12 +15,13 @@ class ArrayShow:
     """
     The ArrayShow class is designed to visualize 3D or higher-dimensional numpy arrays using matplotlib.
 
-    It has "viewing" dimensions and a "slice" dimension:
+    It has "viewing" dimensions and a "scroll" dimension:
         - Viewing dimensions are the two dimensions that are displayed as a 2D slice.
-        - The slice dimension is the dimension through which the array is scrolled.
+        - The scroll dimension is the dimension through which the array is scrolled.
     """
-
+    
     def __init__(self, array, view_dims=[0, 1], scroll_dim=2, cmap="viridis"):
+        
         self.array = array
         self.ndim = array.ndim
 
@@ -41,7 +42,11 @@ class ArrayShow:
         self.display_mode = "real" if np.isrealobj(array) else "abs"
 
         # Initialize the figure and axis
-        self.fig, self.ax = plt.subplots(1, 1)
+        # Make the figure bigger
+        # plt.rcParams["figure.figsize"] = [12, 8]
+
+        self.fig, self.ax = plt.subplots(1, 1, figsize=(12, 8))
+        # self.fig, self.ax = plt.subplots(1, 1)
         self.cmap = cmap
         self.im = self.ax.imshow(self.get_current_slice(), cmap=self.cmap, vmin=0, vmax=2)
 
@@ -75,30 +80,48 @@ class ArrayShow:
         return slice_indices
 
     def get_current_slice(self):
-        """Given the slice indices, extract the current slice from the array"""
+        """Extract and arrange the current slice for display.
+        
+        For 3D arrays, slices are arranged in a grid that favors a wider screen.
+        """
         current_slice = self.array[tuple(self.slice_indices)]
-        # if current_slice.ndim > 2:
-            # current_slice = np.reshape(current_slice, (-1, current_slice.shape[0]))
-            # current_slice = np.concatenate([current_slice[:, :, i] for i in range(current_slice.shape[2])], axis=1)
         if current_slice.ndim == 3:
-            num_slices = current_slice.shape[2]
-            grid_cols = int(math.ceil(math.sqrt(num_slices * 16 / 9)))
-            grid_rows = int(math.ceil(num_slices / grid_cols))
-            padded_slices = np.zeros((current_slice.shape[0], current_slice.shape[1], grid_rows * grid_cols))
-            padded_slices[:, :, :num_slices] = current_slice
-            reshaped_slices = padded_slices.reshape(current_slice.shape[0], current_slice.shape[1], grid_rows, grid_cols)
-            current_slice = np.block([[reshaped_slices[:, :, i, j] for j in range(grid_cols)] for i in range(grid_rows)])
+            current_slice = self._arrange_slices_grid(current_slice)
         elif current_slice.ndim > 3:
             raise NotImplementedError("Display for arrays with more than 3 dimensions is not implemented yet.")
+        return self._apply_display_mode(current_slice)
+
+    def _arrange_slices_grid(self, slices_3d, screen_aspect=16/9):
+        """Arrange the slices in a grid with more columns than rows 
+        based on a given screen aspect ratio.
         
+        Args:
+            slices_3d (ndarray): 3D array with shape (height, width, num_slices)
+            screen_aspect (float): Desired screen aspect ratio (width/height)
+            
+        Returns:
+            ndarray: A 2D array with the slices arranged in a grid.
+        """
+        num_slices = slices_3d.shape[2]
+        grid_cols = int(math.ceil(math.sqrt(num_slices * screen_aspect)))
+        grid_rows = int(math.ceil(num_slices / grid_cols))
+        # Pad the slices if necessary so that we have a full grid.
+        padded = np.zeros((slices_3d.shape[0], slices_3d.shape[1], grid_rows * grid_cols), dtype=slices_3d.dtype)
+        padded[:, :, :num_slices] = slices_3d
+        reshaped = padded.reshape(slices_3d.shape[0], slices_3d.shape[1], grid_rows, grid_cols)
+        grid = np.block([[reshaped[:, :, i, j] for j in range(grid_cols)] for i in range(grid_rows)])
+        return grid
+
+    def _apply_display_mode(self, img):
+        """Apply the current display mode (real, imag, abs, or angle) to the image."""
         if self.display_mode == "real":
-            return np.real(current_slice)
+            return np.real(img)
         elif self.display_mode == "imag":
-            return np.imag(current_slice)
+            return np.imag(img)
         elif self.display_mode == "abs":
-            return np.abs(current_slice)
+            return np.abs(img)
         elif self.display_mode == "angle":
-            return np.angle(current_slice)
+            return np.angle(img)
         else:
             raise ValueError(f"Invalid display mode: {self.display_mode}")
 
