@@ -156,17 +156,17 @@ class ArrayShow:
             self.ax.set_yticks([])
             self.im = self.ax.imshow(current_slice, cmap=self.cmap, vmin=0, vmax=2)
 
-            # Update the figure title with the current slice information
-            dim_info = []
-            for i in range(self.array.ndim):
-                if i in self.view_dims:
-                    dim_info.append(f"dim{i}=view")
-                elif i == self.scroll_dim:
-                    dim_info.append(f"dim{i}={self.scroll_index}")
-                else:
-                    dim_info.append(f"dim{i}={self.slice_indices[i]}")
-
-            self.ax.set_title(", ".join(dim_info))
+            # # Update the figure title with the current slice information
+            # dim_info = []
+            # for i in range(self.array.ndim):
+            #     if i in self.view_dims:
+            #         dim_info.append(f"dim{i}=view")
+            #     elif i == self.scroll_dim:
+            #         dim_info.append(f"dim{i}={self.scroll_index}")
+            #     else:
+            #         dim_info.append(f"dim{i}={self.slice_indices[i]}")
+            #
+            # self.ax.set_title(", ".join(dim_info))
             self.im.axes.figure.canvas.draw_idle()
 
         except Exception as e:
@@ -218,6 +218,9 @@ class ArrayShow:
             self.change_scroll_dim(new_scroll_dim)
         elif event.key == "d":
             self.debug_slice()
+        elif event.key == ":":
+            print("Enter new view indices:")
+            self.show_view_dims_popup()
         self.update_view()
 
     def calculate_next_scroll_dim(self, direction):
@@ -229,6 +232,7 @@ class ArrayShow:
                 return min(larger_dims)
             else:
                 # Use the smallest integer in fixed_dims
+                print(f"Next scroll dim: {min(self.fixed_dims)}")
                 return min(self.fixed_dims)
 
         elif direction == "prev":
@@ -239,6 +243,7 @@ class ArrayShow:
                 return max(smaller_dims)
             else:
                 # Use the largest integer in fixed_dims
+                print(f"Prev scroll dim: {max(self.fixed_dims)}")
                 return max(self.fixed_dims)
         else:
             print(f"Invalid direction: {direction}")
@@ -406,6 +411,153 @@ class ArrayShow:
             )
             self.min_labels.append(min_label)
 
+        # Add checkbuttons for each dim and the view_dims are selected
+        ax_check = plt.axes([0.1, 0.8, 0.2, 0.15])
+        labels = [str(i) for i in range(self.ndim)]
+        visibility = [i in self.view_dims for i in range(self.ndim)]
+        self.view_dim_buttons = CheckButtons(ax_check, labels, visibility)
+
+        def update_view_dims(label):
+            index = int(label)
+            if index in self.view_dims:
+                if len(self.view_dims) <= 2:
+                    return None  # Must have at least 2 view dims
+                else:
+                    # Remove viewing dim
+                    self.view_dims.remove(index)
+                    self.slice_indices[index] = 0
+                    self.text_boxes[index].set_val("0")
+                    self.fixed_dims = self.calculate_fixed_dims()
+            else:
+                # Add new viewing dim
+                self.view_dims.append(index)
+                self.slice_indices[index] = slice(None)
+                self.text_boxes[index].set_val(":")
+                if self.scroll_dim == index:
+                    self.scroll_dim = self.calculate_next_scroll_dim("next")
+                self.fixed_dims = self.calculate_fixed_dims()
+
+            print(f"Viewing dimensions: {self.view_dims}")
+            print(f"Slice indices: {self.slice_indices}")
+            # Update the image because the size of the thing to plot has changed
+            self.im = self.ax.imshow(self.get_current_slice(), cmap=self.cmap, vmin=0, vmax=2)
+            self.update_view()
+
+        self.view_dim_buttons.on_clicked(update_view_dims)
+
+    def show_view_dims_popup(self):
+        """
+        Create a popup dialog to allow the user to select viewing dimensions.
+        The input should be comma-separated indices like "0,2".
+        """
+        from matplotlib.widgets import TextBox
+        
+        # Create a new figure for the popup
+        popup_fig = plt.figure(figsize=(5, 2))
+        popup_fig.canvas.manager.set_window_title("Set View Dimensions")
+        
+        # Add text box for input
+        ax_textbox = popup_fig.add_axes([0.2, 0.6, 0.6, 0.2])
+        current_view_dims = ",".join(str(dim) for dim in self.view_dims)
+        textbox = TextBox(ax_textbox, "View dimensions:", initial=current_view_dims)
+        
+        # Add status text area for validation messages
+        ax_status = popup_fig.add_axes([0.2, 0.3, 0.6, 0.2])
+        ax_status.axis('off')
+        status_text = ax_status.text(0, 0, "", va="center")
+        
+        def submit(text):
+            try:
+                # Parse the comma-separated input
+                new_view_dims = [int(dim.strip()) for dim in text.split(',')]
+                
+                # Validate input
+                if len(new_view_dims) < 2:
+                    status_text.set_text("Error: Must specify at least 2 dimensions")
+                    return
+                    
+                if len(new_view_dims) != len(set(new_view_dims)):
+                    status_text.set_text("Error: Duplicate dimensions not allowed")
+                    return
+                    
+                if any(dim >= self.ndim for dim in new_view_dims):
+                    status_text.set_text(f"Error: Dimensions must be < {self.ndim}")
+                    return
+                    
+                if any(dim < 0 for dim in new_view_dims):
+                    status_text.set_text("Error: Dimensions must be non-negative")
+                    return
+                
+                # Check if scroll_dim will be in view_dims
+                new_scroll_dim = self.scroll_dim
+                if self.scroll_dim in new_view_dims:
+                    # Find first available dimension not in view_dims
+                    for i in range(self.ndim):
+                        if i not in new_view_dims:
+                            new_scroll_dim = i
+                            break
+                
+                # First update the view dimensions
+                self.view_dims = new_view_dims
+                
+                # Then update the scroll dimension if needed
+                if new_scroll_dim != self.scroll_dim:
+                    # Don't use change_scroll_dim as it checks against current view_dims
+                    self.text_boxes[self.scroll_dim].text_disp.set_fontweight("regular")
+                    self.scroll_dim = new_scroll_dim
+                    self.scroll_index = 0  # Reset scroll index for new dimension
+                    self.text_boxes[self.scroll_dim].text_disp.set_fontweight("bold")
+                
+                # Recalculate fixed dimensions
+                self.fixed_dims = self.calculate_fixed_dims()
+                
+                # Update slice indices for all dimensions
+                for i in range(self.ndim):
+                    if i in self.view_dims:
+                        self.slice_indices[i] = slice(None)
+                        self.text_boxes[i].set_val(":")
+                    elif i == self.scroll_dim:
+                        self.slice_indices[i] = self.scroll_index
+                        self.text_boxes[i].set_val(str(self.scroll_index))
+                    else:  # fixed dimensions
+                        self.slice_indices[i] = 0
+                        self.text_boxes[i].set_val("0")
+                
+                # Close the popup
+                plt.close(popup_fig)
+                
+                # Update the view with new dimensions
+                self.im = self.ax.imshow(
+                    self.get_current_slice(), cmap=self.cmap, vmin=0, vmax=2
+                )
+                self.update_view()
+                
+                # Update the CheckButtons to reflect the new view dimensions
+                for i in range(self.ndim):
+                    current_state = i in self.view_dims
+                    button_state = self.view_dim_buttons.get_status()[i]
+                    if current_state != button_state:
+                        self.view_dim_buttons.set_active(i)
+                    
+            except ValueError as e:
+                status_text.set_text(f"Error: Invalid input format - {str(e)}")
+        
+        textbox.on_submit(submit)
+        
+        # Add a close button
+        ax_button = popup_fig.add_axes([0.35, 0.1, 0.3, 0.15])
+        button = Button(ax_button, 'Cancel')
+        button.on_clicked(lambda event: plt.close(popup_fig))
+        
+        plt.show()
+        # textbox.on_submit(submit)
+        
+        # # Add a close button
+        # ax_button = popup_fig.add_axes([0.35, 0.1, 0.3, 0.15])
+        # button = Button(ax_button, 'Cancel')
+        # button.on_clicked(lambda event: plt.close(popup_fig))
+        
+        # plt.show()
 
 # if __name__ == "__main__":
 #     array = np.random.rand(224, 224, 64, 2, 3)
