@@ -8,7 +8,7 @@ class ArrayShowState:
         self.ndim = array.ndim
         self.view_dims = view_dims
         self.scroll_dim = scroll_dim
-        self.scroll_index = array.shape[scroll_dim] // 2
+        self.scroll_index = 0 #array.shape[scroll_dim] // 2
         self.fixed_dims = self._calculate_fixed_dims()
         self.slice_indices = self._initialize_slice_indices()
         self.display_mode = "real" if np.isrealobj(array) else "abs"

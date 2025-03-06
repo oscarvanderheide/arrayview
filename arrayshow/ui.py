@@ -5,15 +5,17 @@ import numpy as np
 
 class ArrayShowUI:
     """Handle graphical UI stuff like buttons, popup windows, etc."""
-    def __init__(self, fig, ax, ndim: int, array_shape, on_scroll: Callable, on_keypress: Callable):
+    def __init__(self, fig, ax, ndim: int, array_shape, initial_view_dims, on_scroll: Callable, on_keypress: Callable, on_buttonpress: Callable):
         self.fig = fig
         self.ax = ax
         self.ndim = ndim
         self.array_shape = array_shape
+        self.initial_view_dims = initial_view_dims
 
         # Connect events
         self.fig.canvas.mpl_connect('scroll_event', on_scroll)
         self.fig.canvas.mpl_connect('key_press_event', on_keypress)
+        self.fig.canvas.mpl_connect('button_press_event', on_buttonpress)
         
         # Initialize UI components
         self.button_up: List[Button] = []
@@ -27,7 +29,7 @@ class ArrayShowUI:
     def _setup_dimension_controls(self):
         """Setup the dimension controls (up/down buttons and text boxes)"""
         # Calculate button sizes and positions
-        button_width = 0.04
+        button_width = 0.015
         button_height = 0.03
         text_width = 0.035
         spacing = 0.01
@@ -50,8 +52,9 @@ class ArrayShowUI:
             self.button_down.append(down_button)
             
             # Create text box
-            text_ax = self.fig.add_axes([base_x + button_width + spacing, base_y - button_height/2, text_width, button_height])
-            text_box = TextBox(text_ax, f'/ {self.array_shape[i]}', initial='0', label_pad=0.1)
+            text_ax = self.fig.add_axes([base_x + 2*button_width + spacing, base_y - button_height/2, text_width, button_height])
+            initial_text = ':' if i in self.initial_view_dims else '0'
+            text_box = TextBox(text_ax, f'/ {self.array_shape[i]}', initial=initial_text, label_pad=0.1)
             text_box.dim = i  # Store dimension index
             text_box.label.set_position((1.2, 0.5))  # Center the label above
             text_box.label.set_horizontalalignment('left')  # Center align the text
@@ -82,43 +85,49 @@ class ArrayShowUI:
                 self.view_dim_buttons.set_active(i)
 
     def show_view_dims_popup(self, current_view_dims: List[int], callback: Callable):
-        """Create a popup dialog for selecting view dimensions.
-        
-        Args:
-            current_view_dims: List of current view dimensions
-            callback: Function to call when new view dimensions are submitted
-        """
-        from matplotlib.widgets import TextBox
-
+        """Create a popup dialog for selecting view dimensions."""
         popup_fig = plt.figure(figsize=(5, 2))
         popup_fig.canvas.manager.set_window_title("Set View Dimensions")
         
-        # Add text box for input
-        ax_textbox = popup_fig.add_axes([0.2, 0.6, 0.6, 0.2])
+        # Make the figure background lighter for better visibility
+        popup_fig.patch.set_facecolor('#f0f0f0')
+        
+        # Add instructions text
+        popup_fig.text(0.5, 0.85, 
+                    "Enter dimension indices separated by commas\n(e.g. 0,1)", 
+                    ha='center', 
+                    va='center')
+        
+        # Add text box for input with clear styling
+        ax_textbox = popup_fig.add_axes([0.2, 0.4, 0.6, 0.2])
         current_dims_str = ",".join(str(dim) for dim in current_view_dims)
-        textbox = TextBox(ax_textbox, "View dimensions:", initial=current_dims_str)
+        textbox = TextBox(ax_textbox, "", initial=current_dims_str)
         
-        # Add status text area
-        ax_status = popup_fig.add_axes([0.2, 0.3, 0.6, 0.2])
-        ax_status.axis('off')
-        status_text = ax_status.text(0, 0, "", va="center")
-        
-        def submit(text):
-            try:
-                # Parse comma-separated input
-                new_view_dims = [int(dim.strip()) for dim in text.split(',')]
-                callback(new_view_dims)
-                plt.close(popup_fig)
-            except ValueError as e:
-                status_text.set_text(f"Error: Invalid input - {str(e)}")
-        
-        textbox.on_submit(submit)
-        
-        # Add cancel button
+        # Add cancel button with better positioning
         ax_button = popup_fig.add_axes([0.35, 0.1, 0.3, 0.15])
         button = Button(ax_button, 'Cancel')
         button.on_clicked(lambda event: plt.close(popup_fig))
         
+        def submit(text):
+            try:
+                new_view_dims = [int(dim.strip()) for dim in text.split(',')]
+                if len(new_view_dims) >= 2:  # Basic validation
+                    callback(new_view_dims)
+                    plt.close(popup_fig)
+                else:
+                    popup_fig.text(0.5, 0.25, 
+                                "Error: Need at least 2 dimensions", 
+                                ha='center', 
+                                color='red')
+                    popup_fig.canvas.draw_idle()
+            except ValueError:
+                popup_fig.text(0.5, 0.25, 
+                            "Error: Invalid format", 
+                            ha='center', 
+                            color='red')
+                popup_fig.canvas.draw_idle()
+        
+        textbox.on_submit(submit)
         plt.show()
 
     def update_dimension_text_style(self, scroll_dim: int):

@@ -36,8 +36,10 @@ class ArrayShow:
             self.ax, 
             array.ndim,
             array.shape,
+            self.state.view_dims,
             self.onscroll,
-            self.onkeypress
+            self.onkeypress,
+            self.onbuttonpress
         )
         
         # Initialize the image axis used for displaying slices of the array
@@ -117,18 +119,6 @@ class ArrayShow:
             current_slice = self.get_current_slice()
             if current_slice.ndim != 2:
                 raise ValueError(f"Expected 2D slice, got {current_slice.ndim}D slice")
-            
-            # # Is this necessary?    
-            # self.ax.clear()
-            # self.ax.set_xticks([])
-            # self.ax.set_yticks([])
-            # self.im = self.ax.imshow(
-            #     current_slice,
-            #     cmap=self.cmap,
-            #     vmin=0,
-            #     vmax=2
-            # )
-            # self.im.axes.figure.canvas.draw_idle()
 
             self.im.set_data(current_slice)
             self.im.axes.figure.canvas.draw_idle()
@@ -180,6 +170,46 @@ class ArrayShow:
                 self.state.view_dims,
                 self._handle_view_dims_change
             )
+        
+        self.events.emit('state_changed')
+    
+    def onbuttonpress(self, event):
+        """Handle button press events."""
+        if event.inaxes is None:
+            return
+            
+        # Find which button was clicked by checking axes
+        clicked_button = None
+        for button in self.ui.button_up + self.ui.button_down:
+            if event.inaxes == button.ax:
+                clicked_button = button
+                break
+        
+        if clicked_button is None:
+            return
+            
+        dim = clicked_button.dim  # Get dimension associated with button
+        
+        # Check if it's an up or down button
+        if clicked_button in self.ui.button_up:
+            delta = 1
+        elif clicked_button in self.ui.button_down:
+            delta = -1
+        else:
+            return
+        
+        if dim == self.state.scroll_dim:
+            # If clicking scroll dimension buttons, change index
+            self.state.update_scroll_index(delta)
+            self.events.emit('scroll_changed')
+            self.events.emit('dimension_text_changed', 
+                    self.state.scroll_dim, 
+                    str(self.state.scroll_index))
+        elif dim in self.state.fixed_dims:
+            # If clicking fixed dimension buttons, make it the new scroll dim
+            self.state.set_scroll_dim(dim)
+            self.events.emit('scroll_changed')
+            self.events.emit('scroll_dim_changed', dim)
         
         self.events.emit('state_changed')
 
