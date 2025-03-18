@@ -7,9 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
     "ipython>=8.32.0",
     "matplotlib>=3.10.0",
+    "nibabel>=5.3.2",
     "numpy>=2.2.2",
     "pyqt5>=5.15.11",
 ]
+
+[project.scripts]
+arrayshow = "arrayshow.cli:main"
 
 [tool.setuptools]
 packages = ["arrayshow"]
