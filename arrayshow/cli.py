@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import nibabel as nib
 from pathlib import Path
-from .core import arrayshow
+from .core import ArrayShow
 
 def main():
     """Command line interface for arrayshow."""
@@ -27,8 +27,7 @@ def main():
         sys.exit(1)
     
     # Show array
-    viewer = arrayshow(array)
-    viewer.show()
+    viewer = ArrayShow(array)
 
 if __name__ == '__main__':
     main()
