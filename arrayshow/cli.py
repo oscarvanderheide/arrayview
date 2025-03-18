@@ -17,7 +17,7 @@ def main():
         sys.exit(1)
         
     # Load data based on file extension
-    if filepath.suffix == '.nii.gz' or filepath.suffix == '.nii':
+    if filepath.suffix == '.gz' or filepath.suffix == '.nii':
         array = nib.load(filepath).get_fdata()
     elif filepath.suffix == '.npy':
         array = np.load(filepath)
