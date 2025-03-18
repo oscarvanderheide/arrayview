@@ -36,11 +36,14 @@ class ArrayShow:
             self.ax, 
             array.ndim,
             array.shape,
-            self.state.view_dims,
+            view_dims,
             self.onscroll,
             self.onkeypress,
             self.onbuttonpress
         )
+        
+        # Add view dimensions change callback
+        self.ui.on_view_dims_change = self._handle_view_dims_change
         
         # Initialize the image axis used for displaying slices of the array
         self._initialize_axis(cmap)
@@ -232,6 +235,7 @@ class ArrayShow:
             # Update state
             if self.state.set_view_dimensions(new_view_dims):
                 self.events.emit('view_dims_changed')
+                self.events.emit('scroll_dim_changed', self.state.scroll_dim)
                 self.events.emit('state_changed')
                 
         except ValueError as e:

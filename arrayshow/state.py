@@ -40,23 +40,34 @@ class ArrayShowState:
         # Update slice indices
         self.slice_indices[self.scroll_dim] = self.scroll_index
 
-    def calculate_next_scroll_dim(self, direction: str) -> int:
+    def calculate_next_scroll_dim(self, direction: str) -> Union[int, None]:
         """Calculate the next scroll dimension in the given direction."""
+        if not self.fixed_dims:  # If there are no fixed dimensions
+            return None
+            
+        # Get current index in fixed_dims
+        try:
+            current_idx = list(self.fixed_dims).index(self.scroll_dim)
+        except ValueError:
+            # Current scroll dim not in fixed dims, start from beginning
+            return min(self.fixed_dims)
+            
         if direction == "next":
-            # Get dimensions larger than current scroll_dim
-            larger_dims = [dim for dim in self.fixed_dims if dim > self.scroll_dim]
-            if larger_dims:
-                return min(larger_dims)  # Smallest larger dimension
-            return min(self.fixed_dims)  # Wrap around to smallest
-            
+            if current_idx < len(self.fixed_dims) - 1:
+                # Move to next dimension
+                return list(self.fixed_dims)[current_idx + 1]
+            else:
+                # Wrap around to smallest
+                return min(self.fixed_dims)
         elif direction == "prev":
-            # Get dimensions smaller than current scroll_dim
-            smaller_dims = [dim for dim in self.fixed_dims if dim < self.scroll_dim]
-            if smaller_dims:
-                return max(smaller_dims)  # Largest smaller dimension
-            return max(self.fixed_dims)  # Wrap around to largest
-            
-        raise ValueError(f"Invalid direction: {direction}")
+            if current_idx > 0:
+                # Move to previous dimension
+                return list(self.fixed_dims)[current_idx - 1]
+            else:
+                # Wrap around to largest
+                return max(self.fixed_dims)
+        
+        return None
 
     def set_scroll_dim(self, new_dim: int) -> None:
         """Set the scroll dimension with validation."""

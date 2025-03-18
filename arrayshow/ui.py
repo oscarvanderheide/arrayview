@@ -65,8 +65,30 @@ class ArrayShowUI:
         # Add view dimension checkboxes
         check_ax = self.fig.add_axes([0.85, 0.1, 0.1, 0.2])
         labels = [f'Dim {i}' for i in range(self.ndim)]
-        initial_states = [False] * self.ndim
+        initial_states = [i in self.initial_view_dims for i in range(self.ndim)]
         self.view_dim_buttons = CheckButtons(check_ax, labels, initial_states)
+
+        def on_view_button_click(label):
+            # Get dimension index from label
+            dim = int(label.split()[1])
+            # Get current states of all buttons
+            states = self.view_dim_buttons.get_status()
+            # Count how many are selected
+            selected = sum(1 for state in states if state)
+            
+            # If trying to uncheck when only 2 are selected, prevent it
+            if selected < 2 and not states[dim]:
+                # Toggle back to checked state
+                self.view_dim_buttons.set_active(dim)
+                return
+                
+            # Get all selected dimensions
+            view_dims = [i for i, state in enumerate(states) if state]
+            # Call callback with new view dimensions
+            if hasattr(self, 'on_view_dims_change'):
+                self.on_view_dims_change(view_dims)
+        
+        self.view_dim_buttons.on_clicked(on_view_button_click)
         
         # Add display mode buttons
         modes_ax = self.fig.add_axes([0.85, 0.05, 0.1, 0.03])
