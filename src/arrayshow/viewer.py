@@ -5,6 +5,8 @@ import numpy as np
 from numpy import fft
 from vispy import scene
 from vispy.color import get_colormap
+from vispy.scene.visuals import ColorBar
+from vispy.scene.visuals import Text
 
 # Import qmricolors to register custom colormaps
 try:
@@ -79,6 +81,16 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.is_fft_view = False
         self.fft_data = None
         self.fft_dims = None
+        
+        # Colorbar state
+        self.colorbar_visible = True
+        self.colorbar = None
+        self.colorbar_text_max = None
+        self.colorbar_text_min = None
+        self.manual_clim = False
+        self.clim_min = 0.0
+        self.clim_max = 1.0
+        
         self._assign_initial_roles()
 
         # --- 2. Create Palettes and Styles ---
@@ -107,6 +119,36 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             initial_slice_2d, cmap=initial_cmap, parent=self.view.scene, clim="auto"
         )
         self.image.transform = scene.transforms.STTransform()
+        
+        # Create colorbar
+        self.colorbar = ColorBar(
+            cmap=initial_cmap,
+            size=(128, 10),
+            parent=self.view.scene,
+            clim="auto",
+            orientation="right"
+        )
+        self.colorbar.transform = scene.transforms.STTransform()
+        
+        # Create text labels for colorbar limits
+        self.colorbar_text_max = Text(
+            text="1.0",
+            color='white',
+            font_size=10,
+            parent=self.view.scene,
+            anchor_x='left',
+            anchor_y='bottom'
+        )
+        
+        self.colorbar_text_min = Text(
+            text="0.0",
+            color='white',
+            font_size=10,
+            parent=self.view.scene,
+            anchor_x='left',
+            anchor_y='top'
+        )
+        
         self.view.camera = scene.PanZoomCamera(aspect=1)
         self.view.camera.flip = (0, 1, 0)
         self.view.camera.set_range(x=(0, 1), y=(0, 1), margin=0)
@@ -141,6 +183,25 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.colormap_combo.setCurrentText(self.current_colormap)
         self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
         
+        # Color limit controls
+        self.auto_clim_checkbox = QtWidgets.QCheckBox("Auto")
+        self.auto_clim_checkbox.setChecked(True)
+        self.auto_clim_checkbox.toggled.connect(self._on_auto_clim_toggled)
+        
+        self.clim_min_spinbox = QtWidgets.QDoubleSpinBox()
+        self.clim_min_spinbox.setRange(-1e6, 1e6)
+        self.clim_min_spinbox.setDecimals(3)
+        self.clim_min_spinbox.setValue(0.0)
+        self.clim_min_spinbox.setEnabled(False)
+        self.clim_min_spinbox.valueChanged.connect(self._on_clim_changed)
+        
+        self.clim_max_spinbox = QtWidgets.QDoubleSpinBox()
+        self.clim_max_spinbox.setRange(-1e6, 1e6)
+        self.clim_max_spinbox.setDecimals(3)
+        self.clim_max_spinbox.setValue(1.0)
+        self.clim_max_spinbox.setEnabled(False)
+        self.clim_max_spinbox.valueChanged.connect(self._on_clim_changed)
+        
         playback_layout.addWidget(self.play_stop_button)
         playback_layout.addWidget(self.loop_checkbox)
         playback_layout.addWidget(self.autoscale_checkbox)
@@ -153,6 +214,14 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         # Add colormap controls
         playback_layout.addWidget(QtWidgets.QLabel("Colormap:"))
         playback_layout.addWidget(self.colormap_combo)
+        
+        # Add color limit controls
+        playback_layout.addWidget(QtWidgets.QLabel("Color Limits:"))
+        playback_layout.addWidget(self.auto_clim_checkbox)
+        playback_layout.addWidget(QtWidgets.QLabel("Min:"))
+        playback_layout.addWidget(self.clim_min_spinbox)
+        playback_layout.addWidget(QtWidgets.QLabel("Max:"))
+        playback_layout.addWidget(self.clim_max_spinbox)
         
         playback_layout.addStretch()
         playback_layout.addWidget(QtWidgets.QLabel("Speed:"))
@@ -218,6 +287,10 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.timer.timeout.connect(self._advance_slice)
         self.play_stop_button.clicked.connect(self._toggle_playback)
         self.fps_spinbox.valueChanged.connect(self._update_timer_interval)
+        
+        # Initialize colorbar position
+        self._update_colorbar_position()
+        
         self._update_view()
 
     @property
@@ -282,7 +355,11 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self.current_colormap = text.lower()
             new_cmap = get_colormap(self.current_colormap)
             self.image.cmap = new_cmap
+            if self.colorbar:
+                self.colorbar.cmap = new_cmap
             self.image.update()
+            if self.colorbar:
+                self.colorbar.update()
         except Exception as e:
             print(f"Warning: Could not set colormap '{text}': {e}")
             # Fallback to grays if colormap fails
@@ -290,9 +367,114 @@ class NDArrayViewer(QtWidgets.QMainWindow):
                 self.current_colormap = "grays"
                 fallback_cmap = get_colormap("grays")
                 self.image.cmap = fallback_cmap
+                if self.colorbar:
+                    self.colorbar.cmap = fallback_cmap
                 self.image.update()
+                if self.colorbar:
+                    self.colorbar.update()
             except Exception:
                 pass
+
+    def _toggle_colorbar(self):
+        """Toggle colorbar visibility with 'b' key."""
+        if self.colorbar:
+            self.colorbar_visible = not self.colorbar_visible
+            self.colorbar.visible = self.colorbar_visible
+            if self.colorbar_text_max:
+                self.colorbar_text_max.visible = self.colorbar_visible
+            if self.colorbar_text_min:
+                self.colorbar_text_min.visible = self.colorbar_visible
+            self._update_colorbar_position()
+
+    def _on_auto_clim_toggled(self, checked):
+        """Handle auto color limit checkbox toggle."""
+        self.manual_clim = not checked
+        self.clim_min_spinbox.setEnabled(not checked)
+        self.clim_max_spinbox.setEnabled(not checked)
+        if not checked:
+            # When switching to manual, set spinboxes to current limits
+            if hasattr(self.image, 'clim') and self.image.clim is not None:
+                if isinstance(self.image.clim, str) and self.image.clim == "auto":
+                    # Get actual data range for auto mode
+                    data = self._get_display_image()
+                    if data.size > 0:
+                        self.clim_min = float(np.nanmin(data))
+                        self.clim_max = float(np.nanmax(data))
+                else:
+                    self.clim_min = float(self.image.clim[0])
+                    self.clim_max = float(self.image.clim[1])
+                
+                self.clim_min_spinbox.setValue(self.clim_min)
+                self.clim_max_spinbox.setValue(self.clim_max)
+        self._update_color_limits()
+
+    def _on_clim_changed(self):
+        """Handle manual color limit changes."""
+        if self.manual_clim:
+            self.clim_min = self.clim_min_spinbox.value()
+            self.clim_max = self.clim_max_spinbox.value()
+            self._update_color_limits()
+
+    def _update_color_limits(self):
+        """Update image and colorbar color limits."""
+        if self.manual_clim:
+            clim = (self.clim_min, self.clim_max)
+            self.image.clim = clim
+            if self.colorbar:
+                self.colorbar.clim = clim
+        else:
+            self.image.clim = "auto"
+            if self.colorbar:
+                self.colorbar.clim = "auto"
+                
+        # Update text labels with current limits
+        self._update_colorbar_text()
+        
+        self.image.update()
+        if self.colorbar:
+            self.colorbar.update()
+
+    def _update_colorbar_text(self):
+        """Update colorbar text labels with current limits."""
+        if not self.colorbar_text_max or not self.colorbar_text_min:
+            return
+            
+        # Get current color limits
+        if self.manual_clim:
+            clim_min = self.clim_min
+            clim_max = self.clim_max
+        else:
+            # For auto mode, try to get actual limits from image
+            if hasattr(self.image, '_data') and self.image._data is not None:
+                clim_min = float(np.nanmin(self.image._data))
+                clim_max = float(np.nanmax(self.image._data))
+            else:
+                clim_min = 0.0
+                clim_max = 1.0
+        
+        # Update text content
+        self.colorbar_text_max.text = f"{clim_max:.2f}"
+        self.colorbar_text_min.text = f"{clim_min:.2f}"
+
+    def _update_colorbar_position(self):
+        """Update colorbar position relative to the image."""
+        if not self.colorbar or not self.colorbar_visible:
+            return
+        
+        # Position the colorbar
+        colorbar_x = 1.05
+        colorbar_y = 0.5
+        self.colorbar.transform.translate = (colorbar_x, colorbar_y, 0)
+        self.colorbar.transform.scale = (0.003, 0.008, 1)
+        
+        # Position the text labels at the exact top and bottom of colorbar
+        if self.colorbar_text_max:
+            # Max value at top of colorbar (100% height)
+            self.colorbar_text_max.pos = (colorbar_x + 0.03, colorbar_y - 0.52, 0)
+            
+        if self.colorbar_text_min:
+            # Min value at bottom of colorbar (0% height)
+            self.colorbar_text_min.pos = (colorbar_x + 0.03, colorbar_y + 0.52, 0)
 
     def _assign_initial_roles(self):
         self.dims.clear()
@@ -479,7 +661,7 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self._set_scroll_dimension(cyclable_indices[0])
 
     def _on_key_press(self, event):
-        if event.key in ("j", "k", "l", "h", "v", "g", "f", "c"):
+        if event.key in ("j", "k", "l", "h", "v", "g", "f", "c", "b"):
             if self.is_playing:
                 self._toggle_playback()
 
@@ -509,6 +691,8 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self._toggle_fft_view()
         elif event.key == "c":
             self._cycle_complex_view()
+        elif event.key == "b":
+            self._toggle_colorbar()
 
     def _on_slider_pressed(self, dim_idx):
         if self.is_playing:
@@ -577,12 +761,24 @@ class NDArrayViewer(QtWidgets.QMainWindow):
 
         self.image.set_data(display_image)
 
-        if self.autoscale_checkbox.isChecked():
+        # Handle color limits based on auto/manual mode and autoscale setting
+        if not self.manual_clim and self.autoscale_checkbox.isChecked():
             self.image.clim = "auto"
+            if self.colorbar:
+                self.colorbar.clim = "auto"
+        elif self.manual_clim:
+            # Use manual color limits
+            self._update_color_limits()
+        
+        # Update colorbar position and text
+        self._update_colorbar_position()
+        self._update_colorbar_text()
 
         # **FIX:** Explicitly tell VisPy to redraw the canvas.
         # This was previously only happening implicitly when clim was set.
         self.image.update()
+        if self.colorbar:
+            self.colorbar.update()
 
         self._update_ui_state()
 
