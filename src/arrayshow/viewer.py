@@ -4,6 +4,21 @@ from functools import partial
 import numpy as np
 from numpy import fft
 from vispy import scene
+from vispy.color import get_colormap
+
+# Import qmricolors to register custom colormaps
+try:
+    import qmricolors
+    # Test if the colormaps are actually available
+    try:
+        get_colormap('lipari')
+        get_colormap('navia')
+        QMRI_AVAILABLE = True
+    except (KeyError, Exception):
+        QMRI_AVAILABLE = False
+        print("qMRI Colors: Warning - colormaps not properly registered, falling back to default colormaps")
+except ImportError:
+    QMRI_AVAILABLE = False
 
 # --- Import PyQt5 directly ---
 try:
@@ -81,8 +96,15 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.canvas.events.key_press.connect(self._on_key_press)
 
         initial_slice_2d = self._get_display_image()
+        self.current_colormap = "lipari" if QMRI_AVAILABLE else "grays"
+        try:
+            initial_cmap = get_colormap(self.current_colormap)
+        except Exception:
+            # Fallback to grays if initial colormap fails
+            self.current_colormap = "grays"
+            initial_cmap = get_colormap("grays")
         self.image = scene.visuals.Image(
-            initial_slice_2d, cmap="grays", parent=self.view.scene, clim="auto"
+            initial_slice_2d, cmap=initial_cmap, parent=self.view.scene, clim="auto"
         )
         self.image.transform = scene.transforms.STTransform()
         self.view.camera = scene.PanZoomCamera(aspect=1)
@@ -109,6 +131,16 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.complex_view_combo.setCurrentText("Magnitude")
         self.complex_view_combo.currentTextChanged.connect(self._on_complex_view_changed)
         
+        # Colormap controls
+        self.colormap_combo = QtWidgets.QComboBox()
+        colormap_options = ["grays", "hot", "viridis", "coolwarm"]
+        if QMRI_AVAILABLE:
+            colormap_options = ["lipari", "navia"] + colormap_options
+        self.colormap_combo.addItems(colormap_options)
+        # Set dropdown to match the actual colormap being used
+        self.colormap_combo.setCurrentText(self.current_colormap)
+        self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
+        
         playback_layout.addWidget(self.play_stop_button)
         playback_layout.addWidget(self.loop_checkbox)
         playback_layout.addWidget(self.autoscale_checkbox)
@@ -117,6 +149,10 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         if self.is_complex_data:
             playback_layout.addWidget(QtWidgets.QLabel("Complex View:"))
             playback_layout.addWidget(self.complex_view_combo)
+        
+        # Add colormap controls
+        playback_layout.addWidget(QtWidgets.QLabel("Colormap:"))
+        playback_layout.addWidget(self.colormap_combo)
         
         playback_layout.addStretch()
         playback_layout.addWidget(QtWidgets.QLabel("Speed:"))
@@ -239,6 +275,24 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.data = self._get_complex_view_data()
         self.image.clim = "auto"
         self._update_view()
+    
+    def _on_colormap_changed(self, text):
+        """Handle colormap changes from dropdown."""
+        try:
+            self.current_colormap = text.lower()
+            new_cmap = get_colormap(self.current_colormap)
+            self.image.cmap = new_cmap
+            self.image.update()
+        except Exception as e:
+            print(f"Warning: Could not set colormap '{text}': {e}")
+            # Fallback to grays if colormap fails
+            try:
+                self.current_colormap = "grays"
+                fallback_cmap = get_colormap("grays")
+                self.image.cmap = fallback_cmap
+                self.image.update()
+            except Exception:
+                pass
 
     def _assign_initial_roles(self):
         self.dims.clear()
