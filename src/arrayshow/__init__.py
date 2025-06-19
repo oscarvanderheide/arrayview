@@ -23,7 +23,7 @@ def arrayshow(array) -> NDArrayViewer:
         array: numpy array with at least 2 dimensions
 
     Returns:
-        NDArrayViewer: The viewer instance
+        None
     """
 
     app = QtWidgets.QApplication(sys.argv)
