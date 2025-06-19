@@ -11,6 +11,8 @@ def main():
     """Command line interface for arrayshow."""
     if len(sys.argv) != 2:
         print("Usage: arrayshow <filename>")
+        print("Supported formats: .nii.gz, .nii, .npy")
+        print("Example: arrayshow my_array.nii.gz")
         sys.exit(1)
 
     filepath = Path(sys.argv[1])
