@@ -39,8 +39,19 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         # Convert non-numpy arrays to numpy (e.g. arrays from Julia, .mat files, etc)
         data = np.asarray(data)
 
-        if data.dtype != np.float32:
-            data = data.astype(np.float32)
+        # Check if data is complex
+        self.is_complex_data = np.iscomplexobj(data)
+        self.complex_view_mode = "magnitude"  # magnitude, phase, real, imag
+        
+        if self.is_complex_data:
+            # Store original complex data
+            self.complex_data = data
+            # Start with magnitude view
+            data = np.abs(data).astype(np.float32)
+        else:
+            self.complex_data = None
+            if data.dtype != np.float32:
+                data = data.astype(np.float32)
 
         if data.ndim < 2:
             raise ValueError(
@@ -91,9 +102,22 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.fps_spinbox.setRange(0.1, 100.0)
         self.fps_spinbox.setValue(10.0)
         self.fps_spinbox.setSuffix(" FPS")
+        
+        # Complex array controls
+        self.complex_view_combo = QtWidgets.QComboBox()
+        self.complex_view_combo.addItems(["Magnitude", "Phase", "Real", "Imaginary"])
+        self.complex_view_combo.setCurrentText("Magnitude")
+        self.complex_view_combo.currentTextChanged.connect(self._on_complex_view_changed)
+        
         playback_layout.addWidget(self.play_stop_button)
         playback_layout.addWidget(self.loop_checkbox)
         playback_layout.addWidget(self.autoscale_checkbox)
+        
+        # Add complex controls if data is complex
+        if self.is_complex_data:
+            playback_layout.addWidget(QtWidgets.QLabel("Complex View:"))
+            playback_layout.addWidget(self.complex_view_combo)
+        
         playback_layout.addStretch()
         playback_layout.addWidget(QtWidgets.QLabel("Speed:"))
         playback_layout.addWidget(self.fps_spinbox)
@@ -162,7 +186,59 @@ class NDArrayViewer(QtWidgets.QMainWindow):
 
     @property
     def active_data(self):
-        return self.fft_data if self.is_fft_view else self.data
+        if self.is_fft_view:
+            return self.fft_data
+        elif self.is_complex_data:
+            return self._get_complex_view_data()
+        else:
+            return self.data
+    
+    def _get_complex_view_data(self):
+        """Get the appropriate view of complex data based on current mode."""
+        if not self.is_complex_data or self.complex_data is None:
+            return self.data
+            
+        if self.complex_view_mode == "magnitude":
+            return np.abs(self.complex_data).astype(np.float32)
+        elif self.complex_view_mode == "phase":
+            return np.angle(self.complex_data).astype(np.float32)
+        elif self.complex_view_mode == "real":
+            return np.real(self.complex_data).astype(np.float32)
+        elif self.complex_view_mode == "imag":
+            return np.imag(self.complex_data).astype(np.float32)
+        else:
+            return np.abs(self.complex_data).astype(np.float32)
+    
+    def _on_complex_view_changed(self, text):
+        """Handle complex view mode changes from dropdown."""
+        mode_map = {
+            "Magnitude": "magnitude",
+            "Phase": "phase",
+            "Real": "real",
+            "Imaginary": "imag"
+        }
+        self.complex_view_mode = mode_map.get(text, "magnitude")
+        self.data = self._get_complex_view_data()
+        self.image.clim = "auto"
+        self._update_view()
+    
+    def _cycle_complex_view(self):
+        """Cycle through complex view modes with 'c' key."""
+        if not self.is_complex_data:
+            return
+            
+        modes = ["magnitude", "phase", "real", "imag"]
+        current_idx = modes.index(self.complex_view_mode)
+        next_idx = (current_idx + 1) % len(modes)
+        self.complex_view_mode = modes[next_idx]
+        
+        # Update dropdown to match
+        mode_names = ["Magnitude", "Phase", "Real", "Imaginary"]
+        self.complex_view_combo.setCurrentText(mode_names[next_idx])
+        
+        self.data = self._get_complex_view_data()
+        self.image.clim = "auto"
+        self._update_view()
 
     def _assign_initial_roles(self):
         self.dims.clear()
@@ -349,7 +425,7 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self._set_scroll_dimension(cyclable_indices[0])
 
     def _on_key_press(self, event):
-        if event.key in ("j", "k", "l", "h", "v", "g", "f"):
+        if event.key in ("j", "k", "l", "h", "v", "g", "f", "c"):
             if self.is_playing:
                 self._toggle_playback()
 
@@ -377,6 +453,8 @@ class NDArrayViewer(QtWidgets.QMainWindow):
                 self._toggle_grid_dimension(self.scroll_dim_idx)
         elif event.key == "f":
             self._toggle_fft_view()
+        elif event.key == "c":
+            self._cycle_complex_view()
 
     def _on_slider_pressed(self, dim_idx):
         if self.is_playing:
@@ -395,6 +473,10 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         if self.is_fft_view:
             self.setWindowTitle(
                 f"{self.original_title} - FFT View (dims: {self.fft_dims})"
+            )
+        elif self.is_complex_data:
+            self.setWindowTitle(
+                f"{self.original_title} - Complex View ({self.complex_view_mode.capitalize()})"
             )
         else:
             self.setWindowTitle(self.original_title)
