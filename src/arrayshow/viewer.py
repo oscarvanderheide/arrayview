@@ -2,7 +2,6 @@ import sys
 from functools import partial
 
 import numpy as np
-import torch
 from numpy import fft
 from vispy import scene
 
@@ -37,11 +36,8 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.original_title = title
 
         # --- 1. Data and State Management ---
-        if isinstance(data, torch.Tensor):
-            data = data.detach().cpu().numpy()
-        else:
-            # Convert non-numpy arrays to numpy (e.g. arrays from Julia, .mat files, etc)
-            data = np.asarray(data)
+        # Convert non-numpy arrays to numpy (e.g. arrays from Julia, .mat files, etc)
+        data = np.asarray(data)
 
         if data.dtype != np.float32:
             data = data.astype(np.float32)
