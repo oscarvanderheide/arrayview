@@ -31,7 +31,7 @@ print(f"Phase range: [{np.angle(complex_data).min():.3f}, {np.angle(complex_data
 
 print("\nUse the dropdown menu or press 'c' to cycle between:")
 print("- Magnitude")
-print("- Phase") 
+print("- Phase")
 print("- Real")
 print("- Imaginary")
 
