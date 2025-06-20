@@ -1,5 +1,6 @@
 import sys
 from functools import partial
+from datetime import datetime
 
 import numpy as np
 from numpy import fft
@@ -91,6 +92,11 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.clim_min = 0.0
         self.clim_max = 1.0
         
+        # Crosshair cursor state
+        self.crosshair_enabled = True
+        self.crosshair_text = None
+        self.mouse_pos = None
+        
         self._assign_initial_roles()
 
         # --- 2. Create Palettes and Styles ---
@@ -106,6 +112,7 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         self.canvas = scene.SceneCanvas(keys="interactive", show=False)
         self.view = self.canvas.central_widget.add_view()
         self.canvas.events.key_press.connect(self._on_key_press)
+        self.canvas.events.mouse_move.connect(self._on_mouse_move)
 
         initial_slice_2d = self._get_display_image()
         self.current_colormap = "lipari" if QMRI_AVAILABLE else "grays"
@@ -147,6 +154,17 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             parent=self.view.scene,
             anchor_x='left',
             anchor_y='top'
+        )
+        
+        # Create crosshair cursor text
+        self.crosshair_text = Text(
+            text="",
+            color='yellow',
+            font_size=10,
+            parent=self.view.scene,
+            anchor_x='left',
+            anchor_y='top',
+            pos=(0.02, 0.95, 0)  # Top-left corner with some margin
         )
         
         self.view.camera = scene.PanZoomCamera(aspect=1)
@@ -223,7 +241,12 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         playback_layout.addWidget(QtWidgets.QLabel("Max:"))
         playback_layout.addWidget(self.clim_max_spinbox)
         
+        # Add screenshot export button
+        self.screenshot_button = QtWidgets.QPushButton("Screenshot")
+        self.screenshot_button.clicked.connect(self._export_screenshot)
+        
         playback_layout.addStretch()
+        playback_layout.addWidget(self.screenshot_button)
         playback_layout.addWidget(QtWidgets.QLabel("Speed:"))
         playback_layout.addWidget(self.fps_spinbox)
 
@@ -354,12 +377,28 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         try:
             self.current_colormap = text.lower()
             new_cmap = get_colormap(self.current_colormap)
+            
+            # Apply to image first
             self.image.cmap = new_cmap
-            if self.colorbar:
-                self.colorbar.cmap = new_cmap
             self.image.update()
+            
+            # Apply to colorbar separately with extra error handling
             if self.colorbar:
-                self.colorbar.update()
+                try:
+                    self.colorbar.cmap = new_cmap
+                    self.colorbar.update()
+                except Exception as colorbar_error:
+                    print(f"Warning: Could not update colorbar with '{text}': {colorbar_error}")
+                    # Try refreshing the colorbar completely
+                    try:
+                        self.colorbar.cmap = new_cmap
+                        # Force a complete refresh
+                        self.colorbar.update()
+                        # Also try updating the colorbar text
+                        self._update_colorbar_text()
+                    except Exception as refresh_error:
+                        print(f"Warning: Colorbar refresh failed: {refresh_error}")
+                        
         except Exception as e:
             print(f"Warning: Could not set colormap '{text}': {e}")
             # Fallback to grays if colormap fails
@@ -455,6 +494,120 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         # Update text content
         self.colorbar_text_max.text = f"{clim_max:.2f}"
         self.colorbar_text_min.text = f"{clim_min:.2f}"
+
+    def _on_mouse_move(self, event):
+        """Handle mouse movement for crosshair cursor."""
+        if not self.crosshair_enabled or not self.crosshair_text:
+            self.crosshair_text.text = ""
+            return
+            
+        try:
+            # Get mouse position in canvas coordinates
+            mouse_pos = event.pos
+            
+            # Get the actual data being displayed (respects FFT/complex modes)
+            display_data = self.active_data
+            
+            # Get current 2D slice from the active data
+            view_indices = self._get_view_indices()
+            display_slice = display_data[view_indices]
+            h, w = display_slice.shape
+            
+            # Get canvas size to normalize mouse position
+            canvas_size = self.canvas.size
+            
+            # The image fills the canvas area, accounting for aspect ratio preservation
+            # The camera is set to (0,1) range, so normalize accordingly
+            norm_x = mouse_pos[0] / canvas_size[0]
+            norm_y = mouse_pos[1] / canvas_size[1]
+            
+            # Map to pixel coordinates (flip Y because canvas Y goes down, image Y goes up)
+            img_x = int(norm_x * w)
+            img_y = int((1.0 - norm_y) * h)  # Flip Y coordinate
+            
+            # Check bounds and get pixel value from the actual displayed data
+            if 0 <= img_x < w and 0 <= img_y < h:
+                pixel_value = display_slice[img_y, img_x]
+                self.crosshair_text.text = f"({img_x}, {img_y}): {pixel_value:.3f}"
+                self.crosshair_text.visible = True
+            else:
+                self.crosshair_text.text = ""
+                
+        except Exception as e:
+            # Clear text on error
+            self.crosshair_text.text = ""
+
+    def _toggle_crosshair(self):
+        """Toggle crosshair cursor visibility with 'x' key."""
+        self.crosshair_enabled = not self.crosshair_enabled
+        if not self.crosshair_enabled:
+            self.crosshair_text.text = ""
+        else:
+            self.crosshair_text.text = "Crosshair enabled - move mouse over image"
+
+    def _get_view_indices(self):
+        """Get the indices for the current 2D slice being displayed."""
+        # Build slice indices for all dimensions
+        indices = []
+        for dim in self.dims:
+            if dim["role"] in ["view_x", "view_y"]:
+                indices.append(slice(None))  # Full slice for view dimensions
+            else:
+                indices.append(dim["index"])  # Fixed index for other dimensions
+        return tuple(indices)
+
+    def _export_screenshot(self):
+        """Export the current view as a screenshot."""
+        try:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"arrayshow_screenshot_{timestamp}.png"
+            
+            # Get screenshot from canvas
+            img = self.canvas.render()
+            
+            # Use QtWidgets file dialog for save location
+            from PyQt5.QtWidgets import QFileDialog
+            
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Screenshot",
+                filename,
+                "PNG Files (*.png);;All Files (*)"
+            )
+            
+            if filepath:
+                # Save the image using VisPy's built-in method
+                try:
+                    if hasattr(img, 'write_png'):
+                        img.write_png(filepath)
+                    else:
+                        # Alternative: use PIL if available
+                        from PIL import Image
+                        if hasattr(img, 'copy'):
+                            pil_img = Image.fromarray(img)
+                            pil_img.save(filepath)
+                        else:
+                            # Last resort: create image from array
+                            import numpy as np
+                            img_array = np.asarray(img)
+                            pil_img = Image.fromarray(img_array)
+                            pil_img.save(filepath)
+                    
+                    print(f"Screenshot saved to: {filepath}")
+                except Exception as e:
+                    print(f"Error with image format: {e}")
+                    # Try saving raw canvas data
+                    try:
+                        # Get QWidget and save as pixmap
+                        pixmap = self.canvas.native.grab()
+                        pixmap.save(filepath)
+                        print(f"Screenshot saved to: {filepath}")
+                    except Exception as e2:
+                        print(f"Error saving with pixmap: {e2}")
+                
+        except Exception as e:
+            print(f"Error saving screenshot: {e}")
 
     def _update_colorbar_position(self):
         """Update colorbar position relative to the image."""
@@ -661,7 +814,7 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self._set_scroll_dimension(cyclable_indices[0])
 
     def _on_key_press(self, event):
-        if event.key in ("j", "k", "l", "h", "v", "g", "f", "c", "b"):
+        if event.key in ("j", "k", "l", "h", "v", "g", "f", "c", "b", "x"):
             if self.is_playing:
                 self._toggle_playback()
 
@@ -693,6 +846,8 @@ class NDArrayViewer(QtWidgets.QMainWindow):
             self._cycle_complex_view()
         elif event.key == "b":
             self._toggle_colorbar()
+        elif event.key == "x":
+            self._toggle_crosshair()
 
     def _on_slider_pressed(self, dim_idx):
         if self.is_playing:
