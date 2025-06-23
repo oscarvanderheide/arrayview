@@ -1023,3 +1023,21 @@ class NDArrayViewer(QtWidgets.QMainWindow):
         log_magnitude = np.log1p(magnitude)
         self.fft_data = log_magnitude.astype(np.float32)
         print("FFT computation complete.")
+
+    def closeEvent(self, event):
+        """Handle window close event gracefully."""
+        try:
+            # Stop any running timers
+            if hasattr(self, 'timer') and self.timer.isActive():
+                self.timer.stop()
+            
+            # Clean up vispy canvas
+            if hasattr(self, 'canvas'):
+                self.canvas.close()
+            
+            print("Viewer closed.")
+        except Exception as e:
+            print(f"Warning during cleanup: {e}")
+        finally:
+            # Accept the close event
+            event.accept()
