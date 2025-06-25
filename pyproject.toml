@@ -1,21 +1,10 @@
 [project]
-name = "arrayshow"
-version = "0.1.1"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "Oscar van der Heide", email = "oscarvanderheide@gmail.com" }
-]
+name = "arrayview"
+version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.10.3",
     "nibabel>=5.3.2",
-    "numpy>=2.3.0",
+    "numpy>=2.3.1",
     "pyqt5>=5.15.11",
 ]
-
-[project.scripts]
-arrayshow = "arrayshow.cli:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"

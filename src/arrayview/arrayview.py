@@ -13,13 +13,14 @@ Given an array ``x``, an example usage is:
     >>> ScatterPlot(x)
 
 """
+
 import datetime
 import os
 import subprocess
 import uuid
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 __all__ = ["ArrayView"]
 
@@ -88,7 +89,6 @@ class ArrayView(object):
                     im_ndim=im.ndim
                 )
             )
-        import matplotlib.pyplot as plt
 
         self.axim = None
         self.im = im
@@ -116,9 +116,7 @@ class ArrayView(object):
         self.fps = fps
         self.help_text = None
 
-        self.fig.canvas.mpl_disconnect(
-            self.fig.canvas.manager.key_press_handler_id
-        )
+        self.fig.canvas.mpl_disconnect(self.fig.canvas.manager.key_press_handler_id)
         self.fig.canvas.mpl_connect("key_press_event", self.key_press)
         self.update_axes()
         self.update_image()
@@ -128,9 +126,7 @@ class ArrayView(object):
     def key_press(self, event):
         if event.key == "up":
             if self.d not in [self.x, self.y, self.z, self.c]:
-                self.slices[self.d] = (self.slices[self.d] + 1) % self.shape[
-                    self.d
-                ]
+                self.slices[self.d] = (self.slices[self.d] + 1) % self.shape[self.d]
             else:
                 self.flips[self.d] *= -1
 
@@ -140,9 +136,7 @@ class ArrayView(object):
 
         elif event.key == "down":
             if self.d not in [self.x, self.y, self.z, self.c]:
-                self.slices[self.d] = (self.slices[self.d] - 1) % self.shape[
-                    self.d
-                ]
+                self.slices[self.d] = (self.slices[self.d] - 1) % self.shape[self.d]
             else:
                 self.flips[self.d] *= -1
 
@@ -413,9 +407,7 @@ class ArrayView(object):
                     else:
                         self.entered_slice //= 10
                 else:
-                    self.entered_slice = self.entered_slice * 10 + int(
-                        event.key
-                    )
+                    self.entered_slice = self.entered_slice * 10 + int(event.key)
             elif event.key != "backspace":
                 self.entering_slice = True
                 self.entered_slice = int(event.key)
@@ -513,9 +505,7 @@ class ArrayView(object):
             self.axim.set_clim(self.vmin, self.vmax)
 
         if self.help_text is None:
-            bbox_props = dict(
-                boxstyle="round", pad=1, fc="white", alpha=0.95, lw=0
-            )
+            bbox_props = dict(boxstyle="round", pad=1, fc="white", alpha=0.95, lw=0)
             self.help_text = self.ax.text(
                 imv.shape[0] / 2,
                 imv.shape[1] / 2,
@@ -623,9 +613,7 @@ def array_to_image(arr, color=False):
     img = img.reshape(mshape + img_shape)
     if color:
         img = np.transpose(img, (0, 2, 1, 3, 4))
-        img = img.reshape(
-            (img_shape[0] * mshape[0], img_shape[1] * mshape[1], 3)
-        )
+        img = img.reshape((img_shape[0] * mshape[0], img_shape[1] * mshape[1], 3))
     else:
         img = np.transpose(img, (0, 2, 1, 3))
         img = img.reshape((img_shape[0] * mshape[0], img_shape[1] * mshape[1]))

@@ -4,7 +4,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from .arrayview import ArrayView
+from . import ArrayView
 
 
 def main():
@@ -31,7 +31,6 @@ def main():
         print("Supported formats: .nii.gz, .nii, .npy")
         sys.exit(1)
 
-    # Show array
     ArrayView(array)
 
 
