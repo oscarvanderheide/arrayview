@@ -30,7 +30,7 @@ $\bf{Hotkeys:}$
     $\bf{h:}$ show/hide hotkey menu.
     $\bf{x/y/z:}$ set current axis as x/y/z.
     $\bf{t:}$ swap between x and y.
-    $\bf{c:}$ select current axis as color.
+    $\bf{c:}$ cycle colormaps.
     $\bf{left/right:}$ change current axis.
     $\bf{up/down:}$ change slice along current axis.
     $\bf{a:}$ toggle hide all labels, titles and axes.
@@ -108,7 +108,14 @@ class ArrayView(object):
         self.title = title
         self.interpolation = interpolation
         self.mode = mode
-        self.colormap = colormap
+        self.colormaps = ["gray", "viridis", "RdBu_r", "magma"]
+        self.colormap_idx = 0
+        if colormap is not None:
+            try:
+                self.colormap_idx = self.colormaps.index(colormap)
+            except ValueError:
+                pass  # Keep default if not in list
+        self.colormap = self.colormaps[self.colormap_idx]
         self.entering_slice = False
         self.vmin = vmin
         self.vmax = vmax
@@ -124,7 +131,12 @@ class ArrayView(object):
         plt.show()
 
     def key_press(self, event):
-        if event.key == "up":
+        if event.key == "c":
+            self.colormap_idx = (self.colormap_idx + 1) % len(self.colormaps)
+            self.colormap = self.colormaps[self.colormap_idx]
+            self.update_image()
+            self.fig.canvas.draw()
+        elif event.key == "up":
             if self.d not in [self.x, self.y, self.z, self.c]:
                 self.slices[self.d] = (self.slices[self.d] + 1) % self.shape[self.d]
             else:
@@ -181,20 +193,6 @@ class ArrayView(object):
                 self.z = None
             else:
                 self.z = self.d
-
-            self.update_axes()
-            self.update_image()
-            self.fig.canvas.draw()
-
-        elif (
-            event.key == "c"
-            and self.d not in [self.x, self.y, self.z]
-            and self.shape[self.d] == 3
-        ):
-            if self.d == self.c:
-                self.c = None
-            else:
-                self.c = self.d
 
             self.update_axes()
             self.update_image()
@@ -496,13 +494,21 @@ class ArrayView(object):
                 extent=[0, imv.shape[1], 0, imv.shape[0]],
             )
 
+            # Add colorbar and keep reference
             if self.colormap is not None:
-                self.fig.colorbar(self.axim)
-
+                self.colorbar = self.fig.colorbar(self.axim)
+            else:
+                self.colorbar = None
         else:
             self.axim.set_data(imv)
             self.axim.set_extent([0, imv.shape[1], 0, imv.shape[0]])
             self.axim.set_clim(self.vmin, self.vmax)
+            # Update colormap
+            self.axim.set_cmap(self.colormap)
+            # Remove and redraw colorbar if present
+            if hasattr(self, 'colorbar') and self.colorbar is not None:
+                self.colorbar.remove()
+                self.colorbar = self.fig.colorbar(self.axim)
 
         if self.help_text is None:
             bbox_props = dict(boxstyle="round", pad=1, fc="white", alpha=0.95, lw=0)
