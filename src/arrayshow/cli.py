@@ -4,7 +4,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from .viewer import NDArrayViewer
+from .arrayshow import ImagePlot
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
         sys.exit(1)
 
     # Show array
-    NDArrayViewer(array)
+    ImagePlot(array)
 
 
 if __name__ == "__main__":

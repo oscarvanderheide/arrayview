@@ -15,6 +15,9 @@ dependencies = [
     "vispy>=0.15.2",
 ]
 
+[project.scripts]
+arrayshow = "arrayshow.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
