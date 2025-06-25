@@ -11,8 +11,6 @@ dependencies = [
     "nibabel>=5.3.2",
     "numpy>=2.3.0",
     "pyqt5>=5.15.11",
-    "qmricolors",
-    "vispy>=0.15.2",
 ]
 
 [project.scripts]
@@ -21,6 +19,3 @@ arrayshow = "arrayshow.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.uv.sources]
-qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
