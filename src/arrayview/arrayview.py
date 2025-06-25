@@ -128,7 +128,7 @@ class ArrayView(object):
         self.update_axes()
         self.update_image()
         self.fig.canvas.draw()
-        plt.show()
+        plt.show(block=False)
 
     def key_press(self, event):
         if event.key == "c":
@@ -506,7 +506,7 @@ class ArrayView(object):
             # Update colormap
             self.axim.set_cmap(self.colormap)
             # Remove and redraw colorbar if present
-            if hasattr(self, 'colorbar') and self.colorbar is not None:
+            if hasattr(self, "colorbar") and self.colorbar is not None:
                 self.colorbar.remove()
                 self.colorbar = self.fig.colorbar(self.axim)
 
