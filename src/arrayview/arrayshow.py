@@ -8,7 +8,7 @@ so the user does not need to move away from the keyboard.
 
 Given an array ``x``, an example usage is:
 
-    >>> ImagePlot(x)
+    >>> ArrayView(x)
     >>> LinePlot(x)
     >>> ScatterPlot(x)
 
@@ -21,7 +21,7 @@ import uuid
 import numpy as np
 import matplotlib.pyplot as plt
 
-__all__ = ["ImagePlot"]
+__all__ = ["ArrayView"]
 
 
 image_plot_help_str = r"""
@@ -44,7 +44,7 @@ $\bf{Hotkeys:}$
 """
 
 
-class ImagePlot(object):
+class ArrayView(object):
     """Plot array as image.
 
     Press 'h' for a menu for hotkeys.

@@ -1,22 +1,13 @@
 import sys
 
-from .arrayshow import ImagePlot
-
-# --- Import PyQt5 directly ---
-try:
-    from PyQt5 import QtWidgets
-except ImportError:
-    print(
-        "Error: This application requires PyQt5. Please install it (`pip install pyqt5`)."
-    )
-    sys.exit(1)
+from .arrayview import ArrayView
 
 
 __version__ = "0.1.0"
-__all__ = ["arrayshow"]
+__all__ = ["arrayview"]
 
 
-def arrayshow(array) -> None:
+def arrayview(array) -> None:
     """Display an interactive view of a multidimensional array.
 
     Args:
@@ -25,7 +16,7 @@ def arrayshow(array) -> None:
     Returns:
         None: No return value
     """
-    ImagePlot(array)
+    ArrayView(array)
     return None
 
     # # Check if QApplication already exists (e.g., in Jupyter or when called from REPL)

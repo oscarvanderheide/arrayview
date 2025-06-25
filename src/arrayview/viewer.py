@@ -23,15 +23,7 @@ try:
 except ImportError:
     QMRI_AVAILABLE = False
 
-# --- Import PyQt5 directly ---
-try:
-    from PyQt5 import QtCore, QtGui, QtWidgets
-except ImportError:
-    print(
-        "Error: This application requires PyQt5. Please install it (`pip install pyqt5`)."
-    )
-    sys.exit(1)
-
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 class ClickableLabel(QtWidgets.QLabel):
     """A QLabel that emits a clicked signal."""

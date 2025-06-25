@@ -4,15 +4,15 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from .arrayshow import ImagePlot
+from .arrayview import ArrayView
 
 
 def main():
-    """Command line interface for arrayshow."""
+    """Command line interface for arrayview."""
     if len(sys.argv) != 2:
-        print("Usage: arrayshow <filename>")
+        print("Usage: arrayview <filename>")
         print("Supported formats: .nii.gz, .nii, .npy")
-        print("Example: arrayshow my_array.nii.gz")
+        print("Example: arrayview my_array.nii.gz")
         sys.exit(1)
 
     filepath = Path(sys.argv[1])
@@ -32,7 +32,7 @@ def main():
         sys.exit(1)
 
     # Show array
-    ImagePlot(array)
+    ArrayView(array)
 
 
 if __name__ == "__main__":
