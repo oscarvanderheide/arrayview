@@ -1,19 +1,3 @@
-# -*- coding: utf-8 -*-
-"""This module contains plotting functions based on matplotlib
-for image, line, and scatter plots.
-
-A feature of these plotting functions is that
-they can be controlled using only hotkeys
-so the user does not need to move away from the keyboard.
-
-Given an array ``x``, an example usage is:
-
-    >>> ArrayView(x)
-    >>> LinePlot(x)
-    >>> ScatterPlot(x)
-
-"""
-
 import datetime
 import os
 import subprocess
@@ -128,7 +112,7 @@ class ArrayView(object):
         self.update_axes()
         self.update_image()
         self.fig.canvas.draw()
-        plt.show(block=False)
+        plt.show(block=True)
 
     def key_press(self, event):
         if event.key == "c":
