@@ -4,7 +4,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from . import ArrayView
+from arrayview import ArrayView
 
 
 def main():
