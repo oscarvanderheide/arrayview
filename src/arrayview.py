@@ -112,7 +112,7 @@ class ArrayView(object):
         self.update_axes()
         self.update_image()
         self.fig.canvas.draw()
-        plt.show(block=False)
+        plt.show(block=True)
 
     def key_press(self, event):
         if event.key == "c":
