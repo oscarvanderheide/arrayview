@@ -38,9 +38,19 @@ def main():
             # Fall back to h5py for MATLAB v7.3 files
             try:
                 with h5py.File(filepath, "r") as f:
-                    array_keys = list(f.keys())
-                    # Create a dictionary-like structure for consistency
-                    mat_data = {key: f[key][:] for key in array_keys}
+                    array_keys = []
+                    mat_data = {}
+
+                    def collect_datasets(name, obj):
+                        if isinstance(obj, h5py.Dataset):
+                            # Only include datasets with more than 0 dimensions
+                            if obj.ndim > 0:
+                                array_keys.append(name)
+                                mat_data[name] = obj[:]
+
+                    # Visit all items in the file
+                    f.visititems(collect_datasets)
+
             except Exception as e:
                 print(f"Error reading MATLAB file: {e}")
                 sys.exit(1)
