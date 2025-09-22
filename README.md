@@ -22,12 +22,12 @@ standalone package for broader use.
 
 ### Installation
 
-```uv add arrayview```
+```uv add "arrayview @ git+https://github.com/oscarvanderheide/arrayview"```
 
 ### Command-Line Usage
 
 ```sh
-uvx arrayview example_array.nii.gz
+uvx --from https://github.com/oscarvanderheide/arrayview.git arrayview example_array.nii.gz
 ```
 
 ### Interactive Python Example
