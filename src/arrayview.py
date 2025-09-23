@@ -352,8 +352,65 @@ class ArrayView(object):
                 self.colorbar.ax.set_visible(False)
 
     def save_movie(self, is_gif=False, is_image=False):
-        # ... (save_movie implementation is unchanged and should work correctly)
-        pass
+        """Save image, GIF, or video along the current axis."""
+        from matplotlib.animation import FuncAnimation, PillowWriter
+
+        if is_image:
+            # Save single image
+            filename = f"{self.save_basename}.png"
+            self.fig.savefig(filename, dpi=150, bbox_inches="tight")
+            print(f"Saved image: {filename}")
+            return
+
+        # Save animation (GIF or video)
+        if self.d in [self.x, self.y, self.z, self.c]:
+            print("Cannot create animation along display axis")
+            return
+
+        # Get the range of slices for the current dimension
+        num_frames = self.shape[self.d]
+        original_slice = self.slices[self.d]
+
+        def animate(frame):
+            self.slices[self.d] = frame
+            self.update_image()
+            return [self.axim]
+
+        # Create animation
+        anim = FuncAnimation(
+            self.fig,
+            animate,
+            frames=num_frames,
+            interval=1000 // self.fps,
+            blit=True,
+            repeat=True,
+        )
+
+        try:
+            if is_gif:
+                filename = f"{self.save_basename}_axis_{self.d}.gif"
+                print(f"Saving GIF: {filename} ...")
+                anim.save(filename, writer=PillowWriter(fps=self.fps))
+                print(f"Saved GIF: {filename}")
+            else:
+                # Try to save as MP4
+                filename = f"{self.save_basename}_axis_{self.d}.mp4"
+                print(f"Saving video: {filename} ...")
+                try:
+                    anim.save(filename, writer="ffmpeg", fps=self.fps)
+                    print(f"Saved video: {filename}")
+                except Exception as e:
+                    # Fallback to GIF if ffmpeg not available
+                    print(f"Video save failed ({e}), falling back to GIF...")
+                    filename = f"{self.save_basename}_axis_{self.d}.gif"
+                    anim.save(filename, writer=PillowWriter(fps=self.fps))
+                    print(f"Saved GIF: {filename}")
+        except Exception as e:
+            print(f"Error saving animation: {e}")
+        finally:
+            # Restore original slice position
+            self.slices[self.d] = original_slice
+            self.update_all()
 
 
 # Original, correct functions
