@@ -13,7 +13,7 @@ def parse_slice_indices(slice_str, ndim):
     """Parse slice indices from string format.
 
     Args:
-        slice_str: String like "x,y,10,0" or ":,:,10,0"
+        slice_str: String like "x,y,10,0" or ":,:,10,0" or "x,y,1" (partial)
         ndim: Number of dimensions in the array
 
     Returns:
@@ -23,8 +23,14 @@ def parse_slice_indices(slice_str, ndim):
         return None
 
     parts = slice_str.split(",")
-    if len(parts) != ndim:
-        raise ValueError(f"Slice string must have {ndim} parts, got {len(parts)}")
+
+    # Allow partial specifications - pad with defaults for missing dimensions
+    if len(parts) > ndim:
+        raise ValueError(f"Slice string has too many parts: {len(parts)} > {ndim}")
+
+    # Pad parts with default values (:) for missing dimensions
+    while len(parts) < ndim:
+        parts.append(":")
 
     slices = [None] * ndim
     x_axis = None
@@ -175,22 +181,29 @@ def main():
 
     # Create ArrayView with slice configuration
     if slice_config:
-        # Set the initial slices for the ArrayView
-        av = ArrayView(
-            array, x=slice_config["x"], y=slice_config["y"], z=slice_config["z"]
-        )
+        # Prepare initial slices with default middle values
+        initial_slices = [s // 2 for s in array.shape]
 
-        # Update the slices array to match the specified indices
+        # Update with specified slice indices
         for i, slice_idx in enumerate(slice_config["slices"]):
             if slice_idx is not None:
                 if slice_idx < array.shape[i]:
-                    av.slices[i] = slice_idx
+                    initial_slices[i] = slice_idx
                 else:
                     print(
                         f"Warning: slice index {slice_idx} exceeds dimension {i} size {array.shape[i]}"
                     )
+
+        # Create ArrayView with initial slices
+        av = ArrayView(
+            array,
+            x=slice_config["x"],
+            y=slice_config["y"],
+            z=slice_config["z"],
+            initial_slices=initial_slices,
+        )
     else:
-        ArrayView(array)
+        av = ArrayView(array)
 
 
 if __name__ == "__main__":

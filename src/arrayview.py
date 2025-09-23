@@ -46,6 +46,7 @@ class ArrayView(object):
         interpolation="nearest",
         save_basename="Figure",
         fps=10,
+        initial_slices=None,
     ):
         if im.ndim < 2:
             raise TypeError(f"Image dimension must at least be two, got {im.ndim}")
@@ -53,7 +54,10 @@ class ArrayView(object):
         self.im = im
         self.shape = self.im.shape
         self.ndim = self.im.ndim
-        self.slices = [s // 2 for s in self.shape]
+        if initial_slices is not None:
+            self.slices = list(initial_slices)
+        else:
+            self.slices = [s // 2 for s in self.shape]
         self.flips = [1] * self.ndim
         self.x = x % self.ndim
         self.y = y % self.ndim
@@ -129,12 +133,20 @@ class ArrayView(object):
             self.fig.canvas.flush_events()
 
     def key_press(self, event):
-        # Fast path for scrolling
+        # Use update_all for up/down to ensure title updates correctly
         if event.key == "up":
-            self._update_slice_fast(1)
+            if self.d not in [self.x, self.y, self.z, self.c]:
+                self.slices[self.d] = (self.slices[self.d] + 1) % self.shape[self.d]
+            else:
+                self.flips[self.d] *= -1
+            self.update_all()
             return
         if event.key == "down":
-            self._update_slice_fast(-1)
+            if self.d not in [self.x, self.y, self.z, self.c]:
+                self.slices[self.d] = (self.slices[self.d] - 1) % self.shape[self.d]
+            else:
+                self.flips[self.d] *= -1
+            self.update_all()
             return
 
         # Slow, correct path for all other keys
