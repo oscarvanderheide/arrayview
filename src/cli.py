@@ -9,15 +9,75 @@ from scipy.io import loadmat
 from arrayview import ArrayView
 
 
+def parse_slice_indices(slice_str, ndim):
+    """Parse slice indices from string format.
+
+    Args:
+        slice_str: String like "x,y,10,0" or ":,:,10,0"
+        ndim: Number of dimensions in the array
+
+    Returns:
+        dict: Dictionary with 'slices' list and axis mappings
+    """
+    if not slice_str:
+        return None
+
+    parts = slice_str.split(",")
+    if len(parts) != ndim:
+        raise ValueError(f"Slice string must have {ndim} parts, got {len(parts)}")
+
+    slices = [None] * ndim
+    x_axis = None
+    y_axis = None
+    z_axis = None
+
+    for i, part in enumerate(parts):
+        part = part.strip()
+        if part == ":":
+            # This dimension will be used as a display axis
+            if x_axis is None:
+                x_axis = i
+            elif y_axis is None:
+                y_axis = i
+            elif z_axis is None:
+                z_axis = i
+        elif part == "x":
+            x_axis = i
+        elif part == "y":
+            y_axis = i
+        elif part == "z":
+            z_axis = i
+        else:
+            # This should be a slice index
+            try:
+                slices[i] = int(part)
+            except ValueError:
+                raise ValueError(f"Invalid slice value: {part}")
+
+    # Set default axes if not specified
+    if x_axis is None:
+        x_axis = -1  # Last dimension
+    if y_axis is None:
+        y_axis = -2  # Second to last dimension
+
+    return {"slices": slices, "x": x_axis, "y": y_axis, "z": z_axis}
+
+
 def main():
     """Command line interface for arrayview."""
-    if len(sys.argv) != 2:
-        print("Usage: arrayview <filename>")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("Usage: arrayview <filename> [slice_indices]")
         print("Supported formats: .nii.gz, .nii, .npy, .mat")
         print("Example: arrayview my_array.nii.gz")
+        print("Example: arrayview my_array.nii.gz 'x,y,10,0'")
+        print("Example: arrayview my_array.nii.gz ':,:,10,0'")
+        print("  - Use 'x', 'y', 'z' to specify display axes")
+        print("  - Use ':' for automatic axis assignment")
+        print("  - Use numbers for slice indices")
         sys.exit(1)
 
     filepath = Path(sys.argv[1])
+    slice_str = sys.argv[2] if len(sys.argv) == 3 else None
 
     if not filepath.exists():
         print(f"Error: File {filepath} does not exist")
@@ -104,7 +164,33 @@ def main():
             field_name = array.dtype.names[0]
             array = array[field_name]
 
-    ArrayView(array)
+    # Parse slice indices if provided
+    slice_config = None
+    if slice_str:
+        try:
+            slice_config = parse_slice_indices(slice_str, array.ndim)
+        except ValueError as e:
+            print(f"Error parsing slice indices: {e}")
+            sys.exit(1)
+
+    # Create ArrayView with slice configuration
+    if slice_config:
+        # Set the initial slices for the ArrayView
+        av = ArrayView(
+            array, x=slice_config["x"], y=slice_config["y"], z=slice_config["z"]
+        )
+
+        # Update the slices array to match the specified indices
+        for i, slice_idx in enumerate(slice_config["slices"]):
+            if slice_idx is not None:
+                if slice_idx < array.shape[i]:
+                    av.slices[i] = slice_idx
+                else:
+                    print(
+                        f"Warning: slice index {slice_idx} exceeds dimension {i} size {array.shape[i]}"
+                    )
+    else:
+        ArrayView(array)
 
 
 if __name__ == "__main__":
