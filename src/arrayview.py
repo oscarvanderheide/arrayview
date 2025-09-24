@@ -16,7 +16,7 @@ $\bf{Hotkeys:}$
     $\bf{m/p/r/i/l:}$  magnitude/phase/real/imaginary/log mode.
     $\bf{[/]:}$ change brightness.
     $\bf{\{/\}:}$ change contrast.
-    $\bf{n:}$ enter vmin,vmax numerically (e.g., "0.1,0.9").
+    $\bf{n:}$ enter vmin/vmax in separate boxes (tab to switch).
     $\bf{s:}$ save as png.
     $\bf{g/v:}$ save as gif/video by along current axis.
     $\bf{q:}$ refresh.
@@ -80,7 +80,10 @@ class ArrayView(object):
         self.colormap = self.colormaps[self.colormap_idx]
         self.entering_slice = False
         self.entering_vminmax = False
-        self.entered_value = ""
+        self.vminmax_focus = "vmin"  # "vmin" or "vmax"
+        self.entered_vmin = ""
+        self.entered_vmax = ""
+        self.field_selected = True  # Whether current field is selected for overwrite
         self.vmin = vmin
         self.vmax = vmax
         self.save_basename = save_basename
@@ -103,6 +106,32 @@ class ArrayView(object):
 
         self.update_all()
         plt.show(block=True)
+
+    def _smart_round(self, value):
+        """Smart formatting with appropriate decimal places, no scientific notation."""
+        if value is None:
+            return ""
+        if value == 0:
+            return "0"
+
+        # Determine number of decimal places based on magnitude
+        abs_val = abs(value)
+
+        if abs_val >= 100:
+            # For large values, no decimal places
+            return f"{value:.0f}"
+        elif abs_val >= 10:
+            # For values 10-100, 1 decimal place
+            return f"{value:.1f}"
+        elif abs_val >= 1:
+            # For values 1-10, 2 decimal places
+            return f"{value:.2f}"
+        elif abs_val >= 0.01:
+            # For values 0.01-1, 3 decimal places
+            return f"{value:.3f}"
+        else:
+            # For very small values, 4 decimal places
+            return f"{value:.4f}"
 
     def _on_resize(self, event):
         """Invalidate background on resize."""
@@ -212,10 +241,19 @@ class ArrayView(object):
             self.save_movie(is_gif=(event.key == "g"))
             needs_redraw = False
         elif event.key == "n":
-            # Start entering vmin,vmax
+            # Start entering vmin,vmax with separate boxes
             self.entering_vminmax = True
             self.entering_slice = False
-            self.entered_value = ""
+            self.vminmax_focus = "vmin"
+            # Pre-fill with current values using smart rounding
+            self.entered_vmin = self._smart_round(self.vmin)
+            self.entered_vmax = self._smart_round(self.vmax)
+            self.field_selected = True  # Start with vmin selected
+        elif event.key == "tab":
+            if self.entering_vminmax:
+                # Switch focus between vmin and vmax
+                self.vminmax_focus = "vmax" if self.vminmax_focus == "vmin" else "vmin"
+                self.field_selected = True  # Auto-select new field
         elif event.key in [
             "0",
             "1",
@@ -233,9 +271,19 @@ class ArrayView(object):
             "backspace",
         ]:
             if self.entering_vminmax:
-                # Handle numeric entry for vmin,vmax
+                # Handle numeric entry for focused field
+                current_field = (
+                    self.entered_vmin
+                    if self.vminmax_focus == "vmin"
+                    else self.entered_vmax
+                )
+
                 if event.key == "backspace":
-                    self.entered_value = self.entered_value[:-1]
+                    if self.field_selected:
+                        current_field = ""  # Clear entire field if selected
+                        self.field_selected = False
+                    else:
+                        current_field = current_field[:-1]  # Normal backspace
                 elif event.key in [
                     "0",
                     "1",
@@ -249,13 +297,29 @@ class ArrayView(object):
                     "9",
                     ".",
                     "-",
-                    ",",
                 ]:
-                    # Allow comma for separating vmin and vmax
-                    if event.key == "," and "," in self.entered_value:
-                        pass  # Skip duplicate comma
+                    # Handle numeric input with auto-selection logic
+                    if self.field_selected:
+                        # Replace entire field content
+                        current_field = event.key
+                        self.field_selected = False
                     else:
-                        self.entered_value += event.key
+                        # Append to existing content with validation
+                        # Only allow one decimal point and one minus sign at the start
+                        if event.key == "." and "." in current_field:
+                            pass  # Skip duplicate decimal point
+                        elif event.key == "-" and (
+                            current_field != "" or "-" in current_field
+                        ):
+                            pass  # Skip minus sign if not at start or already present
+                        else:
+                            current_field += event.key
+
+                # Update the appropriate field
+                if self.vminmax_focus == "vmin":
+                    self.entered_vmin = current_field
+                else:
+                    self.entered_vmax = current_field
             elif self.d not in [self.x, self.y, self.z, self.c]:
                 # Handle slice entry (existing functionality)
                 if self.entering_slice:
@@ -279,23 +343,17 @@ class ArrayView(object):
                     self.entered_slice = int(event.key)
         elif event.key == "enter":
             if self.entering_vminmax:
-                # Apply vmin,vmax values
+                # Apply vmin,vmax values from separate fields
                 try:
-                    if "," in self.entered_value:
-                        parts = self.entered_value.split(",", 1)
-                        if len(parts) == 2:
-                            vmin_str, vmax_str = parts
-                            if vmin_str.strip():
-                                self.vmin = float(vmin_str.strip())
-                            if vmax_str.strip():
-                                self.vmax = float(vmax_str.strip())
-                    elif self.entered_value.strip():
-                        # Single value - set as vmin, keep existing vmax
-                        self.vmin = float(self.entered_value.strip())
+                    if self.entered_vmin.strip():
+                        self.vmin = float(self.entered_vmin.strip())
+                    if self.entered_vmax.strip():
+                        self.vmax = float(self.entered_vmax.strip())
                 except ValueError:
                     pass  # Invalid number, ignore
                 self.entering_vminmax = False
-                self.entered_value = ""
+                self.entered_vmin = ""
+                self.entered_vmax = ""
             elif self.entering_slice:
                 # Apply slice value (existing functionality)
                 self.entering_slice = False
@@ -392,10 +450,34 @@ class ArrayView(object):
                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.8),
             )
 
-        # Update entry text content
+        # Update entry text content for separate vmin/vmax boxes
         entry_msg = ""
         if self.entering_vminmax:
-            entry_msg = f"Enter vmin,vmax: {self.entered_value}_"
+            vmin_display = self.entered_vmin + (
+                "_" if self.vminmax_focus == "vmin" else ""
+            )
+            vmax_display = self.entered_vmax + (
+                "_" if self.vminmax_focus == "vmax" else ""
+            )
+
+            # Create vertical layout with brackets around focused field
+            # Show selection indicator if field is selected
+            if self.vminmax_focus == "vmin":
+                if self.field_selected:
+                    vmin_content = f"«{self.entered_vmin}»"
+                else:
+                    vmin_content = vmin_display
+                entry_msg = (
+                    f"[vmin: {vmin_content}]\n vmax: {vmax_display}\n(Tab ↕, Enter ✓)"
+                )
+            else:
+                if self.field_selected:
+                    vmax_content = f"«{self.entered_vmax}»"
+                else:
+                    vmax_content = vmax_display
+                entry_msg = (
+                    f" vmin: {vmin_display}\n[vmax: {vmax_content}]\n(Tab ↕, Enter ✓)"
+                )
 
         self.entry_text.set_text(entry_msg)
         self.entry_text.set_visible(bool(entry_msg))

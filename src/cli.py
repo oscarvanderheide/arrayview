@@ -170,6 +170,8 @@ def main():
             field_name = array.dtype.names[0]
             array = array[field_name]
 
+    array = 1000000 * array
+
     # Parse slice indices if provided
     slice_config = None
     if slice_str:
