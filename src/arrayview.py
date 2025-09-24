@@ -17,6 +17,7 @@ $\bf{Hotkeys:}$
     $\bf{[/]:}$ change brightness.
     $\bf{\{/\}:}$ change contrast.
     $\bf{n:}$ enter vmin/vmax in separate boxes (tab to switch).
+    $\bf{d:}$ cycle dynamic range (5%-95%, 1%-99%, 10%-90%, full).
     $\bf{s:}$ save as png.
     $\bf{g/v:}$ save as gif/video by along current axis.
     $\bf{q:}$ refresh.
@@ -84,6 +85,7 @@ class ArrayView(object):
         self.entered_vmin = ""
         self.entered_vmax = ""
         self.field_selected = True  # Whether current field is selected for overwrite
+        self.quantile_cycle = 0  # 0=5%-95%, 1=1%-99%, 2=10%-90%, 3=full range
         self.vmin = vmin
         self.vmax = vmax
         self.save_basename = save_basename
@@ -132,6 +134,78 @@ class ArrayView(object):
         else:
             # For very small values, 4 decimal places
             return f"{value:.4f}"
+
+    def _cycle_quantile_range(self):
+        """Cycle through different quantile-based dynamic range settings."""
+        # Get current image data for quantile calculation
+        imv = self._get_current_image_data()
+
+        # Define quantile pairs: (lower_percentile, upper_percentile, description)
+        quantile_settings = [
+            (5, 95, "5%-95%"),
+            (1, 99, "1%-99%"),
+            (10, 90, "10%-90%"),
+            (0, 100, "full range"),
+        ]
+
+        # Cycle to next setting
+        self.quantile_cycle = (self.quantile_cycle + 1) % len(quantile_settings)
+        lower_pct, upper_pct, desc = quantile_settings[self.quantile_cycle]
+
+        if lower_pct == 0 and upper_pct == 100:
+            # Full range
+            self.vmin = imv.min()
+            self.vmax = imv.max()
+        else:
+            # Calculate quantiles
+            self.vmin = np.percentile(imv, lower_pct)
+            self.vmax = np.percentile(imv, upper_pct)
+
+        # Brief visual feedback (could be enhanced with a temporary text display)
+        print(
+            f"Dynamic range: {desc} quantiles (vmin={self.vmin:.3f}, vmax={self.vmax:.3f})"
+        )
+
+    def _get_current_image_data(self):
+        """Get the current visible image data for quantile calculations."""
+        idx = tuple(
+            slice(None, None, self.flips[i])
+            if i in [self.x, self.y, self.z, self.c]
+            else self.slices[i]
+            for i in range(self.ndim)
+        )
+        imv = self.im[idx]
+
+        imv_dims = [self.y, self.x]
+        if self.z is not None:
+            imv_dims.insert(0, self.z)
+        if self.c is not None:
+            imv_dims.append(self.c)
+        imv = np.transpose(imv, np.argsort(np.argsort(imv_dims)))
+        imv = array_to_image(imv, color=self.c is not None)
+
+        # Apply the same transformations as in update_image
+        if self.mode is None:
+            mode = "r" if np.isrealobj(imv) else "m"
+        else:
+            mode = self.mode
+
+        if mode == "m":
+            imv = np.abs(imv)
+        elif mode == "p":
+            imv = np.angle(imv)
+        elif mode == "r":
+            imv = np.real(imv)
+        elif mode == "i":
+            imv = np.imag(imv)
+        elif mode == "l":
+            imv = np.log(
+                np.abs(imv),
+                out=np.full_like(imv, -31, dtype=float),
+                where=np.abs(imv) != 0,
+            )
+
+        return imv
 
     def _on_resize(self, event):
         """Invalidate background on resize."""
@@ -237,6 +311,9 @@ class ArrayView(object):
         elif event.key == "s":
             self.save_movie(is_gif=False, is_image=True)
             needs_redraw = False
+        elif event.key == "d":
+            # Cycle through quantile-based dynamic ranges
+            self._cycle_quantile_range()
         elif event.key in ["g", "v"]:
             self.save_movie(is_gif=(event.key == "g"))
             needs_redraw = False
