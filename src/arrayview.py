@@ -16,6 +16,7 @@ $\bf{Hotkeys:}$
     $\bf{m/p/r/i/l:}$  magnitude/phase/real/imaginary/log mode.
     $\bf{[/]:}$ change brightness.
     $\bf{\{/\}:}$ change contrast.
+    $\bf{n:}$ enter vmin,vmax numerically (e.g., "0.1,0.9").
     $\bf{s:}$ save as png.
     $\bf{g/v:}$ save as gif/video by along current axis.
     $\bf{q:}$ refresh.
@@ -78,6 +79,8 @@ class ArrayView(object):
                 pass
         self.colormap = self.colormaps[self.colormap_idx]
         self.entering_slice = False
+        self.entering_vminmax = False
+        self.entered_value = ""
         self.vmin = vmin
         self.vmax = vmax
         self.save_basename = save_basename
@@ -88,6 +91,7 @@ class ArrayView(object):
         self.axim = None
         self.help_text = None
         self.colorbar = None
+        self.entry_text = None  # Text widget for vmin/vmax entry
 
         # For blitting
         self.background = None
@@ -207,6 +211,11 @@ class ArrayView(object):
         elif event.key in ["g", "v"]:
             self.save_movie(is_gif=(event.key == "g"))
             needs_redraw = False
+        elif event.key == "n":
+            # Start entering vmin,vmax
+            self.entering_vminmax = True
+            self.entering_slice = False
+            self.entered_value = ""
         elif event.key in [
             "0",
             "1",
@@ -218,20 +227,80 @@ class ArrayView(object):
             "7",
             "8",
             "9",
+            ".",
+            "-",
+            ",",
             "backspace",
-        ] and self.d not in [self.x, self.y, self.z, self.c]:
-            if self.entering_slice:
+        ]:
+            if self.entering_vminmax:
+                # Handle numeric entry for vmin,vmax
                 if event.key == "backspace":
-                    self.entered_slice //= 10
-                else:
-                    self.entered_slice = self.entered_slice * 10 + int(event.key)
-            elif event.key != "backspace":
-                self.entering_slice = True
-                self.entered_slice = int(event.key)
-        elif event.key == "enter" and self.entering_slice:
-            self.entering_slice = False
-            if self.entered_slice < self.shape[self.d]:
-                self.slices[self.d] = self.entered_slice
+                    self.entered_value = self.entered_value[:-1]
+                elif event.key in [
+                    "0",
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                    "6",
+                    "7",
+                    "8",
+                    "9",
+                    ".",
+                    "-",
+                    ",",
+                ]:
+                    # Allow comma for separating vmin and vmax
+                    if event.key == "," and "," in self.entered_value:
+                        pass  # Skip duplicate comma
+                    else:
+                        self.entered_value += event.key
+            elif self.d not in [self.x, self.y, self.z, self.c]:
+                # Handle slice entry (existing functionality)
+                if self.entering_slice:
+                    if event.key == "backspace":
+                        self.entered_slice //= 10
+                    elif event.key in [
+                        "0",
+                        "1",
+                        "2",
+                        "3",
+                        "4",
+                        "5",
+                        "6",
+                        "7",
+                        "8",
+                        "9",
+                    ]:
+                        self.entered_slice = self.entered_slice * 10 + int(event.key)
+                elif event.key in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+                    self.entering_slice = True
+                    self.entered_slice = int(event.key)
+        elif event.key == "enter":
+            if self.entering_vminmax:
+                # Apply vmin,vmax values
+                try:
+                    if "," in self.entered_value:
+                        parts = self.entered_value.split(",", 1)
+                        if len(parts) == 2:
+                            vmin_str, vmax_str = parts
+                            if vmin_str.strip():
+                                self.vmin = float(vmin_str.strip())
+                            if vmax_str.strip():
+                                self.vmax = float(vmax_str.strip())
+                    elif self.entered_value.strip():
+                        # Single value - set as vmin, keep existing vmax
+                        self.vmin = float(self.entered_value.strip())
+                except ValueError:
+                    pass  # Invalid number, ignore
+                self.entering_vminmax = False
+                self.entered_value = ""
+            elif self.entering_slice:
+                # Apply slice value (existing functionality)
+                self.entering_slice = False
+                if self.entered_slice < self.shape[self.d]:
+                    self.slices[self.d] = self.entered_slice
         else:
             needs_redraw = False
 
@@ -309,6 +378,27 @@ class ArrayView(object):
                 bbox=bbox_props,
             )
         self.help_text.set_visible(self.show_help)
+
+        # Add or update entry text for vmin/vmax
+        if self.entry_text is None:
+            # Position the text below the image
+            self.entry_text = self.fig.text(
+                0.5,
+                0.02,
+                "",
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.8),
+            )
+
+        # Update entry text content
+        entry_msg = ""
+        if self.entering_vminmax:
+            entry_msg = f"Enter vmin,vmax: {self.entered_value}_"
+
+        self.entry_text.set_text(entry_msg)
+        self.entry_text.set_visible(bool(entry_msg))
 
     def update_axes(self):
         if not self.hide_axes:
