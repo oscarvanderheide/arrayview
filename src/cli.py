@@ -94,6 +94,45 @@ def main():
         array = nib.load(filepath).get_fdata()
     elif filepath.suffix == ".npy":
         array = np.load(filepath)
+    elif filepath.suffix == ".npz":
+        # Load .npz file (may contain multiple arrays)
+        try:
+            npz_data = np.load(filepath)
+            array_keys = list(npz_data.keys())
+        except Exception as e:
+            print(f"Error reading NPZ file: {e}")
+            sys.exit(1)
+
+        if len(array_keys) == 0:
+            print("Error: No arrays found in NPZ file")
+            sys.exit(1)
+        elif len(array_keys) == 1:
+            array = npz_data[array_keys[0]]
+        else:
+            print("Multiple arrays found in NPZ file:")
+            for i, key in enumerate(array_keys):
+                shape = npz_data[key].shape
+                dtype = npz_data[key].dtype
+                print(f"  {i + 1}. {key} (shape: {shape}, dtype: {dtype})")
+            while True:
+                try:
+                    choice = input(
+                        f"Select array to visualize (1-{len(array_keys)}): "
+                    ).strip()
+                    choice_idx = int(choice) - 1
+                    if 0 <= choice_idx < len(array_keys):
+                        selected_key = array_keys[choice_idx]
+                        array = npz_data[selected_key]
+                        print(f"Selected: {selected_key}")
+                        break
+                    else:
+                        print(
+                            f"Invalid choice. Please enter a number between 1 and {len(array_keys)}"
+                        )
+                except (ValueError, KeyboardInterrupt):
+                    print(
+                        f"Invalid input. Please enter a number between 1 and {len(array_keys)}"
+                    )
     elif filepath.suffix == ".mat":
         # Try to load with scipy first (for older .mat files)
         try:
@@ -156,7 +195,7 @@ def main():
                     )
     else:
         print(f"Error: Unsupported file format: {filepath.suffix}")
-        print("Supported formats: .nii.gz, .nii, .npy, .mat")
+        print("Supported formats: .nii.gz, .nii, .npy, .npz, .mat")
         sys.exit(1)
 
     # Handle structured complex arrays from MATLAB
