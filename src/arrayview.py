@@ -18,6 +18,7 @@ $\bf{Hotkeys:}$
     $\bf{\{/\}:}$ change contrast.
     $\bf{n:}$ enter vmin/vmax in separate boxes (tab to switch).
     $\bf{d:}$ cycle dynamic range (5%-95%, 1%-99%, 10%-90%, full).
+    $\bf{space:}$ auto-play through current slice dimension.
     $\bf{s:}$ save as png.
     $\bf{g/v:}$ save as gif/video by along current axis.
     $\bf{q:}$ refresh.
@@ -91,6 +92,11 @@ class ArrayView(object):
         self.save_basename = save_basename
         self.fps = fps
 
+        # Auto-play state
+        self.auto_playing = False
+        self.auto_play_timer = None
+        self.auto_play_interval = 200  # milliseconds between frames
+
         self.fig = plt.figure()
         self.ax = self.fig.add_subplot(111)
         self.axim = None
@@ -105,6 +111,8 @@ class ArrayView(object):
         self.fig.canvas.mpl_connect("key_press_event", self.key_press)
         self.fig.canvas.mpl_connect("draw_event", self._on_draw)
         self.fig.canvas.mpl_connect("resize_event", self._on_resize)
+        self.fig.canvas.mpl_connect("close_event", self._on_close)
+        self.fig.canvas.mpl_connect("close_event", self._on_close)
 
         self.update_all()
         plt.show(block=True)
@@ -206,6 +214,69 @@ class ArrayView(object):
             )
 
         return imv
+
+    def _toggle_auto_play(self):
+        """Toggle auto-play through the current slice dimension."""
+        if self.auto_playing:
+            # Stop auto-play
+            self._stop_auto_play()
+            print("Auto-play stopped")
+        else:
+            # Start auto-play (only if current dimension can be sliced)
+            if self.d not in [self.x, self.y, self.z, self.c]:
+                self._start_auto_play()
+                print(
+                    f"Auto-play started on dimension {self.d} (shape: {self.shape[self.d]})"
+                )
+            else:
+                print(f"Cannot auto-play on display axis {self.d}")
+
+    def _start_auto_play(self):
+        """Start the auto-play timer."""
+        self.auto_playing = True
+        self._schedule_next_frame()
+
+    def _stop_auto_play(self):
+        """Stop the auto-play timer."""
+        self.auto_playing = False
+        if self.auto_play_timer is not None:
+            self.auto_play_timer.stop()
+            self.auto_play_timer = None
+
+    def _schedule_next_frame(self):
+        """Schedule the next frame update."""
+        if self.auto_playing:
+            # Use matplotlib's timer for smooth animation
+            self.auto_play_timer = self.fig.canvas.new_timer(
+                interval=self.auto_play_interval
+            )
+            self.auto_play_timer.add_callback(self._auto_play_step)
+            self.auto_play_timer.start()
+
+    def _auto_play_step(self):
+        """Step to the next slice in auto-play mode."""
+        if not self.auto_playing:
+            return
+
+        # Advance to next slice (wrap around)
+        if self.d not in [self.x, self.y, self.z, self.c]:
+            self.slices[self.d] = (self.slices[self.d] + 1) % self.shape[self.d]
+
+            # Use fast update for smooth animation
+            self._update_slice_fast(
+                1
+            )  # direction doesn't matter since we set slice directly
+
+            # Schedule next frame
+            self._schedule_next_frame()
+
+    def _on_close(self, event):
+        """Clean up resources when figure is closed."""
+        self._stop_auto_play()
+
+    def _on_close(self, event):
+        """Clean up resources when figure is closed."""
+        self._stop_auto_play()
 
     def _on_resize(self, event):
         """Invalidate background on resize."""
@@ -314,6 +385,10 @@ class ArrayView(object):
         elif event.key == "d":
             # Cycle through quantile-based dynamic ranges
             self._cycle_quantile_range()
+        elif event.key == " ":
+            # Toggle auto-play through current slice dimension
+            self._toggle_auto_play()
+            needs_redraw = False
         elif event.key in ["g", "v"]:
             self.save_movie(is_gif=(event.key == "g"))
             needs_redraw = False
