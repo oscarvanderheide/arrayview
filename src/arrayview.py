@@ -51,6 +51,21 @@ class ArrayView(object):
         fps=10,
         initial_slices=None,
     ):
+        # Check if the input is not a NumPy array and has a .numpy() method
+        if not isinstance(im, np.ndarray) and hasattr(im, "numpy"):
+            # It's likely a tensor-like object (e.g., PyTorch, TensorFlow)
+            # For PyTorch, it's good practice to detach and move to CPU first
+            if hasattr(im, "detach"):
+                im = im.detach()
+            if hasattr(im, "cpu"):
+                im = im.cpu()
+            im = im.numpy()
+
+        if not isinstance(im, np.ndarray):
+            raise TypeError(
+                f"Input must be a NumPy array or a tensor-like object, got {type(im)}"
+            )
+
         if im.ndim < 2:
             raise TypeError(f"Image dimension must at least be two, got {im.ndim}")
 
