@@ -22,13 +22,9 @@ standalone package for broader use.
 
 ### Installation
 
+This package is *not* published to PyPi. To add it as a dependency to your Python project, use the GitHub URL directly: 
+
 ```uv add "arrayview @ git+https://github.com/oscarvanderheide/arrayview"```
-
-### Command-Line Usage
-
-```sh
-uvx --from https://github.com/oscarvanderheide/arrayview.git arrayview example_array.nii.gz
-```
 
 ### Interactive Python Example
 
@@ -39,41 +35,30 @@ from arrayview import ArrayView
 ArrayView(np.random.rand(2, 4, 128, 128))
 ```
 
-### Scripting: Multiple Plots
+### Command-Line Usage
 
-```python
-import numpy as np
-from arrayview import ArrayView
-import matplotlib.pyplot as plt
+Instead of adding the package as a dependency to a Python project, it can be used as a command-line tool as well:
 
-ArrayView(np.random.rand(2, 4, 100, 100))
-ArrayView(np.random.rand(100, 100))
-# ... more plots ...
+```sh
+uvx --from https://github.com/oscarvanderheide/arrayview.git arrayview example_array.nii.gz
+```
 
-plt.show()  # Keeps all windows open until you close them
+This will automatically use the latest commit of the `main` branch on GitHub. It might be useful to make an alias, e.g.
+
+```sh
+alias av='uvx --from https://github.com/oscarvanderheide/arrayview.git arrayview'
 ```
 
 ---
 
 ## Hotkeys
 
-- `h` — Show/hide hotkey menu
-- `x/y/z` — Set current axis as x/y/z
-- `t` — Swap x and y axes
-- `c` — Cycle colormaps
-- Arrow keys — Change axis/slice
-- `a` — Toggle axes/labels
-- `m/p/r/i/l` — Magnitude/phase/real/imag/log mode
-- `s` — Save as PNG
-- `g/v` — Save as GIF/video
-- ...and more! (see in-app help)
+Press `h` to see hotkeys
 
 ---
 
 ## Notes
-- Supports `.nii.gz`, `.nii`, and `.npy` files from the command line.
-- All dependencies (including PyQt5) are installed automatically when using `uv add arrayview` or `uv pip install -e .`.
-
----
-
-Enjoy fast, keyboard-driven array exploration!
+- Supports `.nii.gz`, `.nii`, `.npy` and `.mat` files from the command line.
+- Supports `torch` tensors can be passed to `ArrayView` directly in interactive/scripting mode.
+- All dependencies (including PyQt5) are installed automatically when using `uv add "arrayview @ git+https://github.com/oscarvanderheide/arrayview"`.
+- Works over ssh (using the `-X` or `-Y` option)
