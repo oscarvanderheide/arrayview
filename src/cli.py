@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from pathlib import Path
 
@@ -69,21 +70,38 @@ def parse_slice_indices(slice_str, ndim):
     return {"slices": slices, "x": x_axis, "y": y_axis, "z": z_axis}
 
 
-def main():
-    """Command line interface for arrayview."""
-    if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: arrayview <filename> [slice_indices]")
-        print("Supported formats: .nii.gz, .nii, .npy, .mat")
-        print("Example: arrayview my_array.nii.gz")
-        print("Example: arrayview my_array.nii.gz 'x,y,10,0'")
-        print("Example: arrayview my_array.nii.gz ':,:,10,0'")
-        print("  - Use 'x', 'y', 'z' to specify display axes")
-        print("  - Use ':' for automatic axis assignment")
-        print("  - Use numbers for slice indices")
-        sys.exit(1)
+def spawn_viewer(filepath, slice_str=None):
+    """Spawn a new process to display the array viewer."""
+    # Check if we should spawn a new process or run directly
+    if "--direct" not in sys.argv:
+        # Spawn new process with --direct flag to avoid infinite recursion
+        cmd = [sys.executable, __file__, str(filepath)]
+        if slice_str:
+            cmd.append(slice_str)
+        cmd.append("--direct")
 
-    filepath = Path(sys.argv[1])
-    slice_str = sys.argv[2] if len(sys.argv) == 3 else None
+        try:
+            # Use subprocess.Popen to start detached process
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(f"ArrayView window spawned for: {filepath}")
+            print("You can run the command again to open additional windows.")
+            return
+        except Exception as e:
+            print(f"Failed to spawn process: {e}")
+            print("Falling back to direct execution...")
+
+    # Direct execution - this will block but only in the spawned process
+    run_viewer_direct(filepath, slice_str)
+
+
+def run_viewer_direct(filepath, slice_str=None):
+    """Run the viewer directly (this will block)."""
+    filepath = Path(filepath)
 
     if not filepath.exists():
         print(f"Error: File {filepath} does not exist")
@@ -245,6 +263,32 @@ def main():
         )
     else:
         av = ArrayView(array)
+
+
+def main():
+    """Command line interface for arrayview."""
+    if len(sys.argv) < 2:
+        print("Usage: arrayview <filename> [slice_indices]")
+        print("Supported formats: .nii.gz, .nii, .npy, .mat")
+        print("Example: arrayview my_array.nii.gz")
+        print("Example: arrayview my_array.nii.gz 'x,y,10,0'")
+        print("Example: arrayview my_array.nii.gz ':,:,10,0'")
+        print("  - Use 'x', 'y', 'z' to specify display axes")
+        print("  - Use ':' for automatic axis assignment")
+        print("  - Use numbers for slice indices")
+        sys.exit(1)
+
+    # Filter out --direct flag for argument parsing
+    filtered_args = [arg for arg in sys.argv[1:] if arg != "--direct"]
+
+    if len(filtered_args) < 1:
+        print("Error: filename required")
+        sys.exit(1)
+
+    filepath = filtered_args[0]
+    slice_str = filtered_args[1] if len(filtered_args) > 1 else None
+
+    spawn_viewer(filepath, slice_str)
 
 
 if __name__ == "__main__":
