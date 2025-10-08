@@ -101,11 +101,17 @@ def spawn_viewer(filepath, slice_str=None):
 
 def run_viewer_direct(filepath, slice_str=None):
     """Run the viewer directly (this will block)."""
+    import matplotlib.pyplot as plt
+
     filepath = Path(filepath)
 
     if not filepath.exists():
         print(f"Error: File {filepath} does not exist")
         sys.exit(1)
+
+    # Create an empty viewer window first
+    av = ArrayView(im=None, title=f"Loading {filepath.name}...")
+    plt.pause(0.01)  # Allow GUI to render
 
     # Load data based on file extension
     if filepath.suffix == ".gz" or filepath.suffix == ".nii":
@@ -238,12 +244,14 @@ def run_viewer_direct(filepath, slice_str=None):
             print(f"Error parsing slice indices: {e}")
             sys.exit(1)
 
-    # Create ArrayView with slice configuration
-    if slice_config:
-        # Prepare initial slices with default middle values
-        initial_slices = [s // 2 for s in array.shape]
+    # Prepare initial slices and axes
+    initial_slices = [s // 2 for s in array.shape]
+    x_axis, y_axis, z_axis = -1, -2, None
 
-        # Update with specified slice indices
+    if slice_config:
+        x_axis = slice_config.get("x", x_axis)
+        y_axis = slice_config.get("y", y_axis)
+        z_axis = slice_config.get("z", z_axis)
         for i, slice_idx in enumerate(slice_config["slices"]):
             if slice_idx is not None:
                 if slice_idx < array.shape[i]:
@@ -253,16 +261,13 @@ def run_viewer_direct(filepath, slice_str=None):
                         f"Warning: slice index {slice_idx} exceeds dimension {i} size {array.shape[i]}"
                     )
 
-        # Create ArrayView with initial slices
-        av = ArrayView(
-            array,
-            x=slice_config["x"],
-            y=slice_config["y"],
-            z=slice_config["z"],
-            initial_slices=initial_slices,
-        )
-    else:
-        av = ArrayView(array)
+    # Update viewer with loaded data
+    av.x, av.y, av.z = x_axis, y_axis, z_axis
+    av.title = filepath.name
+    av.set_data(array, initial_slices=initial_slices)
+
+    # Keep the plot window open and responsive
+    plt.show()
 
 
 def main():

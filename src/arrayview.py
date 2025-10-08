@@ -51,37 +51,16 @@ class ArrayView(object):
         fps=10,
         initial_slices=None,
     ):
-        # Check if the input is not a NumPy array and has a .numpy() method
-        if not isinstance(im, np.ndarray) and hasattr(im, "numpy"):
-            # It's likely a tensor-like object (e.g., PyTorch, TensorFlow)
-            # For PyTorch, it's good practice to detach and move to CPU first
-            if hasattr(im, "detach"):
-                im = im.detach()
-            if hasattr(im, "cpu"):
-                im = im.cpu()
-            im = im.numpy()
-
-        if not isinstance(im, np.ndarray):
-            raise TypeError(
-                f"Input must be a NumPy array or a tensor-like object, got {type(im)}"
-            )
-
-        if im.ndim < 2:
-            raise TypeError(f"Image dimension must at least be two, got {im.ndim}")
-
-        self.im = im
-        self.shape = self.im.shape
-        self.ndim = self.im.ndim
-        if initial_slices is not None:
-            self.slices = list(initial_slices)
-        else:
-            self.slices = [s // 2 for s in self.shape]
-        self.flips = [1] * self.ndim
-        self.x = x % self.ndim
-        self.y = y % self.ndim
-        self.z = z % self.ndim if z is not None else None
-        self.c = c % self.ndim if c is not None else None
-        self.d = max(self.ndim - 3, 0)
+        self.im = None  # Defer image loading
+        self.shape = []
+        self.ndim = 0
+        self.slices = []
+        self.flips = []
+        self.x = x
+        self.y = y
+        self.z = z
+        self.c = c
+        self.d = 0
         self.hide_axes = hide_axes
         self.show_help = False
         self.title = title
@@ -114,6 +93,10 @@ class ArrayView(object):
 
         self.fig = plt.figure()
         self.ax = self.fig.add_subplot(111)
+        self.ax.set_title("Loading...")
+        self.ax.xaxis.set_visible(False)
+        self.ax.yaxis.set_visible(False)
+
         self.axim = None
         self.help_text = None
         self.colorbar = None
@@ -127,10 +110,48 @@ class ArrayView(object):
         self.fig.canvas.mpl_connect("draw_event", self._on_draw)
         self.fig.canvas.mpl_connect("resize_event", self._on_resize)
         self.fig.canvas.mpl_connect("close_event", self._on_close)
-        self.fig.canvas.mpl_connect("close_event", self._on_close)
+
+        plt.show(block=False)
+        self.fig.canvas.draw_idle()
+
+        if im is not None:
+            self.set_data(im, initial_slices)
+
+    def set_data(self, im, initial_slices=None):
+        """Set or update the array data and initialize settings."""
+        # Check if the input is not a NumPy array and has a .numpy() method
+        if not isinstance(im, np.ndarray) and hasattr(im, "numpy"):
+            # It's likely a tensor-like object (e.g., PyTorch, TensorFlow)
+            # For PyTorch, it's good practice to detach and move to CPU first
+            if hasattr(im, "detach"):
+                im = im.detach()
+            if hasattr(im, "cpu"):
+                im = im.cpu()
+            im = im.numpy()
+
+        if not isinstance(im, np.ndarray):
+            raise TypeError(
+                f"Input must be a NumPy array or a tensor-like object, got {type(im)}"
+            )
+
+        if im.ndim < 2:
+            raise TypeError(f"Image dimension must at least be two, got {im.ndim}")
+
+        self.im = im
+        self.shape = self.im.shape
+        self.ndim = self.im.ndim
+        if initial_slices is not None:
+            self.slices = list(initial_slices)
+        else:
+            self.slices = [s // 2 for s in self.shape]
+        self.flips = [1] * self.ndim
+        self.x = self.x % self.ndim
+        self.y = self.y % self.ndim
+        self.z = self.z % self.ndim if self.z is not None else None
+        self.c = self.c % self.ndim if self.c is not None else None
+        self.d = max(self.ndim - 3, 0)
 
         self.update_all()
-        plt.show(block=True)
 
     def _smart_round(self, value):
         """Smart formatting with appropriate decimal places, no scientific notation."""
@@ -326,6 +347,11 @@ class ArrayView(object):
             self.fig.canvas.flush_events()
 
     def key_press(self, event):
+        if self.im is None:
+            if event.key == "q":
+                plt.close(self.fig)
+            return
+
         # Use update_all for up/down to ensure title updates correctly
         if event.key == "up":
             if self.d not in [self.x, self.y, self.z, self.c]:
