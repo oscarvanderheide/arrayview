@@ -111,7 +111,6 @@ def run_viewer_direct(filepath, slice_str=None):
 
     # Create an empty viewer window first
     av = ArrayView(im=None, title=f"Loading {filepath.name}...")
-    plt.pause(0.01)  # Allow GUI to render
 
     # Load data based on file extension
     if filepath.suffix == ".gz" or filepath.suffix == ".nii":
