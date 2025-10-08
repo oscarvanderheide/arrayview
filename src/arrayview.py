@@ -113,6 +113,7 @@ class ArrayView(object):
 
         plt.show(block=False)
         self.fig.canvas.draw_idle()
+        plt.pause(0.01)  # Allow GUI to render
 
         if im is not None:
             self.set_data(im, initial_slices)
