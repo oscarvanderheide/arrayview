@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -82,12 +83,16 @@ def spawn_viewer(filepath, slice_str=None):
 
         try:
             # Use subprocess.Popen to start detached process
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            # Log stdout/stderr to a file for debugging
+            log_file = Path.home() / ".arrayview.log"
+            with open(log_file, "a") as f:
+                subprocess.Popen(
+                    cmd,
+                    stdout=f,
+                    stderr=f,
+                    start_new_session=True,
+                    env=os.environ,
+                )
             print(f"ArrayView window spawned for: {filepath}")
             print("You can run the command again to open additional windows.")
             return
