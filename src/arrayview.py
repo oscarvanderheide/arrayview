@@ -91,7 +91,7 @@ class ArrayView(object):
         self.auto_play_timer = None
         self.auto_play_interval = 200  # milliseconds between frames
 
-        self.fig = plt.figure()
+        self.fig = plt.figure(self.title)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_title("Loading...")
         self.ax.xaxis.set_visible(False)
@@ -153,6 +153,26 @@ class ArrayView(object):
         self.d = max(self.ndim - 3, 0)
 
         self.update_all()
+
+        # Try multiple methods to set window title
+        try:
+            # Method 1: Direct figure canvas manager
+            if hasattr(self.fig.canvas, "manager") and hasattr(
+                self.fig.canvas.manager, "set_window_title"
+            ):
+                self.fig.canvas.manager.set_window_title(self.title)
+            # Method 2: Canvas set_window_title
+            elif hasattr(self.fig.canvas, "set_window_title"):
+                self.fig.canvas.set_window_title(self.title)
+            # Method 3: Figure suptitle as fallback
+            else:
+                self.fig.suptitle(self.title, fontsize=14, fontweight="bold")
+        except Exception:
+            # Final fallback - set as figure title
+            self.fig.suptitle(self.title, fontsize=14, fontweight="bold")
+
+        plt.draw()
+        plt.show(block=False)
 
     def _smart_round(self, value):
         """Smart formatting with appropriate decimal places, no scientific notation."""
