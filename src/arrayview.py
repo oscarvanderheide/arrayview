@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import qmricolors
 
 __all__ = ["ArrayView"]
 
@@ -66,7 +67,7 @@ class ArrayView(object):
         self.title = title
         self.interpolation = interpolation
         self.mode = mode
-        self.colormaps = ["gray", "viridis", "RdBu_r", "magma"]
+        self.colormaps = ["gray", "lipari", "navia", "RdBu_r"]
         self.colormap_idx = 0
         if colormap is not None:
             try:
