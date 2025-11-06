@@ -217,14 +217,20 @@ class ArrayView(object):
         self.quantile_cycle = (self.quantile_cycle + 1) % len(quantile_settings)
         lower_pct, upper_pct, desc = quantile_settings[self.quantile_cycle]
 
+        # Use NaN-aware functions to handle arrays with NaN values
         if lower_pct == 0 and upper_pct == 100:
-            # Full range
-            self.vmin = imv.min()
-            self.vmax = imv.max()
+            # Full range - use nanmin/nanmax to ignore NaN values
+            self.vmin = np.nanmin(imv)
+            self.vmax = np.nanmax(imv)
         else:
-            # Calculate quantiles
-            self.vmin = np.percentile(imv, lower_pct)
-            self.vmax = np.percentile(imv, upper_pct)
+            # Calculate quantiles - use nanpercentile to ignore NaN values
+            self.vmin = np.nanpercentile(imv, lower_pct)
+            self.vmax = np.nanpercentile(imv, upper_pct)
+
+        # Handle edge case where all values are NaN
+        if np.isnan(self.vmin) or np.isnan(self.vmax):
+            self.vmin, self.vmax = 0.0, 1.0
+            desc += " (all NaN, using fallback range)"
 
         # Brief visual feedback (could be enhanced with a temporary text display)
         print(
@@ -615,9 +621,15 @@ class ArrayView(object):
             )
 
         if self.vmin is None:
-            self.vmin = imv.min()
+            self.vmin = np.nanmin(imv)
+            # Handle edge case where all values are NaN
+            if np.isnan(self.vmin):
+                self.vmin = 0.0
         if self.vmax is None:
-            self.vmax = imv.max()
+            self.vmax = np.nanmax(imv)
+            # Handle edge case where all values are NaN
+            if np.isnan(self.vmax):
+                self.vmax = 1.0
 
         if self.axim is None:
             self.axim = self.ax.imshow(
