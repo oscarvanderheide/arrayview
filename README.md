@@ -1,12 +1,12 @@
-# ndviewer
+# arrayview
 
 Lightning-fast browser-based viewer for multi-dimensional scientific arrays (MRI, fMRI, etc.).
 Works locally and over VS Code tunnels / SSH port-forwarding.
 
 ```bash
-uvx ndviewer data.npy
-uvx ndviewer scan.nii.gz
-uvx ndviewer volume.zarr
+uvx arrayview data.npy
+uvx arrayview scan.nii.gz
+uvx arrayview volume.zarr
 ```
 
 ---
@@ -24,7 +24,7 @@ When you press `j` to scroll to the next slice, a viewer has to:
 
 Steps 2–4 are fast — a few milliseconds on any modern CPU.
 Step 1 — **disk I/O** — is the killer. An SSD can do ~500 MB/s, but a single 256×256 float32
-slice is only ~256 KB. The latency to *start* a read (seek time + OS overhead) is easily
+slice is only ~256 KB. The latency to _start_ a read (seek time + OS overhead) is easily
 10–30 ms. That's enough to make scrolling feel laggy.
 
 ### Fix 1 — preload everything into RAM on startup
@@ -84,31 +84,31 @@ which transfers in < 1 ms on localhost.
 
 ## Keybindings
 
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | previous slice |
-| `k` / `↑` | next slice |
-| `h` / `←` | previous slice dimension |
-| `l` / `→` | next slice dimension |
-| `x` | swap horizontal dim with slice dim |
-| `y` | swap vertical dim with slice dim |
-| `Space` | toggle auto-play |
-| `z` | toggle grid (mosaic of all slices) |
-| `c` | cycle colormap (gray / viridis / plasma / RdBu_r) |
-| `d` | cycle dynamic range (0–100% / 1–99% / 5–95% / 10–90%) |
-| `s` | save screenshot (PNG) |
-| `g` | save GIF of current slice dimension |
-| scroll | scroll through slices |
-| `?` | toggle help overlay |
+| Key       | Action                                                |
+| --------- | ----------------------------------------------------- |
+| `j` / `↓` | previous slice                                        |
+| `k` / `↑` | next slice                                            |
+| `h` / `←` | previous slice dimension                              |
+| `l` / `→` | next slice dimension                                  |
+| `x`       | swap horizontal dim with slice dim                    |
+| `y`       | swap vertical dim with slice dim                      |
+| `Space`   | toggle auto-play                                      |
+| `z`       | toggle grid (mosaic of all slices)                    |
+| `c`       | cycle colormap (gray / viridis / plasma / RdBu_r)     |
+| `d`       | cycle dynamic range (0–100% / 1–99% / 5–95% / 10–90%) |
+| `s`       | save screenshot (PNG)                                 |
+| `g`       | save GIF of current slice dimension                   |
+| scroll    | scroll through slices                                 |
+| `?`       | toggle help overlay                                   |
 
 ---
 
 ## Supported formats
 
-| Format | Notes |
-|--------|-------|
-| `.npy` | NumPy array (memory-mapped, no full load on startup) |
-| `.nii`, `.nii.gz` | NIfTI (nibabel, memory-mapped) |
+| Format               | Notes                                                       |
+| -------------------- | ----------------------------------------------------------- |
+| `.npy`               | NumPy array (memory-mapped, no full load on startup)        |
+| `.nii`, `.nii.gz`    | NIfTI (nibabel, memory-mapped)                              |
 | `.zarr`, `.zarr.zip` | Zarr array (chunked, good for arrays that don't fit in RAM) |
 
 ---
@@ -117,11 +117,11 @@ which transfers in < 1 ms on localhost.
 
 ```bash
 # Run directly without installing (requires uv)
-uvx ndviewer myfile.npy
+uvx arrayview myfile.npy
 
 # Or install into a virtualenv
-pip install ndviewer
-ndviewer myfile.npy --port 8001
+pip install arrayview
+arrayview myfile.npy --port 8001
 ```
 
 ---

@@ -21,10 +21,10 @@ dependencies = [
 ]
 
 [project.scripts]
-ndviewer = "ndviewer._app:main"
+arrayview = "arrayview._app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ndviewer"]
+packages = ["src/arrayview"]
 
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
