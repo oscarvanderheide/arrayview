@@ -1529,7 +1529,7 @@ def view(data, port: int = 8123, inline: bool | None = None, height: int = 500):
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
-def main():
+def arrayview():
     global DATA, SHAPE, _data_filepath
 
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
