@@ -747,7 +747,7 @@ def get_ui():
         """<!DOCTYPE html>
 <html>
 <head>
-    <title>NDViewer</title>
+    <title>ArrayView</title>
     <style>
         :root {
             --bg: #111; --surface: #1e1e1e; --border: #444;
@@ -1491,7 +1491,7 @@ def view(data, port: int = 8123, inline: bool | None = None, height: int = 500):
     Examples
     --------
     >>> import numpy as np
-    >>> from ndviewer import view
+    >>> from arrayview import view
     >>> view(np.random.rand(64, 64, 30))          # auto-detects Jupyter
     >>> view("scan.nii.gz", port=8124)            # new port for a second array
     """
