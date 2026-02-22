@@ -21,8 +21,8 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 DATA = None
 SHAPE = None
 GLOBAL_STATS = {}  # {dr_idx: (vmin, vmax)} sampled once at startup
-_data_filepath: str | None = None   # set when data is loaded from a file
-_fft_original_data = None           # stored before FFT so we can toggle back
+_data_filepath: str | None = None  # set when data is loaded from a file
+_fft_original_data = None  # stored before FFT so we can toggle back
 _fft_axes: tuple | None = None
 
 COLORMAPS = ["gray", "lipari", "navia", "viridis", "plasma", "RdBu_r"]
@@ -48,11 +48,13 @@ def _lut_to_gradient_stops(lut, n=32):
 
 
 # 32-stop RGB gradient for each colormap (embedded in the JS for colorbar drawing)
-COLORMAP_GRADIENT_STOPS = {name: _lut_to_gradient_stops(LUTS[name]) for name in COLORMAPS}
+COLORMAP_GRADIENT_STOPS = {
+    name: _lut_to_gradient_stops(LUTS[name]) for name in COLORMAPS
+}
 
 # Complex-mode labels.  For complex data all 4 are valid; for real data only the first 2.
 COMPLEX_MODES = ["mag", "phase", "real", "imag"]
-REAL_MODES    = ["real", "mag"]
+REAL_MODES = ["real", "mag"]
 
 app = FastAPI()
 
@@ -238,7 +240,9 @@ def render_rgba(dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale
     return rgba
 
 
-def render_mosaic(dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode=0, log_scale=False):
+def render_mosaic(
+    dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode=0, log_scale=False
+):
     """Return cached RGBA mosaic of all dim_z slices."""
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0  # dim_z position in idx doesn't affect the mosaic
@@ -289,7 +293,18 @@ def render_mosaic(dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode=0, 
     return rgba
 
 
-def _run_preload(gen, dim_x, dim_y, idx_list, colormap, dr, slice_dim, dim_z=-1, complex_mode=0, log_scale=False):
+def _run_preload(
+    gen,
+    dim_x,
+    dim_y,
+    idx_list,
+    colormap,
+    dr,
+    slice_dim,
+    dim_z=-1,
+    complex_mode=0,
+    log_scale=False,
+):
     """Background thread: pre-render every slice of slice_dim into cache."""
     global _preload_done, _preload_total, _preload_skipped, _RGBA_CACHE_MAX
 
@@ -319,7 +334,9 @@ def _run_preload(gen, dim_x, dim_y, idx_list, colormap, dr, slice_dim, dim_z=-1,
         idx = list(idx_list)
         idx[slice_dim] = i
         if dim_z >= 0:
-            render_mosaic(dim_x, dim_y, dim_z, tuple(idx), colormap, dr, complex_mode, log_scale)
+            render_mosaic(
+                dim_x, dim_y, dim_z, tuple(idx), colormap, dr, complex_mode, log_scale
+            )
         else:
             render_rgba(dim_x, dim_y, tuple(idx), colormap, dr, complex_mode, log_scale)
         with _preload_lock:
@@ -376,11 +393,28 @@ async def websocket_endpoint(ws: WebSocket):
             # Run blocking numpy work in a thread so the receiver stays live
             if dim_z >= 0:
                 rgba = await loop.run_in_executor(
-                    None, render_mosaic, dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode, log_scale
+                    None,
+                    render_mosaic,
+                    dim_x,
+                    dim_y,
+                    dim_z,
+                    idx_tuple,
+                    colormap,
+                    dr,
+                    complex_mode,
+                    log_scale,
                 )
             else:
                 rgba = await loop.run_in_executor(
-                    None, render_rgba, dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale
+                    None,
+                    render_rgba,
+                    dim_x,
+                    dim_y,
+                    idx_tuple,
+                    colormap,
+                    dr,
+                    complex_mode,
+                    log_scale,
                 )
 
             # Another request may have arrived while we were rendering — send
@@ -420,10 +454,25 @@ async def websocket_endpoint(ws: WebSocket):
                                 idx[slice_dim] = nxt
                                 if dim_z >= 0:
                                     render_mosaic(
-                                        dim_x, dim_y, dim_z, tuple(idx), colormap, dr, complex_mode, log_scale
+                                        dim_x,
+                                        dim_y,
+                                        dim_z,
+                                        tuple(idx),
+                                        colormap,
+                                        dr,
+                                        complex_mode,
+                                        log_scale,
                                     )
                                 else:
-                                    render_rgba(dim_x, dim_y, tuple(idx), colormap, dr, complex_mode, log_scale)
+                                    render_rgba(
+                                        dim_x,
+                                        dim_y,
+                                        tuple(idx),
+                                        colormap,
+                                        dr,
+                                        complex_mode,
+                                        log_scale,
+                                    )
 
                     loop.run_in_executor(None, _prefetch)
 
@@ -464,7 +513,18 @@ async def start_preload(request: Request):
     gen = _preload_gen
     threading.Thread(
         target=_run_preload,
-        args=(gen, dim_x, dim_y, idx_list, colormap, dr, slice_dim, dim_z, complex_mode, log_scale),
+        args=(
+            gen,
+            dim_x,
+            dim_y,
+            idx_list,
+            colormap,
+            dr,
+            slice_dim,
+            dim_z,
+            complex_mode,
+            log_scale,
+        ),
         daemon=True,
     ).start()
     return {"status": "started"}
@@ -486,7 +546,9 @@ def get_metadata():
 
 
 @app.get("/pixel")
-def get_pixel(dim_x: int, dim_y: int, indices: str, px: int, py: int, complex_mode: int = 0):
+def get_pixel(
+    dim_x: int, dim_y: int, indices: str, px: int, py: int, complex_mode: int = 0
+):
     """Return the displayed data value at canvas pixel (px, py) for the current slice."""
     idx_tuple = tuple(int(x) for x in indices.split(","))
     raw = extract_slice(dim_x, dim_y, list(idx_tuple))
@@ -557,7 +619,11 @@ async def toggle_fft(request: Request):
     _rgba_cache.clear()
     _mosaic_cache.clear()
     compute_global_stats()
-    return {"status": "fft_applied", "axes": list(axes), "is_complex": bool(np.iscomplexobj(DATA))}
+    return {
+        "status": "fft_applied",
+        "axes": list(axes),
+        "is_complex": bool(np.iscomplexobj(DATA)),
+    }
 
 
 @app.get("/slice")
