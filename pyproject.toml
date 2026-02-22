@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-arrayview = "arrayview._app:view"
+arrayview = "arrayview._app:arrayview"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arrayview"]
