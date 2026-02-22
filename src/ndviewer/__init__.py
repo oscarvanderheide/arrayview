@@ -1,3 +1,3 @@
 __version__ = "0.1.0"
 
-from arrayview._app import view  # noqa: F401
+from arrayview._app import arrayview, view  # noqa: F401
