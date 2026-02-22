@@ -1,19 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "arrayview"
+name = "ndviewer"
 version = "0.1.0"
+description = "Lightning-fast ND array viewer in the browser"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "h5py>=3.14.0",
-    "matplotlib>=3.10.3",
-    "nibabel>=5.3.2",
-    "numpy>=2.3.1",
-    "pyqt5>=5.15.11",
+    "fastapi>=0.129.0",
+    "matplotlib>=3.9.0",
+    "nibabel>=5.3.3",
+    "numpy>=2.4.2",
+    "pillow>=12.1.1",
     "qmricolors",
-    "scipy>=1.16.2",
+    "uvicorn>=0.41.0",
+    "websockets>=14.0",
+    "zarr>=2.17",
 ]
 
 [project.scripts]
-arrayview = "cli:main"
+ndviewer = "ndviewer._app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ndviewer"]
 
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
