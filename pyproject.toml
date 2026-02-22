@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ndviewer"
-version = "0.1.0"
+name = "arrayview"
+version = "0.2.0"
 description = "Lightning-fast ND array viewer in the browser"
 readme = "README.md"
 requires-python = ">=3.12"
