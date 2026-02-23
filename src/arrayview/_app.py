@@ -1479,7 +1479,7 @@ def view(
     height: int = 500,
     window: bool = True,
 ):
-    """View an ND array inline in Jupyter or in a browser window.
+    """View an ND array inline in Jupyter or in a native window.
 
     Parameters
     ----------
@@ -1489,24 +1489,38 @@ def view(
         Local port for the FastAPI server (default 8123).
     inline:
         ``True``  – embed an IFrame in the Jupyter cell output.
-        ``False`` – open a browser window (blocking, like the CLI).
-        ``None``  – auto-detect: inline when inside Jupyter, browser otherwise.
+        ``False`` – open an external viewer (native window or browser).
+        ``None``  – auto-detect: inline when inside Jupyter, external otherwise.
     height:
         IFrame height in pixels (inline mode only).
+    window:
+        ``True`` – prefer a native pywebview window. In Jupyter this overrides
+        the inline auto-detection and opens a native window when requested.
+        In non-Jupyter (regular Python) sessions a native window is preferred
+        by default. If ``pywebview`` is not available or fails to start, the
+        code falls back to opening the system web browser.
 
     Examples
     --------
     >>> import numpy as np
     >>> from arrayview import view
-    >>> view(np.random.rand(64, 64, 30))          # auto-detects Jupyter
-    >>> view("scan.nii.gz", port=8124)            # new port for a second array
+    >>> view(np.random.rand(64, 64, 30))               # auto-detects Jupyter
+    >>> view(np.random.rand(64, 64, 30), window=True)  # force native window
+    >>> view("scan.nii.gz", port=8124)               # new port for a second array
     """
     global _jupyter_server_port
 
     _set_data(data)
 
+    # Detect Jupyter once and use it to decide inline vs native window.
+    is_jupyter = _in_jupyter()
     if inline is None:
-        inline = _in_jupyter()
+        inline = is_jupyter
+
+    # If caller explicitly requested a native window, prefer that over inline
+    # detection (useful when calling from Jupyter/interactive).
+    if window:
+        inline = False
 
     url = f"http://127.0.0.1:{port}"
 
@@ -1530,8 +1544,46 @@ def view(
 
         return IFrame(src=url, width="100%", height=height)
     else:
-        # Non-inline: either open in a browser tab or a dedicated native window
-        if window:
+        # Non-inline: behavior depends on environment and `window` flag.
+        # In Jupyter: default is inline. If caller requested `window=True` we
+        # forced `inline=False` above and will open a pywebview window; otherwise
+        # in Jupyter we fall back to a browser tab.
+        if is_jupyter:
+            if window:
+                try:
+                    import webview
+                except Exception:
+                    print("pywebview not installed; falling back to browser tab.")
+                    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+                    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+                    return
+
+                threading.Thread(
+                    target=lambda: asyncio.run(_serve_background(port)),
+                    daemon=True,
+                ).start()
+                _wait_for_port(port)
+                try:
+                    webview.create_window(
+                        "ArrayView",
+                        url,
+                        width=1200,
+                        height=800,
+                        background_color="#000000",
+                    )
+                    webview.start()
+                except Exception as e:
+                    print(
+                        "pywebview failed to open window, falling back to browser:", e
+                    )
+                    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+                    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+            else:
+                # Explicit non-inline in Jupyter: open browser tab (blocking)
+                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        else:
+            # Non-Jupyter (normal python sessions): prefer pywebview always.
             try:
                 import webview
             except Exception:
@@ -1540,27 +1592,24 @@ def view(
                 uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
                 return
 
-            # Start the server in a background thread and open a native window.
             threading.Thread(
                 target=lambda: asyncio.run(_serve_background(port)),
                 daemon=True,
             ).start()
             _wait_for_port(port)
             try:
-                # Use fullscreen with a black background; this provides a dedicated
-                # window similar to the browser-tab UI but without browser chrome.
                 webview.create_window(
-                    "ArrayView", url, fullscreen=True, background_color="#000000"
+                    "ArrayView",
+                    url,
+                    width=1200,
+                    height=800,
+                    background_color="#000000",
                 )
                 webview.start()
             except Exception as e:
                 print("pywebview failed to open window, falling back to browser:", e)
                 threading.Timer(0.5, lambda: webbrowser.open(url)).start()
                 uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-        else:
-            # Blocking browser mode (same as CLI).
-            threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-            uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def arrayview():
