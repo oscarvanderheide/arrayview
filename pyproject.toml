@@ -14,6 +14,7 @@ dependencies = [
     "nibabel>=5.3.3",
     "numpy>=2.4.2",
     "pillow>=12.1.1",
+    "pywebview>=6.1",
     "qmricolors",
     "uvicorn>=0.41.0",
     "websockets>=14.0",
@@ -28,3 +29,8 @@ packages = ["src/arrayview"]
 
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.2.0",
+]

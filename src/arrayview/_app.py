@@ -1472,7 +1472,13 @@ def _set_data(data):
     compute_global_stats()
 
 
-def view(data, port: int = 8123, inline: bool | None = None, height: int = 500):
+def view(
+    data,
+    port: int = 8123,
+    inline: bool | None = None,
+    height: int = 500,
+    window: bool = True,
+):
     """View an ND array inline in Jupyter or in a browser window.
 
     Parameters
@@ -1524,9 +1530,37 @@ def view(data, port: int = 8123, inline: bool | None = None, height: int = 500):
 
         return IFrame(src=url, width="100%", height=height)
     else:
-        # Blocking browser mode (same as CLI).
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        # Non-inline: either open in a browser tab or a dedicated native window
+        if window:
+            try:
+                import webview
+            except Exception:
+                print("pywebview not installed; falling back to browser tab.")
+                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+                return
+
+            # Start the server in a background thread and open a native window.
+            threading.Thread(
+                target=lambda: asyncio.run(_serve_background(port)),
+                daemon=True,
+            ).start()
+            _wait_for_port(port)
+            try:
+                # Use fullscreen with a black background; this provides a dedicated
+                # window similar to the browser-tab UI but without browser chrome.
+                webview.create_window(
+                    "ArrayView", url, fullscreen=True, background_color="#000000"
+                )
+                webview.start()
+            except Exception as e:
+                print("pywebview failed to open window, falling back to browser:", e)
+                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        else:
+            # Blocking browser mode (same as CLI).
+            threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+            uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def arrayview():
