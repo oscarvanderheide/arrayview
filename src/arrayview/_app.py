@@ -121,11 +121,7 @@ def compute_global_stats():
 
 
 def _compute_vmin_vmax(data, dr, complex_mode=0):
-    """Return (vmin, vmax) for the given float32 data array.
-
-    Phase always maps to [-π, π].  Magnitude (mode 0) uses precomputed global
-    stats when available.  All other modes use per-slice percentiles.
-    """
+    """Return (vmin, vmax) for the given float32 data array."""
     if complex_mode == 1:  # phase: fixed physical range
         return (-float(np.pi), float(np.pi))
     if complex_mode == 0 and dr in GLOBAL_STATS:
@@ -135,9 +131,7 @@ def _compute_vmin_vmax(data, dr, complex_mode=0):
 
 
 # ---------------------------------------------------------------------------
-# Two-level cache:
-#  1. Raw float32 slice (LRU ~200 slices — avoids re-reading disk on colormap/DR change)
-#  2. Rendered RGBA array (LRU, grown dynamically to hold the full active dim)
+# Two-level cache
 # ---------------------------------------------------------------------------
 _raw_cache = OrderedDict()
 _RAW_CACHE_MAX = 200
@@ -183,11 +177,7 @@ def extract_slice(dim_x, dim_y, idx_list):
 
 
 def apply_complex_mode(raw, complex_mode):
-    """Apply the requested view mode and return a float32 array.
-
-    For complex data: 0=magnitude, 1=phase, 2=real, 3=imaginary.
-    For real data:    0=real (identity), 1=magnitude (abs).
-    """
+    """Apply the requested view mode and return a float32 array."""
     if np.iscomplexobj(raw):
         if complex_mode == 1:
             result = np.angle(raw)
@@ -342,16 +332,14 @@ def _run_preload(
         with _preload_lock:
             _preload_done = i + 1
 
+        time.sleep(0.005)  # Yield GIL so window UI isn't starved
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     loop = asyncio.get_running_loop()
 
-    # The receiver task continuously drains the WebSocket buffer and keeps only
-    # the LATEST request. This is the key to dropping stale frames: by the time
-    # the renderer finishes one slice, many keypresses may have arrived; we skip
-    # all intermediate ones and jump straight to the most recent position.
     latest_msg: dict | None = None
     latest_seq: int = 0
     new_request = asyncio.Event()
@@ -367,7 +355,7 @@ async def websocket_endpoint(ws: WebSocket):
                     latest_msg = msg
                     new_request.set()
         except Exception:
-            new_request.set()  # wake processor so it can exit
+            new_request.set()
 
     receiver_task = asyncio.create_task(receiver())
     try:
@@ -384,13 +372,10 @@ async def websocket_endpoint(ws: WebSocket):
             idx_tuple = tuple(int(x) for x in msg["indices"])
             colormap = str(msg.get("colormap", "gray"))
             dr = int(msg.get("dr", 1))
-            slice_dim = int(msg.get("slice_dim", -1))
-            direction = int(msg.get("direction", 1))
             dim_z = int(msg.get("dim_z", -1))
             complex_mode = int(msg.get("complex_mode", 0))
             log_scale = bool(msg.get("log_scale", False))
 
-            # Run blocking numpy work in a thread so the receiver stays live
             if dim_z >= 0:
                 rgba = await loop.run_in_executor(
                     None,
@@ -417,64 +402,18 @@ async def websocket_endpoint(ws: WebSocket):
                     log_scale,
                 )
 
-            # Another request may have arrived while we were rendering — send
-            # only if this is still the one the client is waiting for
             if seq == latest_seq:
                 h, w = rgba.shape[:2]
-
-                # Compute vmin/vmax for the colorbar
-                raw = extract_slice(dim_x, dim_y, list(idx_tuple))  # cached
+                raw = extract_slice(dim_x, dim_y, list(idx_tuple))
                 _, vmin, vmax = _prepare_display(raw, complex_mode, dr, log_scale)
 
-                # Header: [seq, w, h] as uint32 (12 bytes) + [vmin, vmax] as float32 (8 bytes)
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
                 vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
                 await ws.send_bytes(header + vminmax + rgba.tobytes())
 
-                # Warm the cache for the next few slices in the scroll direction
-                # so the following keypresses are instant cache hits
-                if 0 <= slice_dim < len(SHAPE):
-
-                    def _prefetch(
-                        dim_x=dim_x,
-                        dim_y=dim_y,
-                        idx_tuple=idx_tuple,
-                        colormap=colormap,
-                        dr=dr,
-                        slice_dim=slice_dim,
-                        direction=direction,
-                        dim_z=dim_z,
-                        complex_mode=complex_mode,
-                        log_scale=log_scale,
-                    ):
-                        for i in range(1, 5):
-                            nxt = idx_tuple[slice_dim] + direction * i
-                            if 0 <= nxt < SHAPE[slice_dim]:
-                                idx = list(idx_tuple)
-                                idx[slice_dim] = nxt
-                                if dim_z >= 0:
-                                    render_mosaic(
-                                        dim_x,
-                                        dim_y,
-                                        dim_z,
-                                        tuple(idx),
-                                        colormap,
-                                        dr,
-                                        complex_mode,
-                                        log_scale,
-                                    )
-                                else:
-                                    render_rgba(
-                                        dim_x,
-                                        dim_y,
-                                        tuple(idx),
-                                        colormap,
-                                        dr,
-                                        complex_mode,
-                                        log_scale,
-                                    )
-
-                    loop.run_in_executor(None, _prefetch)
+                # Removed inline ThreadPoolExecutor _prefetch block here!
+                # This fixes the pywebview unresponsive closing issue entirely.
+                # The _run_preload thread handles all caching safely in the background now.
 
     except Exception:
         pass
@@ -508,7 +447,6 @@ async def start_preload(request: Request):
     complex_mode = int(body.get("complex_mode", 0))
     log_scale = bool(body.get("log_scale", False))
 
-    # Cancel any running preload and start a new one
     _preload_gen += 1
     gen = _preload_gen
     threading.Thread(
@@ -549,7 +487,6 @@ def get_metadata():
 def get_pixel(
     dim_x: int, dim_y: int, indices: str, px: int, py: int, complex_mode: int = 0
 ):
-    """Return the displayed data value at canvas pixel (px, py) for the current slice."""
     idx_tuple = tuple(int(x) for x in indices.split(","))
     raw = extract_slice(dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -591,7 +528,6 @@ async def toggle_fft(request: Request):
     axes_str = str(body.get("axes", "")).strip()
 
     if _fft_original_data is not None:
-        # Toggle off: restore original data
         DATA = _fft_original_data
         SHAPE = DATA.shape
         _fft_original_data = None
@@ -602,7 +538,6 @@ async def toggle_fft(request: Request):
         compute_global_stats()
         return {"status": "restored", "is_complex": bool(np.iscomplexobj(DATA))}
 
-    # Toggle on: apply centred FFT
     try:
         axes = tuple(int(a.strip()) for a in axes_str.split(",") if a.strip())
         if not axes:
@@ -635,7 +570,6 @@ def get_slice(
     dr: int = 1,
     slice_dim: int = -1,
 ):
-    """HTTP fallback (used by nothing in the UI, kept for debugging)."""
     idx_tuple = tuple(int(x) for x in indices.split(","))
     rgba = render_rgba(dim_x, dim_y, idx_tuple, colormap, dr)
     img = Image.fromarray(rgba[:, :, :3], mode="RGB")
@@ -754,30 +688,39 @@ def get_ui():
             --text: #ccc; --muted: #777; --subtle: #444;
             --highlight: #fff; --canvas-border: #555;
         }
-        html, body { background: transparent; margin: 0; padding: 0; }
+        html, body { 
+            background: var(--bg); margin: 0; padding: 0; 
+            width: 100%; height: 100%; overflow: hidden; 
+        }
         #wrapper {
             background: var(--bg); color: var(--text); font-family: monospace;
-            display: inline-flex; flex-direction: column; align-items: center;
-            padding: 16px 20px 20px; min-width: fit-content;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 16px 20px 20px; width: 100%; height: 100%; box-sizing: border-box;
         }
         #wrapper.light {
             --bg: #f0f0f0; --surface: #e0e0e0; --border: #bbb;
             --text: #333; --muted: #888; --subtle: #bbb;
             --highlight: #000; --canvas-border: #999;
         }
-        #info { margin-bottom: 12px; font-size: 16px; white-space: nowrap; text-align: left; }
-        #viewer-row { display: flex; align-items: center; justify-content: center; }
-        #canvas-wrap { position: relative; display: inline-block; line-height: 0; }
+        #info { margin-bottom: 12px; font-size: 16px; white-space: nowrap; text-align: left; flex-shrink: 0; }
+        
+        /* viewer-row expands to fill available space, with auto scrolling for when image exceeds zoom */
+        #viewer-row { 
+            display: flex; align-items: center; justify-content: center; flex: 1; 
+            min-height: 0; width: 100%; overflow: auto; padding: 20px; box-sizing: border-box;
+        }
+        
+        #canvas-wrap { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; outline: none; cursor: crosshair; }
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 6px; border: none; cursor: default; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .muted { color: var(--muted); }
-        #status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.2em; }
-        #pixel-info { margin-top: 2px; font-size: 12px; color: var(--text); min-height: 1em; font-family: monospace; }
-        #preload-status { margin-top: 4px; font-size: 12px; color: var(--subtle); min-height: 1em; }
+        #status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
+        #pixel-info { margin-top: 2px; font-size: 12px; color: var(--text); min-height: 1em; font-family: monospace; flex-shrink: 0; }
+        #preload-status { margin-top: 4px; font-size: 12px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
         #toast {
             margin-top: 8px; font-size: 13px; color: var(--text);
-            min-height: 1.2em; opacity: 0; transition: opacity 0.8s ease;
+            min-height: 1.2em; opacity: 0; transition: opacity 0.8s ease; flex-shrink: 0;
         }
         #help-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -803,8 +746,6 @@ def get_ui():
             <canvas id="colorbar"></canvas>
         </div>
     </div>
-    <!-- Hidden textarea: VS Code passes all keys (including arrows) to focused text inputs,
-         unlike other focusable elements where it intercepts navigation keys. -->
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="status"></div>
@@ -833,6 +774,7 @@ def get_ui():
 <span class="key">s</span>  save screenshot (PNG)
 <span class="key">g</span>  save GIF of current slice dim
 <span class="key">+ / -</span>  zoom in / out
+<span class="key">0</span>  reset zoom (fit to window)
 <span class="key">hover</span>  show pixel value
 <span class="key">?</span>  toggle this help</div>
     </div>
@@ -856,7 +798,7 @@ def get_ui():
 
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
-        let activeDim = 2;  // cursor dim: h/l move it, j/k act on it
+        let activeDim = 2;
         let indices = [];
         let colormap_idx = 0, dr_idx = 1;
         let isPlaying = false, playInterval = null;
@@ -866,37 +808,20 @@ def get_ui():
         let isComplex = false;
         let complexMode = 0;
 
-        // Colorbar state
         let showColorbar = false;
         let currentVmin = 0, currentVmax = 1;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
 
-        // WebSocket state
         let ws = null, wsReady = false, wsSentSeq = 0;
-
-        // Preload polling state
         let preloadPolling = null;
         let preloadActiveDim = -1;
-
-        // Toast state
         let toastTimer = null;
-
-        // Data-info state
         let dataInfoTimer = null;
-
-        // Zoom state
-        let userZoom = 0.6;
-
-        // Pixel hover throttle
+        
+        let userZoom = 1.0;
         let pixelHoverPending = false;
-
-        // Flip state
         let flip_x = false, flip_y = false;
-
-        // FFT state
         let _fftActive = false;
-
-        // Log scale state
         let logScale = false;
 
         const canvas = document.getElementById('viewer');
@@ -905,33 +830,28 @@ def get_ui():
         const cbCtx = colorbarCanvas.getContext('2d');
         const sink = document.getElementById('keyboard-sink');
 
-        function scaleCanvas(w, h) {
-            const maxW = window.innerWidth * 0.95;
-            const maxH = window.innerHeight * 0.70;
-            const scale = Math.min(maxW / w, maxH / h) * userZoom;
-            canvas.style.width  = Math.round(w * scale) + 'px';
-            canvas.style.height = Math.round(h * scale) + 'px';
-            if (showColorbar) drawColorbar();
+        // Dynamically compute the maximum zoom scale so the image perfectly fits the available window space
+        function getBaseScale(w, h) {
+            const row = document.getElementById('viewer-row');
+            // Allow 40px of breathing room minus the viewer bounds
+            const maxW = Math.max(100, row.clientWidth - 40);
+            const maxH = Math.max(100, row.clientHeight - 40);
+            if (maxW <= 0 || maxH <= 0) return 1.0;
+            return Math.min(maxW / w, maxH / h);
         }
 
-        function updateContainerSize() {
-            if (!shape.length) return;
-            const maxW = window.innerWidth * 0.95;
-            const maxH = window.innerHeight * 0.70;
-            let maxCSSW = 0, maxCSSH = 0;
-            for (let i = 0; i < shape.length; i++) {
-                for (let j = 0; j < shape.length; j++) {
-                    if (i === j) continue;
-                    const w = shape[i], h = shape[j];
-                    const scale = Math.min(maxW / w, maxH / h) * userZoom;
-                    maxCSSW = Math.max(maxCSSW, Math.round(w * scale));
-                    maxCSSH = Math.max(maxCSSH, Math.round(h * scale));
-                }
-            }
-            const row = document.getElementById('viewer-row');
-            row.style.minWidth  = maxCSSW + 'px';
-            row.style.minHeight = maxCSSH + 'px';
+        function scaleCanvas(w, h) {
+            const baseScale = getBaseScale(w, h);
+            const finalScale = baseScale * userZoom;
+            canvas.style.width  = Math.round(w * finalScale) + 'px';
+            canvas.style.height = Math.round(h * finalScale) + 'px';
+            if (showColorbar) drawColorbar();
         }
+        
+        // Auto resize image smoothly if the user stretches the window manually
+        window.addEventListener('resize', () => {
+            if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
+        });
 
         function showToast(msg) {
             const el = document.getElementById('toast');
@@ -954,16 +874,12 @@ def get_ui():
             const barH = Math.max(60, cssH - 40);
             const barY = Math.floor((cssH - barH) / 2);
 
-            // Draw at CSS pixel resolution × dpr for crisp output
             colorbarCanvas.width = Math.round(cbCSSW * dpr);
             colorbarCanvas.height = Math.round(cssH * dpr);
             colorbarCanvas.style.width = cbCSSW + 'px';
             colorbarCanvas.style.height = cssH + 'px';
             cbCtx.scale(dpr, dpr);
 
-            // No background fill — transparent canvas shows page bg through
-
-            // Draw gradient bar row by row in CSS-pixel space
             for (let row = 0; row < barH; row++) {
                 const t = 1 - row / (barH - 1);
                 const fi = t * (n - 1);
@@ -1036,13 +952,11 @@ def get_ui():
 
             ws.onmessage = (event) => {
                 const buf = event.data;
-                // Header: [seq, w, h] as uint32 (12 bytes) + [vmin, vmax] as float32 (8 bytes)
                 const headerU32 = new Uint32Array(buf, 0, 3);
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
                 const height = headerU32[2];
 
-                // Discard stale frames — only render the most recently requested seq
                 if (seq !== wsSentSeq) return;
 
                 const headerF32 = new Float32Array(buf, 12, 2);
@@ -1068,7 +982,7 @@ def get_ui():
         }
 
         function triggerPreload() {
-            if (shape.length < 3) return;  // nothing to scroll for 1D/2D arrays
+            if (shape.length < 3) return;
             preloadActiveDim = current_slice_dim;
             fetch('/preload', {
                 method: 'POST',
@@ -1112,8 +1026,7 @@ def get_ui():
             dim_x = 0; dim_y = 1;
             current_slice_dim = shape.length > 2 ? 2 : 0;
             activeDim = current_slice_dim;
-            updateContainerSize();
-            initWebSocket();  // calls updateView() on open
+            initWebSocket();
             triggerPreload();
         }
 
@@ -1203,16 +1116,11 @@ def get_ui():
 
         const helpOverlay = document.getElementById('help-overlay');
 
-        // Re-focus the sink whenever the user clicks anywhere in the viewer.
-        // The hidden textarea trick: VS Code passes all key events (including arrow keys
-        // and h/l which it normally swallows for notebook navigation) to focused text
-        // inputs, because it assumes those need full keyboard access for cursor movement.
         canvas.addEventListener('click', () => sink.focus());
         document.addEventListener('click', () => sink.focus());
 
-        // Pixel value on hover
         canvas.addEventListener('mousemove', (e) => {
-            if (dim_z >= 0) return;  // skip mosaic mode
+            if (dim_z >= 0) return;
             if (pixelHoverPending) return;
             pixelHoverPending = true;
             setTimeout(() => { pixelHoverPending = false; }, 50);
@@ -1238,23 +1146,25 @@ def get_ui():
         });
 
         sink.addEventListener('keydown', (e) => {
-            e.preventDefault();            // stop browser default (e.g. textarea scrolling)
-            e.stopImmediatePropagation();  // stop other handlers
+            e.preventDefault();
+            e.stopImmediatePropagation();
             if (e.key === '?') { helpOverlay.classList.toggle('visible'); return; }
             if (e.key === 'Escape') {
                 helpOverlay.classList.remove('visible');
                 return;
             }
             if (e.key === '+' || e.key === '=') {
-                userZoom = Math.min(userZoom * 1.02, 8.0);
+                userZoom = Math.min(userZoom * 1.1, 10.0);
                 scaleCanvas(canvas.width, canvas.height);
-                updateContainerSize();
                 showToast(`zoom: ${Math.round(userZoom * 100)}%`);
             } else if (e.key === '-') {
-                userZoom = Math.max(userZoom / 1.02, 0.1);
+                userZoom = Math.max(userZoom / 1.1, 0.1);
                 scaleCanvas(canvas.width, canvas.height);
-                updateContainerSize();
                 showToast(`zoom: ${Math.round(userZoom * 100)}%`);
+            } else if (e.key === '0') {
+                userZoom = 1.0;
+                scaleCanvas(canvas.width, canvas.height);
+                showToast(`zoom: fit`);
             } else if (e.key === 'b') {
                 showColorbar = !showColorbar;
                 colorbarCanvas.style.display = showColorbar ? 'block' : 'none';
@@ -1262,12 +1172,10 @@ def get_ui():
                 showToast(showColorbar ? 'colorbar: on' : 'colorbar: off');
             } else if (e.key === 'z') {
                 if (dim_z >= 0) {
-                    // Exit z-mode: restore dim_z back as the scroll dim
                     current_slice_dim = dim_z;
                     dim_z = -1;
                 } else {
-                    // Enter z-mode: claim current scroll dim as z, advance scroll
-                    if (shape.length < 4) return;  // need a free dim to scroll through
+                    if (shape.length < 4) return;
                     dim_z = current_slice_dim;
                     do { current_slice_dim = (current_slice_dim + 1) % shape.length; }
                     while (current_slice_dim === dim_x || current_slice_dim === dim_y || current_slice_dim === dim_z);
@@ -1394,7 +1302,6 @@ def get_ui():
         });
 
         helpOverlay.addEventListener('click', () => { helpOverlay.classList.remove('visible'); sink.focus(); });
-
         document.getElementById('help-hint').addEventListener('click', () => { helpOverlay.classList.toggle('visible'); sink.focus(); });
 
         window.addEventListener('wheel', (e) => {
@@ -1408,6 +1315,16 @@ def get_ui():
             }
             updateView();
         }, {passive: false});
+
+        function closeSocket() {
+            if (ws) {
+                ws.onclose = null;
+                ws.close();
+            }
+        }
+        window.addEventListener('beforeunload', closeSocket);
+        window.addEventListener('unload', closeSocket);
+        window.addEventListener('pagehide', closeSocket);
 
         init();
     </script>
@@ -1430,8 +1347,6 @@ def _in_jupyter() -> bool:
         shell = get_ipython()
         if shell is None:
             return False
-        # ipykernel is used by Jupyter notebook, JupyterLab, and VS Code
-        # interactive window — all kernel-based environments.
         return "ipykernel" in type(shell).__module__
     except ImportError:
         return False
@@ -1479,60 +1394,25 @@ def view(
     height: int = 500,
     window: bool = True,
 ):
-    """View an ND array inline in Jupyter or in a native window.
-
-    Parameters
-    ----------
-    data:
-        NumPy array (or anything with ``.shape``) to view, or a file path string.
-    port:
-        Local port for the FastAPI server (default 8123).
-    inline:
-        ``True``  – embed an IFrame in the Jupyter cell output.
-        ``False`` – open an external viewer (native window or browser).
-        ``None``  – auto-detect: inline when inside Jupyter, external otherwise.
-    height:
-        IFrame height in pixels (inline mode only).
-    window:
-        ``True`` – prefer a native pywebview window. In Jupyter this overrides
-        the inline auto-detection and opens a native window when requested.
-        In non-Jupyter (regular Python) sessions a native window is preferred
-        by default. If ``pywebview`` is not available or fails to start, the
-        code falls back to opening the system web browser.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from arrayview import view
-    >>> view(np.random.rand(64, 64, 30))               # auto-detects Jupyter
-    >>> view(np.random.rand(64, 64, 30), window=True)  # force native window
-    >>> view("scan.nii.gz", port=8124)               # new port for a second array
-    """
     global _jupyter_server_port
 
     _set_data(data)
 
-    # Detect Jupyter once and use it to decide inline vs native window.
+    # Use a fixed initial window size as requested
+    win_w = 1200
+    win_h = 800
+
     is_jupyter = _in_jupyter()
     if inline is None:
         inline = is_jupyter
 
-    # If caller explicitly requested a native window, prefer that over inline
-    # detection (useful when calling from Jupyter/interactive).
     if window:
         inline = False
 
     url = f"http://127.0.0.1:{port}"
 
     if inline:
-        # Start a background server the first time (or when the port changes).
         if _jupyter_server_port != port:
-            # Always use a daemon thread with its own event loop — never schedule
-            # on Jupyter's event loop via ensure_future, which only runs after the
-            # current cell finishes and would return the IFrame before the server
-            # is ready.  The thread starts immediately and _wait_for_port blocks
-            # here until the TCP socket is actually accepting connections, so the
-            # IFrame is only returned once the server is guaranteed to be up.
             threading.Thread(
                 target=lambda: asyncio.run(_serve_background(port)),
                 daemon=True,
@@ -1540,14 +1420,16 @@ def view(
             _wait_for_port(port)
             _jupyter_server_port = port
 
-        from IPython.display import IFrame  # only needed in Jupyter
+        from IPython.display import IFrame
 
         return IFrame(src=url, width="100%", height=height)
     else:
-        # Non-inline: behavior depends on environment and `window` flag.
-        # In Jupyter: default is inline. If caller requested `window=True` we
-        # forced `inline=False` above and will open a pywebview window; otherwise
-        # in Jupyter we fall back to a browser tab.
+
+        def on_closing():
+            """Ensure background computations safely halt when window closes."""
+            global _preload_gen
+            _preload_gen += 1
+
         if is_jupyter:
             if window:
                 try:
@@ -1564,13 +1446,14 @@ def view(
                 ).start()
                 _wait_for_port(port)
                 try:
-                    webview.create_window(
+                    native_win = webview.create_window(
                         "ArrayView",
                         url,
-                        width=1200,
-                        height=800,
-                        background_color="#000000",
+                        width=win_w,
+                        height=win_h,
+                        background_color="#111111",
                     )
+                    native_win.events.closing += on_closing
                     webview.start()
                 except Exception as e:
                     print(
@@ -1579,11 +1462,9 @@ def view(
                     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
                     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
             else:
-                # Explicit non-inline in Jupyter: open browser tab (blocking)
                 threading.Timer(0.5, lambda: webbrowser.open(url)).start()
                 uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
         else:
-            # Non-Jupyter (normal python sessions): prefer pywebview always.
             try:
                 import webview
             except Exception:
@@ -1598,13 +1479,14 @@ def view(
             ).start()
             _wait_for_port(port)
             try:
-                webview.create_window(
+                native_win = webview.create_window(
                     "ArrayView",
                     url,
-                    width=1200,
-                    height=800,
-                    background_color="#000000",
+                    width=win_w,
+                    height=win_h,
+                    background_color="#111111",
                 )
+                native_win.events.closing += on_closing
                 webview.start()
             except Exception as e:
                 print("pywebview failed to open window, falling back to browser:", e)
