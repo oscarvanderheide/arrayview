@@ -6,8 +6,19 @@ build-backend = "hatchling.build"
 name = "arrayview"
 version = "0.2.0"
 description = "Lightning-fast ND array viewer in the browser"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
+authors = [ { name = "Oscar", email = "oscarvanderheide@example.com" } ]
+license = { text = "MIT" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+keywords = ["npy", "viewer", "mri", "array", "visualization"]
+urls = { "Home" = "https://github.com/oscarvanderheide/arrayview", "Source" = "https://github.com/yourname/arrayview" }
 dependencies = [
     "fastapi>=0.129.0",
     "matplotlib>=3.9.0",
@@ -25,7 +36,7 @@ dependencies = [
 arrayview = "arrayview._app:arrayview"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/arrayview"]
+packages = ["arrayview"]
 
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
