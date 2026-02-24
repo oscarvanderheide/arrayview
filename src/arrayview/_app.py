@@ -6,6 +6,8 @@ import socket
 import sys
 import time
 import threading
+import multiprocessing
+import uuid
 import webbrowser
 from collections import OrderedDict
 
@@ -18,18 +20,92 @@ from PIL import Image
 from matplotlib import colormaps as mpl_colormaps
 import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: F401
 
-DATA = None
-SHAPE = None
-GLOBAL_STATS = {}  # {dr_idx: (vmin, vmax)} sampled once at startup
-_data_filepath: str | None = None  # set when data is loaded from a file
-_fft_original_data = None  # stored before FFT so we can toggle back
-_fft_axes: tuple | None = None
+
+# ---------------------------------------------------------------------------
+# Multiprocessing GUI Launcher (MUST be at top level for Windows/macOS spawn)
+# ---------------------------------------------------------------------------
+def _run_webview_process(url, win_w, win_h):
+    """Runs the pywebview window in a fully isolated background process."""
+    try:
+        import webview
+
+        webview.create_window(
+            "ArrayView",
+            url,
+            width=win_w,
+            height=win_h,
+            background_color="#111111",
+        )
+        webview.start()
+    except Exception as e:
+        print(f"\n[ArrayView] Native window failed to launch: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Session Management
+# ---------------------------------------------------------------------------
+class Session:
+    def __init__(self, data, filepath=None):
+        self.sid = uuid.uuid4().hex
+        self.data = data
+        self.shape = data.shape
+        self.filepath = filepath
+        self.global_stats = {}
+        self.fft_original_data = None
+        self.fft_axes = None
+
+        self.raw_cache = OrderedDict()
+        self.rgba_cache = OrderedDict()
+        self.mosaic_cache = OrderedDict()
+
+        self.RAW_CACHE_MAX = 200
+        self.RGBA_CACHE_MAX = 512
+        self.MOSAIC_CACHE_MAX = 64
+
+        self.preload_gen = 0
+        self.preload_done = 0
+        self.preload_total = 0
+        self.preload_skipped = False
+        self.preload_lock = threading.Lock()
+
+        self.compute_global_stats()
+
+    def compute_global_stats(self):
+        try:
+            print("Computing global contrast statistics...", end="", flush=True)
+            total = int(np.prod(self.shape))
+            max_samples = 200_000
+            if total <= max_samples:
+                sample = np.array(self.data).ravel()
+            else:
+                n_take = min(10, self.shape[0])
+                step = max(1, self.shape[0] // n_take)
+                chunks = []
+                for i in range(0, self.shape[0], step):
+                    chunks.append(np.array(self.data[i]).ravel())
+                    if sum(c.size for c in chunks) >= max_samples:
+                        break
+                sample = np.concatenate(chunks)
+            if np.iscomplexobj(sample):
+                sample = np.abs(sample)
+            sample = np.nan_to_num(sample).astype(np.float32)
+
+            self.global_stats = {
+                i: (float(np.percentile(sample, lo)), float(np.percentile(sample, hi)))
+                for i, (lo, hi) in enumerate(DR_PERCENTILES)
+            }
+            print(f" done. ({len(sample):,} samples)")
+        except Exception as e:
+            print(f" failed ({e}), using per-slice stats.")
+            self.global_stats = {}
+
+
+SESSIONS = {}
 
 COLORMAPS = ["gray", "lipari", "navia", "viridis", "plasma", "RdBu_r"]
 DR_PERCENTILES = [(0, 100), (1, 99), (5, 95), (10, 90)]
 DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 
-# RGBA lookup tables (256 x 4)
 LUTS = {
     name: np.concatenate(
         [
@@ -47,12 +123,9 @@ def _lut_to_gradient_stops(lut, n=32):
     return [[int(lut[i, 0]), int(lut[i, 1]), int(lut[i, 2])] for i in indices]
 
 
-# 32-stop RGB gradient for each colormap (embedded in the JS for colorbar drawing)
 COLORMAP_GRADIENT_STOPS = {
     name: _lut_to_gradient_stops(LUTS[name]) for name in COLORMAPS
 }
-
-# Complex-mode labels.  For complex data all 4 are valid; for real data only the first 2.
 COMPLEX_MODES = ["mag", "phase", "real", "imag"]
 REAL_MODES = ["real", "mag"]
 
@@ -63,8 +136,7 @@ def load_data(filepath):
     if filepath.endswith(".npy"):
         return np.load(filepath, mmap_mode="r")
     elif filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
-        img = nib.load(filepath)
-        return img.dataobj
+        return nib.load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
         import zarr
 
@@ -85,84 +157,26 @@ def mosaic_shape(batch):
     return tuple(mshape)
 
 
-def _sample_for_stats(max_samples=200_000):
-    """Sample data without loading the full array (mmap-friendly)."""
-    total = int(np.prod(SHAPE))
-    if total <= max_samples:
-        sample = np.array(DATA).ravel()
-    else:
-        # Walk along dim 0 (sequential = mmap-friendly for C-contiguous arrays)
-        n_take = min(10, SHAPE[0])
-        step = max(1, SHAPE[0] // n_take)
-        chunks = []
-        for i in range(0, SHAPE[0], step):
-            chunks.append(np.array(DATA[i]).ravel())
-            if sum(c.size for c in chunks) >= max_samples:
-                break
-        sample = np.concatenate(chunks)
-    if np.iscomplexobj(sample):
-        sample = np.abs(sample)
-    return np.nan_to_num(sample).astype(np.float32)
-
-
-def compute_global_stats():
-    global GLOBAL_STATS
-    try:
-        print("Computing global contrast statistics...", end="", flush=True)
-        sample = _sample_for_stats()
-        GLOBAL_STATS = {
-            i: (float(np.percentile(sample, lo)), float(np.percentile(sample, hi)))
-            for i, (lo, hi) in enumerate(DR_PERCENTILES)
-        }
-        print(f" done. ({len(sample):,} samples)")
-    except Exception as e:
-        print(f" failed ({e}), using per-slice stats.")
-        GLOBAL_STATS = {}
-
-
-def _compute_vmin_vmax(data, dr, complex_mode=0):
-    """Return (vmin, vmax) for the given float32 data array."""
-    if complex_mode == 1:  # phase: fixed physical range
+def _compute_vmin_vmax(session, data, dr, complex_mode=0):
+    if complex_mode == 1:
         return (-float(np.pi), float(np.pi))
-    if complex_mode == 0 and dr in GLOBAL_STATS:
-        return GLOBAL_STATS[dr]
+    if complex_mode == 0 and dr in session.global_stats:
+        return session.global_stats[dr]
     pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
     return float(np.percentile(data, pct_lo)), float(np.percentile(data, pct_hi))
 
 
-# ---------------------------------------------------------------------------
-# Two-level cache
-# ---------------------------------------------------------------------------
-_raw_cache = OrderedDict()
-_RAW_CACHE_MAX = 200
-
-_rgba_cache = OrderedDict()
-_RGBA_CACHE_MAX = 512
-
-_mosaic_cache = OrderedDict()
-_MOSAIC_CACHE_MAX = 64  # mosaics are large; 64 is plenty
-
-# ---------------------------------------------------------------------------
-# Background preload state
-# ---------------------------------------------------------------------------
-_preload_gen = 0  # increment to cancel the running preload thread
-_preload_done = 0  # slices rendered so far
-_preload_total = 0  # total slices in current preload
-_preload_skipped = False  # True when array is too large to preload
-_preload_lock = threading.Lock()
-
-
-def extract_slice(dim_x, dim_y, idx_list):
-    """Return the raw slice as float32 (real data) or complex64 (complex data)."""
+def extract_slice(session, dim_x, dim_y, idx_list):
     key = (dim_x, dim_y, tuple(idx_list))
-    if key in _raw_cache:
-        _raw_cache.move_to_end(key)
-        return _raw_cache[key]
+    if key in session.raw_cache:
+        session.raw_cache.move_to_end(key)
+        return session.raw_cache[key]
 
     slicer = [
-        slice(None) if i in (dim_x, dim_y) else idx_list[i] for i in range(len(SHAPE))
+        slice(None) if i in (dim_x, dim_y) else idx_list[i]
+        for i in range(len(session.shape))
     ]
-    extracted = np.array(DATA[tuple(slicer)])
+    extracted = np.array(session.data[tuple(slicer)])
     if dim_x < dim_y:
         extracted = extracted.T
     if np.iscomplexobj(extracted):
@@ -170,14 +184,13 @@ def extract_slice(dim_x, dim_y, idx_list):
     else:
         result = np.nan_to_num(extracted).astype(np.float32)
 
-    _raw_cache[key] = result
-    if len(_raw_cache) > _RAW_CACHE_MAX:
-        _raw_cache.popitem(last=False)
+    session.raw_cache[key] = result
+    if len(session.raw_cache) > session.RAW_CACHE_MAX:
+        session.raw_cache.popitem(last=False)
     return result
 
 
 def apply_complex_mode(raw, complex_mode):
-    """Apply the requested view mode and return a float32 array."""
     if np.iscomplexobj(raw):
         if complex_mode == 1:
             result = np.angle(raw)
@@ -185,15 +198,14 @@ def apply_complex_mode(raw, complex_mode):
             result = raw.real.copy()
         elif complex_mode == 3:
             result = raw.imag.copy()
-        else:  # 0 = magnitude
+        else:
             result = np.abs(raw)
     else:
         result = np.abs(raw) if complex_mode == 1 else raw
     return np.nan_to_num(result).astype(np.float32)
 
 
-def _prepare_display(raw, complex_mode, dr, log_scale):
-    """Apply complex mode + optional log transform; return (data_f32, vmin, vmax)."""
+def _prepare_display(session, raw, complex_mode, dr, log_scale):
     data = apply_complex_mode(raw, complex_mode)
     if log_scale:
         data = np.log1p(np.abs(data)).astype(np.float32)
@@ -201,64 +213,74 @@ def _prepare_display(raw, complex_mode, dr, log_scale):
         vmin = float(np.percentile(data, pct_lo))
         vmax = float(np.percentile(data, pct_hi))
     else:
-        vmin, vmax = _compute_vmin_vmax(data, dr, complex_mode)
+        vmin, vmax = _compute_vmin_vmax(session, data, dr, complex_mode)
     return data, vmin, vmax
 
 
-def apply_colormap_rgba(raw, colormap, dr, complex_mode=0, log_scale=False):
-    """Apply complex mode, (optional log), normalise, and map → RGBA uint8 (H, W, 4)."""
-    data, vmin, vmax = _prepare_display(raw, complex_mode, dr, log_scale)
+def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=False):
+    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
     else:
         normalized = np.zeros_like(data)
     lut = LUTS.get(colormap, LUTS["gray"])
-    return lut[(normalized * 255).astype(np.uint8)]  # (H, W, 4)
+    return lut[(normalized * 255).astype(np.uint8)]
 
 
-def render_rgba(dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale=False):
-    """Return cached RGBA (H, W, 4) uint8 array."""
+def render_rgba(
+    session, dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale=False
+):
     key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale)
-    if key in _rgba_cache:
-        _rgba_cache.move_to_end(key)
-        return _rgba_cache[key]
-    raw = extract_slice(dim_x, dim_y, list(idx_tuple))
-    rgba = apply_colormap_rgba(raw, colormap, dr, complex_mode, log_scale)
-    _rgba_cache[key] = rgba
-    if len(_rgba_cache) > _RGBA_CACHE_MAX:
-        _rgba_cache.popitem(last=False)
+    if key in session.rgba_cache:
+        session.rgba_cache.move_to_end(key)
+        return session.rgba_cache[key]
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    rgba = apply_colormap_rgba(session, raw, colormap, dr, complex_mode, log_scale)
+    session.rgba_cache[key] = rgba
+    if len(session.rgba_cache) > session.RGBA_CACHE_MAX:
+        session.rgba_cache.popitem(last=False)
     return rgba
 
 
 def render_mosaic(
-    dim_x, dim_y, dim_z, idx_tuple, colormap, dr, complex_mode=0, log_scale=False
+    session,
+    dim_x,
+    dim_y,
+    dim_z,
+    idx_tuple,
+    colormap,
+    dr,
+    complex_mode=0,
+    log_scale=False,
 ):
-    """Return cached RGBA mosaic of all dim_z slices."""
     idx_norm = list(idx_tuple)
-    idx_norm[dim_z] = 0  # dim_z position in idx doesn't affect the mosaic
+    idx_norm[dim_z] = 0
     key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale)
-    if key in _mosaic_cache:
-        _mosaic_cache.move_to_end(key)
-        return _mosaic_cache[key]
+    if key in session.mosaic_cache:
+        session.mosaic_cache.move_to_end(key)
+        return session.mosaic_cache[key]
 
-    n = SHAPE[dim_z]
+    n = session.shape[dim_z]
     frames_raw = [
         extract_slice(
-            dim_x, dim_y, [i if j == dim_z else idx_tuple[j] for j in range(len(SHAPE))]
+            session,
+            dim_x,
+            dim_y,
+            [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
         )
         for i in range(n)
     ]
     frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
     if log_scale:
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
-    all_data = np.stack(frames)  # (n, H, W) float32
+    all_data = np.stack(frames)
 
     if log_scale:
         pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
         vmin = float(np.percentile(all_data, pct_lo))
         vmax = float(np.percentile(all_data, pct_hi))
     else:
-        vmin, vmax = _compute_vmin_vmax(all_data, dr, complex_mode)
+        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
 
     rows, cols = mosaic_shape(n)
     H, W = frames[0].shape
@@ -277,13 +299,14 @@ def render_mosaic(
 
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    _mosaic_cache[key] = rgba
-    if len(_mosaic_cache) > _MOSAIC_CACHE_MAX:
-        _mosaic_cache.popitem(last=False)
+    session.mosaic_cache[key] = rgba
+    if len(session.mosaic_cache) > session.MOSAIC_CACHE_MAX:
+        session.mosaic_cache.popitem(last=False)
     return rgba
 
 
 def _run_preload(
+    session,
     gen,
     dim_x,
     dim_y,
@@ -295,78 +318,68 @@ def _run_preload(
     complex_mode=0,
     log_scale=False,
 ):
-    """Background thread: pre-render every slice of slice_dim into cache."""
-    global _preload_done, _preload_total, _preload_skipped, _RGBA_CACHE_MAX
-
-    n = SHAPE[slice_dim]
-    H = SHAPE[dim_y]
-    W = SHAPE[dim_x]
+    n = session.shape[slice_dim]
+    H = session.shape[dim_y]
+    W = session.shape[dim_x]
     if dim_z >= 0:
-        nz = SHAPE[dim_z]
+        nz = session.shape[dim_z]
         mrows, mcols = mosaic_shape(nz)
         size_bytes = n * (mrows * H) * (mcols * W) * 4
     else:
         size_bytes = n * H * W * 4
 
-    with _preload_lock:
-        _preload_total = n
-        _preload_done = 0
+    with session.preload_lock:
+        session.preload_total = n
+        session.preload_done = 0
         if size_bytes > 500 * 1024 * 1024:
-            _preload_skipped = True
+            session.preload_skipped = True
             return
-        _preload_skipped = False
+        session.preload_skipped = False
         if dim_z < 0:
-            _RGBA_CACHE_MAX = max(512, n * 4)
+            session.RGBA_CACHE_MAX = max(512, n * 4)
 
     for i in range(n):
-        if _preload_gen != gen:
+        if session.preload_gen != gen:
             return
         idx = list(idx_list)
         idx[slice_dim] = i
         if dim_z >= 0:
             render_mosaic(
-                dim_x, dim_y, dim_z, tuple(idx), colormap, dr, complex_mode, log_scale
+                session,
+                dim_x,
+                dim_y,
+                dim_z,
+                tuple(idx),
+                colormap,
+                dr,
+                complex_mode,
+                log_scale,
             )
         else:
-            render_rgba(dim_x, dim_y, tuple(idx), colormap, dr, complex_mode, log_scale)
-        with _preload_lock:
-            _preload_done = i + 1
+            render_rgba(
+                session, dim_x, dim_y, tuple(idx), colormap, dr, complex_mode, log_scale
+            )
+        with session.preload_lock:
+            session.preload_done = i + 1
 
-        time.sleep(0.005)  # Yield GIL so window UI isn't starved
+        time.sleep(0.005)
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+@app.websocket("/ws/{sid}")
+async def websocket_endpoint(ws: WebSocket, sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        await ws.close()
+        return
+
     await ws.accept()
     loop = asyncio.get_running_loop()
 
-    latest_msg: dict | None = None
-    latest_seq: int = 0
-    new_request = asyncio.Event()
-
-    async def receiver():
-        nonlocal latest_msg, latest_seq
-        try:
-            while True:
-                msg = await ws.receive_json()
-                seq = int(msg.get("seq", 0))
-                if seq > latest_seq:
-                    latest_seq = seq
-                    latest_msg = msg
-                    new_request.set()
-        except Exception:
-            new_request.set()
-
-    receiver_task = asyncio.create_task(receiver())
     try:
         while True:
-            await new_request.wait()
-            new_request.clear()
-            if latest_msg is None:
-                break
+            msg = await ws.receive_json()
+            seq = int(msg.get("seq", 0))
 
-            msg = latest_msg
-            seq = latest_seq
             dim_x = int(msg["dim_x"])
             dim_y = int(msg["dim_y"])
             idx_tuple = tuple(int(x) for x in msg["indices"])
@@ -380,6 +393,7 @@ async def websocket_endpoint(ws: WebSocket):
                 rgba = await loop.run_in_executor(
                     None,
                     render_mosaic,
+                    session,
                     dim_x,
                     dim_y,
                     dim_z,
@@ -393,6 +407,7 @@ async def websocket_endpoint(ws: WebSocket):
                 rgba = await loop.run_in_executor(
                     None,
                     render_rgba,
+                    session,
                     dim_x,
                     dim_y,
                     idx_tuple,
@@ -402,40 +417,33 @@ async def websocket_endpoint(ws: WebSocket):
                     log_scale,
                 )
 
-            if seq == latest_seq:
-                h, w = rgba.shape[:2]
-                raw = extract_slice(dim_x, dim_y, list(idx_tuple))
-                _, vmin, vmax = _prepare_display(raw, complex_mode, dr, log_scale)
+            h, w = rgba.shape[:2]
+            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+            _, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
 
-                header = np.array([seq, w, h], dtype=np.uint32).tobytes()
-                vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
-                await ws.send_bytes(header + vminmax + rgba.tobytes())
-
-                # Removed inline ThreadPoolExecutor _prefetch block here!
-                # This fixes the pywebview unresponsive closing issue entirely.
-                # The _run_preload thread handles all caching safely in the background now.
-
+            header = np.array([seq, w, h], dtype=np.uint32).tobytes()
+            vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
+            await ws.send_bytes(header + vminmax + rgba.tobytes())
     except Exception:
         pass
-    finally:
-        receiver_task.cancel()
-        try:
-            await receiver_task
-        except asyncio.CancelledError:
-            pass
 
 
-@app.get("/clearcache")
-def clear_cache():
-    _raw_cache.clear()
-    _rgba_cache.clear()
-    _mosaic_cache.clear()
+@app.get("/clearcache/{sid}")
+def clear_cache(sid: str):
+    session = SESSIONS.get(sid)
+    if session:
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
     return {"status": "ok"}
 
 
-@app.post("/preload")
-async def start_preload(request: Request):
-    global _preload_gen
+@app.post("/preload/{sid}")
+async def start_preload(sid: str, request: Request):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+
     body = await request.json()
     dim_x = int(body["dim_x"])
     dim_y = int(body["dim_y"])
@@ -447,11 +455,12 @@ async def start_preload(request: Request):
     complex_mode = int(body.get("complex_mode", 0))
     log_scale = bool(body.get("log_scale", False))
 
-    _preload_gen += 1
-    gen = _preload_gen
+    session.preload_gen += 1
+    gen = session.preload_gen
     threading.Thread(
         target=_run_preload,
         args=(
+            session,
             gen,
             dim_x,
             dim_y,
@@ -468,27 +477,46 @@ async def start_preload(request: Request):
     return {"status": "started"}
 
 
-@app.get("/preload_status")
-def get_preload_status():
-    with _preload_lock:
+@app.get("/preload_status/{sid}")
+def get_preload_status(sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+    with session.preload_lock:
         return {
-            "done": _preload_done,
-            "total": _preload_total,
-            "skipped": _preload_skipped,
+            "done": session.preload_done,
+            "total": session.preload_total,
+            "skipped": session.preload_skipped,
         }
 
 
-@app.get("/metadata")
-def get_metadata():
-    return {"shape": list(SHAPE), "is_complex": bool(np.iscomplexobj(DATA))}
+@app.get("/metadata/{sid}")
+def get_metadata(sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    return {
+        "shape": list(session.shape),
+        "is_complex": bool(np.iscomplexobj(session.data)),
+    }
 
 
-@app.get("/pixel")
+@app.get("/pixel/{sid}")
 def get_pixel(
-    dim_x: int, dim_y: int, indices: str, px: int, py: int, complex_mode: int = 0
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    px: int,
+    py: int,
+    complex_mode: int = 0,
 ):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
     idx_tuple = tuple(int(x) for x in indices.split(","))
-    raw = extract_slice(dim_x, dim_y, list(idx_tuple))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
     h, w = data.shape
     if 0 <= py < h and 0 <= px < w:
@@ -498,45 +526,52 @@ def get_pixel(
     return {"value": val}
 
 
-@app.get("/info")
-def get_info():
+@app.get("/info/{sid}")
+def get_info(sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
     try:
-        dtype_str = str(DATA.dtype)
+        dtype_str = str(session.data.dtype)
     except AttributeError:
         dtype_str = "unknown"
     info: dict = {
-        "shape": list(SHAPE),
+        "shape": list(session.shape),
         "dtype": dtype_str,
-        "ndim": len(SHAPE),
-        "total_elements": int(np.prod(SHAPE)),
-        "is_complex": bool(np.iscomplexobj(DATA)),
-        "filepath": _data_filepath,
+        "ndim": len(session.shape),
+        "total_elements": int(np.prod(session.shape)),
+        "is_complex": bool(np.iscomplexobj(session.data)),
+        "filepath": session.filepath,
     }
     try:
-        info["size_mb"] = round(DATA.nbytes / 1024**2, 2)
+        info["size_mb"] = round(session.data.nbytes / 1024**2, 2)
     except AttributeError:
         info["size_mb"] = None
-    if _fft_axes is not None:
-        info["fft_axes"] = list(_fft_axes)
+    if session.fft_axes is not None:
+        info["fft_axes"] = list(session.fft_axes)
     return info
 
 
-@app.post("/fft")
-async def toggle_fft(request: Request):
-    global DATA, SHAPE, _fft_original_data, _fft_axes
+@app.post("/fft/{sid}")
+async def toggle_fft(sid: str, request: Request):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+
     body = await request.json()
     axes_str = str(body.get("axes", "")).strip()
 
-    if _fft_original_data is not None:
-        DATA = _fft_original_data
-        SHAPE = DATA.shape
-        _fft_original_data = None
-        _fft_axes = None
-        _raw_cache.clear()
-        _rgba_cache.clear()
-        _mosaic_cache.clear()
-        compute_global_stats()
-        return {"status": "restored", "is_complex": bool(np.iscomplexobj(DATA))}
+    if session.fft_original_data is not None:
+        session.data = session.fft_original_data
+        session.shape = session.data.shape
+        session.fft_original_data = None
+        session.fft_axes = None
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session.compute_global_stats()
+        return {"status": "restored", "is_complex": bool(np.iscomplexobj(session.data))}
 
     try:
         axes = tuple(int(a.strip()) for a in axes_str.split(",") if a.strip())
@@ -545,24 +580,25 @@ async def toggle_fft(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-    _fft_original_data = DATA
-    full = np.array(DATA)
-    DATA = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
-    SHAPE = DATA.shape
-    _fft_axes = axes
-    _raw_cache.clear()
-    _rgba_cache.clear()
-    _mosaic_cache.clear()
-    compute_global_stats()
+    session.fft_original_data = session.data
+    full = np.array(session.data)
+    session.data = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
+    session.shape = session.data.shape
+    session.fft_axes = axes
+    session.raw_cache.clear()
+    session.rgba_cache.clear()
+    session.mosaic_cache.clear()
+    session.compute_global_stats()
     return {
         "status": "fft_applied",
         "axes": list(axes),
-        "is_complex": bool(np.iscomplexobj(DATA)),
+        "is_complex": bool(np.iscomplexobj(session.data)),
     }
 
 
-@app.get("/slice")
+@app.get("/slice/{sid}")
 def get_slice(
+    sid: str,
     dim_x: int,
     dim_y: int,
     indices: str,
@@ -570,8 +606,11 @@ def get_slice(
     dr: int = 1,
     slice_dim: int = -1,
 ):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
     idx_tuple = tuple(int(x) for x in indices.split(","))
-    rgba = render_rgba(dim_x, dim_y, idx_tuple, colormap, dr)
+    rgba = render_rgba(session, dim_x, dim_y, idx_tuple, colormap, dr)
     img = Image.fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
@@ -582,8 +621,9 @@ def get_slice(
     )
 
 
-@app.get("/grid")
+@app.get("/grid/{sid}")
 def get_grid(
+    sid: str,
     dim_x: int,
     dim_y: int,
     indices: str,
@@ -591,16 +631,19 @@ def get_grid(
     colormap: str = "gray",
     dr: int = 1,
 ):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
     idx_list = [int(x) for x in indices.split(",")]
-    n = SHAPE[slice_dim]
+    n = session.shape[slice_dim]
     frames = []
     for i in range(n):
         idx_list[slice_dim] = i
-        frames.append(extract_slice(dim_x, dim_y, idx_list))
+        frames.append(extract_slice(session, dim_x, dim_y, idx_list))
 
     all_data = np.stack(frames)
-    if dr in GLOBAL_STATS:
-        vmin, vmax = GLOBAL_STATS[dr]
+    if dr in session.global_stats:
+        vmin, vmax = session.global_stats[dr]
     else:
         pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
         vmin = float(np.percentile(all_data, pct_lo))
@@ -629,8 +672,9 @@ def get_grid(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@app.get("/gif")
+@app.get("/gif/{sid}")
 def get_gif(
+    sid: str,
     dim_x: int,
     dim_y: int,
     indices: str,
@@ -638,16 +682,19 @@ def get_gif(
     colormap: str = "gray",
     dr: int = 1,
 ):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
     idx_list = [int(x) for x in indices.split(",")]
-    n = SHAPE[slice_dim]
+    n = session.shape[slice_dim]
     frames = []
     for i in range(n):
         idx_list[slice_dim] = i
-        frames.append(extract_slice(dim_x, dim_y, idx_list))
+        frames.append(extract_slice(session, dim_x, dim_y, idx_list))
 
     all_data = np.stack(frames)
-    if dr in GLOBAL_STATS:
-        vmin, vmax = GLOBAL_STATS[dr]
+    if dr in session.global_stats:
+        vmin, vmax = session.global_stats[dr]
     else:
         pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
         vmin = float(np.percentile(all_data, pct_lo))
@@ -704,7 +751,6 @@ def get_ui():
         }
         #info { margin-bottom: 12px; font-size: 16px; white-space: nowrap; text-align: left; flex-shrink: 0; }
         
-        /* viewer-row expands to fill available space, with auto scrolling for when image exceeds zoom */
         #viewer-row { 
             display: flex; align-items: center; justify-content: center; flex: 1; 
             min-height: 0; width: 100%; overflow: auto; padding: 20px; box-sizing: border-box;
@@ -796,6 +842,9 @@ def get_ui():
         + str(REAL_MODES)
         + """;
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const sid = urlParams.get('sid');
+
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
@@ -813,6 +862,9 @@ def get_ui():
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
 
         let ws = null, wsReady = false, wsSentSeq = 0;
+        let isRendering = false;
+        let pendingRequest = false;
+
         let preloadPolling = null;
         let preloadActiveDim = -1;
         let toastTimer = null;
@@ -830,10 +882,13 @@ def get_ui():
         const cbCtx = colorbarCanvas.getContext('2d');
         const sink = document.getElementById('keyboard-sink');
 
+        if (!sid) {
+            document.getElementById('info').textContent = "No session ID provided in URL.";
+        }
+
         // Dynamically compute the maximum zoom scale so the image perfectly fits the available window space
         function getBaseScale(w, h) {
             const row = document.getElementById('viewer-row');
-            // Allow 40px of breathing room minus the viewer bounds
             const maxW = Math.max(100, row.clientWidth - 40);
             const maxH = Math.max(100, row.clientHeight - 40);
             if (maxW <= 0 || maxH <= 0) return 1.0;
@@ -940,7 +995,7 @@ def get_ui():
 
         function initWebSocket() {
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${proto}//${location.host}/ws`);
+            ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
@@ -957,25 +1012,31 @@ def get_ui():
                 const width  = headerU32[1];
                 const height = headerU32[2];
 
-                if (seq !== wsSentSeq) return;
+                if (seq === wsSentSeq) {
+                    const headerF32 = new Float32Array(buf, 12, 2);
+                    currentVmin = headerF32[0];
+                    currentVmax = headerF32[1];
 
-                const headerF32 = new Float32Array(buf, 12, 2);
-                currentVmin = headerF32[0];
-                currentVmax = headerF32[1];
+                    const rgba = new Uint8ClampedArray(buf.slice(20));
+                    lastImageData = new ImageData(rgba, width, height);
+                    lastImgW = width; lastImgH = height;
+                    canvas.width  = width;
+                    canvas.height = height;
+                    ctx.putImageData(applyFlips(lastImageData, width, height), 0, 0);
+                    scaleCanvas(width, height);
+                }
 
-                const rgba = new Uint8ClampedArray(buf.slice(20));
-                lastImageData = new ImageData(rgba, width, height);
-                lastImgW = width; lastImgH = height;
-                canvas.width  = width;
-                canvas.height = height;
-                ctx.putImageData(applyFlips(lastImageData, width, height), 0, 0);
-                scaleCanvas(width, height);
+                // Unlock the queue for the next frame render
+                isRendering = false;
+                if (pendingRequest) {
+                    pendingRequest = false;
+                    updateView();
+                }
             };
 
             ws.onclose = () => {
                 wsReady = false;
-                setStatus('WebSocket closed — reconnecting...');
-                setTimeout(initWebSocket, 1000);
+                setStatus('WebSocket closed.');
             };
 
             ws.onerror = () => ws.close();
@@ -984,7 +1045,7 @@ def get_ui():
         function triggerPreload() {
             if (shape.length < 3) return;
             preloadActiveDim = current_slice_dim;
-            fetch('/preload', {
+            fetch(`/preload/${sid}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1002,10 +1063,10 @@ def get_ui():
         }
 
         function pollPreloadStatus() {
-            fetch('/preload_status').then(r => r.json()).then(data => {
+            fetch(`/preload_status/${sid}`).then(r => r.json()).then(data => {
                 const el = document.getElementById('preload-status');
                 if (data.skipped) {
-                    el.textContent = 'Array too large for full preload (>500 MB) — using prefetch.';
+                    el.textContent = 'Array too large for full preload (>500 MB).';
                     clearInterval(preloadPolling); preloadPolling = null;
                 } else if (data.total > 0 && data.done >= data.total) {
                     el.textContent = '';
@@ -1014,11 +1075,18 @@ def get_ui():
                     const pct = Math.round(data.done / data.total * 100);
                     el.textContent = `Preloading dim ${preloadActiveDim}: ${data.done}/${data.total} (${pct}%)`;
                 }
+            }).catch(() => {
+                clearInterval(preloadPolling); preloadPolling = null;
             });
         }
 
         async function init() {
-            const res = await fetch('/metadata');
+            if (!sid) return;
+            const res = await fetch(`/metadata/${sid}`);
+            if (!res.ok) {
+                document.getElementById('info').textContent = "Session expired or invalid.";
+                return;
+            }
             const data = await res.json();
             shape = data.shape;
             isComplex = data.is_complex || false;
@@ -1063,6 +1131,14 @@ def get_ui():
         function updateView() {
             renderInfo();
             if (!wsReady) return;
+            
+            // Queue frame if currently waiting to avoid ThreadPool bottlenecks
+            if (isRendering) {
+                pendingRequest = true;
+                return;
+            }
+            
+            isRendering = true;
             wsSentSeq++;
             ws.send(JSON.stringify({
                 seq: wsSentSeq,
@@ -1103,7 +1179,7 @@ def get_ui():
 
         async function saveGif() {
             setStatus('Generating GIF...');
-            const url = `/gif?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${COLORMAPS[colormap_idx]}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
+            const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${COLORMAPS[colormap_idx]}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
             const res = await fetch(url);
             const blob = await res.blob();
             const link = document.createElement('a');
@@ -1127,7 +1203,7 @@ def get_ui():
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            fetch(`/pixel?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
+            fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
                     const el = document.getElementById('pixel-info');
@@ -1199,11 +1275,11 @@ def get_ui():
                 showToast(`mode: ${getModeLabel()}`);
             } else if (e.key === 'c') {
                 colormap_idx = (colormap_idx + 1) % COLORMAPS.length;
-                fetch('/clearcache'); updateView(); triggerPreload();
+                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(`colormap: ${COLORMAPS[colormap_idx]}`);
             } else if (e.key === 'd') {
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
-                fetch('/clearcache'); updateView(); triggerPreload();
+                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(`range: ${DR_LABELS[dr_idx]}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -1251,10 +1327,10 @@ def get_ui():
                 renderInfo();
             } else if (e.key === 'L') {
                 logScale = !logScale;
-                fetch('/clearcache'); updateView(); triggerPreload();
+                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(logScale ? 'log scale: on' : 'log scale: off');
             } else if (e.key === 'i') {
-                fetch('/info').then(r => r.json()).then(d => {
+                fetch(`/info/${sid}`).then(r => r.json()).then(d => {
                     const lines = [
                         `Shape:    [${d.shape.join(', ')}]`,
                         `Dtype:    ${d.dtype}`,
@@ -1267,7 +1343,7 @@ def get_ui():
                 });
             } else if (e.key === 'f') {
                 if (_fftActive) {
-                    fetch('/fft', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
                         .then(r => r.json()).then(d => {
                             _fftActive = false;
                             isComplex = d.is_complex || false;
@@ -1278,7 +1354,7 @@ def get_ui():
                 } else {
                     const axesStr = window.prompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
-                    fetch('/fft', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
+                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
                             if (d.error) { showToast('FFT error: ' + d.error); return; }
                             _fftActive = true;
@@ -1337,7 +1413,7 @@ def get_ui():
 # ---------------------------------------------------------------------------
 # Jupyter / in-process API
 # ---------------------------------------------------------------------------
-_jupyter_server_port: int | None = None  # port of the running background server
+_jupyter_server_port: int | None = None
 
 
 def _in_jupyter() -> bool:
@@ -1353,7 +1429,6 @@ def _in_jupyter() -> bool:
 
 
 def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    """Block until the local TCP port is accepting connections."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -1364,27 +1439,12 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> None:
 
 
 async def _serve_background(port: int):
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
+    # Important: timeout_keep_alive=1 helps cleanup
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=1
+    )
     server = uvicorn.Server(config)
     await server.serve()
-
-
-def _set_data(data):
-    """Update the global DATA/SHAPE and flush all caches."""
-    global DATA, SHAPE, _data_filepath, _fft_original_data, _fft_axes
-    if isinstance(data, str):
-        _data_filepath = data
-        data = load_data(data)
-    else:
-        _data_filepath = None
-    _fft_original_data = None
-    _fft_axes = None
-    DATA = data
-    SHAPE = data.shape
-    _raw_cache.clear()
-    _rgba_cache.clear()
-    _mosaic_cache.clear()
-    compute_global_stats()
 
 
 def view(
@@ -1394,13 +1454,19 @@ def view(
     height: int = 500,
     window: bool = True,
 ):
+    """
+    Launch the viewer. Does not block the main Python process!
+    Multiple consecutive calls to view() will safely open multiple isolated windows.
+    """
     global _jupyter_server_port
 
-    _set_data(data)
+    # Give this specific window its own Session (memory state), isolated from others
+    session = Session(data)
+    SESSIONS[session.sid] = session
 
-    # Use a fixed initial window size as requested
     win_w = 1200
     win_h = 800
+    url = f"http://127.0.0.1:{port}/?sid={session.sid}"
 
     is_jupyter = _in_jupyter()
     if inline is None:
@@ -1409,114 +1475,61 @@ def view(
     if window:
         inline = False
 
-    url = f"http://127.0.0.1:{port}"
+    # Start the fastAPI server if it isn't running on this port yet
+    if _jupyter_server_port != port:
+        threading.Thread(
+            target=lambda: asyncio.run(_serve_background(port)),
+            daemon=True,
+        ).start()
+        _wait_for_port(port)
+        _jupyter_server_port = port
 
     if inline:
-        if _jupyter_server_port != port:
-            threading.Thread(
-                target=lambda: asyncio.run(_serve_background(port)),
-                daemon=True,
-            ).start()
-            _wait_for_port(port)
-            _jupyter_server_port = port
-
         from IPython.display import IFrame
 
         return IFrame(src=url, width="100%", height=height)
+
+    # Launch Native window using Multiprocessing so it physically cannot block Python!
+    if window:
+        try:
+            # We strictly enforce the 'spawn' context here for safety across all OSs.
+            ctx = multiprocessing.get_context("spawn")
+            p = ctx.Process(target=_run_webview_process, args=(url, win_w, win_h))
+            p.start()
+        except Exception as e:
+            print(f"Failed to spawn native window, falling back to browser tab: {e}")
+            webbrowser.open(url)
     else:
-
-        def on_closing():
-            """Ensure background computations safely halt when window closes."""
-            global _preload_gen
-            _preload_gen += 1
-
-        if is_jupyter:
-            if window:
-                try:
-                    import webview
-                except Exception:
-                    print("pywebview not installed; falling back to browser tab.")
-                    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-                    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-                    return
-
-                threading.Thread(
-                    target=lambda: asyncio.run(_serve_background(port)),
-                    daemon=True,
-                ).start()
-                _wait_for_port(port)
-                try:
-                    native_win = webview.create_window(
-                        "ArrayView",
-                        url,
-                        width=win_w,
-                        height=win_h,
-                        background_color="#111111",
-                    )
-                    native_win.events.closing += on_closing
-                    webview.start()
-                except Exception as e:
-                    print(
-                        "pywebview failed to open window, falling back to browser:", e
-                    )
-                    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-                    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-            else:
-                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-        else:
-            try:
-                import webview
-            except Exception:
-                print("pywebview not installed; falling back to browser tab.")
-                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-                return
-
-            threading.Thread(
-                target=lambda: asyncio.run(_serve_background(port)),
-                daemon=True,
-            ).start()
-            _wait_for_port(port)
-            try:
-                native_win = webview.create_window(
-                    "ArrayView",
-                    url,
-                    width=win_w,
-                    height=win_h,
-                    background_color="#111111",
-                )
-                native_win.events.closing += on_closing
-                webview.start()
-            except Exception as e:
-                print("pywebview failed to open window, falling back to browser:", e)
-                threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-                uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        # User specifically asked for browser mode
+        webbrowser.open(url)
 
 
 def arrayview():
-    global DATA, SHAPE, _data_filepath
-
+    """Command Line Interface Entry Point."""
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     parser.add_argument("file", help="Path to .npy, .nii/.nii.gz, or .zarr file")
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
     args = parser.parse_args()
 
     try:
-        DATA = load_data(args.file)
-        SHAPE = DATA.shape
-        _data_filepath = args.file
+        data = load_data(args.file)
+        session = Session(data, filepath=args.file)
+        SESSIONS[session.sid] = session
+
         try:
-            size_str = f" ({DATA.nbytes // 1024**2} MB)"
+            size_str = f" ({data.nbytes // 1024**2} MB)"
         except AttributeError:
             size_str = ""
-        print(f"Loaded {args.file} with shape {SHAPE}{size_str}")
-        compute_global_stats()
-        print(f"Open http://127.0.0.1:{args.port} in your browser")
+        print(f"Loaded {args.file} with shape {session.shape}{size_str}")
+        print(f"Open http://127.0.0.1:{args.port}/?sid={session.sid} in your browser")
     except Exception as e:
         print(f"Error loading data: {e}")
         sys.exit(1)
 
-    url = f"http://127.0.0.1:{args.port}"
+    url = f"http://127.0.0.1:{args.port}/?sid={session.sid}"
     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+
+    # Run fully blocking in CLI script mode so the terminal stays open and serves the app
+    uvicorn.run(
+        app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=1
+    )
