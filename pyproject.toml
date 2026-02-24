@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "arrayview"
 version = "0.2.0"
-description = "Lightning-fast ND array viewer in the browser"
+description = "Fast multi-dimensional array viewer"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
 authors = [ { name = "Oscar", email = "oscarvanderheide@example.com" } ]
