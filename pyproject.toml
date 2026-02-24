@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arrayview"
-version = "0.2.0"
+version = "0.2.1"
 description = "Fast multi-dimensional array viewer"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
@@ -26,7 +26,7 @@ dependencies = [
     "numpy>=2.4.2",
     "pillow>=12.1.1",
     "pywebview>=6.1",
-    "qmricolors",
+    "qmricolors @ git+https://github.com/oscarvanderheide/qmricolors.git",
     "uvicorn>=0.41.0",
     "websockets>=14.0",
     "zarr>=2.17",
@@ -44,4 +44,5 @@ qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "twine>=6.2.0",
 ]
