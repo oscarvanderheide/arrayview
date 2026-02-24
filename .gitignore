@@ -12,3 +12,4 @@ wheels/
 *.npy
 .claude/
 CLAUDE.md
+debug/
