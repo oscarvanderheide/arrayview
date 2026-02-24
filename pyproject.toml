@@ -18,7 +18,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 keywords = ["npy", "viewer", "mri", "array", "visualization"]
-urls = { "Home" = "https://github.com/oscarvanderheide/arrayview", "Source" = "https://github.com/yourname/arrayview" }
+urls = { "Home" = "https://github.com/oscarvanderheide/arrayview", "Source" = "https://github.com/oscarvanderheide/arrayview" }
 dependencies = [
     "fastapi>=0.129.0",
     "matplotlib>=3.9.0",
@@ -36,7 +36,7 @@ dependencies = [
 arrayview = "arrayview._app:arrayview"
 
 [tool.hatch.build.targets.wheel]
-packages = ["arrayview"]
+packages = ["src/arrayview"]
 
 [tool.uv.sources]
 qmricolors = { git = "https://github.com/oscarvanderheide/qmricolors.git" }
