@@ -8,6 +8,7 @@ import time
 import threading
 import multiprocessing
 import uuid
+import urllib.parse
 import webbrowser
 from collections import OrderedDict
 
@@ -42,8 +43,13 @@ def _run_webview_process(url, win_w, win_h):
 
 
 # ---------------------------------------------------------------------------
-# Session Management
+# Session & Global State Management
 # ---------------------------------------------------------------------------
+SERVER_LOOP = None
+SHELL_SOCKETS = []
+_window_process = None
+
+
 class Session:
     def __init__(self, data, filepath=None):
         self.sid = uuid.uuid4().hex
@@ -72,7 +78,6 @@ class Session:
 
     def compute_global_stats(self):
         try:
-            print("Computing global contrast statistics...", end="", flush=True)
             total = int(np.prod(self.shape))
             max_samples = 200_000
             if total <= max_samples:
@@ -94,9 +99,7 @@ class Session:
                 i: (float(np.percentile(sample, lo)), float(np.percentile(sample, hi)))
                 for i, (lo, hi) in enumerate(DR_PERCENTILES)
             }
-            print(f" done. ({len(sample):,} samples)")
-        except Exception as e:
-            print(f" failed ({e}), using per-slice stats.")
+        except Exception:
             self.global_stats = {}
 
 
@@ -361,8 +364,47 @@ def _run_preload(
             )
         with session.preload_lock:
             session.preload_done = i + 1
-
         time.sleep(0.005)
+
+
+# ---------------------------------------------------------------------------
+# Shell WebSocket for Tab Management
+# ---------------------------------------------------------------------------
+async def _notify_shells(sid, name):
+    """Pushes a message to the open shell UI to dynamically spawn a new tab."""
+    for _ in range(200):  # Wait up to 2 seconds if window just launched
+        if SHELL_SOCKETS:
+            break
+        await asyncio.sleep(0.01)
+
+    for ws in SHELL_SOCKETS.copy():
+        try:
+            await ws.send_json({"action": "new_tab", "sid": sid, "name": name})
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/shell")
+async def shell_websocket(ws: WebSocket):
+    await ws.accept()
+    SHELL_SOCKETS.append(ws)
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("action") == "close":
+                sid = msg.get("sid")
+                if sid in SESSIONS:
+                    # Clear Memory instantly when tab closes
+                    SESSIONS[sid].raw_cache.clear()
+                    SESSIONS[sid].rgba_cache.clear()
+                    SESSIONS[sid].mosaic_cache.clear()
+                    SESSIONS[sid].data = None
+                    del SESSIONS[sid]
+    except Exception:
+        pass
+    finally:
+        if ws in SHELL_SOCKETS:
+            SHELL_SOCKETS.remove(ws)
 
 
 @app.websocket("/ws/{sid}")
@@ -722,13 +764,152 @@ def get_gif(
     return Response(content=buf.getvalue(), media_type="image/gif")
 
 
+@app.get("/shell")
+def get_shell():
+    """Returns the Master Tabbed Window UI."""
+    html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <title>ArrayView</title>
+    <style>
+        body { 
+            margin: 0; padding: 0; background: #000; color: #ccc; 
+            font-family: sans-serif; overflow: hidden; height: 100vh; 
+            display: flex; flex-direction: column; 
+        }
+        #tab-bar { 
+            height: 34px; background: #161616; display: flex; align-items: flex-end; 
+            padding: 0 8px; user-select: none; flex-shrink: 0; overflow-x: auto; 
+            border-bottom: 1px solid #333;
+        }
+        .tab { 
+            background: #2a2a2a; margin-right: 4px; padding: 6px 14px; 
+            border-radius: 6px 6px 0 0; cursor: pointer; display: flex; 
+            align-items: center; font-size: 13px; max-width: 250px; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+            border-top: 2px solid transparent; transition: background 0.1s;
+        }
+        .tab.active { background: #111; border-top: 2px solid #55aaff; color: #fff; }
+        .tab:hover:not(.active) { background: #3a3a3a; }
+        .tab span { overflow: hidden; text-overflow: ellipsis; }
+        .tab-close { 
+            margin-left: 10px; font-size: 16px; opacity: 0.5; cursor: pointer; 
+            line-height: 1; padding: 0 4px; border-radius: 50%;
+        }
+        .tab-close:hover { opacity: 1; color: #ff5555; background: rgba(255,255,255,0.1); }
+        
+        #content { flex: 1; position: relative; background: #111; }
+        iframe { 
+            width: 100%; height: 100%; border: none; position: absolute; 
+            top: 0; left: 0; visibility: hidden; background: #111;
+        }
+        iframe.active { visibility: visible; }
+        
+        #tab-bar::-webkit-scrollbar { height: 4px; }
+        #tab-bar::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="tab-bar"></div>
+    <div id="content"></div>
+    <script>
+        const tabBar = document.getElementById('tab-bar');
+        const content = document.getElementById('content');
+        let tabs = {}; // sid -> { button, iframe }
+        let activeSid = null;
+        
+        function addTab(sid, name) {
+            if (tabs[sid]) { activateTab(sid); return; }
+            
+            const btn = document.createElement('div');
+            btn.className = 'tab';
+            btn.innerHTML = `<span>${name}</span><span class="tab-close">&times;</span>`;
+            
+            const iframe = document.createElement('iframe');
+            iframe.src = `/?sid=${sid}`;
+            
+            tabs[sid] = { btn, iframe };
+            
+            btn.onclick = () => activateTab(sid);
+            btn.querySelector('.tab-close').onclick = (e) => {
+                e.stopPropagation();
+                closeTab(sid);
+            };
+            
+            tabBar.appendChild(btn);
+            content.appendChild(iframe);
+            activateTab(sid);
+        }
+        
+        function activateTab(sid) {
+            activeSid = sid;
+            for (let k in tabs) {
+                if (k === sid) {
+                    tabs[k].btn.classList.add('active');
+                    tabs[k].iframe.classList.add('active');
+                    // Give focus back to the iframe so keybindings still work!
+                    tabs[k].iframe.contentWindow?.focus();
+                } else {
+                    tabs[k].btn.classList.remove('active');
+                    tabs[k].iframe.classList.remove('active');
+                }
+            }
+        }
+        
+        function closeTab(sid) {
+            const tab = tabs[sid];
+            if (!tab) return;
+            tabBar.removeChild(tab.btn);
+            content.removeChild(tab.iframe);
+            delete tabs[sid];
+            
+            // Notify backend to instantly wipe this array from python memory
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({action: "close", sid: sid}));
+            }
+            
+            // Activate adjacent tab automatically
+            if (activeSid === sid) {
+                const remaining = Object.keys(tabs);
+                if (remaining.length > 0) {
+                    activateTab(remaining[remaining.length - 1]);
+                } else {
+                    activeSid = null;
+                }
+            }
+        }
+
+        // Init WebSocket to listen for python view() calls injecting new tabs
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            if (msg.action === 'new_tab') {
+                addTab(msg.sid, msg.name);
+            }
+        };
+        
+        // Auto-load first array requested in query param
+        const params = new URLSearchParams(window.location.search);
+        const initSid = params.get('init_sid');
+        const initName = params.get('init_name');
+        if (initSid) {
+            addTab(initSid, initName || 'Array');
+        }
+    </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_content)
+
+
 @app.get("/")
 def get_ui():
+    """Returns the standalone array viewer embedded inside the iframe."""
     html_content = (
         """<!DOCTYPE html>
 <html>
 <head>
-    <title>ArrayView</title>
     <style>
         :root {
             --bg: #111; --surface: #1e1e1e; --border: #444;
@@ -886,7 +1067,6 @@ def get_ui():
             document.getElementById('info').textContent = "No session ID provided in URL.";
         }
 
-        // Dynamically compute the maximum zoom scale so the image perfectly fits the available window space
         function getBaseScale(w, h) {
             const row = document.getElementById('viewer-row');
             const maxW = Math.max(100, row.clientWidth - 40);
@@ -903,7 +1083,6 @@ def get_ui():
             if (showColorbar) drawColorbar();
         }
         
-        // Auto resize image smoothly if the user stretches the window manually
         window.addEventListener('resize', () => {
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
@@ -1026,7 +1205,6 @@ def get_ui():
                     scaleCanvas(width, height);
                 }
 
-                // Unlock the queue for the next frame render
                 isRendering = false;
                 if (pendingRequest) {
                     pendingRequest = false;
@@ -1132,7 +1310,6 @@ def get_ui():
             renderInfo();
             if (!wsReady) return;
             
-            // Queue frame if currently waiting to avoid ThreadPool bottlenecks
             if (isRendering) {
                 pendingRequest = true;
                 return;
@@ -1192,8 +1369,12 @@ def get_ui():
 
         const helpOverlay = document.getElementById('help-overlay');
 
+        // Allow clicks on canvas to auto-refocus keystrokes
         canvas.addEventListener('click', () => sink.focus());
         document.addEventListener('click', () => sink.focus());
+        
+        // This is crucial for tabs so key inputs don't get lost when swapping
+        window.addEventListener('focus', () => sink.focus()); 
 
         canvas.addEventListener('mousemove', (e) => {
             if (dim_z >= 0) return;
@@ -1439,7 +1620,8 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> None:
 
 
 async def _serve_background(port: int):
-    # Important: timeout_keep_alive=1 helps cleanup
+    global SERVER_LOOP
+    SERVER_LOOP = asyncio.get_running_loop()
     config = uvicorn.Config(
         app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=1
     )
@@ -1449,24 +1631,26 @@ async def _serve_background(port: int):
 
 def view(
     data,
+    name: str = None,
     port: int = 8123,
     inline: bool | None = None,
     height: int = 500,
     window: bool = True,
 ):
     """
-    Launch the viewer. Does not block the main Python process!
-    Multiple consecutive calls to view() will safely open multiple isolated windows.
+    Launch the viewer. Does not block the main Python process.
+    If window=True and a window is already open, it automatically injects a new Tab into it!
     """
-    global _jupyter_server_port
+    global _jupyter_server_port, _window_process, SERVER_LOOP
 
-    # Give this specific window its own Session (memory state), isolated from others
+    if name is None:
+        name = f"Array {data.shape}"
+
     session = Session(data)
     SESSIONS[session.sid] = session
 
     win_w = 1200
     win_h = 800
-    url = f"http://127.0.0.1:{port}/?sid={session.sid}"
 
     is_jupyter = _in_jupyter()
     if inline is None:
@@ -1475,7 +1659,6 @@ def view(
     if window:
         inline = False
 
-    # Start the fastAPI server if it isn't running on this port yet
     if _jupyter_server_port != port:
         threading.Thread(
             target=lambda: asyncio.run(_serve_background(port)),
@@ -1484,24 +1667,47 @@ def view(
         _wait_for_port(port)
         _jupyter_server_port = port
 
+    # Ensure background server captures the event loop before continuing
+    while SERVER_LOOP is None:
+        time.sleep(0.01)
+
+    url_inline = f"http://127.0.0.1:{port}/?sid={session.sid}"
+    encoded_name = urllib.parse.quote(name)
+    url_shell = (
+        f"http://127.0.0.1:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
+    )
+
     if inline:
         from IPython.display import IFrame
 
-        return IFrame(src=url, width="100%", height=height)
+        return IFrame(src=url_inline, width="100%", height=height)
 
-    # Launch Native window using Multiprocessing so it physically cannot block Python!
     if window:
         try:
-            # We strictly enforce the 'spawn' context here for safety across all OSs.
-            ctx = multiprocessing.get_context("spawn")
-            p = ctx.Process(target=_run_webview_process, args=(url, win_w, win_h))
-            p.start()
+            if _window_process is not None and _window_process.is_alive():
+                # A window is already running! Silently push a new tab to it over Websockets
+                asyncio.run_coroutine_threadsafe(
+                    _notify_shells(session.sid, name), SERVER_LOOP
+                )
+            else:
+                # No window is running, so we spawn a fresh isolated native window
+                ctx = multiprocessing.get_context("spawn")
+                _window_process = ctx.Process(
+                    target=_run_webview_process, args=(url_shell, win_w, win_h)
+                )
+                _window_process.start()
+
+                # We also push the notification anyway just to guarantee the initial tab renders
+                # safely even if the URL parameters drop
+                asyncio.run_coroutine_threadsafe(
+                    _notify_shells(session.sid, name), SERVER_LOOP
+                )
         except Exception as e:
             print(f"Failed to spawn native window, falling back to browser tab: {e}")
-            webbrowser.open(url)
+            webbrowser.open(url_shell)
     else:
-        # User specifically asked for browser mode
-        webbrowser.open(url)
+        # Open in standard web browser (with our custom tab bar!)
+        webbrowser.open(url_shell)
 
 
 def arrayview():
@@ -1521,15 +1727,16 @@ def arrayview():
         except AttributeError:
             size_str = ""
         print(f"Loaded {args.file} with shape {session.shape}{size_str}")
-        print(f"Open http://127.0.0.1:{args.port}/?sid={session.sid} in your browser")
+        print(
+            f"Open http://127.0.0.1:{args.port}/shell?init_sid={session.sid} in your browser"
+        )
     except Exception as e:
         print(f"Error loading data: {e}")
         sys.exit(1)
 
-    url = f"http://127.0.0.1:{args.port}/?sid={session.sid}"
+    url = f"http://127.0.0.1:{args.port}/shell?init_sid={session.sid}&init_name=Array"
     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
 
-    # Run fully blocking in CLI script mode so the terminal stays open and serves the app
     uvicorn.run(
         app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=1
     )
