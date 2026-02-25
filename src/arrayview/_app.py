@@ -10,6 +10,7 @@ import threading
 import subprocess
 import uuid
 import urllib.parse
+import urllib.request
 import webbrowser
 from collections import OrderedDict
 from importlib.resources import files as _pkg_files
@@ -784,6 +785,22 @@ def get_sessions():
     return [{"sid": s.sid, "name": s.name} for s in SESSIONS.values()]
 
 
+@app.post("/load")
+async def load_file(request: Request):
+    """Load a file into a new session and push a new tab to all open shell windows."""
+    body = await request.json()
+    filepath = str(body["filepath"])
+    name = str(body.get("name") or os.path.basename(filepath))
+    try:
+        data = load_data(filepath)
+    except Exception as e:
+        return {"error": str(e)}
+    session = Session(data, filepath=filepath, name=name)
+    SESSIONS[session.sid] = session
+    await _notify_shells(session.sid, name)
+    return {"sid": session.sid, "name": name}
+
+
 @app.get("/")
 def get_ui(sid: str = None):
     """Viewer iframe page. Redirects to /shell when no sid is given (e.g. VSCode popup)."""
@@ -1010,18 +1027,38 @@ def arrayview():
         print(f"Error loading data: {e}")
         sys.exit(1)
 
+    name = os.path.basename(args.file)
+
     if _server_alive(args.port):
-        print(f"Error: port {args.port} is already in use. Use --port to pick another.")
-        sys.exit(1)
+        # Existing arrayview window is open — inject a new tab into it
+        try:
+            body = json.dumps({"filepath": os.path.abspath(args.file), "name": name}).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{args.port}/load",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read())
+            if "error" in result:
+                print(f"Error from server: {result['error']}")
+                sys.exit(1)
+            print(f"Opened as new tab in existing window (port {args.port})")
+        except Exception as e:
+            print(f"Error: port {args.port} is in use by another process. "
+                  f"Use --port to pick another. ({e})")
+            sys.exit(1)
+        return
 
     sid = uuid.uuid4().hex
-    encoded_name = urllib.parse.quote(os.path.basename(args.file))
+    encoded_name = urllib.parse.quote(name)
     url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
 
     # Spawn background server — exits automatically when the window/tab is closed
     script = (
         f"from arrayview._app import _serve_daemon;"
-        f"_serve_daemon({repr(args.file)}, {args.port}, {repr(sid)})"
+        f"_serve_daemon({repr(os.path.abspath(args.file))}, {args.port}, {repr(sid)})"
     )
     subprocess.Popen(
         [sys.executable, "-c", script],
