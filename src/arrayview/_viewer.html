@@ -142,6 +142,7 @@
         let userZoom = 1.0;
         let pixelHoverPending = false;
         let flip_x = false, flip_y = false;
+        let flipDims = {}; // per-dimension flip state used in multi-view
         let _fftActive = false;
         let logScale = false;
         let multiViewActive = false;
@@ -365,6 +366,9 @@
             dim_x = 0; dim_y = 1;
             current_slice_dim = shape.length > 2 ? 2 : 0;
             activeDim = current_slice_dim;
+            // initialize per-dimension flip flags
+            flipDims = {};
+            for (let i = 0; i < shape.length; i++) flipDims[i] = false;
             initWebSocket();
             triggerPreload();
         }
@@ -378,8 +382,15 @@
                 const active = (i === activeDim);
                 if (multiViewActive) {
                     const isSpatial = mvDims.includes(i);
+                    if (isSpatial) {
+                        const pos = mvDims.indexOf(i);
+                        const labels = ['x','y','z'];
+                        const label = labels[pos] || 'x';
+                        const prefix = flipDims[i] ? '-' : '';
+                        return active ? `<span class="active-dim">${prefix}${label}</span>`
+                                      : `<span class="spatial-dim">${prefix}${label}</span>`;
+                    }
                     if (active) return `<span class="active-dim">${v}</span>`;
-                    if (isSpatial) return `<span class="spatial-dim">${v}</span>`;
                     return `${v}`;
                 }
                 if (i === dim_x) {
@@ -569,7 +580,12 @@
                 showToast(`range: ${DR_LABELS[dr_idx]}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
-                if (activeDim === dim_x) {
+                if (multiViewActive && mvDims.includes(activeDim)) {
+                    // toggle per-dimension flip in multi-view
+                    flipDims[activeDim] = !flipDims[activeDim];
+                    renderInfo();
+                    mvViews.forEach(v => { mvDrawFrame(v); });
+                } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();
@@ -584,7 +600,12 @@
                 }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (activeDim === dim_x) {
+                if (multiViewActive && mvDims.includes(activeDim)) {
+                    // toggle per-dimension flip in multi-view
+                    flipDims[activeDim] = !flipDims[activeDim];
+                    renderInfo();
+                    mvViews.forEach(v => { mvDrawFrame(v); });
+                } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();

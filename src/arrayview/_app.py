@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import io
 import json
+import os
 import socket
 import sys
 import time
@@ -808,6 +809,27 @@ def _in_jupyter() -> bool:
         return False
 
 
+def _is_headless() -> bool:
+    """True when native windows can't be opened (SSH session, VSCode tunnel, CI, etc.)."""
+    # Linux without a display server
+    if sys.platform.startswith("linux"):
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            return True
+    # Any platform: inside an SSH session (covers remote VSCode via SSH extension)
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    return False
+
+
+def _server_alive(port: int) -> bool:
+    """Return True if something is already accepting connections on the port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
 def _wait_for_port(port: int, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -860,7 +882,9 @@ def view(
     if window:
         inline = False
 
-    if _jupyter_server_port != port:
+    # Start (or restart) the background server if it isn't responding.
+    if _jupyter_server_port != port or not _server_alive(port):
+        SERVER_LOOP = None  # reset so we wait for the new loop below
         threading.Thread(
             target=lambda: asyncio.run(_serve_background(port)),
             daemon=True,
@@ -884,23 +908,27 @@ def view(
         return IFrame(src=url_inline, width="100%", height=height)
 
     if window:
-        try:
-            if (
-                not new_window
-                and _window_process is not None
-                and _window_process.poll() is None
-            ):
-                # Tab mode: a window is already running, push a new tab into it over WebSockets
-                asyncio.run_coroutine_threadsafe(
-                    _notify_shells(session.sid, name), SERVER_LOOP
-                )
-            else:
-                # New-window mode (or no existing window): spawn a fresh isolated native window.
-                # The init_sid URL param loads the session — no _notify_shells needed and it would
-                # bleed into any other open shell connections (old windows, browser tabs, etc.).
-                _window_process = _open_webview(url_shell, win_w, win_h)
-        except Exception as e:
-            print(f"[ArrayView] Failed to spawn native window: {e}")
+        if _is_headless():
+            # No display available (SSH / VSCode tunnel / CI). Print the URL so the
+            # user can open it via their tunnel's port-forwarding panel.
+            print(f"[ArrayView] {url_shell}")
+        else:
+            try:
+                if (
+                    not new_window
+                    and _window_process is not None
+                    and _window_process.poll() is None
+                ):
+                    # Tab mode: a window is already running, push a new tab into it over WebSockets
+                    asyncio.run_coroutine_threadsafe(
+                        _notify_shells(session.sid, name), SERVER_LOOP
+                    )
+                else:
+                    # New-window mode (or no existing window): spawn a fresh isolated native window.
+                    _window_process = _open_webview(url_shell, win_w, win_h)
+            except Exception as e:
+                print(f"[ArrayView] Failed to spawn native window: {e}")
+                print(f"[ArrayView] {url_shell}")
     else:
         # Open in standard web browser (with our custom tab bar!)
         webbrowser.open(url_shell)
