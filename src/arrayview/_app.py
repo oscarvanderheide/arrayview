@@ -147,16 +147,83 @@ _VIEWER_HTML_TEMPLATE: str = _pkg_files(__package__).joinpath("_viewer.html").re
 def load_data(filepath):
     if filepath.endswith(".npy"):
         return np.load(filepath, mmap_mode="r")
+    elif filepath.endswith(".npz"):
+        npz = np.load(filepath)
+        keys = list(npz.keys())
+        if len(keys) == 1:
+            return npz[keys[0]]
+        raise ValueError(
+            f".npz contains multiple arrays: {keys}. "
+            "Load it manually and pass the array to view()."
+        )
     elif filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return nib.load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
         import zarr
-
         return zarr.open(filepath, mode="r")
+    elif filepath.endswith(".pt") or filepath.endswith(".pth"):
+        try:
+            import torch
+        except ImportError:
+            raise ImportError("Install torch to load .pt/.pth files.")
+        obj = torch.load(filepath, map_location="cpu", weights_only=True)
+        return _tensor_to_numpy(obj, filepath)
+    elif filepath.endswith(".h5") or filepath.endswith(".hdf5"):
+        try:
+            import h5py
+        except ImportError:
+            raise ImportError("Install h5py to load .h5/.hdf5 files.")
+        f = h5py.File(filepath, "r")
+        keys = list(f.keys())
+        if len(keys) == 1:
+            return f[keys[0]][()]
+        raise ValueError(
+            f".h5 file contains multiple datasets: {keys}. "
+            "Load it manually and pass the array to view()."
+        )
+    elif filepath.endswith(".tif") or filepath.endswith(".tiff"):
+        try:
+            import tifffile
+            return tifffile.imread(filepath)
+        except ImportError:
+            pass
+        from PIL import Image as _PIL_Image
+        return np.asarray(_PIL_Image.open(filepath))
+    elif filepath.endswith(".mat"):
+        try:
+            import scipy.io
+        except ImportError:
+            raise ImportError("Install scipy to load .mat files.")
+        mat = scipy.io.loadmat(filepath)
+        arrays = {k: v for k, v in mat.items() if not k.startswith("_") and isinstance(v, np.ndarray)}
+        if len(arrays) == 1:
+            return next(iter(arrays.values()))
+        raise ValueError(
+            f".mat file contains multiple arrays: {list(arrays.keys())}. "
+            "Load it manually and pass the array to view()."
+        )
     else:
         raise ValueError(
-            "Unsupported format. Please provide a .npy, .nii/.nii.gz, or .zarr file"
+            "Unsupported format. Supported: .npy, .npz, .nii/.nii.gz, .zarr, "
+            ".pt/.pth, .h5/.hdf5, .tif/.tiff, .mat"
         )
+
+
+def _tensor_to_numpy(obj, source="object"):
+    """Convert a tensor-like object (PyTorch, etc.) to a numpy array."""
+    if isinstance(obj, np.ndarray):
+        return obj
+    if hasattr(obj, "detach"):
+        obj = obj.detach()
+    if hasattr(obj, "cpu"):
+        obj = obj.cpu()
+    if hasattr(obj, "numpy"):
+        return obj.numpy()
+    if hasattr(obj, "__array__"):
+        return np.asarray(obj)
+    raise ValueError(
+        f"Cannot convert {type(obj)} from {source} to a numpy array."
+    )
 
 
 def mosaic_shape(batch):
@@ -898,6 +965,16 @@ def view(
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
 
+    # Duck-typing: accept PyTorch tensors, JAX arrays, Julia/PythonCall arrays, etc.
+    # Zarr and nibabel proxy arrays are already numpy-like and work without conversion.
+    if not isinstance(data, np.ndarray) and (
+        hasattr(data, "detach")        # PyTorch
+        or hasattr(data, "numpy")      # PyTorch / TF / JAX
+        or hasattr(data, "__jax_array__")  # JAX
+        or (type(data).__module__ or "").startswith("juliacall")  # Julia via PythonCall
+    ):
+        data = _tensor_to_numpy(data, "view()")
+
     if name is None:
         name = f"Array {data.shape}"
 
@@ -1012,7 +1089,7 @@ def _serve_daemon(filepath: str, port: int, sid: str) -> None:
 def arrayview():
     """Command Line Interface Entry Point."""
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
-    parser.add_argument("file", help="Path to .npy, .nii/.nii.gz, or .zarr file")
+    parser.add_argument("file", help="Path to array file (.npy, .npz, .nii/.nii.gz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat)")
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
     parser.add_argument(
         "--browser",
