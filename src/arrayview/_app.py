@@ -6,7 +6,7 @@ import socket
 import sys
 import time
 import threading
-import multiprocessing
+import subprocess
 import uuid
 import urllib.parse
 import webbrowser
@@ -23,23 +23,22 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 
 
 # ---------------------------------------------------------------------------
-# Multiprocessing GUI Launcher (MUST be at top level for Windows/macOS spawn)
+# Subprocess GUI Launcher
 # ---------------------------------------------------------------------------
-def _run_webview_process(url, win_w, win_h):
-    """Runs the pywebview window in a fully isolated background process."""
-    try:
-        import webview
-
-        webview.create_window(
-            "ArrayView",
-            url,
-            width=win_w,
-            height=win_h,
-            background_color="#111111",
-        )
-        webview.start()
-    except Exception as e:
-        print(f"\n[ArrayView] Native window failed to launch: {e}")
+def _open_webview(url: str, win_w: int, win_h: int) -> subprocess.Popen:
+    """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
+    multiprocessing bootstrap errors when called from a Jupyter kernel."""
+    script = (
+        "import sys,webview;"
+        "u,w,h=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]);"
+        "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111');"
+        "webview.start()"
+    )
+    return subprocess.Popen(
+        [sys.executable, "-c", script, url, str(win_w), str(win_h)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1643,7 +1642,7 @@ def view(
     If window=True and new_window=True (default), each call opens a fresh native window.
     If window=True and new_window=False, repeated calls inject new tabs into the existing window.
     """
-    global _jupyter_server_port, _window_process, SERVER_LOOP
+    global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
 
     if name is None:
         name = f"Array {data.shape}"
@@ -1686,26 +1685,22 @@ def view(
 
     if window:
         try:
-            if not new_window and _window_process is not None and _window_process.is_alive():
+            if (
+                not new_window
+                and _window_process is not None
+                and _window_process.poll() is None
+            ):
                 # Tab mode: a window is already running, push a new tab into it over WebSockets
                 asyncio.run_coroutine_threadsafe(
                     _notify_shells(session.sid, name), SERVER_LOOP
                 )
             else:
-                # New-window mode (or no existing window): spawn a fresh isolated native window
-                ctx = multiprocessing.get_context("spawn")
-                _window_process = ctx.Process(
-                    target=_run_webview_process, args=(url_shell, win_w, win_h)
-                )
-                _window_process.start()
-
-                # Push the notification to guarantee the initial tab renders safely
-                asyncio.run_coroutine_threadsafe(
-                    _notify_shells(session.sid, name), SERVER_LOOP
-                )
+                # New-window mode (or no existing window): spawn a fresh isolated native window.
+                # The init_sid URL param loads the session — no _notify_shells needed and it would
+                # bleed into any other open shell connections (old windows, browser tabs, etc.).
+                _window_process = _open_webview(url_shell, win_w, win_h)
         except Exception as e:
-            print(f"Failed to spawn native window, falling back to browser tab: {e}")
-            webbrowser.open(url_shell)
+            print(f"[ArrayView] Failed to spawn native window: {e}")
     else:
         # Open in standard web browser (with our custom tab bar!)
         webbrowser.open(url_shell)
@@ -1716,7 +1711,11 @@ def arrayview():
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     parser.add_argument("file", help="Path to .npy, .nii/.nii.gz, or .zarr file")
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
-    parser.add_argument("--browser", action="store_true", help="Open in web browser instead of native window")
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Open in web browser instead of native window",
+    )
     args = parser.parse_args()
 
     try:
@@ -1742,11 +1741,7 @@ def arrayview():
     if args.browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     else:
-        def _launch_webview():
-            ctx = multiprocessing.get_context("spawn")
-            p = ctx.Process(target=_run_webview_process, args=(url, 1200, 800))
-            p.start()
-        threading.Timer(0.5, _launch_webview).start()
+        threading.Timer(0.5, lambda: _open_webview(url, 1200, 800)).start()
 
     uvicorn.run(
         app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=1
