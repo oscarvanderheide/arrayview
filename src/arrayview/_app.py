@@ -909,9 +909,16 @@ def view(
 
     if window:
         if _is_headless():
-            # No display available (SSH / VSCode tunnel / CI). Print the URL so the
-            # user can open it via their tunnel's port-forwarding panel.
-            print(f"[ArrayView] {url_shell}")
+            # No display available (SSH / VSCode tunnel / CI).
+            # Try webbrowser in case the environment can handle it (e.g. VSCode
+            # forwards the call to the local machine), then print fallback info.
+            try:
+                webbrowser.open(url_shell)
+            except Exception:
+                pass
+            print(f"[ArrayView] port {port}  →  {url_shell}")
+            print(f"[ArrayView] If the browser didn't open, forward port {port} in "
+                  "VSCode's Ports panel and open the URL shown there.")
         else:
             try:
                 if (
