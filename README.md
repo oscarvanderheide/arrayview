@@ -1,7 +1,7 @@
 # arrayview
 
 A fast, minimal viewer for multi-dimensional arrays, inspired by the great
-[arrShow](https://github.com/tsumpf/arrShow).
+[arrShow](https://github.com/tsumpf/arrShow) and [sigpy's ImagePlot](https://github.com/mikgroup/sigpy/blob/5da0e8605f166be41e520ef0ef913482487611d8/sigpy/plot.py#L48).
 
 - CLI and Python useage
 - Inline in Jupyter / vscode interactive window
