@@ -1636,10 +1636,12 @@ def view(
     inline: bool | None = None,
     height: int = 500,
     window: bool = True,
+    new_window: bool = True,
 ):
     """
     Launch the viewer. Does not block the main Python process.
-    If window=True and a window is already open, it automatically injects a new Tab into it!
+    If window=True and new_window=True (default), each call opens a fresh native window.
+    If window=True and new_window=False, repeated calls inject new tabs into the existing window.
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP
 
@@ -1684,21 +1686,20 @@ def view(
 
     if window:
         try:
-            if _window_process is not None and _window_process.is_alive():
-                # A window is already running! Silently push a new tab to it over Websockets
+            if not new_window and _window_process is not None and _window_process.is_alive():
+                # Tab mode: a window is already running, push a new tab into it over WebSockets
                 asyncio.run_coroutine_threadsafe(
                     _notify_shells(session.sid, name), SERVER_LOOP
                 )
             else:
-                # No window is running, so we spawn a fresh isolated native window
+                # New-window mode (or no existing window): spawn a fresh isolated native window
                 ctx = multiprocessing.get_context("spawn")
                 _window_process = ctx.Process(
                     target=_run_webview_process, args=(url_shell, win_w, win_h)
                 )
                 _window_process.start()
 
-                # We also push the notification anyway just to guarantee the initial tab renders
-                # safely even if the URL parameters drop
+                # Push the notification to guarantee the initial tab renders safely
                 asyncio.run_coroutine_threadsafe(
                     _notify_shells(session.sid, name), SERVER_LOOP
                 )
