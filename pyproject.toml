@@ -21,12 +21,15 @@ keywords = ["npy", "viewer", "mri", "array", "visualization"]
 urls = { "Home" = "https://github.com/oscarvanderheide/arrayview", "Source" = "https://github.com/oscarvanderheide/arrayview" }
 dependencies = [
     "fastapi>=0.129.0",
+    "h5py>=3.0",
     "matplotlib>=3.9.0",
     "nibabel>=5.3.3",
     "numpy>=2.4.2",
     "pillow>=12.1.1",
     "pywebview>=6.1",
     "qmricolors>=0.1.2",
+    "scipy>=1.10",
+    "tifffile>=2023.1.1",
     "uvicorn>=0.41.0",
     "websockets>=14.0",
     "zarr>=2.17",
