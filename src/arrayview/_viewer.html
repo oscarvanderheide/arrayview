@@ -33,6 +33,7 @@
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 6px; border: none; cursor: default; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .active-dim { color: #ebcb8b; font-weight: bold; }
+        .spatial-dim { color: #b48ead; font-weight: bold; }
         .muted { color: var(--muted); }
         #status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
         #pixel-info { margin-top: 2px; font-size: 12px; color: var(--text); min-height: 1em; font-family: monospace; flex-shrink: 0; }
@@ -148,6 +149,7 @@
         let logScale = false;
         let multiViewActive = false;
         let mvViews = [];
+        let mvDims = [];
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
@@ -377,6 +379,12 @@
         function renderInfo() {
             const idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
+                if (multiViewActive) {
+                    const isSpatial = mvDims.includes(i);
+                    if (active) return `<span class="active-dim">${v}</span>`;
+                    if (isSpatial) return `<span class="spatial-dim">${v}</span>`;
+                    return `${v}`;
+                }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x';
                     return active ? `<span class="active-dim">${inner}</span>` : inner;
@@ -668,6 +676,7 @@
                 showToast('Enter 3 unique valid dimension indices'); return;
             }
             multiViewActive = true;
+            mvDims = dims;
             document.getElementById('canvas-wrap').style.display = 'none';
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
@@ -678,12 +687,13 @@
                 { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
             ];
-            mvViews = defs.map(def => {
+            const mvLabelTexts = ['(x,y)', '(x,z)', '(y,z)'];
+            mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
                 pane.className = 'mv-pane';
                 const label = document.createElement('div');
                 label.className = 'mv-label';
-                label.textContent = `dim${def.dimY}\u00d7dim${def.dimX}  (\u2195 dim${def.sliceDir})`;
+                label.textContent = mvLabelTexts[i];
                 const area = document.createElement('div');
                 area.className = 'mv-canvas-area';
                 const cv = document.createElement('canvas');
@@ -729,6 +739,7 @@
 
         function exitMultiView() {
             multiViewActive = false;
+            mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
             document.getElementById('canvas-wrap').style.display = '';
