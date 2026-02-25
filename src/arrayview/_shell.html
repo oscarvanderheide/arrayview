@@ -120,12 +120,16 @@
             }
         };
 
-        // Auto-load first array requested in query param
+        // Auto-load first array requested in query param, or fetch all active sessions
         const params = new URLSearchParams(window.location.search);
         const initSid = params.get('init_sid');
         const initName = params.get('init_name');
         if (initSid) {
             addTab(initSid, initName || 'Array');
+        } else {
+            fetch('/sessions').then(r => r.json()).then(sessions => {
+                sessions.forEach(s => addTab(s.sid, s.name));
+            }).catch(() => {});
         }
     </script>
 </body>

@@ -52,11 +52,12 @@ _window_process = None
 
 
 class Session:
-    def __init__(self, data, filepath=None):
+    def __init__(self, data, filepath=None, name=None):
         self.sid = uuid.uuid4().hex
         self.data = data
         self.shape = data.shape
         self.filepath = filepath
+        self.name = name or (os.path.basename(filepath) if filepath else f"Array {data.shape}")
         self.global_stats = {}
         self.fft_original_data = None
         self.fft_axes = None
@@ -777,9 +778,18 @@ def get_shell():
     return HTMLResponse(content=_SHELL_HTML)
 
 
+@app.get("/sessions")
+def get_sessions():
+    """Returns list of active sessions (used by shell to auto-load on cold open)."""
+    return [{"sid": s.sid, "name": s.name} for s in SESSIONS.values()]
+
+
 @app.get("/")
-def get_ui():
-    """Returns the standalone array viewer embedded inside the iframe."""
+def get_ui(sid: str = None):
+    """Viewer iframe page. Redirects to /shell when no sid is given (e.g. VSCode popup)."""
+    from fastapi.responses import RedirectResponse
+    if not sid:
+        return RedirectResponse(url="/shell")
     html = (
         _VIEWER_HTML_TEMPLATE
         .replace("__COLORMAPS__", str(COLORMAPS))
@@ -844,7 +854,7 @@ async def _serve_background(port: int):
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
     config = uvicorn.Config(
-        app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=1
+        app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
     )
     server = uvicorn.Server(config)
     await server.serve()
@@ -869,7 +879,7 @@ def view(
     if name is None:
         name = f"Array {data.shape}"
 
-    session = Session(data)
+    session = Session(data, name=name)
     SESSIONS[session.sid] = session
 
     win_w = 1200
@@ -979,5 +989,5 @@ def arrayview():
         threading.Timer(0.5, lambda: _open_webview(url, 1200, 800)).start()
 
     uvicorn.run(
-        app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=1
+        app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=30
     )
