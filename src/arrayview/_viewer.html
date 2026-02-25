@@ -49,8 +49,8 @@
         #help-overlay.visible { display: flex; }
         #help-box {
             background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-            padding: 30px 40px; font-size: 15px; line-height: 2; color: var(--text);
-            white-space: pre;
+            padding: 20px 30px; font-size: 13px; line-height: 1.9; color: var(--text);
+            white-space: pre; max-height: 90vh; max-width: 90vw; overflow: auto; box-sizing: border-box;
         }
         #help-box .key { color: var(--highlight); font-weight: bold; display: inline-block; min-width: 140px; }
         #help-hint { position: fixed; bottom: 12px; right: 16px; color: var(--muted); font-size: 14px; cursor: pointer; font-family: monospace; user-select: none; }
@@ -704,14 +704,14 @@
                 wrap.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), area,
-                    ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0 };
+                    ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     indices[view.sliceDir] = e.deltaY > 0
                         ? Math.max(0, indices[view.sliceDir] - 1)
                         : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
                     renderInfo();
-                    mvViews.forEach(v => mvRender(v));
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 }, { passive: false });
                 cv.addEventListener('click', (e) => {
                     sink.focus();
@@ -722,7 +722,7 @@
                     indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1, px));
                     indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1, shape[view.dimY] - 1 - py));
                     renderInfo();
-                    mvViews.forEach(v => mvRender(v));
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 });
                 return view;
             });
@@ -762,15 +762,33 @@
             }));
         }
 
+        function mvDrawFrame(v) {
+            if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
+                v.canvas.width = v.lastW;
+                v.canvas.height = v.lastH;
+            }
+            v.ctx.putImageData(v.lastImageData, 0, 0);
+            // Crosshair lines: vertical tracks dimX position, horizontal tracks dimY position
+            const cx = indices[v.dimX] + 0.5;
+            const cy = v.lastH - indices[v.dimY] - 0.5;
+            v.ctx.save();
+            v.ctx.strokeStyle = 'rgba(255, 0, 0, 0.75)';
+            v.ctx.lineWidth = 1;
+            v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
+            v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            v.ctx.restore();
+        }
+
         function mvOnMessage(v, event) {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq) {
                 const rgba = new Uint8ClampedArray(buf.slice(20));
-                v.canvas.width = width; v.canvas.height = height;
-                v.ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
+                v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
+                mvDrawFrame(v);
                 mvScaleCanvas(v);
             }
             v.rendering = false;
