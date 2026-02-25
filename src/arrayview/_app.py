@@ -169,10 +169,7 @@ def load_data(filepath):
         obj = torch.load(filepath, map_location="cpu", weights_only=True)
         return _tensor_to_numpy(obj, filepath)
     elif filepath.endswith(".h5") or filepath.endswith(".hdf5"):
-        try:
-            import h5py
-        except ImportError:
-            raise ImportError("Install h5py to load .h5/.hdf5 files.")
+        import h5py
         f = h5py.File(filepath, "r")
         keys = list(f.keys())
         if len(keys) == 1:
@@ -182,18 +179,10 @@ def load_data(filepath):
             "Load it manually and pass the array to view()."
         )
     elif filepath.endswith(".tif") or filepath.endswith(".tiff"):
-        try:
-            import tifffile
-            return tifffile.imread(filepath)
-        except ImportError:
-            pass
-        from PIL import Image as _PIL_Image
-        return np.asarray(_PIL_Image.open(filepath))
+        import tifffile
+        return tifffile.imread(filepath)
     elif filepath.endswith(".mat"):
-        try:
-            import scipy.io
-        except ImportError:
-            raise ImportError("Install scipy to load .mat files.")
+        import scipy.io
         mat = scipy.io.loadmat(filepath)
         arrays = {k: v for k, v in mat.items() if not k.startswith("_") and isinstance(v, np.ndarray)}
         if len(arrays) == 1:
