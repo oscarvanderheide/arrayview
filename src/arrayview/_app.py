@@ -892,21 +892,43 @@ def _in_jupyter() -> bool:
         return False
 
 
-def _is_headless() -> bool:
-    """True when native windows can't be opened (SSH, VSCode tunnel, CI, etc.).
-    Native pywebview requires a local display; it does not work over any remote tunnel.
+def _can_native_window() -> bool:
+    """True if a pywebview native window can be opened (local display available)."""
+    if sys.platform in ("darwin", "win32"):
+        return True
+    # Linux/BSD: need a display server
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _open_browser(url: str) -> None:
+    """Open URL in the user's browser, non-blocking.
+
+    Tries ``code --open-url`` first so it works on VSCode tunnels and
+    Remote-SSH (where it forwards the request to the local machine's browser).
+    Falls back to Python's webbrowser module.
     """
-    # Linux without a display server (covers VSCode tunnel on Linux remotes)
-    if sys.platform.startswith("linux"):
-        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-            return True
-    # SSH session on any platform (covers VSCode Remote-SSH extension)
-    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
-        return True
-    # VSCode tunnel daemon sets this on the remote side
-    if os.environ.get("VSCODE_TUNNEL_NAME") or os.environ.get("VSCODE_AGENT_FOLDER"):
-        return True
-    return False
+    import shutil
+
+    def _do():
+        code_cli = shutil.which("code")
+        if code_cli:
+            try:
+                r = subprocess.run(
+                    [code_cli, "--open-url", url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+                if r.returncode == 0:
+                    return
+            except Exception:
+                pass
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    threading.Thread(target=_do, daemon=True).start()
 
 
 def _server_alive(port: int) -> bool:
@@ -1008,29 +1030,22 @@ def view(
     # Always print the URL so it's accessible regardless of environment.
     print(f"[ArrayView] {url_shell}", flush=True)
 
-    if window:
-        if _is_headless():
-            pass  # URL already printed above
-        else:
-            try:
-                if (
-                    not new_window
-                    and _window_process is not None
-                    and _window_process.poll() is None
-                ):
-                    # Tab mode: a window is already running, push a new tab into it over WebSockets
-                    asyncio.run_coroutine_threadsafe(
-                        _notify_shells(session.sid, name), SERVER_LOOP
-                    )
-                else:
-                    # New-window mode (or no existing window): spawn a fresh isolated native window.
-                    _window_process = _open_webview(url_shell, win_w, win_h)
-            except Exception as e:
-                print(f"[ArrayView] Failed to spawn native window: {e}", flush=True)
+    if window and _can_native_window():
+        try:
+            if (
+                not new_window
+                and _window_process is not None
+                and _window_process.poll() is None
+            ):
+                asyncio.run_coroutine_threadsafe(
+                    _notify_shells(session.sid, name), SERVER_LOOP
+                )
+            else:
+                _window_process = _open_webview(url_shell, win_w, win_h)
+        except Exception:
+            _open_browser(url_shell)
     else:
-        if not _is_headless():
-            # Run in a thread so a broken browser handler can't block the caller.
-            threading.Thread(target=lambda: webbrowser.open(url_shell), daemon=True).start()
+        _open_browser(url_shell)
 
 
 def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
@@ -1123,11 +1138,10 @@ def arrayview():
         url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
 
         if args.tab:
-            print(f"Injected as new tab — open http://127.0.0.1:{args.port} in your browser")
+            print(f"Injected as new tab in existing window (port {args.port})")
         else:
             print(f"Open {url} in your browser")
-            if not _is_headless():
-                threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+            _open_browser(url)
         return
 
     sid = uuid.uuid4().hex
@@ -1147,7 +1161,7 @@ def arrayview():
     _wait_for_port(args.port, timeout=15.0)
 
     print(f"Open {url} in your browser")
-    if not (args.browser or _is_headless()):
+    if args.browser or not _can_native_window():
+        _open_browser(url)
+    else:
         _open_webview(url, 1200, 800)
-    elif not _is_headless():
-        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
