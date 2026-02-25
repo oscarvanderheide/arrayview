@@ -1095,9 +1095,13 @@ def arrayview():
     name = os.path.basename(args.file)
 
     if _server_alive(args.port):
-        # Existing arrayview window is open — inject a new tab into it
+        # Server already running — register the new array
         try:
-            body = json.dumps({"filepath": os.path.abspath(args.file), "name": name}).encode()
+            body = json.dumps({
+                "filepath": os.path.abspath(args.file),
+                "name": name,
+                "notify": args.tab,  # push into existing window only with --tab
+            }).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{args.port}/load",
                 data=body,
@@ -1109,11 +1113,21 @@ def arrayview():
             if "error" in result:
                 print(f"Error from server: {result['error']}")
                 sys.exit(1)
-            print(f"Opened as new tab in existing window (port {args.port})")
         except Exception as e:
             print(f"Error: port {args.port} is in use by another process. "
                   f"Use --port to pick another. ({e})")
             sys.exit(1)
+
+        sid = result["sid"]
+        encoded_name = urllib.parse.quote(name)
+        url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+
+        if args.tab:
+            print(f"Injected as new tab — open http://127.0.0.1:{args.port} in your browser")
+        else:
+            print(f"Open {url} in your browser")
+            if not _is_headless():
+                threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         return
 
     sid = uuid.uuid4().hex
@@ -1132,11 +1146,8 @@ def arrayview():
     )
     _wait_for_port(args.port, timeout=15.0)
 
-    if args.browser or _is_headless():
-        print(f"Open {url} in your browser")
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
-    else:
+    print(f"Open {url} in your browser")
+    if not (args.browser or _is_headless()):
         _open_webview(url, 1200, 800)
+    elif not _is_headless():
+        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
