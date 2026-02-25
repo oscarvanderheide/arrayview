@@ -1548,12 +1548,12 @@ def get_ui():
             } else if (e.key === 'x') {
                 if (shape.length < 3) return;
                 [dim_x, current_slice_dim] = [current_slice_dim, dim_x];
-                activeDim = current_slice_dim; dim_z = -1;
+                dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'y') {
                 if (shape.length < 3) return;
                 [dim_y, current_slice_dim] = [current_slice_dim, dim_y];
-                activeDim = current_slice_dim; dim_z = -1;
+                dim_z = -1;
                 updateView(); triggerPreload();
             }
         });
