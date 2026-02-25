@@ -32,6 +32,7 @@
         canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; outline: none; cursor: crosshair; }
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 6px; border: none; cursor: default; }
         .highlight { color: var(--highlight); font-weight: bold; }
+        .active-dim { color: #ebcb8b; font-weight: bold; }
         .muted { color: var(--muted); }
         #status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
         #pixel-info { margin-top: 2px; font-size: 12px; color: var(--text); min-height: 1em; font-family: monospace; flex-shrink: 0; }
@@ -366,14 +367,14 @@
                 const active = (i === activeDim);
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x';
-                    return active ? `<span class="highlight">${inner}</span>` : inner;
+                    return active ? `<span class="active-dim">${inner}</span>` : inner;
                 }
                 if (i === dim_y) {
                     const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y';
-                    return active ? `<span class="highlight">${inner}</span>` : inner;
+                    return active ? `<span class="active-dim">${inner}</span>` : inner;
                 }
-                if (i === dim_z) return active ? `<span class="highlight">z</span>` : 'z';
-                return active ? `<span class="highlight">[${v}]</span>` : `${v}`;
+                if (i === dim_z) return active ? `<span class="active-dim">z</span>` : 'z';
+                return active ? `<span class="active-dim">${v}</span>` : `${v}`;
             }).join(', ');
             let text = `[${idxStr}]`;
             if (isComplex || complexMode !== 0)
