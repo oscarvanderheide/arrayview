@@ -1005,11 +1005,12 @@ def view(
 
         return IFrame(src=url_inline, width="100%", height=height)
 
+    # Always print the URL so it's accessible regardless of environment.
+    print(f"[ArrayView] {url_shell}", flush=True)
+
     if window:
         if _is_headless():
-            # No display available (SSH / VSCode tunnel / CI). Just print the URL.
-            print(f"[ArrayView] {url_shell}")
-            print(f"[ArrayView] Forward port {port} in VSCode's Ports panel and open the URL above.")
+            pass  # URL already printed above
         else:
             try:
                 if (
@@ -1025,13 +1026,11 @@ def view(
                     # New-window mode (or no existing window): spawn a fresh isolated native window.
                     _window_process = _open_webview(url_shell, win_w, win_h)
             except Exception as e:
-                print(f"[ArrayView] Failed to spawn native window: {e}")
-                print(f"[ArrayView] {url_shell}")
+                print(f"[ArrayView] Failed to spawn native window: {e}", flush=True)
     else:
-        if _is_headless():
-            print(f"[ArrayView] {url_shell}")
-        else:
-            webbrowser.open(url_shell)
+        if not _is_headless():
+            # Run in a thread so a broken browser handler can't block the caller.
+            threading.Thread(target=lambda: webbrowser.open(url_shell), daemon=True).start()
 
 
 def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
