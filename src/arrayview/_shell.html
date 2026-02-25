@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ArrayView</title>
+    <style>
+        body {
+            margin: 0; padding: 0; background: #000; color: #ccc;
+            font-family: sans-serif; overflow: hidden; height: 100vh;
+            display: flex; flex-direction: column;
+        }
+        #tab-bar {
+            height: 34px; background: #161616; display: flex; align-items: flex-end;
+            padding: 0 8px; user-select: none; flex-shrink: 0; overflow-x: auto;
+            border-bottom: 1px solid #333;
+        }
+        .tab {
+            background: #2a2a2a; margin-right: 4px; padding: 6px 14px;
+            border-radius: 6px 6px 0 0; cursor: pointer; display: flex;
+            align-items: center; font-size: 13px; max-width: 250px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            border-top: 2px solid transparent; transition: background 0.1s;
+        }
+        .tab.active { background: #111; border-top: 2px solid #55aaff; color: #fff; }
+        .tab:hover:not(.active) { background: #3a3a3a; }
+        .tab span { overflow: hidden; text-overflow: ellipsis; }
+        .tab-close {
+            margin-left: 10px; font-size: 16px; opacity: 0.5; cursor: pointer;
+            line-height: 1; padding: 0 4px; border-radius: 50%;
+        }
+        .tab-close:hover { opacity: 1; color: #ff5555; background: rgba(255,255,255,0.1); }
+
+        #content { flex: 1; position: relative; background: #111; }
+        iframe {
+            width: 100%; height: 100%; border: none; position: absolute;
+            top: 0; left: 0; visibility: hidden; background: #111;
+        }
+        iframe.active { visibility: visible; }
+
+        #tab-bar::-webkit-scrollbar { height: 4px; }
+        #tab-bar::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="tab-bar"></div>
+    <div id="content"></div>
+    <script>
+        const tabBar = document.getElementById('tab-bar');
+        const content = document.getElementById('content');
+        let tabs = {}; // sid -> { button, iframe }
+        let activeSid = null;
+
+        function addTab(sid, name) {
+            if (tabs[sid]) { activateTab(sid); return; }
+
+            const btn = document.createElement('div');
+            btn.className = 'tab';
+            btn.innerHTML = `<span>${name}</span><span class="tab-close">&times;</span>`;
+
+            const iframe = document.createElement('iframe');
+            iframe.src = `/?sid=${sid}`;
+
+            tabs[sid] = { btn, iframe };
+
+            btn.onclick = () => activateTab(sid);
+            btn.querySelector('.tab-close').onclick = (e) => {
+                e.stopPropagation();
+                closeTab(sid);
+            };
+
+            tabBar.appendChild(btn);
+            content.appendChild(iframe);
+            activateTab(sid);
+        }
+
+        function activateTab(sid) {
+            activeSid = sid;
+            for (let k in tabs) {
+                if (k === sid) {
+                    tabs[k].btn.classList.add('active');
+                    tabs[k].iframe.classList.add('active');
+                    // Give focus back to the iframe so keybindings still work!
+                    tabs[k].iframe.contentWindow?.focus();
+                } else {
+                    tabs[k].btn.classList.remove('active');
+                    tabs[k].iframe.classList.remove('active');
+                }
+            }
+        }
+
+        function closeTab(sid) {
+            const tab = tabs[sid];
+            if (!tab) return;
+            tabBar.removeChild(tab.btn);
+            content.removeChild(tab.iframe);
+            delete tabs[sid];
+
+            // Notify backend to instantly wipe this array from python memory
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({action: "close", sid: sid}));
+            }
+
+            // Activate adjacent tab automatically
+            if (activeSid === sid) {
+                const remaining = Object.keys(tabs);
+                if (remaining.length > 0) {
+                    activateTab(remaining[remaining.length - 1]);
+                } else {
+                    activeSid = null;
+                }
+            }
+        }
+
+        // Init WebSocket to listen for python view() calls injecting new tabs
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            if (msg.action === 'new_tab') {
+                addTab(msg.sid, msg.name);
+            }
+        };
+
+        // Auto-load first array requested in query param
+        const params = new URLSearchParams(window.location.search);
+        const initSid = params.get('init_sid');
+        const initName = params.get('init_name');
+        if (initSid) {
+            addTab(initSid, initName || 'Array');
+        }
+    </script>
+</body>
+</html>
