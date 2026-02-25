@@ -951,6 +951,42 @@ def view(
         webbrowser.open(url_shell)
 
 
+def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
+    """Block until the browser/window closes.
+    Waits for a shell WebSocket to connect, then disconnect, then applies a
+    grace period so page refreshes don't prematurely kill the server.
+    """
+    while not SHELL_SOCKETS:
+        time.sleep(0.2)
+    while True:
+        while SHELL_SOCKETS:
+            time.sleep(0.2)
+        # All sockets gone — grace period for page refresh / reconnect
+        deadline = time.monotonic() + grace_seconds
+        while time.monotonic() < deadline:
+            if SHELL_SOCKETS:
+                break       # reconnected; wait again
+            time.sleep(0.2)
+        else:
+            return          # deadline passed with no reconnect → really closed
+
+
+def _serve_daemon(filepath: str, port: int, sid: str) -> None:
+    """Background server process. Loads data, serves it, exits when the UI closes."""
+    data = load_data(filepath)
+    session = Session(data, filepath=filepath)
+    session.sid = sid
+    SESSIONS[session.sid] = session
+    threading.Thread(
+        target=lambda: uvicorn.run(
+            app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+        ),
+        daemon=True,
+    ).start()
+    _wait_for_shell_close()
+    os._exit(0)
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
@@ -965,29 +1001,40 @@ def arrayview():
 
     try:
         data = load_data(args.file)
-        session = Session(data, filepath=args.file)
-        SESSIONS[session.sid] = session
-
         try:
             size_str = f" ({data.nbytes // 1024**2} MB)"
         except AttributeError:
             size_str = ""
-        print(f"Loaded {args.file} with shape {session.shape}{size_str}")
-        if args.browser:
-            print(
-                f"Open http://127.0.0.1:{args.port}/shell?init_sid={session.sid} in your browser"
-            )
+        print(f"Loaded {args.file} with shape {data.shape}{size_str}")
     except Exception as e:
         print(f"Error loading data: {e}")
         sys.exit(1)
 
-    url = f"http://127.0.0.1:{args.port}/shell?init_sid={session.sid}&init_name=Array"
+    if _server_alive(args.port):
+        print(f"Error: port {args.port} is already in use. Use --port to pick another.")
+        sys.exit(1)
 
-    if args.browser:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-    else:
-        threading.Timer(0.5, lambda: _open_webview(url, 1200, 800)).start()
+    sid = uuid.uuid4().hex
+    encoded_name = urllib.parse.quote(os.path.basename(args.file))
+    url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
 
-    uvicorn.run(
-        app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=30
+    # Spawn background server — exits automatically when the window/tab is closed
+    script = (
+        f"from arrayview._app import _serve_daemon;"
+        f"_serve_daemon({repr(args.file)}, {args.port}, {repr(sid)})"
     )
+    subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _wait_for_port(args.port, timeout=15.0)
+
+    if args.browser or _is_headless():
+        print(f"Open {url} in your browser")
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    else:
+        _open_webview(url, 1200, 800)
