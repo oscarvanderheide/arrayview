@@ -1715,6 +1715,7 @@ def arrayview():
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     parser.add_argument("file", help="Path to .npy, .nii/.nii.gz, or .zarr file")
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
+    parser.add_argument("--browser", action="store_true", help="Open in web browser instead of native window")
     args = parser.parse_args()
 
     try:
@@ -1727,15 +1728,24 @@ def arrayview():
         except AttributeError:
             size_str = ""
         print(f"Loaded {args.file} with shape {session.shape}{size_str}")
-        print(
-            f"Open http://127.0.0.1:{args.port}/shell?init_sid={session.sid} in your browser"
-        )
+        if args.browser:
+            print(
+                f"Open http://127.0.0.1:{args.port}/shell?init_sid={session.sid} in your browser"
+            )
     except Exception as e:
         print(f"Error loading data: {e}")
         sys.exit(1)
 
     url = f"http://127.0.0.1:{args.port}/shell?init_sid={session.sid}&init_name=Array"
-    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+
+    if args.browser:
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    else:
+        def _launch_webview():
+            ctx = multiprocessing.get_context("spawn")
+            p = ctx.Process(target=_run_webview_process, args=(url, 1200, 800))
+            p.start()
+        threading.Timer(0.5, _launch_webview).start()
 
     uvicorn.run(
         app, host="127.0.0.1", port=args.port, log_level="warning", timeout_keep_alive=1
