@@ -49,10 +49,11 @@
         #help-overlay.visible { display: flex; }
         #help-box {
             background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-            padding: 20px 30px; font-size: 13px; line-height: 1.9; color: var(--text);
+            padding: 20px 30px; font-size: 14px; line-height: 1.6; color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             white-space: pre; max-height: 90vh; max-width: 90vw; overflow: auto; box-sizing: border-box;
         }
-        #help-box .key { color: var(--highlight); font-weight: bold; display: inline-block; min-width: 140px; }
+        #help-box .key { color: #ebcb8b; font-weight: bold; display: inline-block; min-width: 140px; }
         #help-hint { position: fixed; bottom: 12px; right: 16px; color: var(--muted); font-size: 14px; cursor: pointer; font-family: monospace; user-select: none; }
         #data-info { margin-top: 8px; font-size: 13px; color: var(--text); white-space: pre; opacity: 0; transition: opacity 0.4s ease; pointer-events: none; }
         #multi-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
@@ -774,7 +775,15 @@
             const cy = v.lastH - indices[v.dimY] - 0.5;
             v.ctx.save();
             v.ctx.strokeStyle = 'rgba(255, 0, 0, 0.75)';
-            v.ctx.lineWidth = 1;
+            // Compute visual scale (CSS px per canvas pixel) so line width remains
+            // approximately 1 CSS pixel regardless of canvas CSS scaling.
+            let scale = 0.5;
+            try {
+                const rectW = v.canvas.getBoundingClientRect().width;
+                scale = rectW && v.lastW ? (rectW / v.lastW) : 1;
+            } catch (e) { scale = 1; }
+            const desiredCssPx = 1; // visual thickness in CSS pixels
+            v.ctx.lineWidth = Math.max(0.5, desiredCssPx / scale);
             v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             v.ctx.restore();
@@ -788,8 +797,10 @@
                 const rgba = new Uint8ClampedArray(buf.slice(20));
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
-                mvDrawFrame(v);
+                // Ensure CSS scaling is applied before drawing so we can compute
+                // a line width that looks consistent at different zooms.
                 mvScaleCanvas(v);
+                mvDrawFrame(v);
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
