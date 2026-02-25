@@ -837,13 +837,18 @@ def _in_jupyter() -> bool:
 
 
 def _is_headless() -> bool:
-    """True when native windows can't be opened (SSH session, VSCode tunnel, CI, etc.)."""
-    # Linux without a display server
+    """True when native windows can't be opened (SSH, VSCode tunnel, CI, etc.).
+    Native pywebview requires a local display; it does not work over any remote tunnel.
+    """
+    # Linux without a display server (covers VSCode tunnel on Linux remotes)
     if sys.platform.startswith("linux"):
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             return True
-    # Any platform: inside an SSH session (covers remote VSCode via SSH extension)
+    # SSH session on any platform (covers VSCode Remote-SSH extension)
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    # VSCode tunnel daemon sets this on the remote side
+    if os.environ.get("VSCODE_TUNNEL_NAME") or os.environ.get("VSCODE_AGENT_FOLDER"):
         return True
     return False
 

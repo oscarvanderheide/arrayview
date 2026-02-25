@@ -166,6 +166,8 @@
         let multiViewActive = false;
         let mvViews = [];
         let mvDims = [];
+        let mvDraggingView = null;
+        let mvPixelPending = false;
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
@@ -194,7 +196,7 @@
         }
 
         window.addEventListener('resize', () => {
-            if (multiViewActive) { mvViews.forEach(v => mvScaleCanvas(v)); return; }
+            if (multiViewActive) { mvScaleAllCanvases(); return; }
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
 
@@ -215,9 +217,10 @@
             const n = stops.length;
             const dpr = window.devicePixelRatio || 1;
             const cssH = parseInt(canvas.style.height);
-            const cbCSSW = 50, barW = 14, barX = 8;
-            const barH = Math.max(60, cssH - 40);
-            const barY = Math.floor((cssH - barH) / 2);
+            const cbCSSW = 72, barW = 20, barX = 8;
+            const margin = 10;
+            const barH = Math.max(40, cssH - margin * 2);
+            const barY = margin;
 
             colorbarCanvas.width = Math.round(cbCSSW * dpr);
             colorbarCanvas.height = Math.round(cssH * dpr);
@@ -246,12 +249,20 @@
                 if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(2);
                 return parseFloat(v.toPrecision(3)).toString();
             };
-            cbCtx.font = '10px monospace';
+            cbCtx.font = '12px monospace';
             cbCtx.textAlign = 'left';
             cbCtx.fillStyle = isDark ? '#ddd' : '#222';
-            const labelX = barX + barW + 3;
-            cbCtx.fillText(fmt(currentVmax), labelX, barY + 9);
-            cbCtx.fillText(fmt(currentVmin), labelX, barY + barH);
+            const labelX = barX + barW + 6;
+            const nTicks = 5;
+            for (let t = 0; t < nTicks; t++) {
+                const frac = t / (nTicks - 1);
+                const val = currentVmax * (1 - frac) + currentVmin * frac;
+                const y = barY + Math.round(frac * (barH - 1));
+                cbCtx.fillStyle = '#888';
+                cbCtx.fillRect(barX + barW + 1, y, 4, 1);
+                cbCtx.fillStyle = isDark ? '#ddd' : '#222';
+                cbCtx.fillText(fmt(val), labelX, y + 4);
+            }
         }
 
         function showDataInfo(text) {
@@ -764,16 +775,34 @@
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 }, { passive: false });
-                cv.addEventListener('click', (e) => {
+                cv.addEventListener('mousedown', (e) => {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
                     sink.focus();
+                    mvDraggingView = view;
+                    handleMvPointer(view, e);
+                });
+                cv.addEventListener('mousemove', (e) => {
                     if (!view.lastW || !view.lastH) return;
                     const rect = cv.getBoundingClientRect();
                     const px = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
                     const py = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                    indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1, px));
-                    indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1, shape[view.dimY] - 1 - py));
-                    renderInfo();
-                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    if (!mvPixelPending) {
+                        mvPixelPending = true;
+                        setTimeout(() => { mvPixelPending = false; }, 50);
+                        fetch(`/pixel/${sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
+                            .then(r => r.json()).then(d => {
+                                if (d.value !== undefined && isFinite(d.value)) {
+                                    const av = Math.abs(d.value);
+                                    const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
+                                    document.getElementById('pixel-info').textContent =
+                                        `(${px}, ${shape[view.dimY] - 1 - py}) = ${fmt(d.value)}`;
+                                }
+                            });
+                    }
+                });
+                cv.addEventListener('mouseleave', () => {
+                    if (!mvDraggingView) document.getElementById('pixel-info').textContent = '';
                 });
                 return view;
             });
@@ -799,6 +828,17 @@
             wrap.classList.remove('active');
             updateView();
             showToast('3-plane view: off');
+        }
+
+        function handleMvPointer(view, e) {
+            if (!view.lastW || !view.lastH) return;
+            const rect = view.canvas.getBoundingClientRect();
+            const px = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+            const py = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+            indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1, px));
+            indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1, shape[view.dimY] - 1 - py));
+            renderInfo();
+            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
         }
 
         function mvRender(v) {
@@ -849,21 +889,37 @@
                 v.lastW = width; v.lastH = height;
                 // Ensure CSS scaling is applied before drawing so we can compute
                 // a line width that looks consistent at different zooms.
-                mvScaleCanvas(v);
+                mvScaleAllCanvases();
                 mvDrawFrame(v);
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
         }
 
-        function mvScaleCanvas(v) {
-            if (!v.lastW || !v.lastH) return;
-            const maxW = Math.max(50, v.area.clientWidth - 4);
-            const maxH = Math.max(50, v.area.clientHeight - 4);
-            const scale = Math.min(maxW / v.lastW, maxH / v.lastH) * userZoom;
-            v.canvas.style.width  = Math.round(v.lastW * scale) + 'px';
-            v.canvas.style.height = Math.round(v.lastH * scale) + 'px';
+        function mvScaleAllCanvases() {
+            const ready = mvViews.filter(v => v.lastW && v.lastH);
+            if (!ready.length) return;
+            // Uniform scale: all views share the same pixels-per-data-unit so they
+            // appear at a consistent physical size. Use the most constraining view.
+            let minScale = Infinity;
+            for (const v of ready) {
+                const maxW = Math.max(50, v.area.clientWidth - 4);
+                const maxH = Math.max(50, v.area.clientHeight - 4);
+                minScale = Math.min(minScale, maxW / v.lastW, maxH / v.lastH);
+            }
+            minScale = Math.max(0.01, minScale * userZoom);
+            for (const v of ready) {
+                v.canvas.style.width  = Math.round(v.lastW * minScale) + 'px';
+                v.canvas.style.height = Math.round(v.lastH * minScale) + 'px';
+            }
         }
+
+        // Multi-view drag: continue tracking even when mouse leaves the canvas
+        document.addEventListener('mousemove', (e) => {
+            if (!multiViewActive || !mvDraggingView) return;
+            handleMvPointer(mvDraggingView, e);
+        });
+        document.addEventListener('mouseup', () => { mvDraggingView = null; });
 
         helpOverlay.addEventListener('click', () => { helpOverlay.classList.remove('visible'); sink.focus(); });
         document.getElementById('help-hint').addEventListener('click', () => { helpOverlay.classList.toggle('visible'); sink.focus(); });
