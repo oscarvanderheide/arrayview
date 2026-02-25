@@ -8,9 +8,13 @@ A fast, minimal viewer for multi-dimensional arrays, inspired by the great
 - Runs locally, over SSH, and through VS Code tunnels
 
 ## CLI
+
 `uvx arrayview your_array.npy`
 
 ## Python
+
+`uv add arrayview`
+
 ```python
 from arrayview import view
 import numpy as np
@@ -18,5 +22,3 @@ import numpy as np
 np.random.rand(256,256,32,2)
 view(x)
 ```
-
-
