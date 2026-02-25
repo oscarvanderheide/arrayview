@@ -11,6 +11,8 @@ A fast, minimal viewer for multi-dimensional arrays, inspired by the great
 
 `uvx arrayview your_array.npy`
 
+Opens in a native window. To open in browser, pass `--browser` flag.
+
 ## Python
 
 `uv add arrayview`
