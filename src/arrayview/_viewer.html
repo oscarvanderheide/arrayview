@@ -542,6 +542,14 @@
             } else if (e.key === ' ') {
                 e.preventDefault();
                 togglePlay();
+            } else if (e.key === 't') {
+                // Transpose x and y: swap the dimension indices and flips
+                if (shape.length < 2) return;
+                [dim_x, dim_y] = [dim_y, dim_x];
+                [flip_x, flip_y] = [flip_y, flip_x];
+                dim_z = -1;
+                updateView(); triggerPreload();
+                showToast('transposed x/y');
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'g') {
