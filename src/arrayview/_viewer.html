@@ -16,11 +16,7 @@
             display: flex; flex-direction: column; align-items: center;
             padding: 16px 20px 20px; width: 100%; height: 100%; box-sizing: border-box;
         }
-        #wrapper.light {
-            --bg: #f0f0f0; --surface: #e0e0e0; --border: #bbb;
-            --text: #333; --muted: #888; --subtle: #bbb;
-            --highlight: #000; --canvas-border: #999;
-        }
+        
         #info { margin-bottom: 12px; font-size: 16px; white-space: nowrap; text-align: left; flex-shrink: 0; }
 
         #viewer-row {
@@ -98,7 +94,7 @@
 <span class="key">c</span>  cycle colormap
 <span class="key">d</span>  cycle dynamic range
 <span class="key">b</span>  toggle colorbar
-<span class="key">t</span>  toggle dark / light theme
+<!-- dark/light toggle removed; always dark mode -->
 <span class="key">s</span>  save screenshot (PNG)
 <span class="key">g</span>  save GIF of current slice dim
 <span class="key">+ / -</span>  zoom in / out
@@ -546,9 +542,6 @@
             } else if (e.key === ' ') {
                 e.preventDefault();
                 togglePlay();
-            } else if (e.key === 't') {
-                isDark = !isDark;
-                document.getElementById('wrapper').classList.toggle('light', !isDark);
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'g') {
