@@ -241,6 +241,25 @@ class TestKeyboard:
 # Visual regression
 # ---------------------------------------------------------------------------
 
+class TestSessionStorage:
+    def test_colormap_persists_across_reload(self, loaded_viewer, sid_2d, server_url):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        # Press c twice to cycle away from gray
+        page.keyboard.press("c")
+        page.wait_for_timeout(600)
+        page.keyboard.press("c")
+        page.wait_for_timeout(600)
+        before = page.evaluate(_JS_CENTER_PIXEL)
+        # Reload the same URL (sessionStorage persists within session)
+        page.goto(f"{server_url}/?sid={sid_2d}")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(600)
+        after = page.evaluate(_JS_CENTER_PIXEL)
+        # After restore the colormap should still be the cycled one → same pixel colour
+        assert before == after, "Center pixel changed after reload; colormap not persisted"
+
+
 class TestVisualRegression:
     """
     On first run: saves screenshots to tests/snapshots/ as baselines.
