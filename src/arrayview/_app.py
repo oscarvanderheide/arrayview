@@ -884,6 +884,12 @@ def get_shell():
     return HTMLResponse(content=_SHELL_HTML)
 
 
+@app.get("/ping")
+def ping():
+    """Health marker so clients can verify this is an ArrayView server."""
+    return {"ok": True, "service": "arrayview"}
+
+
 @app.get("/sessions")
 def get_sessions():
     """Returns list of active sessions (used by shell to auto-load on cold open)."""
@@ -1005,7 +1011,22 @@ def _open_browser(url: str, blocking: bool = False) -> None:
 
 
 def _server_alive(port: int) -> bool:
-    """Return True if something is already accepting connections on the port."""
+    """Return True only if an ArrayView server is responding on the port."""
+    url = f"http://127.0.0.1:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as resp:
+            if resp.status != 200:
+                return False
+            payload = json.loads(resp.read().decode("utf-8"))
+            return (
+                payload.get("ok") is True
+                and payload.get("service") == "arrayview"
+            )
+    except Exception:
+        return False
+
+
+def _port_in_use(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
             return True
@@ -1013,14 +1034,13 @@ def _server_alive(port: int) -> bool:
         return False
 
 
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
+def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-                return
-        except OSError:
-            time.sleep(0.05)
+        if _server_alive(port):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 async def _serve_background(port: int):
@@ -1047,6 +1067,7 @@ def view(
     window defaults to False in Jupyter (inline IFrame) and True elsewhere.
     If window=True and new_window=True (default), each call opens a fresh native window.
     If window=True and new_window=False, repeated calls inject new tabs into the existing window.
+    Returns an IPython IFrame in inline mode, otherwise returns the opened shell URL.
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
 
@@ -1079,12 +1100,25 @@ def view(
 
     # Start (or restart) the background server if it isn't responding.
     if _jupyter_server_port != port or not _server_alive(port):
+        if _port_in_use(port) and not _server_alive(port):
+            raise RuntimeError(
+                f"Port {port} is already in use by another process. "
+                f"Choose a different port in view(..., port=...)."
+            )
         SERVER_LOOP = None  # reset so we wait for the new loop below
         threading.Thread(
             target=lambda: asyncio.run(_serve_background(port)),
             daemon=True,
         ).start()
-        _wait_for_port(port)
+        if not _wait_for_port(port):
+            if _port_in_use(port) and not _server_alive(port):
+                raise RuntimeError(
+                    f"Port {port} is in use by another process (not ArrayView). "
+                    f"Choose a different port in view(..., port=...)."
+                )
+            raise RuntimeError(
+                f"ArrayView server did not start on port {port} within timeout."
+            )
         _jupyter_server_port = port
 
     # Ensure background server captures the event loop before continuing
@@ -1105,7 +1139,8 @@ def view(
     # Always print the URL so it's accessible regardless of environment.
     print(f"[ArrayView] {url_shell}", flush=True)
 
-    if window and _can_native_window():
+    can_native_window = _can_native_window() if window else False
+    if window and can_native_window:
         try:
             if (
                 not new_window
@@ -1120,7 +1155,13 @@ def view(
         except Exception:
             _open_browser(url_shell)
     else:
+        if window and not can_native_window:
+            print(
+                "[ArrayView] Native window unavailable; opening browser fallback",
+                flush=True,
+            )
         _open_browser(url_shell)
+    return url_shell
 
 
 def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
@@ -1189,7 +1230,15 @@ def arrayview():
 
     name = os.path.basename(args.file)
 
-    if _server_alive(args.port):
+    is_arrayview_server = _server_alive(args.port)
+    if _port_in_use(args.port) and not is_arrayview_server:
+        print(
+            f"Error: port {args.port} is in use by another process. "
+            "Use --port to pick another."
+        )
+        sys.exit(1)
+
+    if is_arrayview_server:
         # Server already running — register the new array
         try:
             body = json.dumps({
@@ -1238,7 +1287,12 @@ def arrayview():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    _wait_for_port(args.port, timeout=15.0)
+    if not _wait_for_port(args.port, timeout=15.0):
+        print(
+            f"Error: ArrayView server failed to start on port {args.port}. "
+            "Use --port to pick another."
+        )
+        sys.exit(1)
 
     can_native = _can_native_window()
     print(f"[ArrayView] DISPLAY={os.environ.get('DISPLAY')!r}  WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY')!r}  can_native_window={can_native}", flush=True)
