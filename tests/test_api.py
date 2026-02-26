@@ -264,6 +264,28 @@ class TestClearCache:
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 
+class TestROI:
+    def test_roi_returns_stats(self, client, sid_2d):
+        # arr_2d is linspace(0,1) shaped 100×80; request a region we know
+        r = client.get(f"/roi/{sid_2d}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0",
+            "x0": 0, "y0": 0, "x1": 10, "y1": 10,
+            "complex_mode": 0,
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert "min" in body and "max" in body and "mean" in body and "std" in body and "n" in body
+        assert body["n"] == 121  # 11×11 pixels
+        assert body["min"] <= body["mean"] <= body["max"]
+
+    def test_roi_unknown_sid_is_404(self, client):
+        r = client.get("/roi/doesnotexist000", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0",
+            "x0": 0, "y0": 0, "x1": 5, "y1": 5,
+        })
+        assert r.status_code == 404
+
+
 class TestColormap:
     def test_known_matplotlib_colormap_returns_200(self, client):
         r = client.get("/colormap/hot")

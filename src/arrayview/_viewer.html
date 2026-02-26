@@ -153,6 +153,7 @@
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         let cbDragging = false, cbDragStartY = 0, cbDragStartVmin = 0, cbDragStartVmax = 0;
+        let roiDragging = false, roiStart = null, roiEnd = null;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
 
         let ws = null, wsReady = false, wsSentSeq = 0;
@@ -572,8 +573,42 @@
 
         const helpOverlay = document.getElementById('help-overlay');
 
-        // Allow clicks on canvas to auto-refocus keystrokes
-        canvas.addEventListener('click', () => sink.focus());
+        // Canvas mouse handling: focus on click, ROI stats on drag
+        canvas.addEventListener('mousedown', e => {
+            sink.focus();
+            roiDragging = true;
+            const rect = canvas.getBoundingClientRect();
+            roiStart = roiEnd = {
+                x: Math.floor((e.clientX - rect.left) * canvas.width / rect.width),
+                y: Math.floor((e.clientY - rect.top) * canvas.height / rect.height),
+            };
+        });
+        canvas.addEventListener('mousemove', e => {
+            if (!roiDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            roiEnd = {
+                x: Math.floor((e.clientX - rect.left) * canvas.width / rect.width),
+                y: Math.floor((e.clientY - rect.top) * canvas.height / rect.height),
+            };
+            if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            ctx.strokeStyle = 'rgba(255,255,100,0.8)'; ctx.lineWidth = 1;
+            ctx.strokeRect(roiStart.x, roiStart.y, roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
+        });
+        canvas.addEventListener('mouseup', e => {
+            if (!roiDragging) return;
+            roiDragging = false;
+            if (!roiStart || Math.abs(roiEnd.x - roiStart.x) < 3) {
+                if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                return;
+            }
+            fetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&x0=${roiStart.x}&y0=${roiStart.y}&x1=${roiEnd.x}&y1=${roiEnd.y}&complex_mode=${complexMode}`)
+                .then(r => r.json()).then(d => {
+                    if (d.error) return;
+                    const fmt = v => parseFloat(v.toPrecision(4)).toString();
+                    setStatus(`ROI [${d.n}px]  min ${fmt(d.min)}  max ${fmt(d.max)}  mean ${fmt(d.mean)}  std ${fmt(d.std)}`);
+                    setTimeout(() => setStatus(''), 5000);
+                });
+        });
         document.addEventListener('click', () => sink.focus());
 
         // This is crucial for tabs so key inputs don't get lost when swapping
@@ -603,6 +638,10 @@
                 });
         });
         canvas.addEventListener('mouseleave', () => {
+            if (roiDragging) {
+                roiDragging = false;
+                if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            }
             document.getElementById('pixel-info').style.visibility = 'hidden';
         });
 

@@ -723,6 +723,41 @@ def get_pixel(
     return {"value": val}
 
 
+@app.get("/roi/{sid}")
+def get_roi(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    complex_mode: int = 0,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    xa = max(0, min(x0, x1, w - 1))
+    xb = min(w, max(x0, x1) + 1)
+    ya = max(0, min(y0, y1, h - 1))
+    yb = min(h, max(y0, y1) + 1)
+    roi = data[ya:yb, xa:xb]
+    if roi.size == 0:
+        return {"error": "empty selection"}
+    return {
+        "min": float(roi.min()),
+        "max": float(roi.max()),
+        "mean": float(roi.mean()),
+        "std": float(roi.std()),
+        "n": int(roi.size),
+    }
+
+
 @app.get("/info/{sid}")
 def get_info(sid: str):
     session = SESSIONS.get(sid)

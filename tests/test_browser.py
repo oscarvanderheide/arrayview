@@ -241,6 +241,27 @@ class TestKeyboard:
 # Visual regression
 # ---------------------------------------------------------------------------
 
+class TestROIDrag:
+    def test_canvas_drag_shows_roi_stats(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        cv = page.locator("canvas#viewer")
+        box = cv.bounding_box()
+        assert box is not None
+        # Drag from upper-left to lower-right of the canvas
+        x0 = box["x"] + box["width"] * 0.1
+        y0 = box["y"] + box["height"] * 0.1
+        x1 = box["x"] + box["width"] * 0.6
+        y1 = box["y"] + box["height"] * 0.6
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(800)
+        status = page.inner_text("#status").strip()
+        assert "roi" in status.lower(), f"Expected ROI stats in #status, got: '{status}'"
+
+
 class TestColorbarWindowLevel:
     def test_colorbar_drag_changes_canvas(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
