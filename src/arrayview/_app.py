@@ -986,11 +986,12 @@ def view(
     port: int = 8123,
     inline: bool | None = None,
     height: int = 500,
-    window: bool = True,
+    window: bool | None = None,
     new_window: bool = True,
 ):
     """
     Launch the viewer. Does not block the main Python process.
+    window defaults to False in Jupyter (inline IFrame) and True elsewhere.
     If window=True and new_window=True (default), each call opens a fresh native window.
     If window=True and new_window=False, repeated calls inject new tabs into the existing window.
     """
@@ -1018,7 +1019,8 @@ def view(
     is_jupyter = _in_jupyter()
     if inline is None:
         inline = is_jupyter
-
+    if window is None:
+        window = not is_jupyter
     if window:
         inline = False
 
