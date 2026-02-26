@@ -394,8 +394,7 @@
             if (!sid) { hideLoadingOverlay(); return; }
             const res = await fetch(`/metadata/${sid}`);
             if (!res.ok) {
-                document.getElementById('info').textContent = "Session expired or invalid.";
-                hideLoadingOverlay();
+                document.getElementById('loading-overlay').innerHTML = '<div style="color:#c55;font-size:18px;font-family:monospace">Session not found or expired.</div>';
                 return;
             }
             const data = await res.json();
