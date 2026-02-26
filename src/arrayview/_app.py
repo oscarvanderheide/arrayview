@@ -28,7 +28,7 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 # ---------------------------------------------------------------------------
 # Subprocess GUI Launcher
 # ---------------------------------------------------------------------------
-def _open_webview(url: str, win_w: int, win_h: int) -> subprocess.Popen:
+def _open_webview(url: str, win_w: int, win_h: int, capture_stderr: bool = False) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
     script = (
@@ -40,16 +40,15 @@ def _open_webview(url: str, win_w: int, win_h: int) -> subprocess.Popen:
     return subprocess.Popen(
         [sys.executable, "-c", script, url, str(win_w), str(win_h)],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
     )
 
 
 def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.Popen:
     """Launch pywebview, falling back to _open_browser if the subprocess exits immediately.
 
-    On Linux, pywebview silently fails when gtk/webkit2gtk are missing. Popen never
-    raises in that case, so we start a background watchdog that detects an immediate
-    crash (within 2 s) and opens the browser instead.
+    Used from view() (Python API) where the host process stays alive.
+    Uses a daemon watchdog thread — do NOT use from the CLI where the process exits immediately.
     """
     proc = _open_webview(url, win_w, win_h)
 
@@ -57,11 +56,38 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
         for _ in range(20):
             time.sleep(0.1)
             if proc.poll() is not None:
+                print(f"[ArrayView] Native window exited (code {proc.returncode}), opening in browser", flush=True)
                 _open_browser(url)
                 return
 
     threading.Thread(target=_watchdog, daemon=True).start()
     return proc
+
+
+def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
+    """Launch pywebview from the CLI and synchronously wait to detect an immediate crash.
+
+    Returns True if the window appears to have started (still alive after 2 s).
+    Returns False if it crashed; in that case the caller should fall back to browser.
+    The CLI process must not exit while the daemon-thread watchdog is still pending,
+    so the wait is done synchronously here.
+    """
+    print("[ArrayView] Launching native window (PyWebView)...", flush=True)
+    proc = _open_webview(url, win_w, win_h, capture_stderr=True)
+    for _ in range(20):
+        time.sleep(0.1)
+        if proc.poll() is not None:
+            stderr_out = ""
+            try:
+                stderr_out = proc.stderr.read().decode(errors="replace").strip()
+            except Exception:
+                pass
+            print(f"[ArrayView] Native window exited immediately (code {proc.returncode})", flush=True)
+            if stderr_out:
+                print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+            return False
+    print("[ArrayView] Native window started successfully", flush=True)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -920,18 +946,22 @@ def _can_native_window() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def _open_browser(url: str) -> None:
-    """Open URL in the user's browser, non-blocking.
+def _open_browser(url: str, blocking: bool = False) -> None:
+    """Open URL in the user's browser.
 
     Tries ``code --open-url`` first so it works on VSCode tunnels and
     Remote-SSH (where it forwards the request to the local machine's browser).
     Falls back to Python's webbrowser module.
+
+    blocking=True runs synchronously (use from CLI where the process exits immediately).
+    blocking=False (default) runs in a daemon thread (use from view()).
     """
     import shutil
 
     def _do():
         code_cli = shutil.which("code")
         if code_cli:
+            print(f"[ArrayView] Trying: code --open-url {url}", flush=True)
             try:
                 r = subprocess.run(
                     [code_cli, "--open-url", url],
@@ -940,15 +970,22 @@ def _open_browser(url: str) -> None:
                     timeout=5,
                 )
                 if r.returncode == 0:
+                    print("[ArrayView] code --open-url succeeded", flush=True)
                     return
-            except Exception:
-                pass
+                print(f"[ArrayView] code --open-url failed (exit {r.returncode})", flush=True)
+            except Exception as e:
+                print(f"[ArrayView] code --open-url error: {e}", flush=True)
+        print(f"[ArrayView] Trying: webbrowser.open({url})", flush=True)
         try:
             webbrowser.open(url)
-        except Exception:
-            pass
+            print("[ArrayView] webbrowser.open called", flush=True)
+        except Exception as e:
+            print(f"[ArrayView] webbrowser.open failed: {e}", flush=True)
 
-    threading.Thread(target=_do, daemon=True).start()
+    if blocking:
+        _do()
+    else:
+        threading.Thread(target=_do, daemon=True).start()
 
 
 def _server_alive(port: int) -> bool:
@@ -1187,8 +1224,12 @@ def arrayview():
     )
     _wait_for_port(args.port, timeout=15.0)
 
+    can_native = _can_native_window()
+    print(f"[ArrayView] DISPLAY={os.environ.get('DISPLAY')!r}  WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY')!r}  can_native_window={can_native}", flush=True)
     print(f"Open {url} in your browser")
-    if args.browser or not _can_native_window():
-        _open_browser(url)
+    if args.browser or not can_native:
+        _open_browser(url, blocking=True)
     else:
-        _open_webview_with_fallback(url, 1200, 800)
+        if not _open_webview_cli(url, 1200, 800):
+            print("[ArrayView] Falling back to browser", flush=True)
+            _open_browser(url, blocking=True)
