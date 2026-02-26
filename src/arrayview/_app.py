@@ -35,7 +35,7 @@ def _open_webview(url: str, win_w: int, win_h: int) -> subprocess.Popen:
         "import sys,webview;"
         "u,w,h=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]);"
         "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111');"
-        "webview.start()"
+        "webview.start(**({'gui':'qt'} if sys.platform.startswith('linux') else {}))"
     )
     return subprocess.Popen(
         [sys.executable, "-c", script, url, str(win_w), str(win_h)],
