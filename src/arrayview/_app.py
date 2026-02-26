@@ -44,6 +44,26 @@ def _open_webview(url: str, win_w: int, win_h: int) -> subprocess.Popen:
     )
 
 
+def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.Popen:
+    """Launch pywebview, falling back to _open_browser if the subprocess exits immediately.
+
+    On Linux, pywebview silently fails when gtk/webkit2gtk are missing. Popen never
+    raises in that case, so we start a background watchdog that detects an immediate
+    crash (within 2 s) and opens the browser instead.
+    """
+    proc = _open_webview(url, win_w, win_h)
+
+    def _watchdog():
+        for _ in range(20):
+            time.sleep(0.1)
+            if proc.poll() is not None:
+                _open_browser(url)
+                return
+
+    threading.Thread(target=_watchdog, daemon=True).start()
+    return proc
+
+
 # ---------------------------------------------------------------------------
 # Session & Global State Management
 # ---------------------------------------------------------------------------
@@ -1041,7 +1061,7 @@ def view(
                     _notify_shells(session.sid, name), SERVER_LOOP
                 )
             else:
-                _window_process = _open_webview(url_shell, win_w, win_h)
+                _window_process = _open_webview_with_fallback(url_shell, win_w, win_h)
         except Exception:
             _open_browser(url_shell)
     else:
@@ -1093,6 +1113,11 @@ def arrayview():
         "--browser",
         action="store_true",
         help="Open in web browser instead of native window",
+    )
+    parser.add_argument(
+        "--tab",
+        action="store_true",
+        help="When a server is already running, inject into the existing window as a new tab without opening a new browser window",
     )
     args = parser.parse_args()
 
@@ -1164,4 +1189,4 @@ def arrayview():
     if args.browser or not _can_native_window():
         _open_browser(url)
     else:
-        _open_webview(url, 1200, 800)
+        _open_webview_with_fallback(url, 1200, 800)
