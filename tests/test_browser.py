@@ -92,6 +92,15 @@ def _compare_snapshot(page, name: str, threshold: float = 0.01):
 # Basic rendering
 # ---------------------------------------------------------------------------
 
+class TestSessionExpired:
+    def test_invalid_sid_shows_error_in_overlay(self, page, server_url):
+        page.goto(f"{server_url}/?sid=invalidXXX000")
+        page.wait_for_timeout(1500)
+        assert page.is_visible("#loading-overlay")
+        text = page.inner_text("#loading-overlay")
+        assert "expired" in text.lower() or "not found" in text.lower()
+
+
 class TestBasicRender:
     def test_canvas_visible_2d(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
