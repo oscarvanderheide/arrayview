@@ -264,6 +264,24 @@ class TestClearCache:
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 
+class TestColormap:
+    def test_known_matplotlib_colormap_returns_200(self, client):
+        r = client.get("/colormap/hot")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert "gradient_stops" in body
+        assert len(body["gradient_stops"]) > 0
+
+    def test_unknown_colormap_returns_404(self, client):
+        r = client.get("/colormap/definitely_not_a_real_colormap_xyz")
+        assert r.status_code == 404
+
+    def test_builtin_colormap_returns_200(self, client):
+        r = client.get("/colormap/viridis")
+        assert r.status_code == 200
+
+
 class TestMemoryAwareCache:
     def test_byte_counters_reset_on_clearcache(self, client, sid_2d):
         """After clearcache, byte counters should be 0."""

@@ -110,6 +110,7 @@
 <span class="key">i</span>  show data info overlay
 <span class="key">f</span>  toggle centred FFT (prompts for axes)
 <span class="key">c</span>  cycle colormap
+<span class="key">C</span>  enter matplotlib colormap name
 <span class="key">d</span>  cycle dynamic range
 <span class="key">b</span>  toggle colorbar
 <!-- dark/light toggle removed; always dark mode -->
@@ -146,6 +147,8 @@
         let isComplex = false;
         let complexMode = 0;
 
+        let customColormap = null, customGradientStops = null;
+
         let showColorbar = false;
         let currentVmin = 0, currentVmax = 1;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
@@ -179,6 +182,10 @@
 
         if (!sid) {
             document.getElementById('info').textContent = "No session ID provided in URL.";
+        }
+
+        function currentColormap() {
+            return colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx];
         }
 
         function getBaseScale(w, h) {
@@ -215,7 +222,7 @@
         }
 
         function drawColorbar() {
-            const stops = COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             const n = stops.length;
             const dpr = window.devicePixelRatio || 1;
             const cssH = parseInt(canvas.style.height);
@@ -358,7 +365,7 @@
                 body: JSON.stringify({
                     dim_x, dim_y, dim_z,
                     indices: [...indices],
-                    colormap: COLORMAPS[colormap_idx],
+                    colormap: currentColormap(),
                     dr: dr_idx,
                     complex_mode: complexMode,
                     log_scale: logScale,
@@ -462,6 +469,7 @@
                 colormap_idx, dr_idx, indices: [...indices],
                 logScale, complexMode, flip_x, flip_y,
                 flipDims: {...flipDims}, userZoom,
+                customColormap,
             }));
         }
 
@@ -479,6 +487,19 @@
                 flip_y      = s.flip_y ?? false;
                 flipDims    = s.flipDims ?? {};
                 userZoom    = s.userZoom ?? 1.0;
+                if (s.customColormap && colormap_idx === -1) {
+                    // Re-fetch gradient stops so colorbar can render correctly
+                    fetch(`/colormap/${encodeURIComponent(s.customColormap)}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            if (d) {
+                                customColormap = s.customColormap;
+                                customGradientStops = d.gradient_stops;
+                            } else {
+                                colormap_idx = 0; // fall back if colormap disappeared
+                            }
+                        });
+                }
                 return true;
             } catch (e) { return false; }
         }
@@ -499,7 +520,7 @@
                 seq: wsSentSeq,
                 dim_x, dim_y, dim_z,
                 indices: [...indices],
-                colormap: COLORMAPS[colormap_idx],
+                colormap: currentColormap(),
                 dr: dr_idx,
                 complex_mode: complexMode,
                 log_scale: logScale,
@@ -534,7 +555,7 @@
 
         async function saveGif() {
             setStatus('Generating GIF...');
-            const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${COLORMAPS[colormap_idx]}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
+            const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${currentColormap()}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
             const res = await fetch(url);
             const blob = await res.blob();
             const link = document.createElement('a');
@@ -644,10 +665,25 @@
                 showToast(`mode: ${getModeLabel()}`);
                 saveState();
             } else if (e.key === 'c') {
-                colormap_idx = (colormap_idx + 1) % COLORMAPS.length;
+                customColormap = null; customGradientStops = null;
+                colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showToast(`colormap: ${COLORMAPS[colormap_idx]}`);
+                showToast(`colormap: ${currentColormap()}`);
                 saveState();
+            } else if (e.key === 'C') {
+                const name = window.prompt('Matplotlib colormap name:', '');
+                if (!name) return;
+                fetch(`/colormap/${encodeURIComponent(name.trim())}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => {
+                        if (!d) { showToast('Unknown colormap'); return; }
+                        customColormap = name.trim();
+                        customGradientStops = d.gradient_stops;
+                        colormap_idx = -1;
+                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        showToast(`colormap: ${customColormap}`);
+                        saveState();
+                    });
             } else if (e.key === 'd') {
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
@@ -738,7 +774,7 @@
                         `# arrayview state`,
                         `file:     ${d.filepath || '(no file)'}`,
                         `shape:    [${d.shape.join(', ')}]`,
-                        `colormap: ${COLORMAPS[colormap_idx]}`,
+                        `colormap: ${currentColormap()}`,
                         `indices:  [${indices.join(', ')}]`,
                         `range:    ${DR_LABELS[dr_idx]}`,
                     ];
@@ -916,7 +952,7 @@
             v.rendering = true; v.seq++;
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
-                indices: [...indices], colormap: COLORMAPS[colormap_idx],
+                indices: [...indices], colormap: currentColormap(),
                 dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: v.sliceDir, direction: 1,
             }));

@@ -241,6 +241,19 @@ class TestKeyboard:
 # Visual regression
 # ---------------------------------------------------------------------------
 
+class TestCustomColormap:
+    def test_C_key_with_valid_colormap_changes_canvas(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        before = page.evaluate(_JS_CENTER_PIXEL)
+        # Use page.keyboard to trigger C; dialog will appear, fill and confirm
+        page.on("dialog", lambda d: d.accept("inferno"))
+        page.keyboard.press("C")
+        page.wait_for_timeout(1200)
+        after = page.evaluate(_JS_CENTER_PIXEL)
+        assert before != after, "Center pixel unchanged after C + inferno colormap"
+
+
 class TestSessionStorage:
     def test_colormap_persists_across_reload(self, loaded_viewer, sid_2d, server_url):
         page = loaded_viewer(sid_2d)

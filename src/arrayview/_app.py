@@ -337,12 +337,28 @@ def _prepare_display(session, raw, complex_mode, dr, log_scale):
     return data, vmin, vmax
 
 
+def _ensure_lut(name: str) -> bool:
+    """Ensure name is in LUTS. Returns True if valid."""
+    if name in LUTS:
+        return True
+    try:
+        cmap = mpl_colormaps[name]
+    except KeyError:
+        return False
+    rgba = (cmap(np.arange(256) / 255.0) * 255).astype(np.uint8)
+    lut = np.concatenate([rgba[:, :3], np.full((256, 1), 255, dtype=np.uint8)], axis=1)
+    LUTS[name] = lut
+    COLORMAP_GRADIENT_STOPS[name] = _lut_to_gradient_stops(lut)
+    return True
+
+
 def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=False):
     data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
     else:
         normalized = np.zeros_like(data)
+    _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     return lut[(normalized * 255).astype(np.uint8)]
 
@@ -419,6 +435,7 @@ def render_mosaic(
     else:
         normalized = np.zeros_like(grid)
 
+    _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
     session.mosaic_cache[key] = rgba
@@ -599,6 +616,14 @@ def clear_cache(sid: str):
         session.mosaic_cache.clear()
         session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     return {"status": "ok"}
+
+
+@app.get("/colormap/{name}")
+def get_colormap(name: str):
+    """Validate a matplotlib colormap name and return its gradient stops."""
+    if not _ensure_lut(name):
+        return Response(status_code=404)
+    return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
 
 
 @app.post("/preload/{sid}")
