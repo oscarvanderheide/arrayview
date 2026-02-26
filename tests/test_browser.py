@@ -241,6 +241,27 @@ class TestKeyboard:
 # Visual regression
 # ---------------------------------------------------------------------------
 
+class TestHistogramOverlay:
+    def test_H_key_shows_histogram_overlay(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        assert not page.is_visible("#histogram-overlay"), "Histogram should start hidden"
+        page.keyboard.press("H")
+        page.wait_for_timeout(800)
+        assert page.is_visible("#histogram-overlay"), "Histogram should be visible after H"
+        toast = page.inner_text("#toast").strip()
+        assert "histogram" in toast.lower(), f"Expected histogram toast, got: '{toast}'"
+
+    def test_H_key_toggles_histogram_off(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("H")
+        page.wait_for_timeout(400)
+        page.keyboard.press("H")
+        page.wait_for_timeout(400)
+        assert not page.is_visible("#histogram-overlay"), "Histogram should be hidden after second H"
+
+
 class TestROIDrag:
     def test_canvas_drag_shows_roi_stats(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
