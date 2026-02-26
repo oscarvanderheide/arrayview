@@ -31,18 +31,17 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 def _open_webview(url: str, win_w: int, win_h: int, capture_stderr: bool = False) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
-    script = "\n".join([
-        "import sys, webview",
-        "u, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])",
-        "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
-        # Qt WebEngine renders at device-pixel-ratio scale, causing a thin
-        # scrollbar at default zoom.  A 90 % zoom gives enough breathing room.
-        "if sys.platform.startswith('linux'):",
-        "    win.events.loaded += lambda: win.evaluate_js('document.documentElement.style.zoom=\"0.9\"')",
-        "webview.start(**({'gui': 'qt'} if sys.platform.startswith('linux') else {}))",
-    ])
+    # Qt WebEngine renders at device-pixel-ratio scale, producing a thin
+    # scrollbar at zoom=1.0.  A slightly lower zoom prevents it.
+    zoom = 0.9 if sys.platform.startswith("linux") else 1.0
+    script = (
+        "import sys,webview;"
+        "u,w,h,z=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]),float(sys.argv[4]);"
+        "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111',zoom=z);"
+        "webview.start(**({'gui':'qt'} if sys.platform.startswith('linux') else {}))"
+    )
     return subprocess.Popen(
-        [sys.executable, "-c", script, url, str(win_w), str(win_h)],
+        [sys.executable, "-c", script, url, str(win_w), str(win_h), str(zoom)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
     )
