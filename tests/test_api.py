@@ -264,25 +264,6 @@ class TestClearCache:
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 
-class TestHistogram:
-    def test_returns_counts_and_edges(self, client, sid_2d):
-        r = client.get(f"/histogram/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "complex_mode": 0, "nbins": 32,
-        })
-        assert r.status_code == 200
-        body = r.json()
-        assert "counts" in body and "edges" in body
-        assert len(body["counts"]) == 32
-        assert len(body["edges"]) == 33  # nbins + 1
-
-    def test_unknown_sid_is_404(self, client):
-        r = client.get("/histogram/doesnotexist000", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-        })
-        assert r.status_code == 404
-
-
 class TestROI:
     def test_roi_returns_stats(self, client, sid_2d):
         # arr_2d is linspace(0,1) shaped 100×80; request a region we know

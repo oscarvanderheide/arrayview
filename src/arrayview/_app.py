@@ -956,30 +956,6 @@ def get_gif(
     return Response(content=buf.getvalue(), media_type="image/gif")
 
 
-@app.get("/histogram/{sid}")
-def get_histogram(
-    sid: str,
-    dim_x: int,
-    dim_y: int,
-    indices: str,
-    complex_mode: int = 0,
-    nbins: int = 64,
-):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
-    idx_tuple = tuple(int(v) for v in indices.split(","))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
-    finite = data[np.isfinite(data)]
-    if finite.size == 0:
-        return {"counts": [], "edges": []}
-    lo = float(np.percentile(finite, 1))
-    hi = float(np.percentile(finite, 99))
-    counts, edges = np.histogram(finite, bins=nbins, range=(lo, hi))
-    return {"counts": counts.tolist(), "edges": edges.tolist()}
-
-
 @app.get("/shell")
 def get_shell():
     """Returns the Master Tabbed Window UI."""
