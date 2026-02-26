@@ -325,8 +325,10 @@ def apply_complex_mode(raw, complex_mode):
     return np.nan_to_num(result).astype(np.float32)
 
 
-def _prepare_display(session, raw, complex_mode, dr, log_scale):
+def _prepare_display(session, raw, complex_mode, dr, log_scale, vmin_override=None, vmax_override=None):
     data = apply_complex_mode(raw, complex_mode)
+    if vmin_override is not None and vmax_override is not None:
+        return data, vmin_override, vmax_override
     if log_scale:
         data = np.log1p(np.abs(data)).astype(np.float32)
         pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
@@ -352,8 +354,10 @@ def _ensure_lut(name: str) -> bool:
     return True
 
 
-def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=False):
-    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
+def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=False,
+                        vmin_override=None, vmax_override=None):
+    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale,
+                                        vmin_override=vmin_override, vmax_override=vmax_override)
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
     else:
@@ -364,19 +368,24 @@ def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=Fa
 
 
 def render_rgba(
-    session, dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale=False
+    session, dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale=False,
+    vmin_override=None, vmax_override=None,
 ):
-    key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale)
-    if key in session.rgba_cache:
-        session.rgba_cache.move_to_end(key)
-        return session.rgba_cache[key]
+    has_override = vmin_override is not None and vmax_override is not None
+    if not has_override:
+        key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale)
+        if key in session.rgba_cache:
+            session.rgba_cache.move_to_end(key)
+            return session.rgba_cache[key]
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    rgba = apply_colormap_rgba(session, raw, colormap, dr, complex_mode, log_scale)
-    session.rgba_cache[key] = rgba
-    session._rgba_bytes += rgba.nbytes
-    while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
-        _, v = session.rgba_cache.popitem(last=False)
-        session._rgba_bytes -= v.nbytes
+    rgba = apply_colormap_rgba(session, raw, colormap, dr, complex_mode, log_scale,
+                               vmin_override=vmin_override, vmax_override=vmax_override)
+    if not has_override:
+        session.rgba_cache[key] = rgba
+        session._rgba_bytes += rgba.nbytes
+        while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
+            _, v = session.rgba_cache.popitem(last=False)
+            session._rgba_bytes -= v.nbytes
     return rgba
 
 
@@ -567,6 +576,10 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             dim_z = int(msg.get("dim_z", -1))
             complex_mode = int(msg.get("complex_mode", 0))
             log_scale = bool(msg.get("log_scale", False))
+            _vmin_ov = msg.get("vmin_override")
+            _vmax_ov = msg.get("vmax_override")
+            vmin_override = float(_vmin_ov) if _vmin_ov is not None else None
+            vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
 
             if dim_z >= 0:
                 rgba = await loop.run_in_executor(
@@ -585,20 +598,16 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             else:
                 rgba = await loop.run_in_executor(
                     None,
-                    render_rgba,
-                    session,
-                    dim_x,
-                    dim_y,
-                    idx_tuple,
-                    colormap,
-                    dr,
-                    complex_mode,
-                    log_scale,
+                    lambda: render_rgba(
+                        session, dim_x, dim_y, idx_tuple, colormap, dr,
+                        complex_mode, log_scale, vmin_override, vmax_override,
+                    ),
                 )
 
             h, w = rgba.shape[:2]
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-            _, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
+            _, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale,
+                                             vmin_override=vmin_override, vmax_override=vmax_override)
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
