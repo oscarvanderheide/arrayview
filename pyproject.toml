@@ -29,6 +29,7 @@ dependencies = [
     "pywebview>=6.1",
     "PyQt5>=5.15; sys_platform == 'linux'",
     "PyQtWebEngine>=5.15; sys_platform == 'linux'",
+    "qtpy>=2.0; sys_platform == 'linux'",
     "qmricolors>=0.1.2",
     "scipy>=1.10",
     "tifffile>=2023.1.1",
