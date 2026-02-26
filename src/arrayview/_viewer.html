@@ -120,6 +120,7 @@
 <span class="key">hover</span>  show pixel value
 <span class="key">v</span>  toggle 3-plane view (dims 0,1,2)
 <span class="key">V</span>  toggle 3-plane view (custom dims)
+<span class="key">e</span>  copy view state to clipboard
 <span class="key">?</span>  toggle this help</div>
     </div>
 </div>
@@ -686,6 +687,21 @@
                     if (d.filepath) lines.push(`File:     ${d.filepath}`);
                     if (d.fft_axes) lines.push(`FFT axes: [${d.fft_axes.join(', ')}]`);
                     showDataInfo(lines.join('\n'));
+                });
+            } else if (e.key === 'e') {
+                fetch(`/info/${sid}`).then(r => r.json()).then(d => {
+                    const lines = [
+                        `# arrayview state`,
+                        `file:     ${d.filepath || '(no file)'}`,
+                        `shape:    [${d.shape.join(', ')}]`,
+                        `colormap: ${COLORMAPS[colormap_idx]}`,
+                        `indices:  [${indices.join(', ')}]`,
+                        `range:    ${DR_LABELS[dr_idx]}`,
+                    ];
+                    if (logScale) lines.push('log:      on');
+                    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+                        showToast('state copied to clipboard');
+                    }).catch(() => showToast('clipboard unavailable'));
                 });
             } else if (e.key === 'f') {
                 if (_fftActive) {
