@@ -949,18 +949,25 @@ def _can_native_window() -> bool:
 def _open_browser(url: str, blocking: bool = False) -> None:
     """Open URL in the user's browser.
 
-    Tries ``code --open-url`` first so it works on VSCode tunnels and
-    Remote-SSH (where it forwards the request to the local machine's browser).
-    Falls back to Python's webbrowser module.
+    On headless/remote environments (no DISPLAY/WAYLAND_DISPLAY), tries
+    ``code --open-url`` first so it works on VSCode tunnels and Remote-SSH
+    (where it forwards the request to the local machine's browser).
+    When a local display is available, goes straight to Python's webbrowser
+    module (``code --open-url`` returns 0 locally but may not open anything).
 
     blocking=True runs synchronously (use from CLI where the process exits immediately).
     blocking=False (default) runs in a daemon thread (use from view()).
     """
     import shutil
 
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
     def _do():
         code_cli = shutil.which("code")
-        if code_cli:
+        # Only try code --open-url on headless/remote environments where it
+        # actually forwards the URL to the local browser.  On machines with a
+        # local display it returns 0 silently without opening anything.
+        if code_cli and not has_display:
             print(f"[ArrayView] Trying: code --open-url {url}", flush=True)
             try:
                 r = subprocess.run(
@@ -1205,7 +1212,7 @@ def arrayview():
             print(f"Injected as new tab in existing window (port {args.port})")
         else:
             print(f"Open {url} in your browser")
-            _open_browser(url)
+            _open_browser(url, blocking=True)
         return
 
     sid = uuid.uuid4().hex
