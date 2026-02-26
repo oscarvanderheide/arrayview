@@ -13,3 +13,4 @@ wheels/
 .claude/
 CLAUDE.md
 debug/
+tests/snapshots/
