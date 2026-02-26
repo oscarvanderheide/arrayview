@@ -82,6 +82,7 @@
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
             <canvas id="colorbar"></canvas>
+            <canvas id="histogram-overlay" style="display:none; position:absolute; bottom:0; right:0; pointer-events:none; opacity:0.85;"></canvas>
         </div>
         <div id="multi-view-wrap"></div>
         <div id="loading-overlay">
@@ -113,6 +114,7 @@
 <span class="key">C</span>  enter matplotlib colormap name
 <span class="key">d</span>  cycle dynamic range
 <span class="key">b</span>  toggle colorbar
+<span class="key">H</span>  toggle histogram overlay
 <!-- dark/light toggle removed; always dark mode -->
 <span class="key">s</span>  save screenshot (PNG)
 <span class="key">g</span>  save GIF of current slice dim
@@ -154,6 +156,7 @@
         let manualVmin = null, manualVmax = null;
         let cbDragging = false, cbDragStartY = 0, cbDragStartVmin = 0, cbDragStartVmax = 0;
         let roiDragging = false, roiStart = null, roiEnd = null;
+        let showHistogram = false;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
 
         let ws = null, wsReady = false, wsSentSeq = 0;
@@ -289,6 +292,28 @@
             }, 4000);
         }
 
+        function drawHistogram() {
+            const hc = document.getElementById('histogram-overlay');
+            const hctx = hc.getContext('2d');
+            const W = 200, H = 120;
+            hc.width = W; hc.height = H;
+            hc.style.width = W + 'px'; hc.style.height = H + 'px';
+            fetch(`/histogram/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&complex_mode=${complexMode}`)
+                .then(r => r.json()).then(d => {
+                    if (!d.counts || !d.counts.length) return;
+                    hctx.fillStyle = 'rgba(20,20,20,0.9)';
+                    hctx.fillRect(0, 0, W, H);
+                    const maxC = Math.max(...d.counts);
+                    if (maxC === 0) return;
+                    const barW = W / d.counts.length;
+                    hctx.fillStyle = 'rgba(180,180,210,0.9)';
+                    for (let i = 0; i < d.counts.length; i++) {
+                        const bh = Math.floor((d.counts[i] / maxC) * (H - 4));
+                        hctx.fillRect(i * barW, H - bh, Math.max(1, barW - 1), bh);
+                    }
+                });
+        }
+
         function applyFlips(imageData, w, h) {
             if (!flip_x && !flip_y) return imageData;
             const src = imageData.data;
@@ -341,6 +366,7 @@
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
                     }
+                    if (showHistogram) drawHistogram();
                 }
 
                 isRendering = false;
@@ -472,7 +498,7 @@
                 colormap_idx, dr_idx, indices: [...indices],
                 logScale, complexMode, flip_x, flip_y,
                 flipDims: {...flipDims}, userZoom,
-                customColormap,
+                customColormap, showHistogram,
             }));
         }
 
@@ -490,6 +516,11 @@
                 flip_y      = s.flip_y ?? false;
                 flipDims    = s.flipDims ?? {};
                 userZoom    = s.userZoom ?? 1.0;
+                showHistogram = s.showHistogram ?? false;
+                if (showHistogram) {
+                    const hc = document.getElementById('histogram-overlay');
+                    if (hc) hc.style.display = 'block';
+                }
                 if (s.customColormap && colormap_idx === -1) {
                     // Re-fetch gradient stops so colorbar can render correctly
                     fetch(`/colormap/${encodeURIComponent(s.customColormap)}`)
@@ -860,6 +891,13 @@
                 [dim_y, current_slice_dim] = [current_slice_dim, dim_y];
                 dim_z = -1;
                 updateView(); triggerPreload();
+            } else if (e.key === 'H') {
+                showHistogram = !showHistogram;
+                const hc = document.getElementById('histogram-overlay');
+                hc.style.display = showHistogram ? 'block' : 'none';
+                if (showHistogram) drawHistogram();
+                showToast(showHistogram ? 'histogram: on' : 'histogram: off');
+                saveState();
             } else if (e.key === 'v') {
                 if (multiViewActive) exitMultiView(); else enterMultiView([0, 1, 2]);
             } else if (e.key === 'V') {
