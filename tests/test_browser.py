@@ -241,6 +241,29 @@ class TestKeyboard:
 # Visual regression
 # ---------------------------------------------------------------------------
 
+class TestColorbarWindowLevel:
+    def test_colorbar_drag_changes_canvas(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        # Turn on colorbar
+        page.keyboard.press("b")
+        page.wait_for_timeout(300)
+        before = page.evaluate(_JS_CENTER_PIXEL)
+        # Drag the colorbar downward (pan window toward higher values → image darkens)
+        cb = page.locator("canvas#colorbar")
+        box = cb.bounding_box()
+        assert box is not None, "Colorbar not visible"
+        mid_x = box["x"] + box["width"] / 2
+        mid_y = box["y"] + box["height"] / 2
+        page.mouse.move(mid_x, mid_y)
+        page.mouse.down()
+        page.mouse.move(mid_x, mid_y + 60, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(600)
+        after = page.evaluate(_JS_CENTER_PIXEL)
+        assert before != after, "Center pixel unchanged after colorbar drag"
+
+
 class TestCustomColormap:
     def test_C_key_with_valid_colormap_changes_canvas(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
