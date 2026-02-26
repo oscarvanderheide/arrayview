@@ -24,3 +24,22 @@ import numpy as np
 np.random.rand(256,256,32,2)
 view(x)
 ```
+
+## Development
+
+```bash
+git clone https://github.com/oscarvanderheide/arrayview
+cd arrayview
+uv sync --group test
+uv run playwright install chromium
+```
+
+Run the tests:
+
+```bash
+uv run pytest tests/              # all (API + browser, ~100s)
+uv run pytest tests/test_api.py   # HTTP layer only (~40s)
+uv run pytest tests/test_browser.py  # Playwright/Chromium only (~60s)
+```
+
+Visual regression baselines live in `tests/snapshots/`. Delete a file there to reset its baseline.

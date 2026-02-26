@@ -64,3 +64,9 @@ testpaths = ["tests"]
 markers = [
     "browser: marks tests that require a real browser (playwright)",
 ]
+filterwarnings = [
+    # uvicorn 0.41 uses the deprecated websockets.legacy API (websockets 14+)
+    # — upstream issue, nothing we can fix
+    "ignore::DeprecationWarning:websockets",
+    "ignore::DeprecationWarning:uvicorn",
+]
