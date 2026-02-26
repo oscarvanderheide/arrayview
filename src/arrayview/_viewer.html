@@ -32,7 +32,7 @@
         .spatial-dim { color: #b48ead; font-weight: bold; }
         .muted { color: var(--muted); }
         #status { margin-top: 8px; font-size: 18px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
-        #pixel-info { margin-top: 2px; font-size: 18px; color: var(--text); min-height: 1em; font-family: monospace; flex-shrink: 0; }
+        #pixel-info { margin-top: 2px; font-size: 18px; color: var(--text); height: 1.4em; line-height: 1.4; font-family: monospace; flex-shrink: 0; overflow: hidden; }
         #preload-status { margin-top: 4px; font-size: 13px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
         #toast {
             margin-top: 8px; font-size: 18px; color: var(--text);
@@ -543,13 +543,14 @@
                         const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                         el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
+                        el.style.visibility = 'visible';
                     } else {
-                        el.textContent = '';
+                        el.style.visibility = 'hidden';
                     }
                 });
         });
         canvas.addEventListener('mouseleave', () => {
-            document.getElementById('pixel-info').textContent = '';
+            document.getElementById('pixel-info').style.visibility = 'hidden';
         });
 
         sink.addEventListener('keydown', (e) => {
@@ -803,14 +804,15 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                                    document.getElementById('pixel-info').textContent =
-                                        `(${px}, ${shape[view.dimY] - 1 - py}) = ${fmt(d.value)}`;
+                                    const el = document.getElementById('pixel-info');
+                                    el.textContent = `(${px}, ${shape[view.dimY] - 1 - py}) = ${fmt(d.value)}`;
+                                    el.style.visibility = 'visible';
                                 }
                             });
                     }
                 });
                 cv.addEventListener('mouseleave', () => {
-                    if (!mvDraggingView) document.getElementById('pixel-info').textContent = '';
+                    if (!mvDraggingView) document.getElementById('pixel-info').style.visibility = 'hidden';
                 });
                 return view;
             });
