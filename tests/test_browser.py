@@ -213,6 +213,18 @@ class TestKeyboard:
         text = page.inner_text("#data-info")
         assert "100" in text or "80" in text, f"Shape not in data-info: '{text}'"
 
+    def test_e_copies_state_to_clipboard(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        # Grant clipboard permissions
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        _focus_kb(page)
+        page.keyboard.press("e")
+        page.wait_for_timeout(800)
+        toast = page.inner_text("#toast").strip()
+        assert "clipboard" in toast.lower() or "state" in toast.lower() or "copied" in toast.lower(), (
+            f"Expected clipboard toast, got: '{toast}'"
+        )
+
     def test_s_puts_status_message(self, loaded_viewer, sid_2d):
         # s triggers download and sets #status to "Screenshot saved."
         page = loaded_viewer(sid_2d)
