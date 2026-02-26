@@ -939,11 +939,17 @@ def _in_jupyter() -> bool:
 
 
 def _can_native_window() -> bool:
-    """True if a pywebview native window can be opened (local display available)."""
+    """True if a pywebview native window can be opened."""
     if sys.platform in ("darwin", "win32"):
         return True
-    # Linux/BSD: need a display server
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    # Linux/BSD: need a display server AND pywebview's GUI bindings
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
+    import importlib.util
+    return (
+        importlib.util.find_spec("qtpy") is not None
+        or importlib.util.find_spec("gi") is not None
+    )
 
 
 def _open_browser(url: str, blocking: bool = False) -> None:
