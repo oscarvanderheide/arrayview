@@ -258,3 +258,36 @@ class TestClearCache:
         })
         assert r.status_code == 200
         assert "image/jpeg" in r.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Memory-aware cache (byte limits)
+# ---------------------------------------------------------------------------
+
+class TestMemoryAwareCache:
+    def test_byte_counters_reset_on_clearcache(self, client, sid_2d):
+        """After clearcache, byte counters should be 0."""
+        from arrayview._app import SESSIONS
+        # Warm the cache by requesting a slice
+        client.get(f"/slice/{sid_2d}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0",
+            "colormap": "gray", "dr": 0, "slice_dim": 0,
+        })
+        client.get(f"/clearcache/{sid_2d}")
+        session = SESSIONS.get(sid_2d)
+        if session:
+            assert session._raw_bytes == 0
+            assert session._rgba_bytes == 0
+            assert session._mosaic_bytes == 0
+
+    def test_byte_counters_positive_after_slice(self, client, sid_2d):
+        """After rendering a slice, raw byte counter should be > 0."""
+        from arrayview._app import SESSIONS
+        client.get(f"/clearcache/{sid_2d}")
+        client.get(f"/slice/{sid_2d}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0",
+            "colormap": "gray", "dr": 0, "slice_dim": 0,
+        })
+        session = SESSIONS.get(sid_2d)
+        if session:
+            assert session._raw_bytes > 0
