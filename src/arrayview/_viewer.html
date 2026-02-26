@@ -118,7 +118,8 @@
 <span class="key">+ / -</span>  zoom in / out
 <span class="key">0</span>  reset zoom (fit to window)
 <span class="key">hover</span>  show pixel value
-<span class="key">v</span>  toggle 3-plane view (prompts for spatial dims)
+<span class="key">v</span>  toggle 3-plane view (dims 0,1,2)
+<span class="key">V</span>  toggle 3-plane view (custom dims)
 <span class="key">?</span>  toggle this help</div>
     </div>
 </div>
@@ -720,13 +721,15 @@
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
-                if (multiViewActive) exitMultiView(); else enterMultiView();
+                if (multiViewActive) exitMultiView(); else enterMultiView([0, 1, 2]);
+            } else if (e.key === 'V') {
+                if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
             }
         });
 
 
         // --------------- Multi-view (3-plane) ---------------
-        function enterMultiView() {
+        function enterMultiViewPrompt() {
             if (shape.length < 3) { showToast('Need at least 3 dimensions'); return; }
             const raw = window.prompt(
                 `Spatial dims — enter 3 from 0\u2013${shape.length-1}, comma-separated:`, '0,1,2');
@@ -736,6 +739,11 @@
                 dims.some(d => d < 0 || d >= shape.length) || new Set(dims).size !== 3) {
                 showToast('Enter 3 unique valid dimension indices'); return;
             }
+            enterMultiView(dims);
+        }
+
+        function enterMultiView(dims) {
+            if (shape.length < 3) { showToast('Need at least 3 dimensions'); return; }
             multiViewActive = true;
             mvDims = dims;
             hideLoadingOverlay();
