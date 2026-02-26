@@ -408,6 +408,7 @@
             // initialize per-dimension flip flags
             flipDims = {};
             for (let i = 0; i < shape.length; i++) flipDims[i] = false;
+            restoreState();
             initWebSocket();
             triggerPreload();
         }
@@ -454,6 +455,33 @@
         }
 
         function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+        function saveState() {
+            if (!sid) return;
+            sessionStorage.setItem('av_' + sid, JSON.stringify({
+                colormap_idx, dr_idx, indices: [...indices],
+                logScale, complexMode, flip_x, flip_y,
+                flipDims: {...flipDims}, userZoom,
+            }));
+        }
+
+        function restoreState() {
+            const raw = sessionStorage.getItem('av_' + sid);
+            if (!raw) return false;
+            try {
+                const s = JSON.parse(raw);
+                colormap_idx = s.colormap_idx ?? colormap_idx;
+                dr_idx       = s.dr_idx ?? dr_idx;
+                if (s.indices?.length === shape.length) indices = s.indices;
+                logScale    = s.logScale ?? false;
+                complexMode = s.complexMode ?? 0;
+                flip_x      = s.flip_x ?? false;
+                flip_y      = s.flip_y ?? false;
+                flipDims    = s.flipDims ?? {};
+                userZoom    = s.userZoom ?? 1.0;
+                return true;
+            } catch (e) { return false; }
+        }
 
         function updateView() {
             renderInfo();
@@ -565,19 +593,23 @@
                 userZoom = Math.min(userZoom * 1.1, 10.0);
                 scaleCanvas(canvas.width, canvas.height);
                 showToast(`zoom: ${Math.round(userZoom * 100)}%`);
+                saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
                 scaleCanvas(canvas.width, canvas.height);
                 showToast(`zoom: ${Math.round(userZoom * 100)}%`);
+                saveState();
             } else if (e.key === '0') {
                 userZoom = 1.0;
                 scaleCanvas(canvas.width, canvas.height);
                 showToast(`zoom: fit`);
+                saveState();
             } else if (e.key === 'b') {
                 showColorbar = !showColorbar;
                 colorbarCanvas.style.display = showColorbar ? 'block' : 'none';
                 if (showColorbar && lastImageData) drawColorbar();
                 showToast(showColorbar ? 'colorbar: on' : 'colorbar: off');
+                saveState();
             } else if (e.key === 'z') {
                 if (dim_z >= 0) {
                     current_slice_dim = dim_z;
@@ -610,14 +642,17 @@
                 complexMode = (complexMode + 1) % modeCount;
                 updateView(); triggerPreload();
                 showToast(`mode: ${getModeLabel()}`);
+                saveState();
             } else if (e.key === 'c') {
                 colormap_idx = (colormap_idx + 1) % COLORMAPS.length;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(`colormap: ${COLORMAPS[colormap_idx]}`);
+                saveState();
             } else if (e.key === 'd') {
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(`range: ${DR_LABELS[dr_idx]}`);
+                saveState();
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (multiViewActive && mvDims.includes(activeDim)) {
@@ -625,18 +660,22 @@
                     flipDims[activeDim] = !flipDims[activeDim];
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); });
+                    saveState();
                 } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();
+                    saveState();
                 } else if (activeDim === dim_y) {
                     flip_y = !flip_y;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();
+                    saveState();
                 } else {
                     lastDirection = -1;
                     indices[activeDim] = Math.max(0, indices[activeDim] - 1);
                     updateView();
+                    saveState();
                 }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault();
@@ -645,18 +684,22 @@
                     flipDims[activeDim] = !flipDims[activeDim];
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); });
+                    saveState();
                 } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();
+                    saveState();
                 } else if (activeDim === dim_y) {
                     flip_y = !flip_y;
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                     renderInfo();
+                    saveState();
                 } else {
                     lastDirection = 1;
                     indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
                     updateView();
+                    saveState();
                 }
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
@@ -676,6 +719,7 @@
                 logScale = !logScale;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showToast(logScale ? 'log scale: on' : 'log scale: off');
+                saveState();
             } else if (e.key === 'i') {
                 fetch(`/info/${sid}`).then(r => r.json()).then(d => {
                     const lines = [
