@@ -116,9 +116,10 @@ class Session:
         self.rgba_cache = OrderedDict()
         self.mosaic_cache = OrderedDict()
 
-        self.RAW_CACHE_MAX = 200
-        self.RGBA_CACHE_MAX = 512
-        self.MOSAIC_CACHE_MAX = 64
+        self.RAW_CACHE_BYTES  = 512  * 1024 * 1024   # 512 MB
+        self.RGBA_CACHE_BYTES = 1024 * 1024 * 1024   # 1 GB
+        self.MOSAIC_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
+        self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
 
         self.preload_gen = 0
         self.preload_done = 0
@@ -302,8 +303,10 @@ def extract_slice(session, dim_x, dim_y, idx_list):
         result = np.nan_to_num(extracted).astype(np.float32)
 
     session.raw_cache[key] = result
-    if len(session.raw_cache) > session.RAW_CACHE_MAX:
-        session.raw_cache.popitem(last=False)
+    session._raw_bytes += result.nbytes
+    while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
+        _, v = session.raw_cache.popitem(last=False)
+        session._raw_bytes -= v.nbytes
     return result
 
 
@@ -354,8 +357,10 @@ def render_rgba(
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     rgba = apply_colormap_rgba(session, raw, colormap, dr, complex_mode, log_scale)
     session.rgba_cache[key] = rgba
-    if len(session.rgba_cache) > session.RGBA_CACHE_MAX:
-        session.rgba_cache.popitem(last=False)
+    session._rgba_bytes += rgba.nbytes
+    while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
+        _, v = session.rgba_cache.popitem(last=False)
+        session._rgba_bytes -= v.nbytes
     return rgba
 
 
@@ -417,8 +422,10 @@ def render_mosaic(
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
     session.mosaic_cache[key] = rgba
-    if len(session.mosaic_cache) > session.MOSAIC_CACHE_MAX:
-        session.mosaic_cache.popitem(last=False)
+    session._mosaic_bytes += rgba.nbytes
+    while session._mosaic_bytes > session.MOSAIC_CACHE_BYTES and session.mosaic_cache:
+        _, v = session.mosaic_cache.popitem(last=False)
+        session._mosaic_bytes -= v.nbytes
     return rgba
 
 
@@ -452,8 +459,6 @@ def _run_preload(
             session.preload_skipped = True
             return
         session.preload_skipped = False
-        if dim_z < 0:
-            session.RGBA_CACHE_MAX = max(512, n * 4)
 
     for i in range(n):
         if session.preload_gen != gen:
@@ -512,6 +517,7 @@ async def shell_websocket(ws: WebSocket):
                     SESSIONS[sid].raw_cache.clear()
                     SESSIONS[sid].rgba_cache.clear()
                     SESSIONS[sid].mosaic_cache.clear()
+                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[sid]._mosaic_bytes = 0
                     SESSIONS[sid].data = None
                     del SESSIONS[sid]
     except Exception:
@@ -591,6 +597,7 @@ def clear_cache(sid: str):
         session.raw_cache.clear()
         session.rgba_cache.clear()
         session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     return {"status": "ok"}
 
 
@@ -726,6 +733,7 @@ async def toggle_fft(sid: str, request: Request):
         session.raw_cache.clear()
         session.rgba_cache.clear()
         session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
         session.compute_global_stats()
         return {"status": "restored", "is_complex": bool(np.iscomplexobj(session.data))}
 
@@ -744,6 +752,7 @@ async def toggle_fft(sid: str, request: Request):
     session.raw_cache.clear()
     session.rgba_cache.clear()
     session.mosaic_cache.clear()
+    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     session.compute_global_stats()
     return {
         "status": "fft_applied",
