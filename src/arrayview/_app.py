@@ -33,15 +33,14 @@ def _open_webview(url: str, win_w: int, win_h: int, capture_stderr: bool = False
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
     # Qt WebEngine renders at device-pixel-ratio scale, producing a thin
     # scrollbar at zoom=1.0.  A slightly lower zoom prevents it.
-    zoom = 0.9 if sys.platform.startswith("linux") else 1.0
     script = (
         "import sys,webview;"
-        "u,w,h,z=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]),float(sys.argv[4]);"
-        "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111',zoom=z);"
+        "u,w,h=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]);"
+        "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111');"
         "webview.start(**({'gui':'qt'} if sys.platform.startswith('linux') else {}))"
     )
     return subprocess.Popen(
-        [sys.executable, "-c", script, url, str(win_w), str(win_h), str(zoom)],
+        [sys.executable, "-c", script, url, str(win_w), str(win_h)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
     )
@@ -1346,9 +1345,14 @@ def arrayview():
 
         if args.tab:
             print(f"Injected as new tab in existing window (port {args.port})")
-        else:
+        elif args.browser or not _can_native_window():
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
+        else:
+            print(f"Open {url} in your browser")
+            if not _open_webview_cli(url, 1200, 800):
+                print("[ArrayView] Falling back to browser", flush=True)
+                _open_browser(url, blocking=True)
         return
 
     sid = uuid.uuid4().hex
@@ -1373,7 +1377,6 @@ def arrayview():
         sys.exit(1)
 
     can_native = _can_native_window()
-    print(f"[ArrayView] DISPLAY={os.environ.get('DISPLAY')!r}  WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY')!r}  can_native_window={can_native}", flush=True)
     print(f"Open {url} in your browser")
     if args.browser or not can_native:
         _open_browser(url, blocking=True)
