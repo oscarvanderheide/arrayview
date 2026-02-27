@@ -1381,7 +1381,10 @@ def _open_browser(url: str, blocking: bool = False) -> None:
 
     The arrayview-opener VS Code extension registers a URI handler so that
     ``open "vscode://arrayview.arrayview-opener/open?url=<encoded>"`` (macOS)
-    or ``xdg-open ...`` (Linux) triggers ``simpleBrowser.show`` inside VS Code.
+    or ``code --open-url vscode://...`` (Linux / tunnel) triggers
+    ``simpleBrowser.show`` inside VS Code.  The extension also resolves the
+    URL through ``vscode.env.asExternalUri`` so port forwarding works in
+    remote/tunnel contexts.
 
     The extension is automatically installed from a bundled .vsix on first use.
 
@@ -1391,36 +1394,64 @@ def _open_browser(url: str, blocking: bool = False) -> None:
     def _do() -> None:
         from urllib.parse import quote as _quote
 
+        vscode_uri = None
+
         # Ensure the companion extension is installed before trying the URI.
         if _ensure_vscode_extension():
-            vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
-                url, safe=""
+            vscode_uri = (
+                "vscode://arrayview.arrayview-opener/open?url="
+                + _quote(url, safe="")
             )
 
+        opened = False
+
+        if vscode_uri:
             if sys.platform == "darwin":
+                # macOS: `open` routes vscode:// URIs to VS Code via Launch Services
                 try:
                     r = subprocess.run(
                         ["open", vscode_uri],
                         capture_output=True,
                         timeout=5,
                     )
-                    if r.returncode == 0:
-                        return
+                    opened = r.returncode == 0
                 except Exception:
                     pass
-            elif sys.platform.startswith("linux"):
-                try:
-                    r = subprocess.run(
-                        ["xdg-open", vscode_uri],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                    if r.returncode == 0:
-                        return
-                except Exception:
-                    pass
+            else:
+                # Linux (including VS Code tunnel/remote): use `code --open-url`.
+                # In a tunnel, VS Code injects a `code` helper that communicates
+                # back to the local VS Code instance.  We also try xdg-open as
+                # a fallback for full desktop Linux with VS Code installed.
+                code = _find_code_cli()
+                if code:
+                    env = dict(os.environ)
+                    ipc = _find_vscode_ipc_hook()
+                    if ipc:
+                        env["VSCODE_IPC_HOOK_CLI"] = ipc
+                    try:
+                        r = subprocess.run(
+                            [code, "--open-url", vscode_uri],
+                            env=env,
+                            capture_output=True,
+                            timeout=8,
+                        )
+                        opened = r.returncode == 0
+                    except Exception:
+                        pass
 
-        webbrowser.open(url)
+                if not opened:
+                    try:
+                        r = subprocess.run(
+                            ["xdg-open", vscode_uri],
+                            capture_output=True,
+                            timeout=5,
+                        )
+                        opened = r.returncode == 0
+                    except Exception:
+                        pass
+
+        if not opened:
+            webbrowser.open(url)
 
     if blocking:
         _do()
