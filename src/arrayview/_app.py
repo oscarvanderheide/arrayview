@@ -842,6 +842,38 @@ def get_pixel(
     return {"value": val}
 
 
+@app.get("/roi_circle/{sid}")
+def get_roi_circle(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    cx: float,
+    cy: float,
+    r: float,
+    complex_mode: int = 0,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    ys, xs = np.ogrid[:h, :w]
+    mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r**2
+    roi = data[mask]
+    if roi.size == 0:
+        return {"error": "empty selection"}
+    return {
+        "min": float(roi.min()),
+        "max": float(roi.max()),
+        "mean": float(roi.mean()),
+        "std": float(roi.std()),
+        "n": int(roi.size),
+    }
+
+
 @app.get("/roi/{sid}")
 def get_roi(
     sid: str,
@@ -1260,6 +1292,7 @@ async def _serve_background(port: int):
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
     import socket as _socket
+
     # Pre-create the socket with SO_REUSEADDR so we can rebind immediately after
     # a previous server on this port was killed (avoids TIME_WAIT Errno 48).
     sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
@@ -1351,6 +1384,7 @@ def view(
             flush=True,
         )
         import signal as _signal
+
         try:
             os.kill(server_pid, _signal.SIGTERM)
         except Exception:

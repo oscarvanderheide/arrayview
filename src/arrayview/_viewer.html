@@ -51,7 +51,27 @@
         }
         #help-box .key { color: #ebcb8b; font-weight: bold; display: inline-block; min-width: 140px; }
         #help-hint { position: fixed; bottom: 12px; right: 16px; color: var(--muted); font-size: 14px; cursor: pointer; font-family: monospace; user-select: none; }
-        #data-info { margin-top: 8px; font-size: 18px; color: var(--text); white-space: pre; opacity: 0; transition: opacity 0.4s ease; pointer-events: none; }
+        #info-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75); z-index: 10; justify-content: center; align-items: center;
+        }
+        #info-overlay.visible { display: flex; }
+        #info-box {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 24px 32px; font-size: 14px; line-height: 2; color: var(--text);
+            font-family: monospace;
+        }
+        #info-box table { border-collapse: collapse; }
+        #info-box td:first-child { color: var(--muted); padding-right: 20px; }
+        #roi-panel {
+            position: fixed; top: 56px; right: 16px;
+            background: rgba(20,20,20,0.93); border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 16px; font-size: 13px; color: var(--text);
+            font-family: monospace; line-height: 2; display: none;
+            white-space: nowrap; z-index: 5;
+        }
+        #roi-panel table { border-collapse: collapse; }
+        #roi-panel td:first-child { color: var(--muted); padding-right: 12px; }
         #multi-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #multi-view-wrap.active { display: flex; align-items: stretch; justify-content: space-evenly; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -95,7 +115,10 @@
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="help-hint">?</div>
-    <div id="data-info"></div>
+    <div id="roi-panel"><table id="roi-table"></table></div>
+    <div id="info-overlay">
+        <div id="info-box"><table id="info-table"></table></div>
+    </div>
     <div id="help-overlay">
         <div id="help-box"><span class="key">scroll</span>  previous / next slice (active dim)
 <span class="key">h / l / ← / →</span>  move cursor to prev / next dim
@@ -277,16 +300,10 @@
             }
         }
 
-        function showDataInfo(text) {
-            const el = document.getElementById('data-info');
-            el.textContent = text;
-            el.style.transition = 'none';
-            el.style.opacity = '1';
-            if (dataInfoTimer) clearTimeout(dataInfoTimer);
-            dataInfoTimer = setTimeout(() => {
-                el.style.transition = 'opacity 0.8s ease';
-                el.style.opacity = '0';
-            }, 4000);
+        function showDataInfo(rows) {
+            document.getElementById('info-table').innerHTML =
+                rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+            document.getElementById('info-overlay').classList.add('visible');
         }
 
         function applyFlips(imageData, w, h) {
@@ -574,41 +591,64 @@
 
         const helpOverlay = document.getElementById('help-overlay');
 
-        // Canvas mouse handling: focus on click, ROI stats on drag
+        // Canvas mouse handling: click to focus, drag to draw circular ROI
         canvas.addEventListener('mousedown', e => {
             sink.focus();
             roiDragging = true;
             const rect = canvas.getBoundingClientRect();
             roiStart = roiEnd = {
-                x: Math.floor((e.clientX - rect.left) * canvas.width / rect.width),
-                y: Math.floor((e.clientY - rect.top) * canvas.height / rect.height),
+                x: (e.clientX - rect.left) * canvas.width / rect.width,
+                y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
         });
         canvas.addEventListener('mousemove', e => {
             if (!roiDragging) return;
             const rect = canvas.getBoundingClientRect();
             roiEnd = {
-                x: Math.floor((e.clientX - rect.left) * canvas.width / rect.width),
-                y: Math.floor((e.clientY - rect.top) * canvas.height / rect.height),
+                x: (e.clientX - rect.left) * canvas.width / rect.width,
+                y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
             if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-            ctx.strokeStyle = 'rgba(255,255,100,0.8)'; ctx.lineWidth = 1;
-            ctx.strokeRect(roiStart.x, roiStart.y, roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
+            const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
+            ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(roiStart.x, roiStart.y, r, 0, 2 * Math.PI);
+            ctx.stroke();
         });
         canvas.addEventListener('mouseup', e => {
             if (!roiDragging) return;
             roiDragging = false;
-            if (!roiStart || Math.abs(roiEnd.x - roiStart.x) < 3) {
+            const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
+            if (r < 3) {
                 if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                document.getElementById('roi-panel').style.display = 'none';
                 return;
             }
-            fetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&x0=${roiStart.x}&y0=${roiStart.y}&x1=${roiEnd.x}&y1=${roiEnd.y}&complex_mode=${complexMode}`)
-                .then(r => r.json()).then(d => {
+            const cx = roiStart.x, cy = roiStart.y;
+            fetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&cx=${cx}&cy=${cy}&r=${r}&complex_mode=${complexMode}`)
+                .then(res => res.json()).then(d => {
                     if (d.error) return;
-                    const fmt = v => parseFloat(v.toPrecision(4)).toString();
-                    setStatus(`ROI [${d.n}px]  min ${fmt(d.min)}  max ${fmt(d.max)}  mean ${fmt(d.mean)}  std ${fmt(d.std)}`);
-                    setTimeout(() => setStatus(''), 5000);
+                    const fmt = v => {
+                        const a = Math.abs(v);
+                        if (a === 0) return '0';
+                        if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
+                        return parseFloat(v.toPrecision(4)).toString();
+                    };
+                    const rows = [
+                        ['n', d.n.toLocaleString() + ' px'],
+                        ['min', fmt(d.min)],
+                        ['max', fmt(d.max)],
+                        ['mean', fmt(d.mean)],
+                        ['std', fmt(d.std)],
+                    ];
+                    document.getElementById('roi-table').innerHTML =
+                        rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+                    document.getElementById('roi-panel').style.display = 'block';
                 });
+        });
+        document.getElementById('info-overlay').addEventListener('click', e => {
+            if (e.target === document.getElementById('info-overlay'))
+                document.getElementById('info-overlay').classList.remove('visible');
         });
         document.addEventListener('click', () => sink.focus());
 
@@ -652,6 +692,7 @@
             if (e.key === '?') { helpOverlay.classList.toggle('visible'); return; }
             if (e.key === 'Escape') {
                 helpOverlay.classList.remove('visible');
+                document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
             if (e.key === '+' || e.key === '=') {
@@ -803,15 +844,15 @@
                 saveState();
             } else if (e.key === 'i') {
                 fetch(`/info/${sid}`).then(r => r.json()).then(d => {
-                    const lines = [
-                        `Shape:    [${d.shape.join(', ')}]`,
-                        `Dtype:    ${d.dtype}`,
-                        `Elements: ${d.total_elements.toLocaleString()}`,
-                        `Size:     ${d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'}`,
+                    const rows = [
+                        ['Shape', `[${d.shape.join(', ')}]`],
+                        ['Dtype', d.dtype],
+                        ['Elements', d.total_elements.toLocaleString()],
+                        ['Size', d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'],
                     ];
-                    if (d.filepath) lines.push(`File:     ${d.filepath}`);
-                    if (d.fft_axes) lines.push(`FFT axes: [${d.fft_axes.join(', ')}]`);
-                    showDataInfo(lines.join('\n'));
+                    if (d.filepath) rows.push(['File', d.filepath]);
+                    if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
+                    showDataInfo(rows);
                 });
             } else if (e.key === 'e') {
                 fetch(`/info/${sid}`).then(r => r.json()).then(d => {
