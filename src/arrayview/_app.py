@@ -28,7 +28,9 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 # ---------------------------------------------------------------------------
 # Subprocess GUI Launcher
 # ---------------------------------------------------------------------------
-def _open_webview(url: str, win_w: int, win_h: int, capture_stderr: bool = False) -> subprocess.Popen:
+def _open_webview(
+    url: str, win_w: int, win_h: int, capture_stderr: bool = False
+) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
     # Qt WebEngine renders at device-pixel-ratio scale, producing a thin
@@ -47,20 +49,63 @@ def _open_webview(url: str, win_w: int, win_h: int, capture_stderr: bool = False
 
 
 def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.Popen:
-    """Launch pywebview, falling back to _open_browser if the subprocess exits immediately.
+    """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
+    OR if no shell WebSocket connects within ~10 s (catches macOS non-framework Python
+    zombies that start but show nothing).
 
     Used from view() (Python API) where the host process stays alive.
-    Uses a daemon watchdog thread — do NOT use from the CLI where the process exits immediately.
     """
-    proc = _open_webview(url, win_w, win_h)
+    proc = _open_webview(url, win_w, win_h, capture_stderr=True)
+    print(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
+
+    def _read_stderr():
+        try:
+            return proc.stderr.read().decode(errors="replace").strip()
+        except Exception:
+            return ""
 
     def _watchdog():
+        # Phase 1: watch for an immediate crash (2 s)
         for _ in range(20):
             time.sleep(0.1)
             if proc.poll() is not None:
-                print(f"[ArrayView] Native window exited (code {proc.returncode}), opening in browser", flush=True)
+                stderr_out = _read_stderr()
+                print(
+                    f"[ArrayView] Native window exited immediately (code {proc.returncode}), opening in browser",
+                    flush=True,
+                )
+                if stderr_out:
+                    print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
                 _open_browser(url)
                 return
+
+        # Phase 2: process is alive — wait up to 8 s for a shell WebSocket to connect
+        for _ in range(80):
+            time.sleep(0.1)
+            if SHELL_SOCKETS:
+                print("[ArrayView] Native window connected successfully", flush=True)
+                return
+            if proc.poll() is not None:
+                stderr_out = _read_stderr()
+                print(
+                    f"[ArrayView] Native window exited (code {proc.returncode}), opening in browser",
+                    flush=True,
+                )
+                if stderr_out:
+                    print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+                _open_browser(url)
+                return
+
+        # Phase 3: alive but no UI connection after 10 s — zombie (e.g. non-framework Python on macOS)
+        print(
+            "[ArrayView] Native window did not connect; falling back to browser",
+            flush=True,
+        )
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        _open_browser(url)
 
     threading.Thread(target=_watchdog, daemon=True).start()
     return proc
@@ -84,7 +129,10 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
                 stderr_out = proc.stderr.read().decode(errors="replace").strip()
             except Exception:
                 pass
-            print(f"[ArrayView] Native window exited immediately (code {proc.returncode})", flush=True)
+            print(
+                f"[ArrayView] Native window exited immediately (code {proc.returncode})",
+                flush=True,
+            )
             if stderr_out:
                 print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
             return False
@@ -106,7 +154,9 @@ class Session:
         self.data = data
         self.shape = data.shape
         self.filepath = filepath
-        self.name = name or (os.path.basename(filepath) if filepath else f"Array {data.shape}")
+        self.name = name or (
+            os.path.basename(filepath) if filepath else f"Array {data.shape}"
+        )
         self.global_stats = {}
         self.fft_original_data = None
         self.fft_axes = None
@@ -115,8 +165,8 @@ class Session:
         self.rgba_cache = OrderedDict()
         self.mosaic_cache = OrderedDict()
 
-        self.RAW_CACHE_BYTES  = 512  * 1024 * 1024   # 512 MB
-        self.RGBA_CACHE_BYTES = 1024 * 1024 * 1024   # 1 GB
+        self.RAW_CACHE_BYTES = 512 * 1024 * 1024  # 512 MB
+        self.RGBA_CACHE_BYTES = 1024 * 1024 * 1024  # 1 GB
         self.MOSAIC_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
         self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
 
@@ -189,8 +239,12 @@ app = FastAPI()
 # ---------------------------------------------------------------------------
 # HTML Templates (loaded once at import time from package files)
 # ---------------------------------------------------------------------------
-_SHELL_HTML: str = _pkg_files(__package__).joinpath("_shell.html").read_text(encoding="utf-8")
-_VIEWER_HTML_TEMPLATE: str = _pkg_files(__package__).joinpath("_viewer.html").read_text(encoding="utf-8")
+_SHELL_HTML: str = (
+    _pkg_files(__package__).joinpath("_shell.html").read_text(encoding="utf-8")
+)
+_VIEWER_HTML_TEMPLATE: str = (
+    _pkg_files(__package__).joinpath("_viewer.html").read_text(encoding="utf-8")
+)
 
 
 def load_data(filepath):
@@ -209,6 +263,7 @@ def load_data(filepath):
         return nib.load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
         import zarr
+
         return zarr.open(filepath, mode="r")
     elif filepath.endswith(".pt") or filepath.endswith(".pth"):
         try:
@@ -219,6 +274,7 @@ def load_data(filepath):
         return _tensor_to_numpy(obj, filepath)
     elif filepath.endswith(".h5") or filepath.endswith(".hdf5"):
         import h5py
+
         f = h5py.File(filepath, "r")
         keys = list(f.keys())
         if len(keys) == 1:
@@ -229,11 +285,17 @@ def load_data(filepath):
         )
     elif filepath.endswith(".tif") or filepath.endswith(".tiff"):
         import tifffile
+
         return tifffile.imread(filepath)
     elif filepath.endswith(".mat"):
         import scipy.io
+
         mat = scipy.io.loadmat(filepath)
-        arrays = {k: v for k, v in mat.items() if not k.startswith("_") and isinstance(v, np.ndarray)}
+        arrays = {
+            k: v
+            for k, v in mat.items()
+            if not k.startswith("_") and isinstance(v, np.ndarray)
+        }
         if len(arrays) == 1:
             return next(iter(arrays.values()))
         raise ValueError(
@@ -258,10 +320,10 @@ def _tensor_to_numpy(obj, source="object"):
     if hasattr(obj, "numpy"):
         return obj.numpy()
     if hasattr(obj, "__array__"):
-        return np.asarray(obj)
-    raise ValueError(
-        f"Cannot convert {type(obj)} from {source} to a numpy array."
-    )
+        return np.array(
+            obj
+        )  # copy — ensures external GC (e.g. Julia) can't free the backing memory
+    raise ValueError(f"Cannot convert {type(obj)} from {source} to a numpy array.")
 
 
 def mosaic_shape(batch):
@@ -324,7 +386,9 @@ def apply_complex_mode(raw, complex_mode):
     return np.nan_to_num(result).astype(np.float32)
 
 
-def _prepare_display(session, raw, complex_mode, dr, log_scale, vmin_override=None, vmax_override=None):
+def _prepare_display(
+    session, raw, complex_mode, dr, log_scale, vmin_override=None, vmax_override=None
+):
     data = apply_complex_mode(raw, complex_mode)
     if vmin_override is not None and vmax_override is not None:
         return data, vmin_override, vmax_override
@@ -353,10 +417,25 @@ def _ensure_lut(name: str) -> bool:
     return True
 
 
-def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=False,
-                        vmin_override=None, vmax_override=None):
-    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale,
-                                        vmin_override=vmin_override, vmax_override=vmax_override)
+def apply_colormap_rgba(
+    session,
+    raw,
+    colormap,
+    dr,
+    complex_mode=0,
+    log_scale=False,
+    vmin_override=None,
+    vmax_override=None,
+):
+    data, vmin, vmax = _prepare_display(
+        session,
+        raw,
+        complex_mode,
+        dr,
+        log_scale,
+        vmin_override=vmin_override,
+        vmax_override=vmax_override,
+    )
     if vmax > vmin:
         normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
     else:
@@ -367,8 +446,16 @@ def apply_colormap_rgba(session, raw, colormap, dr, complex_mode=0, log_scale=Fa
 
 
 def render_rgba(
-    session, dim_x, dim_y, idx_tuple, colormap, dr, complex_mode=0, log_scale=False,
-    vmin_override=None, vmax_override=None,
+    session,
+    dim_x,
+    dim_y,
+    idx_tuple,
+    colormap,
+    dr,
+    complex_mode=0,
+    log_scale=False,
+    vmin_override=None,
+    vmax_override=None,
 ):
     has_override = vmin_override is not None and vmax_override is not None
     if not has_override:
@@ -377,8 +464,16 @@ def render_rgba(
             session.rgba_cache.move_to_end(key)
             return session.rgba_cache[key]
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    rgba = apply_colormap_rgba(session, raw, colormap, dr, complex_mode, log_scale,
-                               vmin_override=vmin_override, vmax_override=vmax_override)
+    rgba = apply_colormap_rgba(
+        session,
+        raw,
+        colormap,
+        dr,
+        complex_mode,
+        log_scale,
+        vmin_override=vmin_override,
+        vmax_override=vmax_override,
+    )
     if not has_override:
         session.rgba_cache[key] = rgba
         session._rgba_bytes += rgba.nbytes
@@ -542,7 +637,9 @@ async def shell_websocket(ws: WebSocket):
                     SESSIONS[sid].raw_cache.clear()
                     SESSIONS[sid].rgba_cache.clear()
                     SESSIONS[sid].mosaic_cache.clear()
-                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[sid]._mosaic_bytes = 0
+                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[
+                        sid
+                    ]._mosaic_bytes = 0
                     SESSIONS[sid].data = None
                     del SESSIONS[sid]
     except Exception:
@@ -598,15 +695,30 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 rgba = await loop.run_in_executor(
                     None,
                     lambda: render_rgba(
-                        session, dim_x, dim_y, idx_tuple, colormap, dr,
-                        complex_mode, log_scale, vmin_override, vmax_override,
+                        session,
+                        dim_x,
+                        dim_y,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
                     ),
                 )
 
             h, w = rgba.shape[:2]
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-            _, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale,
-                                             vmin_override=vmin_override, vmax_override=vmax_override)
+            _, vmin, vmax = _prepare_display(
+                session,
+                raw,
+                complex_mode,
+                dr,
+                log_scale,
+                vmin_override=vmin_override,
+                vmax_override=vmax_override,
+            )
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
@@ -691,10 +803,18 @@ def get_metadata(sid: str):
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
-    return {
-        "shape": list(session.shape),
-        "is_complex": bool(np.iscomplexobj(session.data)),
-    }
+    try:
+        return {
+            "shape": [int(s) for s in session.shape],
+            "is_complex": bool(np.iscomplexobj(session.data)),
+        }
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        return Response(
+            status_code=500, content=str(e).encode(), media_type="text/plain"
+        )
 
 
 @app.get("/pixel/{sid}")
@@ -964,7 +1084,7 @@ def get_shell():
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
-    return {"ok": True, "service": "arrayview"}
+    return {"ok": True, "service": "arrayview", "pid": os.getpid()}
 
 
 @app.get("/sessions")
@@ -993,11 +1113,11 @@ async def load_file(request: Request):
 def get_ui(sid: str = None):
     """Viewer iframe page. Redirects to /shell when no sid is given (e.g. VSCode popup)."""
     from fastapi.responses import RedirectResponse
+
     if not sid:
         return RedirectResponse(url="/shell")
     html = (
-        _VIEWER_HTML_TEMPLATE
-        .replace("__COLORMAPS__", str(COLORMAPS))
+        _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
@@ -1032,6 +1152,7 @@ def _can_native_window() -> bool:
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
     import importlib.util
+
     return (
         importlib.util.find_spec("qtpy") is not None
         or importlib.util.find_spec("gi") is not None
@@ -1071,7 +1192,10 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                 if r.returncode == 0:
                     print("[ArrayView] code --open-url succeeded", flush=True)
                     return
-                print(f"[ArrayView] code --open-url failed (exit {r.returncode})", flush=True)
+                print(
+                    f"[ArrayView] code --open-url failed (exit {r.returncode})",
+                    flush=True,
+                )
             except Exception as e:
                 print(f"[ArrayView] code --open-url error: {e}", flush=True)
         print(f"[ArrayView] Trying: webbrowser.open({url})", flush=True)
@@ -1095,12 +1219,24 @@ def _server_alive(port: int) -> bool:
             if resp.status != 200:
                 return False
             payload = json.loads(resp.read().decode("utf-8"))
-            return (
-                payload.get("ok") is True
-                and payload.get("service") == "arrayview"
-            )
+            return payload.get("ok") is True and payload.get("service") == "arrayview"
     except Exception:
         return False
+
+
+def _server_pid(port: int) -> int | None:
+    """Return the pid of the responding ArrayView server, or None if unreachable."""
+    url = f"http://127.0.0.1:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as resp:
+            if resp.status != 200:
+                return None
+            payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return payload.get("pid")
+    except Exception:
+        pass
+    return None
 
 
 def _port_in_use(port: int) -> bool:
@@ -1150,22 +1286,30 @@ def view(
 
     # Duck-typing: accept PyTorch tensors, JAX arrays, Julia/PythonCall arrays, etc.
     # Zarr and nibabel proxy arrays are already numpy-like and work without conversion.
-    if not isinstance(data, np.ndarray) and (
-        hasattr(data, "detach")        # PyTorch
-        or hasattr(data, "numpy")      # PyTorch / TF / JAX
-        or hasattr(data, "__jax_array__")  # JAX
-        or (type(data).__module__ or "").startswith("juliacall")  # Julia via PythonCall
-    ):
-        data = _tensor_to_numpy(data, "view()")
+    if not isinstance(data, np.ndarray):
+        _mod = type(data).__module__ or ""
+        _is_lazy = "nibabel" in _mod or "zarr" in _mod or "h5py" in _mod
+        if not _is_lazy:
+            if (
+                hasattr(data, "detach")  # PyTorch
+                or hasattr(data, "numpy")  # PyTorch / TF / JAX
+                or hasattr(data, "__jax_array__")  # JAX
+                or "juliacall" in _mod.lower()  # Julia via PythonCall
+            ):
+                data = _tensor_to_numpy(data, "view()")
+            else:
+                # Generic fallback: copy to numpy for any array-like
+                # (catches PythonCall arrays whose module name varies across versions)
+                # Use np.array (copy) so Julia's GC can safely reclaim the source after view() returns.
+                try:
+                    converted = np.array(data)
+                    if converted.dtype != object:
+                        data = converted
+                except Exception:
+                    pass  # keep original; let Session handle it lazily
 
     if name is None:
         name = f"Array {data.shape}"
-
-    session = Session(data, name=name)
-    SESSIONS[session.sid] = session
-
-    win_w = 1200
-    win_h = 800
 
     is_jupyter = _in_jupyter()
     if inline is None:
@@ -1175,8 +1319,45 @@ def view(
     if window:
         inline = False
 
-    # Start (or restart) the background server if it isn't responding.
-    if _jupyter_server_port != port or not _server_alive(port):
+    # Julia/PythonCall: the GIL is not released reliably between Julia statements,
+    # so an in-process uvicorn thread cannot serve requests once view() returns.
+    # Use a fully independent subprocess server instead (same approach as the CLI).
+    if not inline and _is_julia_env():
+        return _view_julia(
+            np.array(data) if not isinstance(data, np.ndarray) else data,
+            name,
+            port,
+            window,
+        )
+
+    session = Session(data, name=name)
+    SESSIONS[session.sid] = session
+    win_w, win_h = 1200, 800
+
+    # Start (or restart) the background server if it isn't responding or is stale.
+    server_pid = _server_pid(port)
+    our_pid = os.getpid()
+    if server_pid is not None and server_pid != our_pid:
+        # A stale ArrayView server (different process) is on this port — sessions
+        # stored in our process won't be visible to it.  Kill it so we can bind.
+        print(
+            f"[ArrayView] Stale server (pid {server_pid}) on port {port}, terminating it...",
+            flush=True,
+        )
+        try:
+            import signal as _signal
+
+            os.kill(server_pid, _signal.SIGTERM)
+        except Exception:
+            pass
+        # Wait for port to free up (up to 3 s)
+        for _ in range(30):
+            if not _port_in_use(port):
+                break
+            time.sleep(0.1)
+        server_pid = None  # treat as not alive
+
+    if server_pid is None:
         if _port_in_use(port) and not _server_alive(port):
             raise RuntimeError(
                 f"Port {port} is already in use by another process. "
@@ -1197,9 +1378,13 @@ def view(
                 f"ArrayView server did not start on port {port} within timeout."
             )
         _jupyter_server_port = port
+    else:
+        _jupyter_server_port = port  # server already ours on this port
 
-    # Ensure background server captures the event loop before continuing
-    while SERVER_LOOP is None:
+    # Ensure background server captures the event loop before continuing.
+    # If the server was already running in our process, SERVER_LOOP is already set.
+    deadline = time.monotonic() + 5.0
+    while SERVER_LOOP is None and time.monotonic() < deadline:
         time.sleep(0.01)
 
     url_inline = f"http://127.0.0.1:{port}/?sid={session.sid}"
@@ -1255,16 +1440,118 @@ def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if SHELL_SOCKETS:
-                break       # reconnected; wait again
+                break  # reconnected; wait again
             time.sleep(0.2)
         else:
-            return          # deadline passed with no reconnect → really closed
+            return  # deadline passed with no reconnect → really closed
 
 
-def _serve_daemon(filepath: str, port: int, sid: str) -> None:
-    """Background server process. Loads data, serves it, exits when the UI closes."""
+def _is_julia_env() -> bool:
+    """True when running inside Julia via PythonCall/PyCall.
+    In this environment the GIL is not released between Julia statements, so
+    daemon threads (uvicorn) cannot serve HTTP requests once view() returns.
+    We detect it by checking for juliacall/julia markers in loaded modules or
+    the executable path.
+    """
+    if any("juliacall" in k.lower() or "julia" in k.lower() for k in sys.modules):
+        return True
+    exe = sys.executable.lower()
+    return "julia" in exe
+
+
+def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
+    """Julia-specific view() path: run the server in a subprocess so it is
+    completely independent of Julia's GIL.
+    """
+    import tempfile
+
+    # Persist the array to a temp file so the server subprocess can load it.
+    with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as tmp:
+        tmp_path = tmp.name
+    np.save(tmp_path, data)
+
+    encoded_name = urllib.parse.quote(name)
+
+    if _server_alive(port):
+        # Existing subprocess server — register the new array via /load.
+        try:
+            body = json.dumps({"filepath": tmp_path, "name": name}).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/load",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read())
+            if "error" in result:
+                raise RuntimeError(result["error"])
+            # Data is now in server memory; temp file no longer needed.
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            sid = result["sid"]
+        except Exception as e:
+            print(
+                f"[ArrayView] Failed to register with existing server: {e}", flush=True
+            )
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise
+    else:
+        if _port_in_use(port):
+            raise RuntimeError(
+                f"Port {port} is already in use by another process. "
+                f"Choose a different port in view(..., port=...)."
+            )
+        sid = uuid.uuid4().hex
+        # Spawn a self-contained server subprocess (same as CLI path).
+        script = (
+            f"from arrayview._app import _serve_daemon;"
+            f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
+            f"name={repr(name)}, cleanup=True)"
+        )
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if not _wait_for_port(port, timeout=15.0):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise RuntimeError(f"ArrayView server failed to start on port {port}.")
+
+    url = f"http://127.0.0.1:{port}/shell?init_sid={sid}&init_name={encoded_name}"
+    print(f"[ArrayView] {url}", flush=True)
+
+    can_native = _can_native_window()
+    if window and can_native:
+        if not _open_webview_cli(url, 1200, 800):
+            print("[ArrayView] Falling back to browser", flush=True)
+            _open_browser(url)
+    else:
+        _open_browser(url)
+    return url
+
+
+def _serve_daemon(
+    filepath: str, port: int, sid: str, name: str = None, cleanup: bool = False
+) -> None:
+    """Background server process. Loads data, serves it, exits when the UI closes.
+    cleanup=True: delete filepath after loading (used when it is a temp file).
+    """
     data = load_data(filepath)
-    session = Session(data, filepath=filepath)
+    if cleanup:
+        try:
+            os.unlink(filepath)
+        except Exception:
+            pass
+    session = Session(data, filepath=None if cleanup else filepath, name=name)
     session.sid = sid
     SESSIONS[session.sid] = session
     threading.Thread(
@@ -1280,7 +1567,10 @@ def _serve_daemon(filepath: str, port: int, sid: str) -> None:
 def arrayview():
     """Command Line Interface Entry Point."""
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
-    parser.add_argument("file", help="Path to array file (.npy, .npz, .nii/.nii.gz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat)")
+    parser.add_argument(
+        "file",
+        help="Path to array file (.npy, .npz, .nii/.nii.gz, .zarr, .pt/.pth, .h5/.hdf5, .tif/.tiff, .mat)",
+    )
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
     parser.add_argument(
         "--browser",
@@ -1318,11 +1608,13 @@ def arrayview():
     if is_arrayview_server:
         # Server already running — register the new array
         try:
-            body = json.dumps({
-                "filepath": os.path.abspath(args.file),
-                "name": name,
-                "notify": args.tab,  # push into existing window only with --tab
-            }).encode()
+            body = json.dumps(
+                {
+                    "filepath": os.path.abspath(args.file),
+                    "name": name,
+                    "notify": args.tab,  # push into existing window only with --tab
+                }
+            ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{args.port}/load",
                 data=body,
@@ -1335,8 +1627,10 @@ def arrayview():
                 print(f"Error from server: {result['error']}")
                 sys.exit(1)
         except Exception as e:
-            print(f"Error: port {args.port} is in use by another process. "
-                  f"Use --port to pick another. ({e})")
+            print(
+                f"Error: port {args.port} is in use by another process. "
+                f"Use --port to pick another. ({e})"
+            )
             sys.exit(1)
 
         sid = result["sid"]

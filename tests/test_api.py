@@ -331,3 +331,48 @@ class TestMemoryAwareCache:
         session = SESSIONS.get(sid_2d)
         if session:
             assert session._raw_bytes > 0
+
+
+# ---------------------------------------------------------------------------
+# Port / tunnel helper tests
+# ---------------------------------------------------------------------------
+class TestPortAndTunnelHelpers:
+    def test_find_server_port_returns_alive_port(self, server_url):
+        """If an arrayview server is live, _find_server_port returns it as already_running."""
+        import re
+        from arrayview._app import _find_server_port
+        port = int(re.search(r":(\d+)", server_url).group(1))
+        found, alive = _find_server_port(port)
+        assert alive is True
+        assert found == port
+
+    def test_find_server_port_avoids_busy_port(self):
+        """When preferred port is busy (not arrayview), _find_server_port scans ahead."""
+        import socket as _socket
+        from arrayview._app import _find_server_port
+        # Bind and listen to make the port genuinely appear in use.
+        # Use a large backlog so _server_alive's probe doesn't consume the only slot.
+        with _socket.socket() as s:
+            s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", 0))
+            s.listen(128)
+            busy_port = s.getsockname()[1]
+            found, alive = _find_server_port(busy_port, search_range=20)
+            assert alive is False
+            assert found != busy_port  # scanned past the busy port
+
+    def test_in_vscode_tunnel_false_in_clean_env(self, monkeypatch):
+        from arrayview._app import _in_vscode_tunnel
+        for k in ("VSCODE_INJECTION", "VSCODE_AGENT_FOLDER", "SSH_CLIENT", "SSH_CONNECTION"):
+            monkeypatch.delenv(k, raising=False)
+        assert _in_vscode_tunnel() is False
+
+    def test_in_vscode_tunnel_true_with_ssh(self, monkeypatch):
+        from arrayview._app import _in_vscode_tunnel
+        monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
+        assert _in_vscode_tunnel() is True
+
+    def test_can_native_window_false_in_tunnel(self, monkeypatch):
+        from arrayview._app import _can_native_window
+        monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
+        assert _can_native_window() is False
