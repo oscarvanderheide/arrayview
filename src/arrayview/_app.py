@@ -1259,11 +1259,17 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
 async def _serve_background(port: int):
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
-    config = uvicorn.Config(
-        app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
-    )
+    import socket as _socket
+    # Pre-create the socket with SO_REUSEADDR so we can rebind immediately after
+    # a previous server on this port was killed (avoids TIME_WAIT Errno 48).
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", port))
+    sock.listen(128)
+    sock.set_inheritable(True)
+    config = uvicorn.Config(app, log_level="error", timeout_keep_alive=30)
     server = uvicorn.Server(config)
-    await server.serve()
+    await server.serve(sockets=[sock])
 
 
 def view(
@@ -1344,17 +1350,26 @@ def view(
             f"[ArrayView] Stale server (pid {server_pid}) on port {port}, terminating it...",
             flush=True,
         )
+        import signal as _signal
         try:
-            import signal as _signal
-
             os.kill(server_pid, _signal.SIGTERM)
         except Exception:
             pass
-        # Wait for port to free up (up to 3 s)
-        for _ in range(30):
+        # Wait up to 1 s for a clean exit, then SIGKILL.
+        for _ in range(10):
             if not _port_in_use(port):
                 break
             time.sleep(0.1)
+        if _port_in_use(port):
+            try:
+                os.kill(server_pid, _signal.SIGKILL)
+            except Exception:
+                pass
+            # Wait up to 2 more seconds after SIGKILL.
+            for _ in range(20):
+                if not _port_in_use(port):
+                    break
+                time.sleep(0.1)
         server_pid = None  # treat as not alive
 
     if server_pid is None:
