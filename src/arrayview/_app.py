@@ -337,7 +337,7 @@ def mosaic_shape(batch):
 
 
 def _compute_vmin_vmax(session, data, dr, complex_mode=0):
-    if complex_mode == 1:
+    if complex_mode == 1 and np.iscomplexobj(session.data):
         return (-float(np.pi), float(np.pi))
     if complex_mode == 0 and dr in session.global_stats:
         return session.global_stats[dr]
