@@ -146,6 +146,7 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
 SERVER_LOOP = None
 SHELL_SOCKETS = []
 _window_process = None
+_PENDING_OPENS = 0  # incremented by /load, decremented when shell WS connects
 
 
 class Session:
@@ -629,8 +630,11 @@ async def _notify_shells(sid, name):
 
 @app.websocket("/ws/shell")
 async def shell_websocket(ws: WebSocket):
+    global _PENDING_OPENS
     await ws.accept()
     SHELL_SOCKETS.append(ws)
+    if _PENDING_OPENS > 0:
+        _PENDING_OPENS -= 1
     try:
         while True:
             msg = await ws.receive_json()
@@ -1145,7 +1149,9 @@ async def load_file(request: Request):
     except Exception as e:
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
+    global _PENDING_OPENS
     SESSIONS[session.sid] = session
+    _PENDING_OPENS += 1
     await _notify_shells(session.sid, name)
     return {"sid": session.sid, "name": name}
 
@@ -1200,51 +1206,221 @@ def _can_native_window() -> bool:
     )
 
 
-def _open_browser(url: str, blocking: bool = False) -> None:
-    """Open URL in the user's browser.
-
-    On headless/remote environments (no DISPLAY/WAYLAND_DISPLAY), tries
-    ``code --open-url`` first so it works on VSCode tunnels and Remote-SSH
-    (where it forwards the request to the local machine's browser).
-    When a local display is available, goes straight to Python's webbrowser
-    module (``code --open-url`` returns 0 locally but may not open anything).
-
-    blocking=True runs synchronously (use from CLI where the process exits immediately).
-    blocking=False (default) runs in a daemon thread (use from view()).
-    """
+def _find_code_cli() -> str | None:
+    """Return path to the VS Code CLI ('code'), or None if not found."""
     import shutil
 
-    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    found = shutil.which("code")
+    if found:
+        return found
+    candidates: list[str] = []
+    if sys.platform == "darwin":
+        candidates = [
+            "/opt/homebrew/bin/code",
+            "/usr/local/bin/code",
+            os.path.expanduser(
+                "~/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+            ),
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+        ]
+    elif sys.platform.startswith("linux"):
+        candidates = [
+            "/usr/bin/code",
+            "/usr/local/bin/code",
+            "/snap/bin/code",
+            os.path.expanduser("~/.local/bin/code"),
+        ]
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
 
-    def _do():
-        code_cli = shutil.which("code")
-        # Only try code --open-url on headless/remote environments where it
-        # actually forwards the URL to the local browser.  On machines with a
-        # local display it returns 0 silently without opening anything.
-        if code_cli and not has_display:
-            print(f"[ArrayView] Trying: code --open-url {url}", flush=True)
-            try:
-                r = subprocess.run(
-                    [code_cli, "--open-url", url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
-                if r.returncode == 0:
-                    print("[ArrayView] code --open-url succeeded", flush=True)
-                    return
-                print(
-                    f"[ArrayView] code --open-url failed (exit {r.returncode})",
-                    flush=True,
-                )
-            except Exception as e:
-                print(f"[ArrayView] code --open-url error: {e}", flush=True)
-        print(f"[ArrayView] Trying: webbrowser.open({url})", flush=True)
+
+def _find_vscode_ipc_hook() -> str | None:
+    """Return the value of VSCODE_IPC_HOOK_CLI, searching ancestor processes.
+
+    uv run (and similar launchers) strip environment variables before executing
+    Python.  Walking up the process tree lets us recover VSCODE_IPC_HOOK_CLI
+    from the shell that originally invoked the command.
+    """
+
+    def _ppid(pid: int) -> int:
         try:
-            webbrowser.open(url)
-            print("[ArrayView] webbrowser.open called", flush=True)
-        except Exception as e:
-            print(f"[ArrayView] webbrowser.open failed: {e}", flush=True)
+            with open(f"/proc/{pid}/status") as fh:
+                for line in fh:
+                    if line.startswith("PPid:"):
+                        return int(line.split()[1])
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "ppid="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return int(r.stdout.strip())
+        except Exception:
+            pass
+        return -1
+
+    def _ipc_from_pid(pid: int) -> str:
+        # Linux: /proc/<pid>/environ (null-separated KEY=VALUE pairs)
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as fh:
+                for entry in fh.read().split(b"\0"):
+                    if entry.startswith(b"VSCODE_IPC_HOOK_CLI="):
+                        return entry[len(b"VSCODE_IPC_HOOK_CLI=") :].decode()
+        except Exception:
+            pass
+        # macOS: `ps ewwww` appends the environment after the argument list.
+        # Each env var is a whitespace-separated TOKEN of the form KEY=VALUE.
+        try:
+            r = subprocess.run(
+                ["ps", "ewwww", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            for token in r.stdout.split():
+                if token.startswith("VSCODE_IPC_HOOK_CLI="):
+                    return token[len("VSCODE_IPC_HOOK_CLI=") :]
+        except Exception:
+            pass
+        return ""
+
+    # Own environment first
+    val = os.environ.get("VSCODE_IPC_HOOK_CLI", "")
+    if val and os.path.exists(val):
+        return val
+
+    # Walk up to 12 ancestor processes
+    pid = os.getpid()
+    for _ in range(12):
+        pid = _ppid(pid)
+        if pid <= 1:
+            break
+        val = _ipc_from_pid(pid)
+        if val and os.path.exists(val):
+            return val
+
+    return None
+
+
+def _vscode_app_bundle() -> str | None:
+    """Return the path to the VS Code .app bundle on macOS, derived from the code CLI."""
+    code = _find_code_cli()
+    if not code:
+        return None
+    try:
+        real = os.path.realpath(code)
+        idx = real.find(".app")
+        if idx != -1:
+            return real[: idx + 4]
+    except Exception:
+        pass
+    for candidate in [
+        "/Applications/Visual Studio Code.app",
+        os.path.expanduser("~/Applications/Visual Studio Code.app"),
+    ]:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+_VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
+
+
+def _ensure_vscode_extension() -> bool:
+    """Install the bundled arrayview-opener VS Code extension if not present.
+    Returns True if the extension is (now) installed, False if we can't install it.
+    """
+    global _VSCODE_EXT_INSTALLED
+    if _VSCODE_EXT_INSTALLED:
+        return True
+
+    code = _find_code_cli()
+    if not code:
+        return False
+
+    # Quick check: is it already installed?
+    try:
+        r = subprocess.run(
+            [code, "--list-extensions"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0 and "arrayview.arrayview-opener" in r.stdout:
+            _VSCODE_EXT_INSTALLED = True
+            return True
+    except Exception:
+        pass
+
+    # Not installed — install from the .vsix bundled inside our package.
+    vsix_path = str(_pkg_files(__package__).joinpath("arrayview-opener.vsix"))
+    if not os.path.isfile(vsix_path):
+        return False
+    try:
+        r = subprocess.run(
+            [code, "--install-extension", vsix_path, "--force"],
+            capture_output=True,
+            timeout=30,
+        )
+        if r.returncode == 0:
+            _VSCODE_EXT_INSTALLED = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _open_browser(url: str, blocking: bool = False) -> None:
+    """Open *url* in VS Code's Simple Browser via the arrayview-opener extension,
+    or fall back to ``webbrowser.open``.
+
+    The arrayview-opener VS Code extension registers a URI handler so that
+    ``open "vscode://arrayview.arrayview-opener/open?url=<encoded>"`` (macOS)
+    or ``xdg-open ...`` (Linux) triggers ``simpleBrowser.show`` inside VS Code.
+
+    The extension is automatically installed from a bundled .vsix on first use.
+
+    blocking=True runs synchronously (CLI); blocking=False uses a daemon thread.
+    """
+
+    def _do() -> None:
+        from urllib.parse import quote as _quote
+
+        # Ensure the companion extension is installed before trying the URI.
+        if _ensure_vscode_extension():
+            vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
+                url, safe=""
+            )
+
+            if sys.platform == "darwin":
+                try:
+                    r = subprocess.run(
+                        ["open", vscode_uri],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                    if r.returncode == 0:
+                        return
+                except Exception:
+                    pass
+            elif sys.platform.startswith("linux"):
+                try:
+                    r = subprocess.run(
+                        ["xdg-open", vscode_uri],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                    if r.returncode == 0:
+                        return
+                except Exception:
+                    pass
+
+        webbrowser.open(url)
 
     if blocking:
         _do()
@@ -1499,6 +1675,8 @@ def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
         while time.monotonic() < deadline:
             if SHELL_SOCKETS:
                 break  # reconnected; wait again
+            if _PENDING_OPENS > 0:
+                deadline = max(deadline, time.monotonic() + grace_seconds)
             time.sleep(0.2)
         else:
             return  # deadline passed with no reconnect → really closed

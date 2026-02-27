@@ -1,0 +1,12 @@
+{
+  "name": "arrayview-opener",
+  "displayName": "ArrayView Opener",
+  "description": "Opens ArrayView URLs in VS Code's Simple Browser",
+  "version": "0.0.1",
+  "publisher": "arrayview",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onUri"],
+  "main": "./extension.js",
+  "contributes": {}
+}
