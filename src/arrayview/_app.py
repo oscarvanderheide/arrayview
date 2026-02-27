@@ -1191,8 +1191,21 @@ def _in_jupyter() -> bool:
         return False
 
 
+def _is_vscode_remote() -> bool:
+    """True when running inside a VS Code remote/tunnel session."""
+    # VS Code injects these into terminal sessions on the remote side.
+    return bool(
+        os.environ.get("VSCODE_IPC_HOOK_CLI")
+        or os.environ.get("TERM_PROGRAM") == "vscode"
+        and os.environ.get("SSH_CONNECTION")
+    )
+
+
 def _can_native_window() -> bool:
     """True if a pywebview native window can be opened."""
+    # In a VS Code tunnel/remote there is no local display even if DISPLAY is set.
+    if _is_vscode_remote():
+        return False
     if sys.platform in ("darwin", "win32"):
         return True
     # Linux/BSD: need a display server AND pywebview's GUI bindings
@@ -1207,8 +1220,32 @@ def _can_native_window() -> bool:
 
 
 def _find_code_cli() -> str | None:
-    """Return path to the VS Code CLI ('code'), or None if not found."""
+    """Return path to the VS Code CLI ('code'), or None if not found.
+
+    In a VS Code tunnel/remote, the tunnel server provides its own ``code``
+    helper at ``~/.vscode-server/.../remote-cli/code``.  We prefer that over
+    a desktop ``code`` when ``VSCODE_IPC_HOOK_CLI`` is set, because the
+    desktop binary would open a *new* VS Code window instead of routing
+    through the tunnel.
+    """
+    import glob
     import shutil
+
+    # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
+    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+        # The tunnel helper is typically at:
+        #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
+        #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
+        for pattern in [
+            os.path.expanduser("~/.vscode-server/bin/*/bin/remote-cli/code"),
+            os.path.expanduser(
+                "~/.vscode-server/cli/servers/*/server/bin/remote-cli/code"
+            ),
+        ]:
+            matches = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+            for m in matches:
+                if os.access(m, os.X_OK):
+                    return m
 
     found = shutil.which("code")
     if found:
@@ -1398,16 +1435,15 @@ def _open_browser(url: str, blocking: bool = False) -> None:
 
         # Ensure the companion extension is installed before trying the URI.
         if _ensure_vscode_extension():
-            vscode_uri = (
-                "vscode://arrayview.arrayview-opener/open?url="
-                + _quote(url, safe="")
+            vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
+                url, safe=""
             )
 
         opened = False
 
         if vscode_uri:
-            if sys.platform == "darwin":
-                # macOS: `open` routes vscode:// URIs to VS Code via Launch Services
+            if sys.platform == "darwin" and not _is_vscode_remote():
+                # macOS local: `open` routes vscode:// URIs via Launch Services
                 try:
                     r = subprocess.run(
                         ["open", vscode_uri],
@@ -1418,16 +1454,14 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                 except Exception:
                     pass
             else:
-                # Linux (including VS Code tunnel/remote): use `code --open-url`.
-                # In a tunnel, VS Code injects a `code` helper that communicates
-                # back to the local VS Code instance.  We also try xdg-open as
-                # a fallback for full desktop Linux with VS Code installed.
+                # Linux / macOS-remote / tunnel: use `code --open-url`.
+                # _find_code_cli() prefers the tunnel's remote-cli helper
+                # when VSCODE_IPC_HOOK_CLI is set, so we route through the
+                # tunnel instead of opening a new desktop VS Code window.
                 code = _find_code_cli()
-                if code:
-                    env = dict(os.environ)
-                    ipc = _find_vscode_ipc_hook()
-                    if ipc:
-                        env["VSCODE_IPC_HOOK_CLI"] = ipc
+                ipc = _find_vscode_ipc_hook()
+                if code and ipc:
+                    env = {**os.environ, "VSCODE_IPC_HOOK_CLI": ipc}
                     try:
                         r = subprocess.run(
                             [code, "--open-url", vscode_uri],
@@ -1439,7 +1473,8 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                     except Exception:
                         pass
 
-                if not opened:
+                # Fallback: xdg-open on desktop Linux
+                if not opened and not _is_vscode_remote():
                     try:
                         r = subprocess.run(
                             ["xdg-open", vscode_uri],
@@ -1451,7 +1486,8 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                         pass
 
         if not opened:
-            webbrowser.open(url)
+            # Final fallback: print URL prominently (cmd-clickable in VS Code terminal)
+            print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
 
     if blocking:
         _do()
