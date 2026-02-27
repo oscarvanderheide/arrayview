@@ -525,22 +525,26 @@ def render_mosaic(
 
     rows, cols = mosaic_shape(n)
     H, W = frames[0].shape
-    padded = np.zeros((rows * cols, H, W), dtype=np.float32)
-    padded[:n] = all_data
-    grid = (
-        padded.reshape(rows, cols, H, W)
-        .transpose(0, 2, 1, 3)
-        .reshape(rows * H, cols * W)
-    )
+    GAP = 2  # separator pixels between tiles
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        r0, c0 = r * (H + GAP), c * (W + GAP)
+        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
 
+    nan_mask = np.isnan(grid)
+    filled = np.where(nan_mask, vmin, grid)
     if vmax > vmin:
-        normalized = np.clip((grid - vmin) / (vmax - vmin), 0, 1)
+        normalized = np.clip((filled - vmin) / (vmax - vmin), 0, 1)
     else:
-        normalized = np.zeros_like(grid)
+        normalized = np.zeros_like(filled)
 
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba[nan_mask] = [22, 22, 22, 255]  # dark separator
     session.mosaic_cache[key] = rgba
     session._mosaic_bytes += rgba.nbytes
     while session._mosaic_bytes > session.MOSAIC_CACHE_BYTES and session.mosaic_cache:
@@ -1036,21 +1040,24 @@ def get_grid(
 
     rows, cols = mosaic_shape(n)
     H, W = frames[0].shape
-    padded = np.zeros((rows * cols, H, W), dtype=np.float32)
-    padded[:n] = all_data
-    mosaic = (
-        padded.reshape(rows, cols, H, W)
-        .transpose(0, 2, 1, 3)
-        .reshape(rows * H, cols * W)
-    )
+    GAP = 2
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        grid[r * (H + GAP) : r * (H + GAP) + H, c * (W + GAP) : c * (W + GAP) + W] = all_data[k]
 
+    nan_mask = np.isnan(grid)
+    filled = np.where(nan_mask, vmin, grid)
     if vmax > vmin:
-        normalized = np.clip((mosaic - vmin) / (vmax - vmin), 0, 1)
+        normalized = np.clip((filled - vmin) / (vmax - vmin), 0, 1)
     else:
-        normalized = np.zeros_like(mosaic)
+        normalized = np.zeros_like(filled)
 
     lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba[nan_mask] = [22, 22, 22, 255]
     img = Image.fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
