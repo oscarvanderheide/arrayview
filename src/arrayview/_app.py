@@ -1046,7 +1046,9 @@ def get_grid(
     grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
     for k in range(n):
         r, c = divmod(k, cols)
-        grid[r * (H + GAP) : r * (H + GAP) + H, c * (W + GAP) : c * (W + GAP) + W] = all_data[k]
+        grid[r * (H + GAP) : r * (H + GAP) + H, c * (W + GAP) : c * (W + GAP) + W] = (
+            all_data[k]
+        )
 
     nan_mask = np.isnan(grid)
     filled = np.where(nan_mask, vmin, grid)
