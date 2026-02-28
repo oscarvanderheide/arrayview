@@ -11,7 +11,6 @@ import subprocess
 import uuid
 import urllib.parse
 import urllib.request
-import webbrowser
 from collections import OrderedDict
 from importlib.resources import files as _pkg_files
 
@@ -1193,12 +1192,22 @@ def _in_jupyter() -> bool:
 
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session."""
-    # VS Code injects these into terminal sessions on the remote side.
-    return bool(
-        os.environ.get("VSCODE_IPC_HOOK_CLI")
-        or os.environ.get("TERM_PROGRAM") == "vscode"
-        and os.environ.get("SSH_CONNECTION")
-    )
+    # VSCODE_IPC_HOOK_CLI is always present in VS Code tunnel/remote terminals.
+    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+        # On the local machine, VSCODE_IPC_HOOK_CLI is also set when VS Code
+        # terminal is used, but we only treat it as "remote" when there's no
+        # local desktop (i.e. not macOS / Windows native).
+        if sys.platform not in ("darwin", "win32"):
+            return True
+        # macOS / Windows: only remote if SSH or explicit remote indicator.
+        if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"):
+            return True
+    # TERM_PROGRAM=vscode + SSH_CONNECTION = VS Code SSH remote
+    if os.environ.get("TERM_PROGRAM") == "vscode" and (
+        os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")
+    ):
+        return True
+    return False
 
 
 def _can_native_window() -> bool:
@@ -1233,14 +1242,16 @@ def _find_code_cli() -> str | None:
 
     # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
     if os.environ.get("VSCODE_IPC_HOOK_CLI"):
-        # The tunnel helper is typically at:
+        # The tunnel helper is typically at one of:
         #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
         #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
+        #   ~/.vscode/cli/servers/.../server/bin/remote-cli/code  (newer tunnels)
         for pattern in [
             os.path.expanduser("~/.vscode-server/bin/*/bin/remote-cli/code"),
             os.path.expanduser(
                 "~/.vscode-server/cli/servers/*/server/bin/remote-cli/code"
             ),
+            os.path.expanduser("~/.vscode/cli/servers/*/server/bin/remote-cli/code"),
         ]:
             matches = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
             for m in matches:
@@ -1366,11 +1377,12 @@ def _vscode_app_bundle() -> str | None:
 
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
+_VSCODE_EXT_VERSION = "0.0.2"  # must match vscode-extension/package.json
 
 
 def _ensure_vscode_extension() -> bool:
-    """Install the bundled arrayview-opener VS Code extension if not present.
-    Returns True if the extension is (now) installed, False if we can't install it.
+    """Install the bundled arrayview-opener VS Code extension if not present
+    or outdated.  Returns True if the extension is (now) installed.
     """
     global _VSCODE_EXT_INSTALLED
     if _VSCODE_EXT_INSTALLED:
@@ -1380,17 +1392,31 @@ def _ensure_vscode_extension() -> bool:
     if not code:
         return False
 
-    # Quick check: is it already installed?
+    # Ensure the IPC hook is available so the remote-cli `code` helper can
+    # communicate with VS Code (uv run and similar launchers strip env vars).
+    env = dict(os.environ)
+    ipc = _find_vscode_ipc_hook()
+    if ipc:
+        env["VSCODE_IPC_HOOK_CLI"] = ipc
+
+    # Quick check: is it already installed with the right version?
     try:
         r = subprocess.run(
-            [code, "--list-extensions"],
+            [code, "--list-extensions", "--show-versions"],
             capture_output=True,
             text=True,
             timeout=10,
+            env=env,
         )
-        if r.returncode == 0 and "arrayview.arrayview-opener" in r.stdout:
-            _VSCODE_EXT_INSTALLED = True
-            return True
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                if line.startswith("arrayview.arrayview-opener@"):
+                    installed_ver = line.split("@", 1)[1].strip()
+                    if installed_ver == _VSCODE_EXT_VERSION:
+                        _VSCODE_EXT_INSTALLED = True
+                        return True
+                    # Wrong version — will reinstall below
+                    break
     except Exception:
         pass
 
@@ -1403,6 +1429,7 @@ def _ensure_vscode_extension() -> bool:
             [code, "--install-extension", vsix_path, "--force"],
             capture_output=True,
             timeout=30,
+            env=env,
         )
         if r.returncode == 0:
             _VSCODE_EXT_INSTALLED = True
@@ -1472,6 +1499,22 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                         opened = r.returncode == 0
                     except Exception:
                         pass
+
+                    # Fallback: open the HTTP URL directly via code CLI.
+                    # With simpleBrowser.useIntegratedBrowser VS Code opens
+                    # http:// URLs in Simple Browser.  Port forwarding is
+                    # handled automatically by VS Code's tunnel.
+                    if not opened:
+                        try:
+                            r = subprocess.run(
+                                [code, "--open-url", url],
+                                env=env,
+                                capture_output=True,
+                                timeout=8,
+                            )
+                            opened = r.returncode == 0
+                        except Exception:
+                            pass
 
                 # Fallback: xdg-open on desktop Linux
                 if not opened and not _is_vscode_remote():
@@ -1688,10 +1731,10 @@ def view(
     while SERVER_LOOP is None and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    url_inline = f"http://127.0.0.1:{port}/?sid={session.sid}"
+    url_inline = f"http://localhost:{port}/?sid={session.sid}"
     encoded_name = urllib.parse.quote(name)
     url_shell = (
-        f"http://127.0.0.1:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
+        f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
     )
 
     if inline:
@@ -1829,7 +1872,7 @@ def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
                 pass
             raise RuntimeError(f"ArrayView server failed to start on port {port}.")
 
-    url = f"http://127.0.0.1:{port}/shell?init_sid={sid}&init_name={encoded_name}"
+    url = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name}"
     print(f"[ArrayView] {url}", flush=True)
 
     can_native = _can_native_window()
@@ -1938,7 +1981,7 @@ def arrayview():
 
         sid = result["sid"]
         encoded_name = urllib.parse.quote(name)
-        url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+        url = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
 
         if args.tab:
             print(f"Injected as new tab in existing window (port {args.port})")
@@ -1954,7 +1997,7 @@ def arrayview():
 
     sid = uuid.uuid4().hex
     encoded_name = urllib.parse.quote(name)
-    url = f"http://127.0.0.1:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+    url = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
 
     # Spawn background server — exits automatically when the window/tab is closed
     script = (
