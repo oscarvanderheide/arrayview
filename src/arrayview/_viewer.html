@@ -90,6 +90,17 @@
         .mv-label { font-size: 18px; color: var(--muted); flex-shrink: 0; font-family: monospace; }
         .mv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
         .mv-canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; cursor: crosshair; }
+        #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
+        #qmri-view-wrap.active { display: grid; align-items: stretch; }
+        #qmri-view-wrap.qmri-3 { grid-template-columns: repeat(3, 1fr); }
+        #qmri-view-wrap.qmri-4 { grid-template-columns: repeat(4, 1fr); }
+        #qmri-view-wrap.qmri-5 { grid-template-columns: repeat(5, 1fr); }
+        #qmri-view-wrap.qmri-6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+        .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; min-height: 0; overflow: hidden; }
+        .qv-label { font-size: 16px; color: var(--muted); flex-shrink: 0; font-family: monospace; }
+        .qv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
+        .qv-canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; cursor: crosshair; }
+        .q-dim { color: #8b5e83; font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             gap: 10px; width: 100%; height: 100%;
@@ -116,6 +127,7 @@
             <canvas id="colorbar"></canvas>
         </div>
         <div id="multi-view-wrap"></div>
+        <div id="qmri-view-wrap"></div>
         <div id="loading-overlay">
             <div id="loading-track"><div id="loading-fill"></div></div>
         </div>
@@ -156,6 +168,7 @@
 <span class="key">hover</span>  show pixel value
 <span class="key">v</span>  toggle 3-plane view (dims 0,1,2)
 <span class="key">V</span>  toggle 3-plane view (custom dims)
+<span class="key">q</span>  qMRI mode (active dim size 3–6, multi-colormap)
 <span class="key">e</span>  copy view state to clipboard
 <span class="key">?</span>  toggle this help</div>
     </div>
@@ -211,6 +224,16 @@
         let mvDims = [];
         let mvDraggingView = null;
         let mvPixelPending = false;
+
+        let qmriActive = false;
+        let qmriDim = -1;
+        let qmriViews = [];
+        const QMRI_COLORMAPS = {
+            3: ['lipari', 'navia', 'gray'],
+            4: ['lipari', 'navia', 'gray', 'twilight_shifted'],
+            5: ['lipari', 'navia', 'viridis', 'gray', 'twilight_shifted'],
+            6: ['lipari', 'navia', 'viridis', 'RdBu_r', 'gray', 'twilight_shifted'],
+        };
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
@@ -480,6 +503,10 @@
             const idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
                 const d = `data-dim="${i}"`;
+                if (qmriActive && i === qmriDim) {
+                    return active ? `<span class="active-dim q-dim dim-label" ${d}>q</span>`
+                                  : `<span class="q-dim dim-label" ${d}>q</span>`;
+                }
                 if (multiViewActive) {
                     const isSpatial = mvDims.includes(i);
                     if (isSpatial) {
@@ -953,9 +980,13 @@
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
+                if (qmriActive) exitQmri();
                 if (multiViewActive) exitMultiView(); else enterMultiView([0, 1, 2]);
             } else if (e.key === 'V') {
+                if (qmriActive) exitQmri();
                 if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
+            } else if (e.key === 'q') {
+                if (qmriActive) exitQmri(); else enterQmri();
             }
         });
 
@@ -1069,6 +1100,126 @@
             wrap.classList.remove('active');
             updateView();
             showToast('3-plane view: off');
+        }
+
+        // --------------- qMRI mode ---------------
+        function enterQmri() {
+            const n = shape[activeDim];
+            if (![3, 4, 5, 6].includes(n)) { showToast(`qMRI: dim size must be 3–6 (got ${n})`); return; }
+            if (multiViewActive) exitMultiView();
+            qmriActive = true;
+            qmriDim = activeDim;
+            const cmaps = QMRI_COLORMAPS[n];
+            document.getElementById('canvas-wrap').style.display = 'none';
+            const wrap = document.getElementById('qmri-view-wrap');
+            wrap.innerHTML = '';
+            wrap.className = `active qmri-${n}`;
+            qmriViews = cmaps.map((cmap, idx) => {
+                const pane = document.createElement('div');
+                pane.className = 'qv-pane';
+                const label = document.createElement('div');
+                label.className = 'qv-label';
+                label.textContent = cmap;
+                const area = document.createElement('div');
+                area.className = 'qv-canvas-area';
+                const cv = document.createElement('canvas');
+                cv.className = 'qv-canvas';
+                area.appendChild(cv);
+                pane.appendChild(label);
+                pane.appendChild(area);
+                wrap.appendChild(pane);
+                const view = {
+                    colormap: cmap, qmriIdx: idx,
+                    canvas: cv, ctx: cv.getContext('2d'), area,
+                    ws: null, seq: 0, rendering: false, pending: false,
+                    lastW: 0, lastH: 0, lastImageData: null,
+                };
+                cv.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -1 : 1;
+                    indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
+                    renderInfo();
+                    qmriViews.forEach(v => qvRender(v));
+                    saveState();
+                }, { passive: false });
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
+                view.ws.binaryType = 'arraybuffer';
+                view.ws.onopen = () => qvRender(view);
+                view.ws.onmessage = (event) => qvOnMessage(view, event);
+                view.ws.onerror = () => { if (view.ws) view.ws.close(); };
+                return view;
+            });
+            renderInfo();
+            showToast('qMRI mode  (q to exit)');
+        }
+
+        function exitQmri() {
+            qmriActive = false;
+            qmriDim = -1;
+            qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
+            qmriViews = [];
+            document.getElementById('canvas-wrap').style.display = '';
+            const wrap = document.getElementById('qmri-view-wrap');
+            wrap.innerHTML = '';
+            wrap.className = '';
+            updateView();
+            renderInfo();
+            showToast('qMRI mode: off');
+        }
+
+        function qvRender(v) {
+            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true; v.seq++;
+            const qIndices = [...indices];
+            qIndices[qmriDim] = v.qmriIdx;
+            v.ws.send(JSON.stringify({
+                seq: v.seq, dim_x, dim_y, dim_z: -1,
+                indices: qIndices, colormap: v.colormap,
+                dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
+                slice_dim: current_slice_dim, direction: 1,
+            }));
+        }
+
+        function qvDrawFrame(v) {
+            if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
+                v.canvas.width = v.lastW;
+                v.canvas.height = v.lastH;
+            }
+            v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+        }
+
+        function qvScaleAllCanvases() {
+            const ready = qmriViews.filter(v => v.lastW && v.lastH);
+            if (!ready.length) return;
+            let minScale = Infinity;
+            for (const v of ready) {
+                const maxW = Math.max(50, v.area.clientWidth - 4);
+                const maxH = Math.max(50, v.area.clientHeight - 4);
+                minScale = Math.min(minScale, maxW / v.lastW, maxH / v.lastH);
+            }
+            minScale = Math.max(0.01, minScale * userZoom);
+            for (const v of ready) {
+                v.canvas.style.width  = Math.round(v.lastW * minScale) + 'px';
+                v.canvas.style.height = Math.round(v.lastH * minScale) + 'px';
+            }
+        }
+
+        function qvOnMessage(v, event) {
+            const buf = event.data;
+            const h32 = new Uint32Array(buf, 0, 3);
+            const width = h32[1], height = h32[2];
+            if (h32[0] === v.seq) {
+                const rgba = new Uint8ClampedArray(buf.slice(20));
+                v.lastImageData = new ImageData(rgba, width, height);
+                v.lastW = width; v.lastH = height;
+                qvScaleAllCanvases();
+                qvDrawFrame(v);
+            }
+            v.rendering = false;
+            if (v.pending) { v.pending = false; qvRender(v); }
         }
 
         function handleMvPointer(view, e) {
@@ -1206,7 +1357,7 @@
             if (!span) return;
             const d = parseInt(span.dataset.dim);
             activeDim = d;
-            if (!multiViewActive && d !== dim_x && d !== dim_y && d !== dim_z) {
+            if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; triggerPreload();
             }
             renderInfo();
@@ -1222,16 +1373,19 @@
         infoEl.addEventListener('mouseleave', () => { hoveredDim = -1; });
         infoEl.addEventListener('wheel', (e) => {
             if (hoveredDim < 0) return;
-            // Only scroll non-display dims
+            // Only scroll non-display dims (skip x/y/z/q)
             const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || hoveredDim === dim_z);
             const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
-            if (isSpatialNormal || isSpatialMv) return;
+            const isQmriDim = qmriActive && hoveredDim === qmriDim;
+            if (isSpatialNormal || isSpatialMv || isQmriDim) return;
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
             indices[hoveredDim] = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
             renderInfo();
             if (multiViewActive) {
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            } else if (qmriActive) {
+                qmriViews.forEach(v => qvRender(v));
             } else {
                 updateView();
             }
