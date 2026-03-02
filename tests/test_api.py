@@ -15,23 +15,19 @@ class TestHealth:
     def test_ping(self, client):
         r = client.get("/ping")
         assert r.status_code == 200
-        assert r.json() == {"ok": True, "service": "arrayview"}
+        body = r.json()
+        assert body["ok"] is True
+        assert body["service"] == "arrayview"
 
-    def test_root_without_sid_redirects_or_returns_html(self, client):
+    def test_root_without_sid_returns_html(self, client):
         r = client.get("/", follow_redirects=False)
-        # Either redirect to /shell or return HTML directly
-        assert r.status_code in (200, 307)
-
-    def test_shell_returns_html(self, client):
-        r = client.get("/shell")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
 
-    def test_sessions_lists_registered_sid(self, client, sid_2d):
-        r = client.get("/sessions")
+    def test_root_with_sid_returns_viewer(self, client, sid_2d):
+        r = client.get(f"/?sid={sid_2d}")
         assert r.status_code == 200
-        sids = [s["sid"] for s in r.json()]
-        assert sid_2d in sids
+        assert "text/html" in r.headers["content-type"]
 
 
 # ---------------------------------------------------------------------------

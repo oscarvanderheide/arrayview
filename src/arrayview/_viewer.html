@@ -6,6 +6,17 @@
             --bg: #111; --surface: #1e1e1e; --border: #444;
             --text: #ccc; --muted: #777; --subtle: #444;
             --highlight: #fff; --canvas-border: #555;
+            --active-dim: #ebcb8b; --spatial-dim: #b48ead;
+            --help-key: #ebcb8b; --overlay-bg: rgba(0,0,0,0.75);
+            --roi-bg: rgba(20,20,20,0.93);
+        }
+        :root.light {
+            --bg: #f5f5f5; --surface: #fff; --border: #ccc;
+            --text: #333; --muted: #888; --subtle: #bbb;
+            --highlight: #000; --canvas-border: #999;
+            --active-dim: #b8860b; --spatial-dim: #8b5e83;
+            --help-key: #b8860b; --overlay-bg: rgba(255,255,255,0.8);
+            --roi-bg: rgba(240,240,240,0.95);
         }
         html, body {
             background: var(--bg); margin: 0; padding: 0;
@@ -28,8 +39,8 @@
         canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; outline: none; cursor: crosshair; }
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 6px; border: none; cursor: ns-resize; }
         .highlight { color: var(--highlight); font-weight: bold; }
-        .active-dim { color: #ebcb8b; font-weight: bold; }
-        .spatial-dim { color: #b48ead; font-weight: bold; }
+        .active-dim { color: var(--active-dim); font-weight: bold; }
+        .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
         #status { margin-top: 8px; font-size: 18px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
         #pixel-info { margin-top: 2px; font-size: 18px; color: var(--text); height: 1.4em; line-height: 1.4; font-family: monospace; flex-shrink: 0; overflow: hidden; }
@@ -40,7 +51,7 @@
         }
         #help-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.75); z-index: 10; justify-content: center; align-items: center;
+            background: var(--overlay-bg); z-index: 10; justify-content: center; align-items: center;
         }
         #help-overlay.visible { display: flex; }
         #help-box {
@@ -49,11 +60,11 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             white-space: pre; max-height: 90vh; max-width: 90vw; overflow: auto; box-sizing: border-box;
         }
-        #help-box .key { color: #ebcb8b; font-weight: bold; display: inline-block; min-width: 140px; }
+        #help-box .key { color: var(--help-key); font-weight: bold; display: inline-block; min-width: 140px; }
         #help-hint { position: fixed; bottom: 12px; right: 16px; color: var(--muted); font-size: 14px; cursor: pointer; font-family: monospace; user-select: none; }
         #info-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.75); z-index: 10; justify-content: center; align-items: center;
+            background: var(--overlay-bg); z-index: 10; justify-content: center; align-items: center;
         }
         #info-overlay.visible { display: flex; }
         #info-box {
@@ -65,7 +76,7 @@
         #info-box td:first-child { color: var(--muted); padding-right: 20px; }
         #roi-panel {
             position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
-            background: rgba(20,20,20,0.93); border: 1px solid var(--border);
+            background: var(--roi-bg); border: 1px solid var(--border);
             border-radius: 8px; padding: 12px 18px; font-size: 15px; color: var(--text);
             font-family: monospace; line-height: 2.2; display: none;
             white-space: nowrap; z-index: 5;
@@ -136,7 +147,7 @@
 <span class="key">C</span>  enter matplotlib colormap name
 <span class="key">d</span>  cycle dynamic range
 <span class="key">b</span>  toggle colorbar
-<!-- dark/light toggle removed; always dark mode -->
+<span class="key">T</span>  toggle dark / light mode
 <span class="key">s</span>  save screenshot (PNG)
 <span class="key">g</span>  save GIF of current slice dim
 <span class="key">+ / -</span>  zoom in / out
@@ -490,7 +501,7 @@
                 colormap_idx, dr_idx, indices: [...indices],
                 logScale, complexMode, flip_x, flip_y,
                 flipDims: {...flipDims}, userZoom,
-                customColormap,
+                customColormap, isDark,
             }));
         }
 
@@ -508,6 +519,10 @@
                 flip_y      = s.flip_y ?? false;
                 flipDims    = s.flipDims ?? {};
                 userZoom    = s.userZoom ?? 1.0;
+                if (s.isDark !== undefined) {
+                    isDark = s.isDark;
+                    document.documentElement.classList.toggle('light', !isDark);
+                }
                 if (s.customColormap && colormap_idx === -1) {
                     // Re-fetch gradient stops so colorbar can render correctly
                     fetch(`/colormap/${encodeURIComponent(s.customColormap)}`)
@@ -652,7 +667,6 @@
         });
         document.addEventListener('click', () => sink.focus());
 
-        // This is crucial for tabs so key inputs don't get lost when swapping
         window.addEventListener('focus', () => sink.focus());
 
         canvas.addEventListener('mousemove', (e) => {
@@ -731,6 +745,12 @@
             } else if (e.key === ' ') {
                 e.preventDefault();
                 togglePlay();
+            } else if (e.key === 'T') {
+                isDark = !isDark;
+                document.documentElement.classList.toggle('light', !isDark);
+                if (showColorbar && lastImageData) drawColorbar();
+                showToast(isDark ? 'theme: dark' : 'theme: light');
+                saveState();
             } else if (e.key === 't') {
                 // Transpose x and y: swap the dimension indices and flips
                 if (shape.length < 2) return;
