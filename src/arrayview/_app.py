@@ -1455,14 +1455,15 @@ def _vscode_app_bundle() -> str | None:
 
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
-_VSCODE_EXT_VERSION = "0.0.2"  # must match vscode-extension/package.json
+_VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
+_VSCODE_EXT_VERSION = "0.1.3"  # must match vscode-extension/package.json
 
 
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension if not present
     or outdated.  Returns True if the extension is (now) installed.
     """
-    global _VSCODE_EXT_INSTALLED
+    global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
         return True
 
@@ -1506,27 +1507,53 @@ def _ensure_vscode_extension() -> bool:
         r = subprocess.run(
             [code, "--install-extension", vsix_path, "--force"],
             capture_output=True,
+            text=True,
             timeout=30,
             env=env,
         )
-        if r.returncode == 0:
+        # The remote-cli `code` may return exit code 0 even when the install
+        # fails (e.g. "Cannot install ... declared to not run in this setup").
+        # Check stdout/stderr for explicit error messages.
+        combined = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0 and "Cannot install" not in combined:
             _VSCODE_EXT_INSTALLED = True
+            _VSCODE_EXT_FRESH_INSTALL = True
             return True
     except Exception:
         pass
     return False
 
 
+def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
+    """Write the URL to ~/.arrayview/open-request.json for the VS Code extension
+    to pick up via file-watching.  Returns True if the signal file was written.
+    No IPC field is written — any extension instance in any window picks it up.
+    (IPC-targeting caused all instances to skip when the socket changed after reload.)
+    delay: seconds to wait before writing (gives VS Code time to auto-forward
+    the port via its port-detection mechanism before asExternalUri is called).
+    """
+    signal_dir = os.path.expanduser("~/.arrayview")
+    signal_file = os.path.join(signal_dir, "open-request.json")
+    try:
+        os.makedirs(signal_dir, exist_ok=True)
+        if delay > 0:
+            time.sleep(delay)
+        payload: dict = {"url": url}
+        with open(signal_file, "w") as f:
+            json.dump(payload, f)
+        return True
+    except Exception:
+        return False
+
+
 def _open_browser(url: str, blocking: bool = False) -> None:
     """Open *url* in VS Code's Simple Browser via the arrayview-opener extension,
-    or fall back to ``webbrowser.open``.
+    or fall back to printing a clickable URL.
 
-    The arrayview-opener VS Code extension registers a URI handler so that
-    ``open "vscode://arrayview.arrayview-opener/open?url=<encoded>"`` (macOS)
-    or ``code --open-url vscode://...`` (Linux / tunnel) triggers
-    ``simpleBrowser.show`` inside VS Code.  The extension also resolves the
-    URL through ``vscode.env.asExternalUri`` so port forwarding works in
-    remote/tunnel contexts.
+    The arrayview-opener VS Code extension watches ``~/.arrayview/open-request.json``
+    for URLs to open.  This is the primary mechanism for tunnel/remote setups.
+    For local/SSH setups, ``code --open-url`` with a ``vscode://`` URI is also
+    attempted.
 
     The extension is automatically installed from a bundled .vsix on first use.
 
@@ -1536,78 +1563,66 @@ def _open_browser(url: str, blocking: bool = False) -> None:
     def _do() -> None:
         from urllib.parse import quote as _quote
 
-        vscode_uri = None
-
-        # Ensure the companion extension is installed before trying the URI.
-        if _ensure_vscode_extension():
-            vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
-                url, safe=""
-            )
+        # Ensure the companion extension is installed.
+        _ensure_vscode_extension()
 
         opened = False
 
-        if vscode_uri:
-            if sys.platform == "darwin" and not _is_vscode_remote():
-                # macOS local: `open` routes vscode:// URIs via Launch Services
+        # ---- VS Code tunnel/remote: signal file is the only reliable method ----
+        if _is_vscode_remote():
+            _open_via_signal_file(url)
+            print(f"[ArrayView] {url}", flush=True)
+
+            if _VSCODE_EXT_FRESH_INSTALL:
+                print(
+                    "\n[ArrayView] Extension installed for the first time."
+                    "\n[ArrayView] ★ Reload VS Code window to activate it:"
+                    "\n[ArrayView]   Cmd/Ctrl+Shift+P → Developer: Reload Window"
+                    "\n[ArrayView] The viewer opens automatically after reload.",
+                    flush=True,
+                )
+            return
+
+        # ---- macOS local: vscode:// URI via Launch Services ----
+        vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
+            url, safe=""
+        )
+        if sys.platform == "darwin":
+            try:
+                r = subprocess.run(["open", vscode_uri], capture_output=True, timeout=5)
+                opened = r.returncode == 0
+            except Exception:
+                pass
+
+        # ---- Linux desktop / SSH remote: try code --open-url ----
+        if not opened:
+            code = _find_code_cli()
+            ipc = _find_vscode_ipc_hook()
+            if code and ipc:
+                env = {**os.environ, "VSCODE_IPC_HOOK_CLI": ipc}
+                for open_url in [vscode_uri, url]:
+                    try:
+                        r = subprocess.run(
+                            [code, "--open-url", open_url],
+                            env=env, capture_output=True, text=True, timeout=8,
+                        )
+                        combined = (r.stdout or "") + (r.stderr or "")
+                        if r.returncode == 0 and "Ignoring option" not in combined:
+                            opened = True
+                            break
+                    except Exception:
+                        pass
+                if not opened:
+                    opened = _open_via_signal_file(url)
+
+            if not opened:
                 try:
-                    r = subprocess.run(
-                        ["open", vscode_uri],
-                        capture_output=True,
-                        timeout=5,
-                    )
+                    r = subprocess.run(["xdg-open", vscode_uri], capture_output=True, timeout=5)
                     opened = r.returncode == 0
                 except Exception:
                     pass
-            else:
-                # Linux / macOS-remote / tunnel: use `code --open-url`.
-                # _find_code_cli() prefers the tunnel's remote-cli helper
-                # when VSCODE_IPC_HOOK_CLI is set, so we route through the
-                # tunnel instead of opening a new desktop VS Code window.
-                code = _find_code_cli()
-                ipc = _find_vscode_ipc_hook()
-                if code and ipc:
-                    env = {**os.environ, "VSCODE_IPC_HOOK_CLI": ipc}
-                    try:
-                        r = subprocess.run(
-                            [code, "--open-url", vscode_uri],
-                            env=env,
-                            capture_output=True,
-                            timeout=8,
-                        )
-                        opened = r.returncode == 0
-                    except Exception:
-                        pass
-
-                    # Fallback: open the HTTP URL directly via code CLI.
-                    # With simpleBrowser.useIntegratedBrowser VS Code opens
-                    # http:// URLs in Simple Browser.  Port forwarding is
-                    # handled automatically by VS Code's tunnel.
-                    if not opened:
-                        try:
-                            r = subprocess.run(
-                                [code, "--open-url", url],
-                                env=env,
-                                capture_output=True,
-                                timeout=8,
-                            )
-                            opened = r.returncode == 0
-                        except Exception:
-                            pass
-
-                # Fallback: xdg-open on desktop Linux
-                if not opened and not _is_vscode_remote():
-                    try:
-                        r = subprocess.run(
-                            ["xdg-open", vscode_uri],
-                            capture_output=True,
-                            timeout=5,
-                        )
-                        opened = r.returncode == 0
-                    except Exception:
-                        pass
 
         if not opened:
-            # Final fallback: print URL prominently (cmd-clickable in VS Code terminal)
             print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
 
     if blocking:
@@ -1755,6 +1770,31 @@ def view(
         window = not is_jupyter
     if window:
         inline = False
+
+    # Julia/PythonCall: the GIL is not released reliably between Julia statements,
+    # so an in-process uvicorn thread cannot serve requests once view() returns.
+    # Use a fully independent subprocess server instead (same approach as the CLI).
+    if not inline and _is_julia_env():
+        return _view_julia(
+            np.array(data) if not isinstance(data, np.ndarray) else data,
+            name,
+            port,
+            window,
+        )
+
+    # VS Code tunnel/remote: the calling Python process may exit shortly after
+    # view() returns (one-shot scripts, non-interactive use).  A daemon-thread
+    # server would die with the process, leaving the user staring at
+    # "session expired" in the browser.  Use a subprocess server that survives
+    # the parent's exit.  (In Jupyter inline mode we stay in-process since the
+    # notebook kernel is long-lived.)
+    if not inline and _is_vscode_remote() and not _in_jupyter():
+        return _view_subprocess(
+            np.array(data) if not isinstance(data, np.ndarray) else data,
+            name,
+            port,
+            window,
+        )
 
     session = Session(data, name=name)
     SESSIONS[session.sid] = session
@@ -1967,6 +2007,18 @@ def _view_julia(
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
+    """
+    return _view_subprocess(data, name, port, window)
+
+
+def _view_subprocess(
+    data: np.ndarray, name: str, port: int, window: bool
+) -> str:
+    """Run the viewer in a separate subprocess server.
+
+    Used when the calling process may exit shortly after view() returns
+    (Julia, VS Code tunnel one-shot scripts, CLI).  The subprocess server
+    survives because it is not a daemon thread.
     """
     import tempfile
 

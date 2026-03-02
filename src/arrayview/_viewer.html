@@ -587,9 +587,30 @@
 
         async function init() {
             if (!sid) { hideLoadingOverlay(); return; }
-            const res = await fetch(`/metadata/${sid}`);
-            if (!res.ok) {
-                const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
+            // Retry fetching metadata — the server or port forwarding may not be
+            // ready yet (especially in tunnel/remote contexts).
+            let res;
+            for (let attempt = 0; attempt < 15; attempt++) {
+                try {
+                    res = await fetch(`/metadata/${sid}`);
+                    if (res.ok) break;
+                    if (res.status === 404 && attempt < 14) {
+                        await new Promise(r => setTimeout(r, 500));
+                        continue;
+                    }
+                } catch (e) {
+                    // Network error (server not ready / port not forwarded yet)
+                    if (attempt < 14) {
+                        await new Promise(r => setTimeout(r, 500));
+                        continue;
+                    }
+                    const msg = 'Cannot reach server — is the Python process still running?';
+                    document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                    return;
+                }
+            }
+            if (!res || !res.ok) {
+                const msg = (!res || res.status === 404) ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
                 document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
                 return;
             }
