@@ -49,7 +49,7 @@ def _open_webview(
 
 def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.Popen:
     """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
-    OR if no shell WebSocket connects within ~10 s (catches macOS non-framework Python
+    OR if no viewer WebSocket connects within ~10 s (catches macOS non-framework Python
     zombies that start but show nothing).
 
     Used from view() (Python API) where the host process stays alive.
@@ -78,10 +78,10 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
                 _open_browser(url)
                 return
 
-        # Phase 2: process is alive — wait up to 8 s for a shell WebSocket to connect
+        # Phase 2: process is alive — wait up to 8 s for a viewer WebSocket to connect
         for _ in range(80):
             time.sleep(0.1)
-            if SHELL_SOCKETS:
+            if VIEWER_SOCKETS > 0:
                 print("[ArrayView] Native window connected successfully", flush=True)
                 return
             if proc.poll() is not None:
@@ -143,9 +143,8 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
 # Session & Global State Management
 # ---------------------------------------------------------------------------
 SERVER_LOOP = None
-SHELL_SOCKETS = []
+VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 _window_process = None
-_PENDING_OPENS = 0  # incremented by /load, decremented when shell WS connects
 
 
 class Session:
@@ -239,9 +238,6 @@ app = FastAPI()
 # ---------------------------------------------------------------------------
 # HTML Templates (loaded once at import time from package files)
 # ---------------------------------------------------------------------------
-_SHELL_HTML: str = (
-    _pkg_files(__package__).joinpath("_shell.html").read_text(encoding="utf-8")
-)
 _VIEWER_HTML_TEMPLATE: str = (
     _pkg_files(__package__).joinpath("_viewer.html").read_text(encoding="utf-8")
 )
@@ -610,52 +606,6 @@ def _run_preload(
         time.sleep(0.005)
 
 
-# ---------------------------------------------------------------------------
-# Shell WebSocket for Tab Management
-# ---------------------------------------------------------------------------
-async def _notify_shells(sid, name):
-    """Pushes a message to the open shell UI to dynamically spawn a new tab."""
-    for _ in range(200):  # Wait up to 2 seconds if window just launched
-        if SHELL_SOCKETS:
-            break
-        await asyncio.sleep(0.01)
-
-    for ws in SHELL_SOCKETS.copy():
-        try:
-            await ws.send_json({"action": "new_tab", "sid": sid, "name": name})
-        except Exception:
-            pass
-
-
-@app.websocket("/ws/shell")
-async def shell_websocket(ws: WebSocket):
-    global _PENDING_OPENS
-    await ws.accept()
-    SHELL_SOCKETS.append(ws)
-    if _PENDING_OPENS > 0:
-        _PENDING_OPENS -= 1
-    try:
-        while True:
-            msg = await ws.receive_json()
-            if msg.get("action") == "close":
-                sid = msg.get("sid")
-                if sid in SESSIONS:
-                    # Clear Memory instantly when tab closes
-                    SESSIONS[sid].raw_cache.clear()
-                    SESSIONS[sid].rgba_cache.clear()
-                    SESSIONS[sid].mosaic_cache.clear()
-                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[
-                        sid
-                    ]._mosaic_bytes = 0
-                    SESSIONS[sid].data = None
-                    del SESSIONS[sid]
-    except Exception:
-        pass
-    finally:
-        if ws in SHELL_SOCKETS:
-            SHELL_SOCKETS.remove(ws)
-
-
 @app.websocket("/ws/{sid}")
 async def websocket_endpoint(ws: WebSocket, sid: str):
     session = SESSIONS.get(sid)
@@ -664,6 +614,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
         return
 
     await ws.accept()
+    global VIEWER_SOCKETS
+    VIEWER_SOCKETS += 1
     loop = asyncio.get_running_loop()
 
     try:
@@ -732,6 +684,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             await ws.send_bytes(header + vminmax + rgba.tobytes())
     except Exception:
         pass
+    finally:
+        VIEWER_SOCKETS = max(0, VIEWER_SOCKETS - 1)
 
 
 @app.get("/clearcache/{sid}")
@@ -1119,27 +1073,15 @@ def get_gif(
     return Response(content=buf.getvalue(), media_type="image/gif")
 
 
-@app.get("/shell")
-def get_shell():
-    """Returns the Master Tabbed Window UI."""
-    return HTMLResponse(content=_SHELL_HTML)
-
-
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
     return {"ok": True, "service": "arrayview", "pid": os.getpid()}
 
 
-@app.get("/sessions")
-def get_sessions():
-    """Returns list of active sessions (used by shell to auto-load on cold open)."""
-    return [{"sid": s.sid, "name": s.name} for s in SESSIONS.values()]
-
-
 @app.post("/load")
 async def load_file(request: Request):
-    """Load a file into a new session and push a new tab to all open shell windows."""
+    """Load a file into a new session."""
     body = await request.json()
     filepath = str(body["filepath"])
     name = str(body.get("name") or os.path.basename(filepath))
@@ -1148,20 +1090,15 @@ async def load_file(request: Request):
     except Exception as e:
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
-    global _PENDING_OPENS
     SESSIONS[session.sid] = session
-    _PENDING_OPENS += 1
-    await _notify_shells(session.sid, name)
     return {"sid": session.sid, "name": name}
 
 
 @app.get("/")
 def get_ui(sid: str = None):
-    """Viewer iframe page. Redirects to /shell when no sid is given (e.g. VSCode popup)."""
-    from fastapi.responses import RedirectResponse
-
+    """Viewer page."""
     if not sid:
-        return RedirectResponse(url="/shell")
+        return HTMLResponse(content="<html><body style='background:#111;color:#ccc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>No session ID provided.</body></html>")
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
@@ -1607,14 +1544,12 @@ def view(
     inline: bool | None = None,
     height: int = 500,
     window: bool | None = None,
-    new_window: bool = True,
 ):
     """
     Launch the viewer. Does not block the main Python process.
     window defaults to False in Jupyter (inline IFrame) and True elsewhere.
-    If window=True and new_window=True (default), each call opens a fresh native window.
-    If window=True and new_window=False, repeated calls inject new tabs into the existing window.
-    Returns an IPython IFrame in inline mode, otherwise returns the opened shell URL.
+    Each call opens a new viewer window/tab.
+    Returns an IPython IFrame in inline mode, otherwise returns the viewer URL.
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
 
@@ -1731,62 +1666,47 @@ def view(
     while SERVER_LOOP is None and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    url_inline = f"http://localhost:{port}/?sid={session.sid}"
-    encoded_name = urllib.parse.quote(name)
-    url_shell = (
-        f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
-    )
+    url_viewer = f"http://localhost:{port}/?sid={session.sid}"
 
     if inline:
         from IPython.display import IFrame
 
-        return IFrame(src=url_inline, width="100%", height=height)
+        return IFrame(src=url_viewer, width="100%", height=height)
 
     # Always print the URL so it's accessible regardless of environment.
-    print(f"[ArrayView] {url_shell}", flush=True)
+    print(f"[ArrayView] {url_viewer}", flush=True)
 
     can_native_window = _can_native_window() if window else False
     if window and can_native_window:
         try:
-            if (
-                not new_window
-                and _window_process is not None
-                and _window_process.poll() is None
-            ):
-                asyncio.run_coroutine_threadsafe(
-                    _notify_shells(session.sid, name), SERVER_LOOP
-                )
-            else:
-                _window_process = _open_webview_with_fallback(url_shell, win_w, win_h)
+            _window_process = _open_webview_with_fallback(url_viewer, win_w, win_h)
         except Exception:
-            _open_browser(url_shell)
+            _open_browser(url_viewer)
     else:
         if window and not can_native_window:
             print(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
             )
-        _open_browser(url_shell)
-    return url_shell
+        _open_browser(url_viewer)
+    return url_viewer
 
 
-def _wait_for_shell_close(grace_seconds: float = 8.0) -> None:
-    """Block until the browser/window closes.
-    Waits for a shell WebSocket to connect, then disconnect, then applies a
+def _wait_for_viewer_close(grace_seconds: float = 8.0) -> None:
+    """Block until all viewer WebSocket connections close.
+    Waits for a viewer WebSocket to connect, then all to disconnect, then applies a
     grace period so page refreshes don't prematurely kill the server.
     """
-    while not SHELL_SOCKETS:
+    while VIEWER_SOCKETS == 0:
         time.sleep(0.2)
     while True:
-        while SHELL_SOCKETS:
+        while VIEWER_SOCKETS > 0:
             time.sleep(0.2)
         # All sockets gone — grace period for page refresh / reconnect
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
-            if SHELL_SOCKETS:
+            if VIEWER_SOCKETS > 0:
                 break  # reconnected; wait again
-            if _PENDING_OPENS > 0:
-                deadline = max(deadline, time.monotonic() + grace_seconds)
             time.sleep(0.2)
         else:
             return  # deadline passed with no reconnect → really closed
@@ -1815,8 +1735,6 @@ def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
     with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as tmp:
         tmp_path = tmp.name
     np.save(tmp_path, data)
-
-    encoded_name = urllib.parse.quote(name)
 
     if _server_alive(port):
         # Existing subprocess server — register the new array via /load.
@@ -1872,7 +1790,7 @@ def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
                 pass
             raise RuntimeError(f"ArrayView server failed to start on port {port}.")
 
-    url = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name}"
+    url = f"http://localhost:{port}/?sid={sid}"
     print(f"[ArrayView] {url}", flush=True)
 
     can_native = _can_native_window()
@@ -1906,7 +1824,7 @@ def _serve_daemon(
         ),
         daemon=True,
     ).start()
-    _wait_for_shell_close()
+    _wait_for_viewer_close()
     os._exit(0)
 
 
@@ -1922,11 +1840,6 @@ def arrayview():
         "--browser",
         action="store_true",
         help="Open in web browser instead of native window",
-    )
-    parser.add_argument(
-        "--tab",
-        action="store_true",
-        help="When a server is already running, inject into the existing window as a new tab without opening a new browser window",
     )
     args = parser.parse_args()
 
@@ -1958,7 +1871,6 @@ def arrayview():
                 {
                     "filepath": os.path.abspath(args.file),
                     "name": name,
-                    "notify": args.tab,  # push into existing window only with --tab
                 }
             ).encode()
             req = urllib.request.Request(
@@ -1980,12 +1892,9 @@ def arrayview():
             sys.exit(1)
 
         sid = result["sid"]
-        encoded_name = urllib.parse.quote(name)
-        url = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+        url = f"http://localhost:{args.port}/?sid={sid}"
 
-        if args.tab:
-            print(f"Injected as new tab in existing window (port {args.port})")
-        elif args.browser or not _can_native_window():
+        if args.browser or not _can_native_window():
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
         else:
@@ -1996,8 +1905,7 @@ def arrayview():
         return
 
     sid = uuid.uuid4().hex
-    encoded_name = urllib.parse.quote(name)
-    url = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+    url = f"http://localhost:{args.port}/?sid={sid}"
 
     # Spawn background server — exits automatically when the window/tab is closed
     script = (
