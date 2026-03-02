@@ -4,41 +4,41 @@
     <title>ArrayView</title>
     <style>
         body {
-            margin: 0; padding: 0; background: #000; color: #ccc;
-            font-family: sans-serif; overflow: hidden; height: 100vh;
-            display: flex; flex-direction: column;
+            margin: 0; padding: 0; background: #0c0c0c; color: #d8d8d8;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden; height: 100vh; display: flex; flex-direction: column;
         }
         #tab-bar {
-            height: 34px; background: #161616; display: none; align-items: flex-end;
+            height: 36px; background: #0e0e0e; display: none; align-items: flex-end;
             padding: 0 8px; user-select: none; flex-shrink: 0; overflow-x: auto;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid #1e1e1e;
         }
         #tab-bar.visible { display: flex; }
         .tab {
-            background: #2a2a2a; margin-right: 4px; padding: 6px 14px;
+            background: #181818; margin-right: 2px; padding: 6px 14px;
             border-radius: 6px 6px 0 0; cursor: pointer; display: flex;
-            align-items: center; font-size: 13px; max-width: 250px;
+            align-items: center; font-size: 12px; max-width: 240px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            border-top: 2px solid transparent; transition: background 0.1s;
+            border-top: 2px solid transparent; transition: background 0.1s; color: #888;
         }
-        .tab.active { background: #111; border-top: 2px solid #55aaff; color: #fff; }
-        .tab:hover:not(.active) { background: #3a3a3a; }
+        .tab.active { background: #0c0c0c; border-top: 2px solid #f5c842; color: #d8d8d8; }
+        .tab:hover:not(.active) { background: #222; color: #bbb; }
         .tab span { overflow: hidden; text-overflow: ellipsis; }
         .tab-close {
-            margin-left: 10px; font-size: 16px; opacity: 0.5; cursor: pointer;
-            line-height: 1; padding: 0 4px; border-radius: 50%;
+            margin-left: 8px; font-size: 15px; opacity: 0.4; cursor: pointer;
+            line-height: 1; padding: 0 3px; border-radius: 50%;
         }
-        .tab-close:hover { opacity: 1; color: #ff5555; background: rgba(255,255,255,0.1); }
+        .tab-close:hover { opacity: 1; color: #ff6b6b; background: rgba(255,255,255,0.08); }
 
-        #content { flex: 1; position: relative; background: #111; }
+        #content { flex: 1; position: relative; background: #0c0c0c; }
         iframe {
             width: 100%; height: 100%; border: none; position: absolute;
-            top: 0; left: 0; visibility: hidden; background: #111;
+            top: 0; left: 0; visibility: hidden; background: #0c0c0c;
         }
         iframe.active { visibility: visible; }
 
-        #tab-bar::-webkit-scrollbar { height: 4px; }
-        #tab-bar::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        #tab-bar::-webkit-scrollbar { height: 3px; }
+        #tab-bar::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
     </style>
 </head>
 <body>

@@ -3,118 +3,148 @@
 <head>
     <style>
         :root {
-            --bg: #111; --surface: #1e1e1e; --border: #444;
-            --text: #ccc; --muted: #777; --subtle: #444;
-            --highlight: #fff; --canvas-border: #555;
-            --active-dim: #ebcb8b; --spatial-dim: #b48ead;
-            --help-key: #ebcb8b; --overlay-bg: rgba(0,0,0,0.75);
-            --roi-bg: rgba(20,20,20,0.93);
+            --bg: #0c0c0c; --surface: #141414; --surface-2: #1c1c1c;
+            --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
+            --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
+            --highlight: #fff; --canvas-border: rgba(255,255,255,0.1);
+            --active-dim: #f5c842; --spatial-dim: #b084ea; --q-dim-color: #9b72cf;
+            --help-key: #f5c842; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
+            --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
         }
         :root.light {
-            --bg: #f5f5f5; --surface: #fff; --border: #ccc;
-            --text: #333; --muted: #888; --subtle: #bbb;
-            --highlight: #000; --canvas-border: #999;
-            --active-dim: #b8860b; --spatial-dim: #8b5e83;
-            --help-key: #b8860b; --overlay-bg: rgba(255,255,255,0.8);
-            --roi-bg: rgba(240,240,240,0.95);
+            --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
+            --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
+            --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
+            --highlight: #000; --canvas-border: rgba(0,0,0,0.14);
+            --active-dim: #c47d00; --spatial-dim: #7c3aed; --q-dim-color: #7c3aed;
+            --help-key: #c47d00; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
+            --roi-bg: rgba(248,248,248,0.97);
         }
         html, body {
             background: var(--bg); margin: 0; padding: 0;
             width: 100%; height: 100%; overflow: hidden;
         }
         #wrapper {
-            background: var(--bg); color: var(--text); font-family: monospace;
+            background: var(--bg); color: var(--text);
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             display: flex; flex-direction: column; align-items: center;
-            padding: 16px 20px 20px; width: 100%; height: 100%; box-sizing: border-box;
+            padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box;
         }
-        
-        #info { margin-bottom: 12px; font-size: 22px; white-space: nowrap; text-align: left; flex-shrink: 0; }
-
+        #info {
+            margin-bottom: 10px; font-size: 20px; white-space: nowrap;
+            text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
+        }
         #viewer-row {
             display: flex; align-items: center; justify-content: center; flex: 1;
-            min-height: 0; width: 100%; overflow: auto; padding: 20px; box-sizing: border-box;
+            min-height: 0; width: 100%; overflow: auto; padding: 16px; box-sizing: border-box;
         }
-
         #canvas-wrap { position: relative; display: inline-flex; justify-content: center; align-items: center; }
-        canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; outline: none; cursor: crosshair; }
-        #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 6px; border: none; cursor: ns-resize; }
+        canvas {
+            border: 1px solid var(--canvas-border); border-radius: 2px;
+            image-rendering: pixelated; outline: none; cursor: crosshair;
+        }
+        #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; border: none; border-radius: 2px; cursor: ns-resize; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
-        .dim-label { cursor: pointer; }
-        #status { margin-top: 8px; font-size: 18px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
-        #pixel-info { margin-top: 2px; font-size: 18px; color: var(--text); height: 1.4em; line-height: 1.4; font-family: monospace; flex-shrink: 0; overflow: hidden; }
-        #preload-status { margin-top: 4px; font-size: 13px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
+        .dim-label {
+            cursor: pointer; padding: 1px 5px; margin: 0 -5px;
+            border-radius: 4px; transition: background 0.12s;
+        }
+        .dim-label:hover { background: rgba(255,255,255,0.09); }
+        :root.light .dim-label:hover { background: rgba(0,0,0,0.07); }
+        #status { margin-top: 6px; font-size: 15px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
+        #pixel-info { margin-top: 2px; font-size: 15px; color: var(--text); height: 1.4em; line-height: 1.4; flex-shrink: 0; overflow: hidden; }
+        #preload-status { margin-top: 2px; font-size: 12px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
         #toast {
-            margin-top: 8px; font-size: 18px; color: var(--text);
-            min-height: 1.2em; opacity: 0; transition: opacity 0.8s ease; flex-shrink: 0;
+            position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px; letter-spacing: 0.01em; color: var(--text);
+            background: var(--surface-2); border: 1px solid var(--border);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            padding: 5px 16px; border-radius: 20px;
+            opacity: 0; transition: opacity 0.6s ease;
+            pointer-events: none; white-space: nowrap; z-index: 20;
         }
-        #help-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--overlay-bg); z-index: 10; justify-content: center; align-items: center;
+        #help-overlay, #info-overlay {
+            display: none; position: fixed; inset: 0;
+            background: var(--overlay-bg);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 10; justify-content: center; align-items: center;
         }
-        #help-overlay.visible { display: flex; }
+        #help-overlay.visible, #info-overlay.visible { display: flex; }
+        #help-box, #info-box {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            max-height: 88vh; max-width: 92vw; overflow: auto; box-sizing: border-box;
+            color: var(--text);
+        }
         #help-box {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-            padding: 20px 30px; font-size: 14px; line-height: 1.6; color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            white-space: pre; max-height: 90vh; max-width: 90vw; overflow: auto; box-sizing: border-box;
+            padding: 22px 30px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
         }
-        #help-box .key { color: var(--help-key); font-weight: bold; display: inline-block; min-width: 140px; }
-        #help-hint { position: fixed; bottom: 12px; right: 16px; color: var(--muted); font-size: 14px; cursor: pointer; font-family: monospace; user-select: none; }
-        #info-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--overlay-bg); z-index: 10; justify-content: center; align-items: center;
+        .help-row { display: flex; align-items: baseline; line-height: 2.2; }
+        .help-row .key {
+            flex-shrink: 0; width: 190px; color: var(--help-key); font-weight: 600;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; font-size: 12px;
         }
-        #info-overlay.visible { display: flex; }
-        #info-box {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-            padding: 24px 32px; font-size: 14px; line-height: 2; color: var(--text);
-            font-family: monospace;
-        }
+        .help-row .desc { color: var(--text); }
+        #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
-        #info-box td:first-child { color: var(--muted); padding-right: 20px; }
+        #info-box td:first-child { color: var(--muted); padding-right: 24px; }
+        #help-hint {
+            position: fixed; bottom: 14px; right: 16px; cursor: pointer;
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 1px solid var(--border); color: var(--muted);
+            font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            user-select: none; transition: color 0.12s, border-color 0.12s;
+        }
+        #help-hint:hover { color: var(--text); border-color: var(--muted); }
         #roi-panel {
             position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
             background: var(--roi-bg); border: 1px solid var(--border);
-            border-radius: 8px; padding: 12px 18px; font-size: 15px; color: var(--text);
-            font-family: monospace; line-height: 2.2; display: none;
-            white-space: nowrap; z-index: 5;
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            border-radius: var(--radius); padding: 12px 20px;
+            font-size: 14px; color: var(--text); font-family: inherit;
+            line-height: 2.2; display: none; white-space: nowrap; z-index: 5;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
         }
         #roi-panel table { border-collapse: collapse; }
         #roi-panel td:first-child { color: var(--muted); padding-right: 14px; }
         #multi-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #multi-view-wrap.active { display: flex; align-items: stretch; justify-content: space-evenly; }
-        .mv-pane { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-        .mv-label { font-size: 18px; color: var(--muted); flex-shrink: 0; font-family: monospace; }
+        .mv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+        .mv-label { font-size: 15px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .mv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
-        .mv-canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; cursor: crosshair; }
+        .mv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
         #qmri-view-wrap.qmri-3 { grid-template-columns: repeat(3, 1fr); }
         #qmri-view-wrap.qmri-4 { grid-template-columns: repeat(4, 1fr); }
         #qmri-view-wrap.qmri-5 { grid-template-columns: repeat(5, 1fr); }
         #qmri-view-wrap.qmri-6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
-        .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; min-height: 0; overflow: hidden; }
-        .qv-label { font-size: 16px; color: var(--muted); flex-shrink: 0; font-family: monospace; }
+        .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; min-height: 0; overflow: hidden; }
+        .qv-label { font-size: 14px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
-        .qv-canvas { border: 1px solid var(--canvas-border); image-rendering: pixelated; cursor: crosshair; }
-        .q-dim { color: #8b5e83; font-weight: bold; }
+        .qv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
+        .q-dim { color: var(--q-dim-color); font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            gap: 10px; width: 100%; height: 100%;
+            gap: 12px; width: 100%; height: 100%;
         }
         #loading-track {
-            width: 160px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
+            width: 120px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden;
         }
         #loading-fill {
-            height: 100%; width: 40%; background: var(--muted); border-radius: 2px;
-            animation: av-loading 1.2s ease-in-out infinite;
+            height: 100%; width: 35%; background: var(--muted); border-radius: 1px;
+            animation: av-loading 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         @keyframes av-loading {
             0%   { transform: translateX(-150%); }
-            100% { transform: translateX(380%); }
+            100% { transform: translateX(430%); }
         }
     </style>
 </head>
@@ -144,33 +174,35 @@
         <div id="info-box"><table id="info-table"></table></div>
     </div>
     <div id="help-overlay">
-        <div id="help-box"><span class="key">scroll</span>  previous / next slice (active dim)
-<span class="key">h / l / ← / →</span>  move cursor to prev / next dim
-<span class="key">j / ↓</span>  on x/y: flip axis  |  else: prev index
-<span class="key">k / ↑</span>  on x/y: flip axis  |  else: next index
-<span class="key">L</span>  toggle log scale
-<span class="key">x</span>  swap horizontal dim with slice dim
-<span class="key">y</span>  swap vertical dim with slice dim
-<span class="key">Space</span>  toggle auto-play
-<span class="key">z</span>  claim dim as z (grid), scroll through next dim
-<span class="key">m</span>  cycle complex mode (mag/phase/real/imag)
-<span class="key">i</span>  show data info overlay
-<span class="key">f</span>  toggle centred FFT (prompts for axes)
-<span class="key">c</span>  cycle colormap
-<span class="key">C</span>  enter matplotlib colormap name
-<span class="key">d</span>  cycle dynamic range
-<span class="key">b</span>  toggle colorbar
-<span class="key">T</span>  toggle dark / light mode
-<span class="key">s</span>  save screenshot (PNG)
-<span class="key">g</span>  save GIF of current slice dim
-<span class="key">+ / -</span>  zoom in / out
-<span class="key">0</span>  reset zoom (fit to window)
-<span class="key">hover</span>  show pixel value
-<span class="key">v</span>  toggle 3-plane view (dims 0,1,2)
-<span class="key">V</span>  toggle 3-plane view (custom dims)
-<span class="key">q</span>  qMRI mode (active dim size 3–6, multi-colormap)
-<span class="key">e</span>  copy view state to clipboard
-<span class="key">?</span>  toggle this help</div>
+        <div id="help-box">
+            <div class="help-row"><span class="key">scroll</span><span class="desc">previous / next slice (active dim)</span></div>
+            <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim</span></div>
+            <div class="help-row"><span class="key">j / ↓</span><span class="desc">on x/y: flip axis &nbsp;|&nbsp; else: prev index</span></div>
+            <div class="help-row"><span class="key">k / ↑</span><span class="desc">on x/y: flip axis &nbsp;|&nbsp; else: next index</span></div>
+            <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
+            <div class="help-row"><span class="key">x</span><span class="desc">swap horizontal dim with slice dim</span></div>
+            <div class="help-row"><span class="key">y</span><span class="desc">swap vertical dim with slice dim</span></div>
+            <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
+            <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
+            <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
+            <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
+            <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
+            <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
+            <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
+            <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
+            <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
+            <div class="help-row"><span class="key">T</span><span class="desc">toggle dark / light mode</span></div>
+            <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
+            <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
+            <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
+            <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
+            <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value</span></div>
+            <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
+            <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
+            <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (active dim size 3–6, multi-colormap)</span></div>
+            <div class="help-row"><span class="key">e</span><span class="desc">copy view state to clipboard</span></div>
+            <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
+        </div>
     </div>
 </div>
     <script>
