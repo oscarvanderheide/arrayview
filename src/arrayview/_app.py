@@ -144,6 +144,7 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
 # ---------------------------------------------------------------------------
 SERVER_LOOP = None
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
+SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
 
 
@@ -238,6 +239,9 @@ app = FastAPI()
 # ---------------------------------------------------------------------------
 # HTML Templates (loaded once at import time from package files)
 # ---------------------------------------------------------------------------
+_SHELL_HTML: str = (
+    _pkg_files(__package__).joinpath("_shell.html").read_text(encoding="utf-8")
+)
 _VIEWER_HTML_TEMPLATE: str = (
     _pkg_files(__package__).joinpath("_viewer.html").read_text(encoding="utf-8")
 )
@@ -604,6 +608,47 @@ def _run_preload(
         with session.preload_lock:
             session.preload_done = i + 1
         time.sleep(0.005)
+
+
+# ---------------------------------------------------------------------------
+# Shell WebSocket for Webview Tab Management
+# ---------------------------------------------------------------------------
+async def _notify_shells(sid, name):
+    """Push a new-tab message to all connected webview shell windows."""
+    for _ in range(200):  # Wait up to 2 s for window to connect
+        if SHELL_SOCKETS:
+            break
+        await asyncio.sleep(0.01)
+    for ws in SHELL_SOCKETS.copy():
+        try:
+            await ws.send_json({"action": "new_tab", "sid": sid, "name": name})
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/shell")
+async def shell_websocket(ws: WebSocket):
+    await ws.accept()
+    SHELL_SOCKETS.append(ws)
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("action") == "close":
+                sid = msg.get("sid")
+                if sid in SESSIONS:
+                    SESSIONS[sid].raw_cache.clear()
+                    SESSIONS[sid].rgba_cache.clear()
+                    SESSIONS[sid].mosaic_cache.clear()
+                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[
+                        sid
+                    ]._mosaic_bytes = 0
+                    SESSIONS[sid].data = None
+                    del SESSIONS[sid]
+    except Exception:
+        pass
+    finally:
+        if ws in SHELL_SOCKETS:
+            SHELL_SOCKETS.remove(ws)
 
 
 @app.websocket("/ws/{sid}")
@@ -1073,24 +1118,39 @@ def get_gif(
     return Response(content=buf.getvalue(), media_type="image/gif")
 
 
+@app.get("/shell")
+def get_shell():
+    """Tabbed shell UI for native webview windows."""
+    return HTMLResponse(content=_SHELL_HTML)
+
+
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
     return {"ok": True, "service": "arrayview", "pid": os.getpid()}
 
 
+@app.get("/sessions")
+def get_sessions():
+    """Returns list of active sessions (used by shell to populate tabs on load)."""
+    return [{"sid": s.sid, "name": s.name} for s in SESSIONS.values()]
+
+
 @app.post("/load")
 async def load_file(request: Request):
-    """Load a file into a new session."""
+    """Load a file into a new session. Optionally notify webview shells."""
     body = await request.json()
     filepath = str(body["filepath"])
     name = str(body.get("name") or os.path.basename(filepath))
+    notify = bool(body.get("notify", False))
     try:
         data = load_data(filepath)
     except Exception as e:
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
     SESSIONS[session.sid] = session
+    if notify:
+        await _notify_shells(session.sid, name)
     return {"sid": session.sid, "name": name}
 
 
@@ -1667,19 +1727,29 @@ def view(
         time.sleep(0.01)
 
     url_viewer = f"http://localhost:{port}/?sid={session.sid}"
+    encoded_name = urllib.parse.quote(name)
+    url_shell = (
+        f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
+    )
 
     if inline:
         from IPython.display import IFrame
 
         return IFrame(src=url_viewer, width="100%", height=height)
 
-    # Always print the URL so it's accessible regardless of environment.
-    print(f"[ArrayView] {url_viewer}", flush=True)
-
     can_native_window = _can_native_window() if window else False
     if window and can_native_window:
         try:
-            _window_process = _open_webview_with_fallback(url_viewer, win_w, win_h)
+            if (
+                _window_process is not None
+                and _window_process.poll() is None
+            ):
+                # Webview already open — inject new tab
+                asyncio.run_coroutine_threadsafe(
+                    _notify_shells(session.sid, name), SERVER_LOOP
+                )
+            else:
+                _window_process = _open_webview_with_fallback(url_shell, win_w, win_h)
         except Exception:
             _open_browser(url_viewer)
     else:
@@ -1689,6 +1759,8 @@ def view(
                 flush=True,
             )
         _open_browser(url_viewer)
+
+    print(f"[ArrayView] {url_viewer}", flush=True)
     return url_viewer
 
 
@@ -1790,17 +1862,19 @@ def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
                 pass
             raise RuntimeError(f"ArrayView server failed to start on port {port}.")
 
-    url = f"http://localhost:{port}/?sid={sid}"
-    print(f"[ArrayView] {url}", flush=True)
+    url_viewer = f"http://localhost:{port}/?sid={sid}"
+    encoded_name = urllib.parse.quote(name)
+    url_shell = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name}"
+    print(f"[ArrayView] {url_viewer}", flush=True)
 
     can_native = _can_native_window()
     if window and can_native:
-        if not _open_webview_cli(url, 1200, 800):
+        if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
-            _open_browser(url)
+            _open_browser(url_viewer)
     else:
-        _open_browser(url)
-    return url
+        _open_browser(url_viewer)
+    return url_viewer
 
 
 def _serve_daemon(
@@ -1864,13 +1938,17 @@ def arrayview():
         )
         sys.exit(1)
 
+    use_webview = not args.browser and _can_native_window()
+
     if is_arrayview_server:
-        # Server already running — register the new array
+        # Server already running — register the new array.
+        # If using webview, notify the existing shell to inject a new tab.
         try:
             body = json.dumps(
                 {
                     "filepath": os.path.abspath(args.file),
                     "name": name,
+                    "notify": use_webview,
                 }
             ).encode()
             req = urllib.request.Request(
@@ -1892,20 +1970,17 @@ def arrayview():
             sys.exit(1)
 
         sid = result["sid"]
-        url = f"http://localhost:{args.port}/?sid={sid}"
-
-        if args.browser or not _can_native_window():
+        if use_webview:
+            # Tab was injected into existing webview window
+            print(f"Injected into existing window (port {args.port})")
+        else:
+            url = f"http://localhost:{args.port}/?sid={sid}"
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
-        else:
-            print(f"Open {url} in your browser")
-            if not _open_webview_cli(url, 1200, 800):
-                print("[ArrayView] Falling back to browser", flush=True)
-                _open_browser(url, blocking=True)
         return
 
     sid = uuid.uuid4().hex
-    url = f"http://localhost:{args.port}/?sid={sid}"
+    encoded_name = urllib.parse.quote(name)
 
     # Spawn background server — exits automatically when the window/tab is closed
     script = (
@@ -1924,11 +1999,13 @@ def arrayview():
         )
         sys.exit(1)
 
-    can_native = _can_native_window()
-    print(f"Open {url} in your browser")
-    if args.browser or not can_native:
-        _open_browser(url, blocking=True)
-    else:
-        if not _open_webview_cli(url, 1200, 800):
+    if use_webview:
+        url_shell = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+        if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
+            url = f"http://localhost:{args.port}/?sid={sid}"
             _open_browser(url, blocking=True)
+    else:
+        url = f"http://localhost:{args.port}/?sid={sid}"
+        print(f"Open {url} in your browser")
+        _open_browser(url, blocking=True)

@@ -9,10 +9,11 @@
             display: flex; flex-direction: column;
         }
         #tab-bar {
-            height: 34px; background: #161616; display: flex; align-items: flex-end;
+            height: 34px; background: #161616; display: none; align-items: flex-end;
             padding: 0 8px; user-select: none; flex-shrink: 0; overflow-x: auto;
             border-bottom: 1px solid #333;
         }
+        #tab-bar.visible { display: flex; }
         .tab {
             background: #2a2a2a; margin-right: 4px; padding: 6px 14px;
             border-radius: 6px 6px 0 0; cursor: pointer; display: flex;
@@ -49,6 +50,11 @@
         let tabs = {}; // sid -> { button, iframe }
         let activeSid = null;
 
+        function updateTabBarVisibility() {
+            const count = Object.keys(tabs).length;
+            tabBar.classList.toggle('visible', count > 1);
+        }
+
         function addTab(sid, name) {
             if (tabs[sid]) { activateTab(sid); return; }
 
@@ -70,6 +76,7 @@
             tabBar.appendChild(btn);
             content.appendChild(iframe);
             activateTab(sid);
+            updateTabBarVisibility();
         }
 
         function activateTab(sid) {
@@ -78,7 +85,6 @@
                 if (k === sid) {
                     tabs[k].btn.classList.add('active');
                     tabs[k].iframe.classList.add('active');
-                    // Give focus back to the iframe so keybindings still work!
                     tabs[k].iframe.contentWindow?.focus();
                 } else {
                     tabs[k].btn.classList.remove('active');
@@ -94,12 +100,10 @@
             content.removeChild(tab.iframe);
             delete tabs[sid];
 
-            // Notify backend to instantly wipe this array from python memory
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({action: "close", sid: sid}));
             }
 
-            // Activate adjacent tab automatically
             if (activeSid === sid) {
                 const remaining = Object.keys(tabs);
                 if (remaining.length > 0) {
@@ -108,9 +112,9 @@
                     activeSid = null;
                 }
             }
+            updateTabBarVisibility();
         }
 
-        // Init WebSocket to listen for python view() calls injecting new tabs
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
         ws.onmessage = (e) => {
@@ -120,7 +124,6 @@
             }
         };
 
-        // Auto-load first array requested in query param, or fetch all active sessions
         const params = new URLSearchParams(window.location.search);
         const initSid = params.get('init_sid');
         const initName = params.get('init_name');

@@ -29,6 +29,17 @@ class TestHealth:
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
 
+    def test_shell_returns_html(self, client):
+        r = client.get("/shell")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_sessions_lists_registered_sid(self, client, sid_2d):
+        r = client.get("/sessions")
+        assert r.status_code == 200
+        sids = [s["sid"] for s in r.json()]
+        assert sid_2d in sids
+
 
 # ---------------------------------------------------------------------------
 # /load
