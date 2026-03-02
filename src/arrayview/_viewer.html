@@ -42,6 +42,7 @@
         .active-dim { color: var(--active-dim); font-weight: bold; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
+        .dim-label { cursor: pointer; }
         #status { margin-top: 8px; font-size: 18px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
         #pixel-info { margin-top: 2px; font-size: 18px; color: var(--text); height: 1.4em; line-height: 1.4; font-family: monospace; flex-shrink: 0; overflow: hidden; }
         #preload-status { margin-top: 4px; font-size: 13px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
@@ -478,6 +479,7 @@
         function renderInfo() {
             const idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
+                const d = `data-dim="${i}"`;
                 if (multiViewActive) {
                     const isSpatial = mvDims.includes(i);
                     if (isSpatial) {
@@ -485,22 +487,26 @@
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
                         const prefix = flipDims[i] ? '-' : '';
-                        return active ? `<span class="active-dim">${prefix}${label}</span>`
-                                      : `<span class="spatial-dim">${prefix}${label}</span>`;
+                        return active ? `<span class="active-dim dim-label" ${d}>${prefix}${label}</span>`
+                                      : `<span class="spatial-dim dim-label" ${d}>${prefix}${label}</span>`;
                     }
-                    if (active) return `<span class="active-dim">${v}</span>`;
-                    return `${v}`;
+                    if (active) return `<span class="active-dim dim-label" ${d}>${v}</span>`;
+                    return `<span class="dim-label" ${d}>${v}</span>`;
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x';
-                    return active ? `<span class="active-dim">${inner}</span>` : inner;
+                    return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
+                                  : `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y';
-                    return active ? `<span class="active-dim">${inner}</span>` : inner;
+                    return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
+                                  : `<span class="dim-label" ${d}>${inner}</span>`;
                 }
-                if (i === dim_z) return active ? `<span class="active-dim">z</span>` : 'z';
-                return active ? `<span class="active-dim">${v}</span>` : `${v}`;
+                if (i === dim_z) return active ? `<span class="active-dim dim-label" ${d}>z</span>`
+                                               : `<span class="dim-label" ${d}>z</span>`;
+                return active ? `<span class="active-dim dim-label" ${d}>${v}</span>`
+                              : `<span class="dim-label" ${d}>${v}</span>`;
             }).join(', ');
             let text = `[${idxStr}]`;
             if (isComplex || complexMode !== 0)
@@ -1192,6 +1198,45 @@
 
         helpOverlay.addEventListener('click', () => { helpOverlay.classList.remove('visible'); sink.focus(); });
         document.getElementById('help-hint').addEventListener('click', () => { helpOverlay.classList.toggle('visible'); sink.focus(); });
+
+        // Click on a dim label to make it the active dim
+        const infoEl = document.getElementById('info');
+        infoEl.addEventListener('click', (e) => {
+            const span = e.target.closest('[data-dim]');
+            if (!span) return;
+            const d = parseInt(span.dataset.dim);
+            activeDim = d;
+            if (!multiViewActive && d !== dim_x && d !== dim_y && d !== dim_z) {
+                current_slice_dim = d; triggerPreload();
+            }
+            renderInfo();
+            sink.focus();
+        });
+
+        // Hover + wheel on a dim label to scroll through that dim
+        let hoveredDim = -1;
+        infoEl.addEventListener('mouseover', (e) => {
+            const span = e.target.closest('[data-dim]');
+            hoveredDim = span ? parseInt(span.dataset.dim) : -1;
+        });
+        infoEl.addEventListener('mouseleave', () => { hoveredDim = -1; });
+        infoEl.addEventListener('wheel', (e) => {
+            if (hoveredDim < 0) return;
+            // Only scroll non-display dims
+            const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || hoveredDim === dim_z);
+            const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
+            if (isSpatialNormal || isSpatialMv) return;
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -1 : 1;
+            indices[hoveredDim] = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
+            renderInfo();
+            if (multiViewActive) {
+                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            } else {
+                updateView();
+            }
+            saveState();
+        }, { passive: false });
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
