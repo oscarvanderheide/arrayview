@@ -187,11 +187,13 @@ class Session:
             else:
                 n_take = min(10, self.shape[0])
                 step = max(1, self.shape[0] // n_take)
+                per_chunk = max(1000, max_samples // n_take)
                 chunks = []
                 for i in range(0, self.shape[0], step):
-                    chunks.append(np.array(self.data[i]).ravel())
-                    if sum(c.size for c in chunks) >= max_samples:
-                        break
+                    chunk = np.array(self.data[i]).ravel()
+                    if chunk.size > per_chunk:
+                        chunk = chunk[:: max(1, chunk.size // per_chunk)]
+                    chunks.append(chunk)
                 sample = np.concatenate(chunks)
             if np.iscomplexobj(sample):
                 sample = np.abs(sample)
