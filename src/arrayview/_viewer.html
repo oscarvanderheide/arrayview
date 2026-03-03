@@ -1193,6 +1193,7 @@
                         : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    saveState();
                 }, { passive: false });
                 cv.addEventListener('mousedown', (e) => {
                     if (e.button !== 0) return;
@@ -1232,7 +1233,8 @@
                 v.ws.binaryType = 'arraybuffer';
                 v.ws.onopen = () => mvRender(v);
                 v.ws.onmessage = (event) => mvOnMessage(v, event);
-                v.ws.onerror = () => { if (v.ws) v.ws.close(); };
+                v.ws.onclose = () => { v.rendering = false; };
+                v.ws.onerror = () => { v.rendering = false; if (v.ws) v.ws.close(); };
             });
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -1295,7 +1297,8 @@
                 view.ws.binaryType = 'arraybuffer';
                 view.ws.onopen = () => qvRender(view);
                 view.ws.onmessage = (event) => qvOnMessage(view, event);
-                view.ws.onerror = () => { if (view.ws) view.ws.close(); };
+                view.ws.onclose = () => { view.rendering = false; };
+                view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
                 return view;
             });
             renderInfo();
