@@ -733,17 +733,31 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 rgba = await _render(
                     loop,
                     lambda: render_mosaic(
-                        session, dim_x, dim_y, dim_z, idx_tuple,
-                        colormap, dr, complex_mode, log_scale,
+                        session,
+                        dim_x,
+                        dim_y,
+                        dim_z,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
                     ),
                 )
             else:
                 rgba = await _render(
                     loop,
                     lambda: render_rgba(
-                        session, dim_x, dim_y, idx_tuple,
-                        colormap, dr, complex_mode, log_scale,
-                        vmin_override, vmax_override,
+                        session,
+                        dim_x,
+                        dim_y,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
                     ),
                 )
 
@@ -766,6 +780,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
         pass  # normal: browser closed the tab/window
     except Exception as _ws_exc:
         import traceback
+
         print(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
         traceback.print_exc()
     finally:
@@ -1197,7 +1212,9 @@ async def load_file(request: Request):
 def get_ui(sid: str = None):
     """Viewer page."""
     if not sid:
-        return HTMLResponse(content="<html><body style='background:#111;color:#ccc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>No session ID provided.</body></html>")
+        return HTMLResponse(
+            content="<html><body style='background:#111;color:#ccc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>No session ID provided.</body></html>"
+        )
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
@@ -1746,7 +1763,9 @@ def view(
         SERVER_LOOP = None  # reset so we wait for the new loop below
         _script = _is_script_mode()
         threading.Thread(
-            target=lambda: asyncio.run(_serve_background(port, stop_when_closed=_script)),
+            target=lambda: asyncio.run(
+                _serve_background(port, stop_when_closed=_script)
+            ),
             daemon=not _script,
             name="arrayview-server",
         ).start()
@@ -1783,10 +1802,7 @@ def view(
     can_native_window = _can_native_window() if window else False
     if window and can_native_window:
         try:
-            if (
-                _window_process is not None
-                and _window_process.poll() is None
-            ):
+            if _window_process is not None and _window_process.poll() is None:
                 # Webview already open — inject new tab
                 asyncio.run_coroutine_threadsafe(
                     _notify_shells(session.sid, name), SERVER_LOOP
@@ -1817,7 +1833,7 @@ def _is_script_mode() -> bool:
 
 
 async def _stop_server_when_viewer_closes(
-    server, connect_timeout: float = 20.0, grace_seconds: float = 8.0
+    server, connect_timeout: float = 20.0, grace_seconds: float = 0.8
 ) -> None:
     """Asyncio task: signal uvicorn to stop once the viewer window is fully closed.
     Used in script mode so the non-daemon server thread exits cleanly when done."""
