@@ -153,8 +153,12 @@
         }
         #roi-panel table { border-collapse: collapse; }
         #roi-panel td:first-child { color: var(--muted); padding-right: 14px; }
-        #multi-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
-        #multi-view-wrap.active { display: flex; align-items: stretch; justify-content: space-evenly; }
+        #multi-view-wrap { display: none; width: 100%; height: 100%; }
+        #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; }
+        #mv-panes { display: flex; align-items: stretch; justify-content: space-evenly; flex: 1; min-height: 0; gap: 8px; }
+        #mv-cb { display: block; margin: 6px auto 0; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; }
+        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; }
+        #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
         .mv-label { font-size: 15px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .mv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
@@ -1146,6 +1150,20 @@
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.add('active');
+            // Panes row
+            const panesRow = document.createElement('div');
+            panesRow.id = 'mv-panes';
+            wrap.appendChild(panesRow);
+            // Horizontal colorbar below panes
+            const cbWrap = document.createElement('div');
+            cbWrap.id = 'mv-cb-wrap';
+            const mvCbCanvas = document.createElement('canvas');
+            mvCbCanvas.id = 'mv-cb';
+            cbWrap.appendChild(mvCbCanvas);
+            const mvCbLabels = document.createElement('div');
+            mvCbLabels.id = 'mv-cb-labels';
+            cbWrap.appendChild(mvCbLabels);
+            wrap.appendChild(cbWrap);
             // 3 views: each shows a different pair of dims, slicing through the third
             const defs = [
                 { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
@@ -1166,9 +1184,10 @@
                 area.appendChild(cv);
                 pane.appendChild(label);
                 pane.appendChild(area);
-                wrap.appendChild(pane);
+                panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), area,
+                    vmin: 0, vmax: 1,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
@@ -1473,6 +1492,8 @@
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq) {
+                const f32 = new Float32Array(buf, 12, 2);
+                v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20));
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
@@ -1480,9 +1501,57 @@
                 // a line width that looks consistent at different zooms.
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
+                drawMvColorbar();
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
+        }
+
+        function drawMvColorbar() {
+            const cbCanvas = document.getElementById('mv-cb');
+            const labelsEl = document.getElementById('mv-cb-labels');
+            if (!cbCanvas || !labelsEl) return;
+            if (!cbVisible) { cbCanvas.style.display = 'none'; labelsEl.style.display = 'none'; return; }
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops) return;
+            const wrap = document.getElementById('multi-view-wrap');
+            if (!wrap) return;
+            const cssW = Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
+            const cssH = 8;
+            const dpr = window.devicePixelRatio || 1;
+            cbCanvas.width = Math.round(cssW * dpr);
+            cbCanvas.height = Math.round(cssH * dpr);
+            cbCanvas.style.width = cssW + 'px';
+            cbCanvas.style.height = cssH + 'px';
+            cbCanvas.style.display = 'block';
+            const sCtx = cbCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
+            sCtx.scale(dpr, dpr);
+            const n = stops.length;
+            for (let col = 0; col < cssW; col++) {
+                const t = col / (cssW - 1);
+                const fi = t * (n - 1);
+                const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+                const f = fi - lo;
+                const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
+                const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
+                const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
+                sCtx.fillStyle = `rgb(${r},${g},${b})`;
+                sCtx.fillRect(col, 0, 1, cssH);
+            }
+            // Min/max labels
+            const v0 = mvViews.find(v => v.lastW);
+            if (v0) {
+                const fmt = val => {
+                    const av = Math.abs(val);
+                    if (av === 0) return '0';
+                    if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
+                    return parseFloat(val.toPrecision(3)).toString();
+                };
+                labelsEl.style.display = 'flex';
+                labelsEl.style.width = cssW + 'px';
+                labelsEl.innerHTML = `<span style="flex:1;text-align:left">${fmt(v0.vmin)}</span><span style="flex:1;text-align:right">${fmt(v0.vmax)}</span>`;
+            }
         }
 
         function mvScaleAllCanvases() {
