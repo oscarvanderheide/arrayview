@@ -23,13 +23,13 @@
             --roi-bg: rgba(248,248,248,0.97);
         }
         :root.solarized {
-            --bg: #002b36; --surface: #073642; --surface-2: #0d414f;
-            --border: #264c5a; --border-subtle: rgba(131,148,150,0.1);
-            --text: #93a1a1; --muted: #586e75; --subtle: #2a4a54;
-            --highlight: #eee8d5; --canvas-border: rgba(131,148,150,0.18);
+            --bg: #1b1804; --surface: #241f08; --surface-2: #2e2910;
+            --border: #3d3618; --border-subtle: rgba(160,148,80,0.12);
+            --text: #a09870; --muted: #6b5e38; --subtle: #3d3618;
+            --highlight: #fdf6e3; --canvas-border: rgba(160,148,80,0.22);
             --active-dim: #b58900; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4;
-            --help-key: #b58900; --overlay-bg: rgba(0,20,28,0.82); --blur: blur(14px);
-            --roi-bg: rgba(0,28,38,0.97); --radius: 10px; --radius-lg: 14px;
+            --help-key: #b58900; --overlay-bg: rgba(20,16,2,0.85); --blur: blur(14px);
+            --roi-bg: rgba(20,16,2,0.97); --radius: 10px; --radius-lg: 14px;
         }
         :root.nord {
             --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
@@ -62,9 +62,9 @@
         canvas {
             border: 1px solid var(--canvas-border); border-radius: 2px;
             image-rendering: pixelated; outline: none; cursor: crosshair;
-            box-shadow: 0 2px 24px rgba(0,0,0,0.5);
         }
-        #slim-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; pointer-events: none; }
+        #slim-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; border: none; cursor: default; }
+        #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
@@ -111,7 +111,7 @@
         #help-overlay.visible, #info-overlay.visible { display: flex; }
         #help-box, #info-box {
             background: var(--surface); border: 1px solid var(--border);
-            border-radius: var(--radius-lg); box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            border-radius: var(--radius-lg);
             max-height: 88vh; max-width: 92vw; overflow: auto; box-sizing: border-box;
             color: var(--text);
         }
@@ -151,7 +151,6 @@
             border-radius: var(--radius); padding: 12px 20px;
             font-size: 14px; color: var(--text); font-family: inherit;
             line-height: 2.2; display: none; white-space: nowrap; z-index: 5;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
         }
         #roi-panel table { border-collapse: collapse; }
         #roi-panel td:first-child { color: var(--muted); padding-right: 14px; }
@@ -162,8 +161,9 @@
         #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+        .mv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
+        .mv-canvas-wrap { position: relative; display: inline-flex; }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; white-space: nowrap; }
-        .mv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; position: relative; }
         .mv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
@@ -335,6 +335,8 @@
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const slimCbCanvas = document.getElementById('slim-cb');
+        slimCbCanvas.addEventListener('mouseenter', () => { cbHovered = true; drawSlimColorbar(cbMarkerFrac); });
+        slimCbCanvas.addEventListener('mouseleave', () => { cbHovered = false; drawSlimColorbar(cbMarkerFrac); });
         const sink = document.getElementById('keyboard-sink');
 
         if (!sid) {
@@ -378,6 +380,7 @@
             }, 1500);
         }
 
+        let cbHovered = false;
         function drawSlimColorbar(markerFrac) {
             if (!cbVisible) { slimCbCanvas.style.display = 'none'; return; }
             slimCbCanvas.style.display = '';
@@ -385,8 +388,9 @@
             if (!stops) return;
             const cssH = parseInt(canvas.style.height);
             if (!cssH || cssH < 10) return;
-            const stripW = 6, tickW = 3, gap = 3, fontSize = 9;
-            const cssW = stripW + tickW + gap + 44;
+            const fontSize = 11;
+            const stripW = 6, tickW = cbHovered ? 5 : 4, gap = 3;
+            const cssW = stripW + tickW + gap + (cbHovered ? 56 : 50);
             const labelX = stripW + tickW + gap;
             const dpr = window.devicePixelRatio || 1;
             slimCbCanvas.width = Math.round(cssW * dpr);
@@ -408,21 +412,14 @@
                 sCtx.fillStyle = `rgb(${r},${g},${b})`;
                 sCtx.fillRect(0, row, stripW, 1);
             }
-            if (markerFrac !== null && markerFrac !== undefined && isFinite(markerFrac)) {
-                const y = Math.round(Math.max(0, Math.min(1, 1 - markerFrac)) * (cssH - 1));
-                sCtx.strokeStyle = 'rgba(255,255,255,0.85)';
-                sCtx.lineWidth = 1.5;
-                sCtx.beginPath(); sCtx.moveTo(0, y); sCtx.lineTo(stripW, y); sCtx.stroke();
-            }
-            // min/max ticks + labels
             const fmt = v => {
                 const av = Math.abs(v);
                 if (av === 0) return '0';
                 if (av >= 1e4 || (av < 0.01 && av > 0)) return v.toExponential(1);
                 return parseFloat(v.toPrecision(3)).toString();
             };
-            const labelColor = isDark ? 'rgba(200,200,200,0.65)' : 'rgba(50,50,50,0.65)';
-            const tickColor  = isDark ? 'rgba(200,200,200,0.4)' : 'rgba(50,50,50,0.35)';
+            const labelColor = isDark ? 'rgba(200,200,200,0.75)' : 'rgba(50,50,50,0.75)';
+            const tickColor  = isDark ? 'rgba(200,200,200,0.45)' : 'rgba(50,50,50,0.4)';
             sCtx.font = `${fontSize}px monospace`;
             sCtx.fillStyle = labelColor;
             sCtx.strokeStyle = tickColor;
@@ -433,6 +430,17 @@
             // min at bottom
             sCtx.beginPath(); sCtx.moveTo(stripW, cssH - 0.5); sCtx.lineTo(stripW + tickW, cssH - 0.5); sCtx.stroke();
             sCtx.fillText(fmt(currentVmin), labelX, cssH - 1);
+            // intermediate ticks on hover
+            if (cbHovered) {
+                const range = currentVmax - currentVmin;
+                for (let t = 1; t <= 3; t++) {
+                    const frac = t / 4;
+                    const y = Math.round((1 - frac) * (cssH - 1));
+                    const val = currentVmin + frac * range;
+                    sCtx.beginPath(); sCtx.moveTo(stripW, y); sCtx.lineTo(stripW + tickW, y); sCtx.stroke();
+                    sCtx.fillText(fmt(val), labelX, y + Math.round(fontSize / 3));
+                }
+            }
         }
 
         function showDataInfo(rows) {
@@ -815,9 +823,11 @@
             };
             if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
             const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
-            ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.arc(roiStart.x, roiStart.y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = 'rgba(255,255,100,0.10)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
             ctx.stroke();
         });
         canvas.addEventListener('mouseup', e => {
@@ -994,11 +1004,10 @@
                 saveState();
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
-                if (multiViewActive && mvDims.includes(activeDim)) {
-                    // toggle per-dimension flip in multi-view
-                    flipDims[activeDim] = !flipDims[activeDim];
+                if (multiViewActive) {
+                    indices[activeDim] = Math.max(0, indices[activeDim] - 1);
                     renderInfo();
-                    mvViews.forEach(v => { mvDrawFrame(v); });
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                     saveState();
                 } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
@@ -1018,11 +1027,10 @@
                 }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (multiViewActive && mvDims.includes(activeDim)) {
-                    // toggle per-dimension flip in multi-view
-                    flipDims[activeDim] = !flipDims[activeDim];
+                if (multiViewActive) {
+                    indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
                     renderInfo();
-                    mvViews.forEach(v => { mvDrawFrame(v); });
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                     saveState();
                 } else if (activeDim === dim_x) {
                     flip_x = !flip_x;
@@ -1042,16 +1050,26 @@
                 }
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
-                activeDim = (activeDim - 1 + shape.length) % shape.length;
-                if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
-                    current_slice_dim = activeDim; triggerPreload();
+                if (multiViewActive) {
+                    const pos = mvDims.indexOf(activeDim);
+                    activeDim = mvDims[(pos < 0 ? 0 : (pos - 1 + mvDims.length) % mvDims.length)];
+                } else {
+                    activeDim = (activeDim - 1 + shape.length) % shape.length;
+                    if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                        current_slice_dim = activeDim; triggerPreload();
+                    }
                 }
                 renderInfo();
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
-                activeDim = (activeDim + 1) % shape.length;
-                if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
-                    current_slice_dim = activeDim; triggerPreload();
+                if (multiViewActive) {
+                    const pos = mvDims.indexOf(activeDim);
+                    activeDim = mvDims[(pos < 0 ? 0 : (pos + 1) % mvDims.length)];
+                } else {
+                    activeDim = (activeDim + 1) % shape.length;
+                    if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                        current_slice_dim = activeDim; triggerPreload();
+                    }
                 }
                 renderInfo();
             } else if (e.key === 'L') {
@@ -1188,16 +1206,19 @@
                 pane.className = 'mv-pane';
                 const area = document.createElement('div');
                 area.className = 'mv-canvas-area';
+                const wrap = document.createElement('div');
+                wrap.className = 'mv-canvas-wrap';
                 const cv = document.createElement('canvas');
                 cv.className = 'mv-canvas';
                 const label = document.createElement('div');
                 label.className = 'mv-label';
-                area.appendChild(cv);
-                area.appendChild(label);
+                wrap.appendChild(cv);
+                wrap.appendChild(label);
+                area.appendChild(wrap);
                 pane.appendChild(area);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
-                    canvas: cv, ctx: cv.getContext('2d'), area, label,
+                    canvas: cv, ctx: cv.getContext('2d'), area, wrap, label,
                     vmin: 0, vmax: 1,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
@@ -1581,6 +1602,10 @@
             for (const v of ready) {
                 v.canvas.style.width  = Math.round(v.lastW * minScale) + 'px';
                 v.canvas.style.height = Math.round(v.lastH * minScale) + 'px';
+                if (v.wrap) {
+                    v.wrap.style.width  = v.canvas.style.width;
+                    v.wrap.style.height = v.canvas.style.height;
+                }
             }
         }
 
