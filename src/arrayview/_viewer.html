@@ -650,10 +650,6 @@
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
             let text = `[${idxStr}]`;
-            if (isComplex || complexMode !== 0)
-                text += `  <span class="muted">${getModeLabel()}</span>`;
-            if (logScale)
-                text += `  <span class="muted">log</span>`;
             if (_fftActive)
                 text += `  <span class="muted">FFT</span>`;
             document.getElementById('info').innerHTML = text;
