@@ -450,12 +450,25 @@ def _prepare_display(
 ):
     data = apply_complex_mode(raw, complex_mode)
     if vmin_override is not None and vmax_override is not None:
+        if log_scale:
+            data = np.log1p(np.abs(data)).astype(np.float32)
         return data, vmin_override, vmax_override
     if log_scale:
         data = np.log1p(np.abs(data)).astype(np.float32)
-        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-        vmin = float(np.percentile(data, pct_lo))
-        vmax = float(np.percentile(data, pct_hi))
+        # Mirror the global-stats path used in the non-log case so that the
+        # visual scale is consistent across slices (same as without log_scale).
+        if complex_mode == 0 and len(session.shape) <= 3 and dr in session.global_stats:
+            raw_vmin, raw_vmax = session.global_stats[dr]
+            vmin = float(np.log1p(abs(raw_vmin)))
+            vmax = float(np.log1p(abs(raw_vmax)))
+            if vmin == vmax:  # degenerate: fall back to per-slice percentile
+                pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+                vmin = float(np.percentile(data, pct_lo))
+                vmax = float(np.percentile(data, pct_hi))
+        else:
+            pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+            vmin = float(np.percentile(data, pct_lo))
+            vmax = float(np.percentile(data, pct_hi))
     else:
         vmin, vmax = _compute_vmin_vmax(session, data, dr, complex_mode)
     return data, vmin, vmax
