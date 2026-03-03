@@ -266,6 +266,7 @@
 
         let userZoom = 1.0;
         let pixelHoverPending = false;
+        let cbMarkerFrac = null;
         let flip_x = false, flip_y = false;
         let flipDims = {}; // per-dimension flip state used in multi-view
         let _fftActive = false;
@@ -314,8 +315,8 @@
             const finalScale = baseScale * userZoom;
             canvas.style.width  = Math.round(w * finalScale) + 'px';
             canvas.style.height = Math.round(h * finalScale) + 'px';
-            if (showColorbar) drawColorbar();
-            else drawSlimColorbar();
+            if (showColorbar) drawColorbar(cbMarkerFrac);
+            else drawSlimColorbar(cbMarkerFrac);
         }
 
         window.addEventListener('resize', () => {
@@ -335,7 +336,7 @@
             }, 1500);
         }
 
-        function drawColorbar() {
+        function drawColorbar(markerFrac) {
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             const n = stops.length;
             const dpr = window.devicePixelRatio || 1;
@@ -385,6 +386,12 @@
                 cbCtx.fillRect(barX + barW + 1, y, 4, 1);
                 cbCtx.fillStyle = isDark ? '#ddd' : '#222';
                 cbCtx.fillText(fmt(val), labelX, y + 4);
+            }
+            if (markerFrac !== null && markerFrac !== undefined && isFinite(markerFrac)) {
+                const y = barY + Math.round(Math.max(0, Math.min(1, 1 - markerFrac)) * (barH - 1));
+                cbCtx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+                cbCtx.lineWidth = 1.5;
+                cbCtx.beginPath(); cbCtx.moveTo(barX - 3, y); cbCtx.lineTo(barX + barW + 3, y); cbCtx.stroke();
             }
         }
 
@@ -834,8 +841,17 @@
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                         el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
                         el.style.visibility = 'visible';
+                        const range = currentVmax - currentVmin;
+                        if (range !== 0) {
+                            cbMarkerFrac = (d.value - currentVmin) / range;
+                            if (showColorbar) drawColorbar(cbMarkerFrac);
+                            else drawSlimColorbar(cbMarkerFrac);
+                        }
                     } else {
                         el.style.visibility = 'hidden';
+                        cbMarkerFrac = null;
+                        if (showColorbar) drawColorbar(null);
+                        else drawSlimColorbar(null);
                     }
                 });
         });
@@ -845,6 +861,9 @@
                 if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
             }
             document.getElementById('pixel-info').style.visibility = 'hidden';
+            cbMarkerFrac = null;
+            if (showColorbar) drawColorbar(null);
+            else drawSlimColorbar(null);
         });
 
         sink.addEventListener('keydown', (e) => {
@@ -875,8 +894,8 @@
                 showColorbar = !showColorbar;
                 colorbarCanvas.style.display = showColorbar ? 'block' : 'none';
                 slimCbCanvas.style.display = showColorbar ? 'none' : '';
-                if (showColorbar && lastImageData) drawColorbar();
-                else drawSlimColorbar();
+                if (showColorbar && lastImageData) drawColorbar(cbMarkerFrac);
+                else drawSlimColorbar(cbMarkerFrac);
                 showToast(showColorbar ? 'colorbar: on' : 'colorbar: off');
                 saveState();
             } else if (e.key === 'z') {
@@ -897,7 +916,7 @@
             } else if (e.key === 'T') {
                 isDark = !isDark;
                 document.documentElement.classList.toggle('light', !isDark);
-                if (showColorbar && lastImageData) drawColorbar();
+                if (showColorbar && lastImageData) drawColorbar(cbMarkerFrac);
                 showToast(isDark ? 'theme: dark' : 'theme: light');
                 saveState();
             } else if (e.key === 't') {
