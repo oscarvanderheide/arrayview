@@ -46,6 +46,7 @@
         }
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; border: none; border-radius: 2px; cursor: ns-resize; }
         .highlight { color: var(--highlight); font-weight: bold; }
+        .dim-size { opacity: 0.45; font-size: 0.72em; font-weight: normal; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
@@ -559,8 +560,9 @@
                         return active ? `<span class="active-dim dim-label" ${d}>${prefix}${label}</span>`
                                       : `<span class="spatial-dim dim-label" ${d}>${prefix}${label}</span>`;
                     }
-                    if (active) return `<span class="active-dim dim-label" ${d}>${v}</span>`;
-                    return `<span class="dim-label" ${d}>${v}</span>`;
+                    const txt = `${v}<span class="dim-size">/${shape[i]}</span>`;
+                    if (active) return `<span class="active-dim dim-label" ${d}>${txt}</span>`;
+                    return `<span class="dim-label" ${d}>${txt}</span>`;
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x';
@@ -574,8 +576,9 @@
                 }
                 if (i === dim_z) return active ? `<span class="active-dim dim-label" ${d}>z</span>`
                                                : `<span class="dim-label" ${d}>z</span>`;
-                return active ? `<span class="active-dim dim-label" ${d}>${v}</span>`
-                              : `<span class="dim-label" ${d}>${v}</span>`;
+                const txt = `${v}<span class="dim-size">/${shape[i]}</span>`;
+                return active ? `<span class="active-dim dim-label" ${d}>${txt}</span>`
+                              : `<span class="dim-label" ${d}>${txt}</span>`;
             }).join(', ');
             let text = `[${idxStr}]`;
             if (isComplex || complexMode !== 0)
