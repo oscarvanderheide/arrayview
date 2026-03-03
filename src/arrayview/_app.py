@@ -85,6 +85,17 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
             time.sleep(0.1)
             if VIEWER_SOCKETS > 0:
                 print("[ArrayView] Native window connected successfully", flush=True)
+                if sys.platform == "darwin":
+                    subprocess.Popen(
+                        [
+                            "osascript",
+                            "-e",
+                            f"tell application \"System Events\" to set frontmost of"
+                            f" (first process whose unix id is {proc.pid}) to true",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 return
             if proc.poll() is not None:
                 stderr_out = _read_stderr()
@@ -1698,6 +1709,31 @@ def view(
     if name is None:
         name = f"Array {data.shape}"
 
+    # Julia/PythonCall: must be handled before the is_jupyter defaults because:
+    # 1. _in_jupyter() returns False for IJulia kernels (not ipykernel)
+    # 2. that would set inline=False and window=True, overriding user intent
+    # The subprocess server is always required here due to GIL.
+    if _is_julia_env():
+        if window is True:
+            _inline, _window = False, True
+        elif inline is True or window is False:
+            # Explicit "not window" → inline (makes sense in Jupyter; harmless elsewhere)
+            _inline, _window = True, False
+        elif inline is False:
+            _inline, _window = False, False  # explicit inline=False → browser
+        else:
+            # No args: inline in IJulia, window elsewhere.
+            _inline = _in_julia_jupyter()
+            _window = False
+        return _view_julia(
+            np.array(data) if not isinstance(data, np.ndarray) else data,
+            name,
+            port,
+            window=_window,
+            inline=_inline,
+            height=height,
+        )
+
     is_jupyter = _in_jupyter()
     if inline is None:
         inline = is_jupyter
@@ -1705,17 +1741,6 @@ def view(
         window = not is_jupyter
     if window:
         inline = False
-
-    # Julia/PythonCall: the GIL is not released reliably between Julia statements,
-    # so an in-process uvicorn thread cannot serve requests once view() returns.
-    # Use a fully independent subprocess server instead (same approach as the CLI).
-    if not inline and _is_julia_env():
-        return _view_julia(
-            np.array(data) if not isinstance(data, np.ndarray) else data,
-            name,
-            port,
-            window,
-        )
 
     session = Session(data, name=name)
     SESSIONS[session.sid] = session
@@ -1891,7 +1916,41 @@ def _is_julia_env() -> bool:
     return "julia" in exe
 
 
-def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
+_julia_jupyter_cache: bool | None = None
+
+
+def _in_julia_jupyter() -> bool:
+    """True when running in Julia via PythonCall inside an IJulia Jupyter kernel.
+
+    In IJulia, Julia's stdout is redirected to an IJulia stream object; its type
+    name contains "IJulia". In a plain terminal, stdout is a Base.TTY.
+    Fallback: try accessing Main.IJulia (present when `using IJulia` was called).
+    """
+    global _julia_jupyter_cache
+    if _julia_jupyter_cache is not None:
+        return _julia_jupyter_cache
+    try:
+        import juliacall as _jl
+
+        r = _jl.Main.seval('occursin("IJulia", string(typeof(stdout)))')
+        if str(r).strip().lower() == "true":
+            _julia_jupyter_cache = True
+            return True
+        r2 = _jl.Main.seval('try; Main.IJulia; true; catch; false; end')
+        _julia_jupyter_cache = str(r2).strip().lower() == "true"
+    except Exception:
+        _julia_jupyter_cache = False
+    return _julia_jupyter_cache
+
+
+def _view_julia(
+    data: np.ndarray,
+    name: str,
+    port: int,
+    window: bool,
+    inline: bool = False,
+    height: int = 500,
+):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
     """
@@ -1960,6 +2019,30 @@ def _view_julia(data: np.ndarray, name: str, port: int, window: bool) -> str:
     encoded_name = urllib.parse.quote(name)
     url_shell = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name}"
     print(f"[ArrayView] {url_viewer}", flush=True)
+
+    if inline:
+        iframe_html = (
+            f"<iframe src='{url_viewer}' width='100%'"
+            f" height='{height}' frameborder='0'></iframe>"
+        )
+        # IJulia kernel: push HTML through Julia's display stack (routes to Jupyter
+        # frontend). Must be a side-effect call, not a return value, because
+        # PythonCall would convert a Python IFrame object to an opaque Julia value.
+        try:
+            import juliacall as _jl
+
+            _jl.Main.seval(f'display("text/html", "{iframe_html}")')
+            return None
+        except Exception:
+            pass
+        # Plain Python Jupyter kernel fallback.
+        try:
+            from IPython.display import HTML, display as _ipy_display
+
+            _ipy_display(HTML(iframe_html))
+        except Exception:
+            pass
+        return url_viewer
 
     can_native = _can_native_window()
     if window and can_native:
