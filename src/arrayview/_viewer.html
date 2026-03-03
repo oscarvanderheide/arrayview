@@ -322,6 +322,10 @@
             5: ['lipari', 'navia', 'viridis', 'gray', 'twilight_shifted'],
             6: ['lipari', 'navia', 'viridis', 'RdBu_r', 'gray', 'twilight_shifted'],
         };
+        const QMRI_LABELS = {
+            lipari: 'T\u2081', navia: 'T\u2082', gray: '|PD|',
+            twilight_shifted: '\u2220PD', viridis: 'B\u2081\u207A', RdBu_r: '\u0394B\u2080',
+        };
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
@@ -1296,7 +1300,7 @@
                 pane.className = 'qv-pane';
                 const label = document.createElement('div');
                 label.className = 'qv-label';
-                label.textContent = cmap;
+                label.textContent = QMRI_LABELS[cmap] || cmap;
                 const area = document.createElement('div');
                 area.className = 'qv-canvas-area';
                 const cv = document.createElement('canvas');
