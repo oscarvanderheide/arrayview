@@ -7,7 +7,7 @@
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(255,255,255,0.1);
-            --active-dim: #f5c842; --spatial-dim: #b084ea; --q-dim-color: #9b72cf;
+            --active-dim: #f5c842; --spatial-dim: #b48ead; --q-dim-color: #9b72cf;
             --help-key: #f5c842; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
         }
@@ -1132,7 +1132,11 @@
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
                 if (qmriActive) exitQmri();
-                if (multiViewActive) exitMultiView(); else enterMultiView([0, 1, 2]);
+                if (multiViewActive) { exitMultiView(); } else {
+                    // Pick the 3 dims with the largest extent so degenerate dims (size 1) are skipped.
+                    const ranked = [...Array(shape.length).keys()].sort((a, b) => shape[b] - shape[a]);
+                    enterMultiView(ranked.slice(0, 3).sort((a, b) => a - b));
+                }
             } else if (e.key === 'V') {
                 if (qmriActive) exitQmri();
                 if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
