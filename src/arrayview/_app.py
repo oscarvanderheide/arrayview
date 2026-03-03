@@ -878,6 +878,7 @@ def get_metadata(sid: str):
         return {
             "shape": [int(s) for s in session.shape],
             "is_complex": bool(np.iscomplexobj(session.data)),
+            "name": session.name,
         }
     except Exception as e:
         import traceback
