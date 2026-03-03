@@ -169,6 +169,8 @@
         .qv-label { font-size: 14px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
         .qv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
+        .qv-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; }
+        .qv-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; pointer-events: none; }
         .q-dim { color: var(--q-dim-color); font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1254,15 +1256,23 @@
                 label.textContent = QMRI_LABELS[cmap] || cmap;
                 const area = document.createElement('div');
                 area.className = 'qv-canvas-area';
+                const cvWrap = document.createElement('div');
+                cvWrap.className = 'qv-canvas-wrap';
                 const cv = document.createElement('canvas');
                 cv.className = 'qv-canvas';
-                area.appendChild(cv);
+                const cbCv = document.createElement('canvas');
+                cbCv.className = 'qv-cb';
+                cvWrap.appendChild(cv);
+                cvWrap.appendChild(cbCv);
+                area.appendChild(cvWrap);
                 pane.appendChild(label);
                 pane.appendChild(area);
                 wrap.appendChild(pane);
                 const view = {
                     colormap: cmap, qmriIdx: idx,
                     canvas: cv, ctx: cv.getContext('2d'), area,
+                    cbCanvas: cbCv,
+                    vmin: 0, vmax: 1,
                     ws: null, seq: 0, rendering: false, pending: false,
                     lastW: 0, lastH: 0, lastImageData: null,
                 };
@@ -1340,16 +1350,66 @@
             }
         }
 
+        function drawQvSlimCb(v) {
+            if (!v.cbCanvas) return;
+            const cssH = parseInt(v.canvas.style.height);
+            if (!cssH || cssH < 10) { v.cbCanvas.style.display = 'none'; return; }
+            if (!cbVisible) { v.cbCanvas.style.display = 'none'; return; }
+            v.cbCanvas.style.display = '';
+            const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
+            if (!stops) return;
+            const stripW = 6, tickW = 3, gap = 3, fontSize = 9;
+            const cssW = stripW + tickW + gap + 44;
+            const labelX = stripW + tickW + gap;
+            const dpr = window.devicePixelRatio || 1;
+            v.cbCanvas.width = Math.round(cssW * dpr);
+            v.cbCanvas.height = Math.round(cssH * dpr);
+            v.cbCanvas.style.width = cssW + 'px';
+            v.cbCanvas.style.height = cssH + 'px';
+            const sCtx = v.cbCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, v.cbCanvas.width, v.cbCanvas.height);
+            sCtx.scale(dpr, dpr);
+            const n = stops.length;
+            for (let row = 0; row < cssH; row++) {
+                const t = 1 - row / (cssH - 1);
+                const fi = t * (n - 1);
+                const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+                const f = fi - lo;
+                const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
+                const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
+                const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
+                sCtx.fillStyle = `rgb(${r},${g},${b})`;
+                sCtx.fillRect(0, row, stripW, 1);
+            }
+            const fmt = val => {
+                const av = Math.abs(val);
+                if (av === 0) return '0';
+                if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
+                return parseFloat(val.toPrecision(3)).toString();
+            };
+            const labelColor = isDark ? 'rgba(200,200,200,0.65)' : 'rgba(50,50,50,0.65)';
+            const tickColor  = isDark ? 'rgba(200,200,200,0.4)' : 'rgba(50,50,50,0.35)';
+            sCtx.font = `${fontSize}px monospace`;
+            sCtx.fillStyle = labelColor; sCtx.strokeStyle = tickColor; sCtx.lineWidth = 1;
+            sCtx.beginPath(); sCtx.moveTo(stripW, 0.5); sCtx.lineTo(stripW + tickW, 0.5); sCtx.stroke();
+            sCtx.fillText(fmt(v.vmax), labelX, fontSize);
+            sCtx.beginPath(); sCtx.moveTo(stripW, cssH - 0.5); sCtx.lineTo(stripW + tickW, cssH - 0.5); sCtx.stroke();
+            sCtx.fillText(fmt(v.vmin), labelX, cssH - 1);
+        }
+
         function qvOnMessage(v, event) {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
             if (h32[0] === v.seq) {
+                const f32 = new Float32Array(buf, 12, 2);
+                v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20));
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
+                drawQvSlimCb(v);
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; qvRender(v); }
