@@ -3,6 +3,7 @@ import asyncio
 import io
 import json
 import os
+import queue as _queue
 import socket
 import sys
 import time
@@ -19,6 +20,7 @@ import nibabel as nib
 import uvicorn
 from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse
+from starlette.websockets import WebSocketDisconnect
 from PIL import Image
 from matplotlib import colormaps as mpl_colormaps
 import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: F401
@@ -146,6 +148,44 @@ SERVER_LOOP = None
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
+
+# ---------------------------------------------------------------------------
+# Render thread — bypasses concurrent.futures so it is unaffected by
+# Python's interpreter-shutdown executor cleanup (_global_shutdown flag).
+# ---------------------------------------------------------------------------
+_RENDER_QUEUE: "_queue.SimpleQueue[tuple | None]" = _queue.SimpleQueue()
+_RENDER_THREAD: threading.Thread | None = None
+
+
+def _render_worker() -> None:
+    while True:
+        item = _RENDER_QUEUE.get()
+        if item is None:
+            return
+        func, fut, loop = item
+        try:
+            result = func()
+            loop.call_soon_threadsafe(fut.set_result, result)
+        except Exception as exc:
+            loop.call_soon_threadsafe(fut.set_exception, exc)
+
+
+def _ensure_render_thread() -> None:
+    global _RENDER_THREAD
+    if _RENDER_THREAD is not None and _RENDER_THREAD.is_alive():
+        return
+    _RENDER_THREAD = threading.Thread(
+        target=_render_worker, daemon=True, name="arrayview-render"
+    )
+    _RENDER_THREAD.start()
+
+
+async def _render(loop: asyncio.AbstractEventLoop, func) -> object:
+    """Await *func()* in the render thread without using concurrent.futures."""
+    _ensure_render_thread()
+    fut: asyncio.Future = loop.create_future()
+    _RENDER_QUEUE.put((func, fut, loop))
+    return await fut
 
 
 class Session:
@@ -690,33 +730,20 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
 
             if dim_z >= 0:
-                rgba = await loop.run_in_executor(
-                    None,
-                    render_mosaic,
-                    session,
-                    dim_x,
-                    dim_y,
-                    dim_z,
-                    idx_tuple,
-                    colormap,
-                    dr,
-                    complex_mode,
-                    log_scale,
+                rgba = await _render(
+                    loop,
+                    lambda: render_mosaic(
+                        session, dim_x, dim_y, dim_z, idx_tuple,
+                        colormap, dr, complex_mode, log_scale,
+                    ),
                 )
             else:
-                rgba = await loop.run_in_executor(
-                    None,
+                rgba = await _render(
+                    loop,
                     lambda: render_rgba(
-                        session,
-                        dim_x,
-                        dim_y,
-                        idx_tuple,
-                        colormap,
-                        dr,
-                        complex_mode,
-                        log_scale,
-                        vmin_override,
-                        vmax_override,
+                        session, dim_x, dim_y, idx_tuple,
+                        colormap, dr, complex_mode, log_scale,
+                        vmin_override, vmax_override,
                     ),
                 )
 
@@ -735,8 +762,12 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
             await ws.send_bytes(header + vminmax + rgba.tobytes())
-    except Exception:
-        pass
+    except WebSocketDisconnect:
+        pass  # normal: browser closed the tab/window
+    except Exception as _ws_exc:
+        import traceback
+        print(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
+        traceback.print_exc()
     finally:
         VIEWER_SOCKETS = max(0, VIEWER_SOCKETS - 1)
 
@@ -1588,7 +1619,7 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
     return False
 
 
-async def _serve_background(port: int):
+async def _serve_background(port: int, stop_when_closed: bool = False):
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
     import socket as _socket
@@ -1602,6 +1633,8 @@ async def _serve_background(port: int):
     sock.set_inheritable(True)
     config = uvicorn.Config(app, log_level="error", timeout_keep_alive=30)
     server = uvicorn.Server(config)
+    if stop_when_closed:
+        asyncio.create_task(_stop_server_when_viewer_closes(server))
     await server.serve(sockets=[sock])
 
 
@@ -1711,9 +1744,11 @@ def view(
                 f"Choose a different port in view(..., port=...)."
             )
         SERVER_LOOP = None  # reset so we wait for the new loop below
+        _script = _is_script_mode()
         threading.Thread(
-            target=lambda: asyncio.run(_serve_background(port)),
-            daemon=True,
+            target=lambda: asyncio.run(_serve_background(port, stop_when_closed=_script)),
+            daemon=not _script,
+            name="arrayview-server",
         ).start()
         if not _wait_for_port(port):
             if _port_in_use(port) and not _server_alive(port):
@@ -1770,6 +1805,41 @@ def view(
 
     print(f"[ArrayView] {url_viewer}", flush=True)
     return url_viewer
+
+
+def _is_script_mode() -> bool:
+    """True when running as a plain Python script (not interactive REPL, not Jupyter, not Julia)."""
+    if _in_jupyter() or _is_julia_env():
+        return False
+    if sys.flags.interactive or hasattr(sys, "ps1"):
+        return False
+    return True
+
+
+async def _stop_server_when_viewer_closes(
+    server, connect_timeout: float = 20.0, grace_seconds: float = 8.0
+) -> None:
+    """Asyncio task: signal uvicorn to stop once the viewer window is fully closed.
+    Used in script mode so the non-daemon server thread exits cleanly when done."""
+    deadline = time.monotonic() + connect_timeout
+    while VIEWER_SOCKETS == 0:
+        if time.monotonic() > deadline:
+            server.should_exit = True  # no viewer connected; give up
+            return
+        await asyncio.sleep(0.2)
+    # At least one viewer connected — now wait for all to disconnect.
+    while True:
+        while VIEWER_SOCKETS > 0:
+            await asyncio.sleep(0.2)
+        # Grace period (lets page refreshes reconnect before we shut down).
+        deadline = time.monotonic() + grace_seconds
+        while time.monotonic() < deadline:
+            if VIEWER_SOCKETS > 0:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            server.should_exit = True
+            return
 
 
 def _wait_for_viewer_close(grace_seconds: float = 8.0) -> None:
