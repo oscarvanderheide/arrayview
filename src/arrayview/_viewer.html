@@ -62,7 +62,6 @@
             image-rendering: pixelated; outline: none; cursor: crosshair;
             box-shadow: 0 2px 24px rgba(0,0,0,0.5);
         }
-        #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; border: none; border-radius: 2px; cursor: ns-resize; }
         #slim-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; pointer-events: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -195,7 +194,6 @@
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
-            <canvas id="colorbar"></canvas>
             <canvas id="slim-cb"></canvas>
         </div>
         <div id="multi-view-wrap"></div>
@@ -236,7 +234,7 @@
             <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
             <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
             <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
-            <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
+            <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar (slim, with min/max)</span></div>
             <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
             <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
             <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
@@ -283,10 +281,9 @@
 
         let customColormap = null, customGradientStops = null;
 
-        let showColorbar = false;
+        let cbVisible = true;
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
-        let cbDragging = false, cbDragStartY = 0, cbDragStartVmin = 0, cbDragStartVmax = 0;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
 
@@ -329,8 +326,6 @@
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
-        const colorbarCanvas = document.getElementById('colorbar');
-        const cbCtx = colorbarCanvas.getContext('2d');
         const slimCbCanvas = document.getElementById('slim-cb');
         const sink = document.getElementById('keyboard-sink');
 
@@ -355,8 +350,7 @@
             const finalScale = baseScale * userZoom;
             canvas.style.width  = Math.round(w * finalScale) + 'px';
             canvas.style.height = Math.round(h * finalScale) + 'px';
-            if (showColorbar) drawColorbar(cbMarkerFrac);
-            else drawSlimColorbar(cbMarkerFrac);
+            drawSlimColorbar(cbMarkerFrac);
         }
 
         window.addEventListener('resize', () => {
@@ -376,72 +370,16 @@
             }, 1500);
         }
 
-        function drawColorbar(markerFrac) {
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-            const n = stops.length;
-            const dpr = window.devicePixelRatio || 1;
-            const cssH = parseInt(canvas.style.height);
-            const cbCSSW = 72, barW = 20, barX = 8;
-            const margin = 10;
-            const barH = Math.max(40, cssH - margin * 2);
-            const barY = margin;
-
-            colorbarCanvas.width = Math.round(cbCSSW * dpr);
-            colorbarCanvas.height = Math.round(cssH * dpr);
-            colorbarCanvas.style.width = cbCSSW + 'px';
-            colorbarCanvas.style.height = cssH + 'px';
-            cbCtx.scale(dpr, dpr);
-
-            for (let row = 0; row < barH; row++) {
-                const t = 1 - row / (barH - 1);
-                const fi = t * (n - 1);
-                const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
-                const frac = fi - lo;
-                const r = Math.round(stops[lo][0] * (1 - frac) + stops[hi][0] * frac);
-                const g = Math.round(stops[lo][1] * (1 - frac) + stops[hi][1] * frac);
-                const b = Math.round(stops[lo][2] * (1 - frac) + stops[hi][2] * frac);
-                cbCtx.fillStyle = `rgb(${r},${g},${b})`;
-                cbCtx.fillRect(barX, barY + row, barW, 1);
-            }
-
-            cbCtx.strokeStyle = '#888'; cbCtx.lineWidth = 1;
-            cbCtx.strokeRect(barX - 0.5, barY - 0.5, barW + 1, barH + 1);
-
-            const fmt = v => {
-                const av = Math.abs(v);
-                if (av === 0) return '0';
-                if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(2);
-                return parseFloat(v.toPrecision(3)).toString();
-            };
-            cbCtx.font = '12px monospace';
-            cbCtx.textAlign = 'left';
-            cbCtx.fillStyle = isDark ? '#ddd' : '#222';
-            const labelX = barX + barW + 6;
-            const nTicks = 5;
-            for (let t = 0; t < nTicks; t++) {
-                const frac = t / (nTicks - 1);
-                const val = currentVmax * (1 - frac) + currentVmin * frac;
-                const y = barY + Math.round(frac * (barH - 1));
-                cbCtx.fillStyle = '#888';
-                cbCtx.fillRect(barX + barW + 1, y, 4, 1);
-                cbCtx.fillStyle = isDark ? '#ddd' : '#222';
-                cbCtx.fillText(fmt(val), labelX, y + 4);
-            }
-            if (markerFrac !== null && markerFrac !== undefined && isFinite(markerFrac)) {
-                const y = barY + Math.round(Math.max(0, Math.min(1, 1 - markerFrac)) * (barH - 1));
-                cbCtx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
-                cbCtx.lineWidth = 1.5;
-                cbCtx.beginPath(); cbCtx.moveTo(barX - 3, y); cbCtx.lineTo(barX + barW + 3, y); cbCtx.stroke();
-            }
-        }
-
         function drawSlimColorbar(markerFrac) {
-            if (showColorbar) return;
+            if (!cbVisible) { slimCbCanvas.style.display = 'none'; return; }
+            slimCbCanvas.style.display = '';
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const cssH = parseInt(canvas.style.height);
-            if (!cssH) return;
-            const cssW = 6;
+            if (!cssH || cssH < 10) return;
+            const stripW = 6, tickW = 3, gap = 3, fontSize = 9;
+            const cssW = stripW + tickW + gap + 44;
+            const labelX = stripW + tickW + gap;
             const dpr = window.devicePixelRatio || 1;
             slimCbCanvas.width = Math.round(cssW * dpr);
             slimCbCanvas.height = Math.round(cssH * dpr);
@@ -460,14 +398,33 @@
                 const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
                 const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
                 sCtx.fillStyle = `rgb(${r},${g},${b})`;
-                sCtx.fillRect(0, row, cssW, 1);
+                sCtx.fillRect(0, row, stripW, 1);
             }
             if (markerFrac !== null && markerFrac !== undefined && isFinite(markerFrac)) {
                 const y = Math.round(Math.max(0, Math.min(1, 1 - markerFrac)) * (cssH - 1));
-                sCtx.strokeStyle = 'rgba(255,255,255,0.9)';
+                sCtx.strokeStyle = 'rgba(255,255,255,0.85)';
                 sCtx.lineWidth = 1.5;
-                sCtx.beginPath(); sCtx.moveTo(0, y); sCtx.lineTo(cssW, y); sCtx.stroke();
+                sCtx.beginPath(); sCtx.moveTo(0, y); sCtx.lineTo(stripW, y); sCtx.stroke();
             }
+            // min/max ticks + labels
+            const fmt = v => {
+                const av = Math.abs(v);
+                if (av === 0) return '0';
+                if (av >= 1e4 || (av < 0.01 && av > 0)) return v.toExponential(1);
+                return parseFloat(v.toPrecision(3)).toString();
+            };
+            const labelColor = isDark ? 'rgba(200,200,200,0.65)' : 'rgba(50,50,50,0.65)';
+            const tickColor  = isDark ? 'rgba(200,200,200,0.4)' : 'rgba(50,50,50,0.35)';
+            sCtx.font = `${fontSize}px monospace`;
+            sCtx.fillStyle = labelColor;
+            sCtx.strokeStyle = tickColor;
+            sCtx.lineWidth = 1;
+            // max at top
+            sCtx.beginPath(); sCtx.moveTo(stripW, 0.5); sCtx.lineTo(stripW + tickW, 0.5); sCtx.stroke();
+            sCtx.fillText(fmt(currentVmax), labelX, fontSize);
+            // min at bottom
+            sCtx.beginPath(); sCtx.moveTo(stripW, cssH - 0.5); sCtx.lineTo(stripW + tickW, cssH - 0.5); sCtx.stroke();
+            sCtx.fillText(fmt(currentVmin), labelX, cssH - 1);
         }
 
         function showDataInfo(rows) {
@@ -904,14 +861,12 @@
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
                             cbMarkerFrac = (d.value - currentVmin) / range;
-                            if (showColorbar) drawColorbar(cbMarkerFrac);
-                            else drawSlimColorbar(cbMarkerFrac);
+                            drawSlimColorbar(cbMarkerFrac);
                         }
                     } else {
                         el.style.visibility = 'hidden';
                         cbMarkerFrac = null;
-                        if (showColorbar) drawColorbar(null);
-                        else drawSlimColorbar(null);
+                        drawSlimColorbar(null);
                     }
                 });
         });
@@ -922,8 +877,7 @@
             }
             document.getElementById('pixel-info').style.visibility = 'hidden';
             cbMarkerFrac = null;
-            if (showColorbar) drawColorbar(null);
-            else drawSlimColorbar(null);
+            drawSlimColorbar(null);
         });
 
         sink.addEventListener('keydown', (e) => {
@@ -951,12 +905,9 @@
                 showStatus(`zoom: fit`);
                 saveState();
             } else if (e.key === 'b') {
-                showColorbar = !showColorbar;
-                colorbarCanvas.style.display = showColorbar ? 'block' : 'none';
-                slimCbCanvas.style.display = showColorbar ? 'none' : '';
-                if (showColorbar && lastImageData) drawColorbar(cbMarkerFrac);
-                else drawSlimColorbar(cbMarkerFrac);
-                showToast(showColorbar ? 'colorbar: on' : 'colorbar: off');
+                cbVisible = !cbVisible;
+                drawSlimColorbar(cbMarkerFrac);
+                showStatus(cbVisible ? 'colorbar: on' : 'colorbar: off');
                 saveState();
             } else if (e.key === 'z') {
                 if (dim_z >= 0) {
@@ -1498,36 +1449,6 @@
             handleMvPointer(mvDraggingView, e);
         });
         document.addEventListener('mouseup', () => { mvDraggingView = null; });
-
-        // Colorbar window/level: drag to pan, scroll to zoom
-        colorbarCanvas.addEventListener('mousedown', e => {
-            if (!showColorbar) return;
-            cbDragging = true;
-            cbDragStartY = e.clientY;
-            cbDragStartVmin = manualVmin ?? currentVmin;
-            cbDragStartVmax = manualVmax ?? currentVmax;
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', e => {
-            if (!cbDragging) return;
-            const cssH = parseInt(colorbarCanvas.style.height) || 1;
-            const frac = (e.clientY - cbDragStartY) / cssH;
-            const range = cbDragStartVmax - cbDragStartVmin;
-            manualVmin = cbDragStartVmin + frac * range;
-            manualVmax = cbDragStartVmax + frac * range;
-            updateView();
-        });
-        document.addEventListener('mouseup', e => { cbDragging = false; });
-        colorbarCanvas.addEventListener('wheel', e => {
-            if (!showColorbar) return;
-            e.preventDefault();
-            const center = ((manualVmax ?? currentVmax) + (manualVmin ?? currentVmin)) / 2;
-            const half   = ((manualVmax ?? currentVmax) - (manualVmin ?? currentVmin)) / 2;
-            const factor = e.deltaY > 0 ? 1.1 : 0.9;
-            manualVmin = center - half * factor;
-            manualVmax = center + half * factor;
-            updateView();
-        }, { passive: false });
 
         helpOverlay.addEventListener('click', () => { helpOverlay.classList.remove('visible'); sink.focus(); });
         document.getElementById('help-hint').addEventListener('click', () => { helpOverlay.classList.toggle('visible'); sink.focus(); });
