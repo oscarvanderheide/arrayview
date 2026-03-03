@@ -59,6 +59,13 @@
         .dim-label.active-dim { border-bottom-color: var(--active-dim); }
         .dim-label:hover { background: rgba(255,255,255,0.09); }
         :root.light .dim-label:hover { background: rgba(0,0,0,0.07); }
+        .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
+        .dim-track {
+            width: 100%; height: 2px; background: var(--border);
+            border-radius: 1px; margin-top: 2px; min-width: 20px; overflow: hidden;
+        }
+        .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
+        .active-dim .dim-track-fill { background: var(--active-dim); }
         #status { margin-top: 6px; font-size: 15px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; }
         #pixel-info { margin-top: 2px; font-size: 15px; color: var(--text); height: 1.4em; line-height: 1.4; flex-shrink: 0; overflow: hidden; }
         #preload-status { margin-top: 2px; font-size: 12px; color: var(--subtle); min-height: 1em; flex-shrink: 0; }
@@ -599,9 +606,11 @@
                         return active ? `<span class="active-dim dim-label" ${d}>${prefix}${label}</span>`
                                       : `<span class="spatial-dim dim-label" ${d}>${prefix}${label}</span>`;
                     }
-                    const txt = `${v}<span class="dim-size">/${shape[i]}</span>`;
-                    if (active) return `<span class="active-dim dim-label" ${d}>${txt}</span>`;
-                    return `<span class="dim-label" ${d}>${txt}</span>`;
+                    const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
+                    const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
+                    const inner = `<span class="dim-text">${v}<span class="dim-size">/${shape[i]}</span></span>${track}`;
+                    if (active) return `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`;
+                    return `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x';
@@ -615,9 +624,11 @@
                 }
                 if (i === dim_z) return active ? `<span class="active-dim dim-label" ${d}>z</span>`
                                                : `<span class="dim-label" ${d}>z</span>`;
-                const txt = `${v}<span class="dim-size">/${shape[i]}</span>`;
-                return active ? `<span class="active-dim dim-label" ${d}>${txt}</span>`
-                              : `<span class="dim-label" ${d}>${txt}</span>`;
+                const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
+                const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
+                const inner = `<span class="dim-text">${v}<span class="dim-size">/${shape[i]}</span></span>${track}`;
+                return active ? `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`
+                              : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
             let text = `[${idxStr}]`;
             if (isComplex || complexMode !== 0)
@@ -1446,7 +1457,16 @@
             if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; triggerPreload();
             }
-            renderInfo();
+            const track = e.target.closest('.dim-track');
+            if (track && shape[d] > 1) {
+                const rect = track.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                indices[d] = Math.round(pct * (shape[d] - 1));
+                updateView();
+                saveState();
+            } else {
+                renderInfo();
+            }
             sink.focus();
         });
 
