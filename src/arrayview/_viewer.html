@@ -910,17 +910,17 @@
             if (e.key === '+' || e.key === '=') {
                 userZoom = Math.min(userZoom * 1.1, 10.0);
                 scaleCanvas(canvas.width, canvas.height);
-                showToast(`zoom: ${Math.round(userZoom * 100)}%`);
+                showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
                 scaleCanvas(canvas.width, canvas.height);
-                showToast(`zoom: ${Math.round(userZoom * 100)}%`);
+                showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
                 userZoom = 1.0;
                 scaleCanvas(canvas.width, canvas.height);
-                showToast(`zoom: fit`);
+                showStatus(`zoom: fit`);
                 saveState();
             } else if (e.key === 'b') {
                 showColorbar = !showColorbar;
@@ -958,7 +958,7 @@
                 [flip_x, flip_y] = [flip_y, flip_x];
                 dim_z = -1;
                 updateView(); triggerPreload();
-                showToast('transposed x/y');
+                showStatus('transposed x/y');
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'g') {
@@ -967,13 +967,13 @@
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 updateView(); triggerPreload();
-                showToast(`mode: ${getModeLabel()}`);
+                showStatus(`mode: ${getModeLabel()}`);
                 saveState();
             } else if (e.key === 'c') {
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showToast(`colormap: ${currentColormap()}`);
+                showStatus(`colormap: ${currentColormap()}`);
                 saveState();
             } else if (e.key === 'C') {
                 const name = window.prompt('Matplotlib colormap name:', '');
@@ -981,19 +981,19 @@
                 fetch(`/colormap/${encodeURIComponent(name.trim())}`)
                     .then(r => r.ok ? r.json() : null)
                     .then(d => {
-                        if (!d) { showToast('Unknown colormap'); return; }
+                        if (!d) { showStatus('Unknown colormap'); return; }
                         customColormap = name.trim();
                         customGradientStops = d.gradient_stops;
                         colormap_idx = -1;
                         fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                        showToast(`colormap: ${customColormap}`);
+                        showStatus(`colormap: ${customColormap}`);
                         saveState();
                     });
             } else if (e.key === 'd') {
                 manualVmin = manualVmax = null;
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showToast(`range: ${DR_LABELS[dr_idx]}`);
+                showStatus(`range: ${DR_LABELS[dr_idx]}`);
                 saveState();
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -1060,7 +1060,7 @@
             } else if (e.key === 'L') {
                 logScale = !logScale;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showToast(logScale ? 'log scale: on' : 'log scale: off');
+                showStatus(logScale ? 'log scale: on' : 'log scale: off');
                 saveState();
             } else if (e.key === 'i') {
                 const overlay = document.getElementById('info-overlay');
@@ -1091,8 +1091,8 @@
                     ];
                     if (logScale) lines.push('log:      on');
                     navigator.clipboard.writeText(lines.join('\n')).then(() => {
-                        showToast('state copied to clipboard');
-                    }).catch(() => showToast('clipboard unavailable'));
+                        showStatus('state copied to clipboard');
+                    }).catch(() => showStatus('clipboard unavailable'));
                 });
             } else if (e.key === 'f') {
                 if (_fftActive) {
@@ -1102,19 +1102,19 @@
                             isComplex = d.is_complex || false;
                             if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
                             updateView(); triggerPreload();
-                            showToast('FFT: off');
+                            showStatus('FFT: off');
                         });
                 } else {
                     const axesStr = window.prompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
-                            if (d.error) { showToast('FFT error: ' + d.error); return; }
+                            if (d.error) { showStatus('FFT error: ' + d.error); return; }
                             _fftActive = true;
                             isComplex = d.is_complex || false;
                             complexMode = 0;
                             updateView(); triggerPreload();
-                            showToast(`FFT: [${d.axes.join(',')}]`);
+                            showStatus(`FFT: [${d.axes.join(',')}]`);
                         });
                 }
             } else if (e.key === 'x') {
@@ -1145,20 +1145,20 @@
 
         // --------------- Multi-view (3-plane) ---------------
         function enterMultiViewPrompt() {
-            if (shape.length < 3) { showToast('Need at least 3 dimensions'); return; }
+            if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             const raw = window.prompt(
                 `Spatial dims — enter 3 from 0\u2013${shape.length-1}, comma-separated:`, '0,1,2');
             if (raw === null) return;
             const dims = raw.split(',').map(s => parseInt(s.trim()));
             if (dims.length !== 3 || dims.some(isNaN) ||
                 dims.some(d => d < 0 || d >= shape.length) || new Set(dims).size !== 3) {
-                showToast('Enter 3 unique valid dimension indices'); return;
+                showStatus('Enter 3 unique valid dimension indices'); return;
             }
             enterMultiView(dims);
         }
 
         function enterMultiView(dims) {
-            if (shape.length < 3) { showToast('Need at least 3 dimensions'); return; }
+            if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             multiViewActive = true;
             mvDims = dims;
             hideLoadingOverlay();
@@ -1253,13 +1253,13 @@
             wrap.innerHTML = '';
             wrap.classList.remove('active');
             updateView();
-            showToast('3-plane view: off');
+            showStatus('3-plane view: off');
         }
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
             const n = shape[activeDim];
-            if (![3, 4, 5, 6].includes(n)) { showToast(`qMRI: dim size must be 3–6 (got ${n})`); return; }
+            if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             if (multiViewActive) exitMultiView();
             qmriActive = true;
             qmriDim = activeDim;
@@ -1320,7 +1320,7 @@
             wrap.className = '';
             updateView();
             renderInfo();
-            showToast('qMRI mode: off');
+            showStatus('qMRI mode: off');
         }
 
         function qvRender(v) {
