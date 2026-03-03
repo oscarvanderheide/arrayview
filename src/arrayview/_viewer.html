@@ -618,8 +618,7 @@
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
                         const prefix = flipDims[i] ? '-' : '';
-                        return active ? `<span class="active-dim dim-label" ${d}>${prefix}${label}</span>`
-                                      : `<span class="spatial-dim dim-label" ${d}>${prefix}${label}</span>`;
+                        return `<span class="spatial-dim dim-label" ${d}>${prefix}${label}</span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
