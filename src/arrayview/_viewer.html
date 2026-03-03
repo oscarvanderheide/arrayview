@@ -45,6 +45,7 @@
             box-shadow: 0 2px 24px rgba(0,0,0,0.5);
         }
         #colorbar { display: none; position: absolute; left: 100%; top: 0; margin-left: 8px; border: none; border-radius: 2px; cursor: ns-resize; }
+        #slim-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; pointer-events: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.45; font-size: 0.72em; font-weight: normal; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
@@ -165,6 +166,7 @@
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
             <canvas id="colorbar"></canvas>
+            <canvas id="slim-cb"></canvas>
         </div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
@@ -281,6 +283,7 @@
         const ctx = canvas.getContext('2d');
         const colorbarCanvas = document.getElementById('colorbar');
         const cbCtx = colorbarCanvas.getContext('2d');
+        const slimCbCanvas = document.getElementById('slim-cb');
         const sink = document.getElementById('keyboard-sink');
 
         if (!sid) {
@@ -305,6 +308,7 @@
             canvas.style.width  = Math.round(w * finalScale) + 'px';
             canvas.style.height = Math.round(h * finalScale) + 'px';
             if (showColorbar) drawColorbar();
+            else drawSlimColorbar();
         }
 
         window.addEventListener('resize', () => {
@@ -374,6 +378,41 @@
                 cbCtx.fillRect(barX + barW + 1, y, 4, 1);
                 cbCtx.fillStyle = isDark ? '#ddd' : '#222';
                 cbCtx.fillText(fmt(val), labelX, y + 4);
+            }
+        }
+
+        function drawSlimColorbar(markerFrac) {
+            if (showColorbar) return;
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops) return;
+            const cssH = parseInt(canvas.style.height);
+            if (!cssH) return;
+            const cssW = 6;
+            const dpr = window.devicePixelRatio || 1;
+            slimCbCanvas.width = Math.round(cssW * dpr);
+            slimCbCanvas.height = Math.round(cssH * dpr);
+            slimCbCanvas.style.width = cssW + 'px';
+            slimCbCanvas.style.height = cssH + 'px';
+            const sCtx = slimCbCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
+            sCtx.scale(dpr, dpr);
+            const n = stops.length;
+            for (let row = 0; row < cssH; row++) {
+                const t = 1 - row / (cssH - 1);
+                const fi = t * (n - 1);
+                const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+                const f = fi - lo;
+                const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
+                const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
+                const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
+                sCtx.fillStyle = `rgb(${r},${g},${b})`;
+                sCtx.fillRect(0, row, cssW, 1);
+            }
+            if (markerFrac !== null && markerFrac !== undefined && isFinite(markerFrac)) {
+                const y = Math.round(Math.max(0, Math.min(1, 1 - markerFrac)) * (cssH - 1));
+                sCtx.strokeStyle = 'rgba(255,255,255,0.9)';
+                sCtx.lineWidth = 1.5;
+                sCtx.beginPath(); sCtx.moveTo(0, y); sCtx.lineTo(cssW, y); sCtx.stroke();
             }
         }
 
@@ -824,7 +863,9 @@
             } else if (e.key === 'b') {
                 showColorbar = !showColorbar;
                 colorbarCanvas.style.display = showColorbar ? 'block' : 'none';
+                slimCbCanvas.style.display = showColorbar ? 'none' : '';
                 if (showColorbar && lastImageData) drawColorbar();
+                else drawSlimColorbar();
                 showToast(showColorbar ? 'colorbar: on' : 'colorbar: off');
                 saveState();
             } else if (e.key === 'z') {
