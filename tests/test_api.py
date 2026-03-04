@@ -4,6 +4,7 @@ import io
 import httpx
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 from PIL import Image
 
 
@@ -164,6 +165,76 @@ class TestSlice:
             "colormap": "gray", "dr": 0, "slice_dim": 0,
         })
         assert r.status_code == 404
+
+    def test_overlay_sid_changes_http_slice(self, client, tmp_path):
+        base = np.zeros((40, 40), dtype=np.float32)
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[12:28, 12:28] = 1
+        np.save(tmp_path / "base.npy", base)
+        np.save(tmp_path / "mask.npy", mask)
+
+        sid = client.post("/load", json={"filepath": str(tmp_path / "base.npy")}).json()["sid"]
+        overlay_sid = client.post(
+            "/load", json={"filepath": str(tmp_path / "mask.npy"), "name": "overlay"}
+        ).json()["sid"]
+
+        params = {
+            "dim_x": 1,
+            "dim_y": 0,
+            "indices": "0,0",
+            "colormap": "gray",
+            "dr": 0,
+            "slice_dim": 0,
+        }
+        plain = client.get(f"/slice/{sid}", params=params)
+        over = client.get(f"/slice/{sid}", params={**params, "overlay_sid": overlay_sid})
+        assert plain.status_code == 200
+        assert over.status_code == 200
+        assert plain.content != over.content
+
+        img = np.array(Image.open(io.BytesIO(over.content)).convert("RGB"))
+        c = img[20, 20]
+        assert c[0] > c[1] + 20
+        assert c[0] > c[2] + 20
+
+
+class TestOverlayWebSocket:
+    def test_overlay_visible_over_transparent_base(self, tmp_path):
+        from arrayview._app import app
+
+        base = np.zeros((6, 6), dtype=np.float32)
+        mask = np.zeros((6, 6), dtype=np.uint8)
+        mask[1:5, 1:5] = 1
+        np.save(tmp_path / "base_ws.npy", base)
+        np.save(tmp_path / "mask_ws.npy", mask)
+
+        with TestClient(app) as c:
+            sid = c.post("/load", json={"filepath": str(tmp_path / "base_ws.npy")}).json()["sid"]
+            overlay_sid = c.post(
+                "/load", json={"filepath": str(tmp_path / "mask_ws.npy"), "name": "overlay"}
+            ).json()["sid"]
+            with c.websocket_connect(f"/ws/{sid}") as ws:
+                ws.send_json(
+                    {
+                        "seq": 1,
+                        "dim_x": 1,
+                        "dim_y": 0,
+                        "dim_z": -1,
+                        "indices": [0, 0],
+                        "colormap": "gray",
+                        "dr": 0,
+                        "complex_mode": 0,
+                        "log_scale": False,
+                        "slice_dim": 0,
+                        "direction": 1,
+                        "overlay_sid": overlay_sid,
+                    }
+                )
+                payload = ws.receive_bytes()
+
+        rgba = np.frombuffer(payload[20:], dtype=np.uint8).reshape(6, 6, 4)
+        assert rgba[2, 2, 3] > 0
+        assert rgba[0, 0, 3] == 0
 
 
 # ---------------------------------------------------------------------------
