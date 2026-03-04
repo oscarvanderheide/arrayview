@@ -242,7 +242,7 @@
             <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
             <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
             <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
-            <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (active dim size 3–6, multi-colormap)</span></div>
+            <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
             <div class="help-section">Display</div>
             <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
             <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
@@ -1334,8 +1334,12 @@
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
-            const n = shape[activeDim];
+            // Auto-detect: if exactly one dim has size 3–6, use it; otherwise fall back to activeDim
+            const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
+            const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
+            const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
+            activeDim = targetDim;
             if (multiViewActive) exitMultiView();
             qmriActive = true;
             qmriDim = activeDim;
