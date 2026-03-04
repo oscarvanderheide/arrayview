@@ -1206,7 +1206,7 @@ def get_shell():
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
-    return {"ok": True, "service": "arrayview", "pid": os.getpid()}
+    return {"ok": True, "service": "arrayview", "pid": os.getpid(), "viewer_sockets": VIEWER_SOCKETS}
 
 
 @app.get("/sessions")
@@ -1899,13 +1899,17 @@ async def _stop_server_when_viewer_closes(
         # Grace period (lets page refreshes reconnect before we shut down).
         frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         fi = 0
+        sys.stderr.write("\n")  # start on a fresh line, never paste onto shell prompt
+        sys.stderr.flush()
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if VIEWER_SOCKETS > 0:
                 sys.stderr.write("\r" + " " * 60 + "\r")
                 sys.stderr.flush()
                 break
-            sys.stderr.write(f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m")
+            sys.stderr.write(
+                f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m"
+            )
             sys.stderr.flush()
             fi += 1
             await asyncio.sleep(0.08)
@@ -1931,13 +1935,17 @@ def _wait_for_viewer_close(grace_seconds: float = 1.0) -> None:
         # All sockets gone — grace period for page refresh / reconnect
         frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         fi = 0
+        sys.stderr.write("\n")  # start on a fresh line, never paste onto shell prompt
+        sys.stderr.flush()
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if VIEWER_SOCKETS > 0:
                 sys.stderr.write("\r" + " " * 60 + "\r")
                 sys.stderr.flush()
                 break  # reconnected; wait again
-            sys.stderr.write(f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m")
+            sys.stderr.write(
+                f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m"
+            )
             sys.stderr.flush()
             fi += 1
             time.sleep(0.08)
@@ -2119,7 +2127,7 @@ def _serve_daemon(
     ).start()
     _wait_for_viewer_close()
     print(
-        f"[ArrayView] Server stopped. Port {port} is now available.",
+        f"\033[32m[ArrayView] Server stopped. Port {port} is now available.\033[0m",
         flush=True,
     )
     os._exit(0)
@@ -2225,8 +2233,9 @@ def arrayview():
         if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/?sid={sid}"
-            _open_browser(url, blocking=True)
+            print(f"[ArrayView] {url}", flush=True)
+            _open_browser(url, blocking=False)
     else:
         url = f"http://localhost:{args.port}/?sid={sid}"
-        print(f"Open {url} in your browser")
-        _open_browser(url, blocking=True)
+        print(f"[ArrayView] {url}", flush=True)
+        _open_browser(url, blocking=False)
