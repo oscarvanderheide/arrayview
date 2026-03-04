@@ -247,7 +247,7 @@
             <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
             <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
             <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
-            <div class="help-row"><span class="key">t</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
+            <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
             <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar (slim, with min/max)</span></div>
             <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
             <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
@@ -1014,13 +1014,15 @@
                     });
             } else if (e.key === 'd') {
                 manualVmin = manualVmax = null;
-                // Bump seq on any in-flight mv renders so stale responses don't re-lock the range
-                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; if (v.rendering) v.seq++; });
+                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
-                fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                fetch(`/clearcache/${sid}`).then(() => {
+                    mvViews.forEach(v => { v.rendering = false; v.pending = false; });
+                    updateView(); triggerPreload();
+                });
                 showStatus(`range: ${DR_LABELS[dr_idx]}`);
                 saveState();
-            } else if (e.key === 't') {
+            } else if (e.key === 'D') {
                 const v1 = window.prompt('vmin:', _cbFmt(currentVmin));
                 if (v1 === null) return;
                 const v2 = window.prompt('vmax:', _cbFmt(currentVmax));
@@ -1028,8 +1030,11 @@
                 const mn = parseFloat(v1), mx = parseFloat(v2);
                 if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
                 manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
-                mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; });
-                fetch(`/clearcache/${sid}`).then(() => { updateView(); });
+                mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
+                fetch(`/clearcache/${sid}`).then(() => {
+                    mvViews.forEach(v => { v.rendering = false; v.pending = false; });
+                    updateView();
+                });
                 drawSlimColorbar(cbMarkerFrac);
                 showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
