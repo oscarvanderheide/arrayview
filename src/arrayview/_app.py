@@ -1206,7 +1206,12 @@ def get_shell():
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
-    return {"ok": True, "service": "arrayview", "pid": os.getpid(), "viewer_sockets": VIEWER_SOCKETS}
+    return {
+        "ok": True,
+        "service": "arrayview",
+        "pid": os.getpid(),
+        "viewer_sockets": VIEWER_SOCKETS,
+    }
 
 
 @app.get("/sessions")
