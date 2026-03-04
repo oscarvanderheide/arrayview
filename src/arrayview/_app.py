@@ -90,7 +90,7 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
                         [
                             "osascript",
                             "-e",
-                            f"tell application \"System Events\" to set frontmost of"
+                            f'tell application "System Events" to set frontmost of'
                             f" (first process whose unix id is {proc.pid}) to true",
                         ],
                         stdout=subprocess.DEVNULL,
@@ -1548,9 +1548,8 @@ def _open_browser(url: str, blocking: bool = False) -> None:
             # --- VS Code path: open in Simple Browser via the extension ---
             vscode_uri = None
             if _ensure_vscode_extension():
-                vscode_uri = (
-                    "vscode://arrayview.arrayview-opener/open?url="
-                    + _quote(url, safe="")
+                vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
+                    url, safe=""
                 )
 
             if vscode_uri:
@@ -1883,7 +1882,7 @@ def _is_script_mode() -> bool:
 
 
 async def _stop_server_when_viewer_closes(
-    server, connect_timeout: float = 20.0, grace_seconds: float = 0.8
+    server, connect_timeout: float = 20.0, grace_seconds: float = 1.0
 ) -> None:
     """Asyncio task: signal uvicorn to stop once the viewer window is fully closed.
     Used in script mode so the non-daemon server thread exits cleanly when done."""
@@ -1898,24 +1897,31 @@ async def _stop_server_when_viewer_closes(
         while VIEWER_SOCKETS > 0:
             await asyncio.sleep(0.2)
         # Grace period (lets page refreshes reconnect before we shut down).
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        fi = 0
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if VIEWER_SOCKETS > 0:
+                sys.stderr.write("\r" + " " * 60 + "\r")
+                sys.stderr.flush()
                 break
-            await asyncio.sleep(0.2)
+            sys.stderr.write(f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m")
+            sys.stderr.flush()
+            fi += 1
+            await asyncio.sleep(0.08)
         else:
-            print(
-                "[ArrayView] Viewer closed. Shutting down...",
-                flush=True,
-            )
+            sys.stderr.write("\r" + " " * 60 + "\r")
+            sys.stderr.flush()
+            print("[ArrayView] Server stopped.", flush=True)
             server.should_exit = True
             return
 
 
-def _wait_for_viewer_close(grace_seconds: float = 8.0) -> None:
+def _wait_for_viewer_close(grace_seconds: float = 1.0) -> None:
     """Block until all viewer WebSocket connections close.
     Waits for a viewer WebSocket to connect, then all to disconnect, then applies a
-    grace period so page refreshes don't prematurely kill the server.
+    brief grace period so page refreshes don't prematurely kill the server.
+    Shows a short shutdown animation during the grace period.
     """
     while VIEWER_SOCKETS == 0:
         time.sleep(0.2)
@@ -1923,12 +1929,21 @@ def _wait_for_viewer_close(grace_seconds: float = 8.0) -> None:
         while VIEWER_SOCKETS > 0:
             time.sleep(0.2)
         # All sockets gone — grace period for page refresh / reconnect
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        fi = 0
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if VIEWER_SOCKETS > 0:
+                sys.stderr.write("\r" + " " * 60 + "\r")
+                sys.stderr.flush()
                 break  # reconnected; wait again
-            time.sleep(0.2)
+            sys.stderr.write(f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m")
+            sys.stderr.flush()
+            fi += 1
+            time.sleep(0.08)
         else:
+            sys.stderr.write("\r" + " " * 60 + "\r")
+            sys.stderr.flush()
             return  # deadline passed with no reconnect → really closed
 
 
@@ -1965,7 +1980,7 @@ def _in_julia_jupyter() -> bool:
         if str(r).strip().lower() == "true":
             _julia_jupyter_cache = True
             return True
-        r2 = _jl.Main.seval('try; Main.IJulia; true; catch; false; end')
+        r2 = _jl.Main.seval("try; Main.IJulia; true; catch; false; end")
         _julia_jupyter_cache = str(r2).strip().lower() == "true"
     except Exception:
         _julia_jupyter_cache = False
@@ -2034,7 +2049,6 @@ def _view_julia(
         )
         subprocess.Popen(
             [sys.executable, "-c", script],
-            stderr=subprocess.DEVNULL,
         )
         if not _wait_for_port(port, timeout=15.0):
             try:
@@ -2198,7 +2212,6 @@ def arrayview():
     )
     subprocess.Popen(
         [sys.executable, "-c", script],
-        stderr=subprocess.DEVNULL,
     )
     if not _wait_for_port(args.port, timeout=15.0):
         print(
