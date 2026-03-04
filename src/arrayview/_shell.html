@@ -128,12 +128,30 @@
         const params = new URLSearchParams(window.location.search);
         const initSid = params.get('init_sid');
         const initName = params.get('init_name');
-        if (initSid) {
-            addTab(initSid, initName || 'Array');
-        } else {
+
+        function loadAllSessions() {
             fetch('/sessions').then(r => r.json()).then(sessions => {
                 sessions.forEach(s => addTab(s.sid, s.name));
             }).catch(() => {});
+        }
+
+        if (initSid) {
+            // Verify the session exists; fall back to all sessions if not.
+            // This handles tunnel / port-forwarding scenarios where the sid
+            // in the URL may be stale or the URL was reconstructed.
+            fetch('/metadata/' + initSid).then(res => {
+                if (res.ok) {
+                    addTab(initSid, initName || 'Array');
+                } else {
+                    console.warn('[arrayview] init_sid', initSid, 'returned', res.status, '— falling back to /sessions');
+                    loadAllSessions();
+                }
+            }).catch(() => {
+                console.warn('[arrayview] init_sid check failed — falling back to /sessions');
+                loadAllSessions();
+            });
+        } else {
+            loadAllSessions();
         }
     </script>
 </body>

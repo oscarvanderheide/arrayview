@@ -610,8 +610,35 @@
                 }
             }
             if (!res || !res.ok) {
-                const msg = (!res || res.status === 404) ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
-                document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                // Try /sessions to diagnose and potentially recover
+                let diagMsg = '';
+                try {
+                    const sessRes = await fetch('/sessions');
+                    if (sessRes.ok) {
+                        const sessions = await sessRes.json();
+                        if (sessions.length > 0 && sessions.some(s => s.sid !== sid)) {
+                            // Server has sessions but not ours — likely a stale sid in the URL.
+                            // Notify the parent shell to reload from /sessions.
+                            diagMsg = `Requested session ${sid.slice(0,8)}… not found. `
+                                    + `Server has ${sessions.length} session(s): `
+                                    + sessions.map(s => s.name).join(', ') + '. '
+                                    + 'Reloading…';
+                            document.getElementById('loading-overlay').innerHTML =
+                                `<div style="color:#ffa;font-size:16px;font-family:monospace">${diagMsg}</div>`;
+                            // Redirect this iframe to the first available session
+                            setTimeout(() => {
+                                window.location.search = '?sid=' + sessions[0].sid;
+                            }, 1200);
+                            return;
+                        }
+                        diagMsg = sessions.length === 0
+                            ? ' Server has no active sessions.'
+                            : ` Server has: ${sessions.map(s => s.sid.slice(0,8) + '…(' + s.name + ')').join(', ')}`;
+                    }
+                } catch (_) {}
+                const status = res ? res.status : 'no response';
+                const msg = `Session ${sid ? sid.slice(0,8) + '…' : '(none)'} not found (${status}).${diagMsg}`;
+                document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:16px;font-family:monospace;max-width:80vw;word-break:break-all">${msg}</div>`;
                 return;
             }
             const data = await res.json();

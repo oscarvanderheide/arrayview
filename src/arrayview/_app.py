@@ -1271,7 +1271,11 @@ def _in_jupyter() -> bool:
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session."""
     # VSCODE_IPC_HOOK_CLI is always present in VS Code tunnel/remote terminals.
-    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+    ipc = os.environ.get("VSCODE_IPC_HOOK_CLI")
+    if not ipc:
+        # uv run and similar launchers strip env vars.  Check ancestors.
+        ipc = _find_vscode_ipc_hook()
+    if ipc:
         # On the local machine, VSCODE_IPC_HOOK_CLI is also set when VS Code
         # terminal is used, but we only treat it as "remote" when there's no
         # local desktop (i.e. not macOS / Windows native).
@@ -1319,7 +1323,9 @@ def _find_code_cli() -> str | None:
     import shutil
 
     # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
-    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+    # Check both `VSCODE_IPC_HOOK_CLI` env var and `_is_vscode_remote()` since
+    # tools like `uv run` may strip the env var from our process.
+    if os.environ.get("VSCODE_IPC_HOOK_CLI") or _is_vscode_remote():
         # The tunnel helper is typically at one of:
         #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
         #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
@@ -1362,6 +1368,10 @@ def _find_code_cli() -> str | None:
     return None
 
 
+_cached_ipc_hook: str | None = None
+_cached_ipc_hook_checked = False
+
+
 def _find_vscode_ipc_hook() -> str | None:
     """Return the value of VSCODE_IPC_HOOK_CLI, searching ancestor processes.
 
@@ -1369,6 +1379,9 @@ def _find_vscode_ipc_hook() -> str | None:
     Python.  Walking up the process tree lets us recover VSCODE_IPC_HOOK_CLI
     from the shell that originally invoked the command.
     """
+    global _cached_ipc_hook, _cached_ipc_hook_checked
+    if _cached_ipc_hook_checked:
+        return _cached_ipc_hook
 
     def _ppid(pid: int) -> int:
         try:
@@ -1418,6 +1431,8 @@ def _find_vscode_ipc_hook() -> str | None:
     # Own environment first
     val = os.environ.get("VSCODE_IPC_HOOK_CLI", "")
     if val and os.path.exists(val):
+        _cached_ipc_hook = val
+        _cached_ipc_hook_checked = True
         return val
 
     # Walk up to 12 ancestor processes
@@ -1428,8 +1443,11 @@ def _find_vscode_ipc_hook() -> str | None:
             break
         val = _ipc_from_pid(pid)
         if val and os.path.exists(val):
+            _cached_ipc_hook = val
+            _cached_ipc_hook_checked = True
             return val
 
+    _cached_ipc_hook_checked = True
     return None
 
 
@@ -1456,7 +1474,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.1.3"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.2.0"  # must match vscode-extension/package.json
 
 
 def _ensure_vscode_extension() -> bool:
@@ -1539,6 +1557,10 @@ def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
         if delay > 0:
             time.sleep(delay)
         payload: dict = {"url": url}
+        # Tell the extension whether this came from a remote/tunnel terminal
+        # so it can target the right VS Code instance.
+        if _is_vscode_remote():
+            payload["remote"] = True
         with open(signal_file, "w") as f:
             json.dump(payload, f)
         return True
@@ -1568,10 +1590,44 @@ def _open_browser(url: str, blocking: bool = False) -> None:
 
         opened = False
 
-        # ---- VS Code tunnel/remote: signal file is the only reliable method ----
+        # ---- VS Code tunnel/remote ----
         if _is_vscode_remote():
-            _open_via_signal_file(url)
-            print(f"[ArrayView] {url}", flush=True)
+            # Primary: try `code --open-url` via the tunnel remote CLI.
+            # This sends the URL through the tunnel to the client, which
+            # opens an external browser.  Port auto-forwarding makes
+            # localhost URLs work on the client.
+            code = _find_code_cli()
+            ipc = _find_vscode_ipc_hook()
+            if code and ipc:
+                env = {**os.environ, "VSCODE_IPC_HOOK_CLI": ipc}
+                print(f"[ArrayView] code --open-url {url}", flush=True)
+                try:
+                    r = subprocess.run(
+                        [code, "--open-url", url],
+                        env=env, capture_output=True, text=True, timeout=8,
+                    )
+                    combined = (r.stdout or "") + (r.stderr or "")
+                    print(
+                        f"[ArrayView] code exit={r.returncode} "
+                        f"stdout={r.stdout!r:.200} stderr={r.stderr!r:.200}",
+                        flush=True,
+                    )
+                    if r.returncode == 0 and "Ignoring option" not in combined:
+                        opened = True
+                except Exception as exc:
+                    print(f"[ArrayView] code --open-url failed: {exc}", flush=True)
+            else:
+                print(
+                    f"[ArrayView] remote detected but code={code} ipc={bool(ipc)}",
+                    flush=True,
+                )
+
+            # Secondary: signal file for the arrayview-opener extension
+            # (opens in Simple Browser if the extension is active).
+            if not opened:
+                _open_via_signal_file(url)
+
+            print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
 
             if _VSCODE_EXT_FRESH_INSTALL:
                 print(
@@ -1902,6 +1958,19 @@ def view(
     return url_viewer
 
 
+def _open_daemon_log():
+    """Return an open file handle for daemon logging (~/.arrayview/daemon.log).
+    Falls back to subprocess.DEVNULL on any error.
+    """
+    try:
+        log_dir = os.path.expanduser("~/.arrayview")
+        os.makedirs(log_dir, exist_ok=True)
+        return open(os.path.join(log_dir, "daemon.log"), "a")
+    except Exception:
+        return subprocess.DEVNULL
+
+
+
 def _is_script_mode() -> bool:
     """True when running as a plain Python script (not interactive REPL, not Jupyter, not Julia)."""
     if _in_jupyter() or _is_julia_env():
@@ -2069,10 +2138,11 @@ def _view_subprocess(
             f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
             f"name={repr(name)}, cleanup=True)"
         )
+        _daemon_log = _open_daemon_log()
         subprocess.Popen(
             [sys.executable, "-c", script],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=_daemon_log,
+            stderr=_daemon_log,
         )
         if not _wait_for_port(port, timeout=15.0):
             try:
@@ -2126,6 +2196,13 @@ def _serve_daemon(
     """Background server process. Loads data, serves it, exits when the UI closes.
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
+    import datetime as _dt
+
+    print(
+        f"[daemon {os.getpid()}] {_dt.datetime.now():%H:%M:%S} starting: "
+        f"sid={sid} port={port} file={filepath}",
+        flush=True,
+    )
     data = load_data(filepath)
     if cleanup:
         try:
@@ -2135,13 +2212,19 @@ def _serve_daemon(
     session = Session(data, filepath=None if cleanup else filepath, name=name)
     session.sid = sid
     SESSIONS[session.sid] = session
+    print(
+        f"[daemon {os.getpid()}] session created: sid={sid} shape={list(session.shape)} "
+        f"sessions_count={len(SESSIONS)}",
+        flush=True,
+    )
     threading.Thread(
         target=lambda: uvicorn.run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
     ).start()
-    _wait_for_viewer_close()
+    _wait_for_shell_close()
+    print(f"[daemon {os.getpid()}] shell closed, exiting", flush=True)
     os._exit(0)
 
 
@@ -2230,10 +2313,11 @@ def arrayview():
         f"from arrayview._app import _serve_daemon;"
         f"_serve_daemon({repr(os.path.abspath(args.file))}, {args.port}, {repr(sid)})"
     )
+    _daemon_log = _open_daemon_log()
     subprocess.Popen(
         [sys.executable, "-c", script],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=_daemon_log,
+        stderr=_daemon_log,
     )
     if not _wait_for_port(args.port, timeout=15.0):
         print(
