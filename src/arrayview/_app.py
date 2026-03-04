@@ -1268,6 +1268,16 @@ def _in_jupyter() -> bool:
         return False
 
 
+def _in_vscode_terminal() -> bool:
+    """True when running inside any VS Code integrated terminal (local or remote)."""
+    if os.environ.get("TERM_PROGRAM") == "vscode":
+        return True
+    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+        return True
+    # uv run and similar launchers strip env vars; walk ancestor processes.
+    return _find_vscode_ipc_hook() is not None
+
+
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session."""
     # VSCODE_IPC_HOOK_CLI is always present in VS Code tunnel/remote terminals.
@@ -1518,51 +1528,35 @@ def _ensure_vscode_extension() -> bool:
 
 
 def _open_browser(url: str, blocking: bool = False) -> None:
-    """Open *url* in VS Code's Simple Browser via the arrayview-opener extension,
-    or fall back to ``webbrowser.open``.
+    """Open *url* in a browser.
 
-    The arrayview-opener VS Code extension registers a URI handler so that
-    ``open "vscode://arrayview.arrayview-opener/open?url=<encoded>"`` (macOS)
-    or ``code --open-url vscode://...`` (Linux / tunnel) triggers
-    ``simpleBrowser.show`` inside VS Code.  The extension also resolves the
-    URL through ``vscode.env.asExternalUri`` so port forwarding works in
-    remote/tunnel contexts.
-
-    The extension is automatically installed from a bundled .vsix on first use.
+    When running inside a VS Code terminal, opens in VS Code's Simple Browser
+    via the bundled arrayview-opener extension.  Otherwise, opens in the
+    system's default web browser via ``webbrowser.open``.
 
     blocking=True runs synchronously (CLI); blocking=False uses a daemon thread.
     """
 
     def _do() -> None:
+        import webbrowser
         from urllib.parse import quote as _quote
 
-        vscode_uri = None
-
-        # Ensure the companion extension is installed before trying the URI.
-        if _ensure_vscode_extension():
-            vscode_uri = "vscode://arrayview.arrayview-opener/open?url=" + _quote(
-                url, safe=""
-            )
-
+        in_vscode = _in_vscode_terminal()
         opened = False
 
-        if vscode_uri:
-            if sys.platform == "darwin" and not _is_vscode_remote():
-                # macOS local: `open` routes vscode:// URIs via Launch Services
-                try:
-                    r = subprocess.run(
-                        ["open", vscode_uri],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                    opened = r.returncode == 0
-                except Exception:
-                    pass
-            else:
-                # Linux / macOS-remote / tunnel: use `code --open-url`.
-                # _find_code_cli() prefers the tunnel's remote-cli helper
-                # when VSCODE_IPC_HOOK_CLI is set, so we route through the
-                # tunnel instead of opening a new desktop VS Code window.
+        if in_vscode:
+            # --- VS Code path: open in Simple Browser via the extension ---
+            vscode_uri = None
+            if _ensure_vscode_extension():
+                vscode_uri = (
+                    "vscode://arrayview.arrayview-opener/open?url="
+                    + _quote(url, safe="")
+                )
+
+            if vscode_uri:
+                # Always prefer `code --open-url` with the IPC hook so we
+                # target the correct VS Code instance (fixes auto-install on
+                # machines where `open vscode://` routes to a stale instance).
                 code = _find_code_cli()
                 ipc = _find_vscode_ipc_hook()
                 if code and ipc:
@@ -1579,9 +1573,6 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                         pass
 
                     # Fallback: open the HTTP URL directly via code CLI.
-                    # With simpleBrowser.useIntegratedBrowser VS Code opens
-                    # http:// URLs in Simple Browser.  Port forwarding is
-                    # handled automatically by VS Code's tunnel.
                     if not opened:
                         try:
                             r = subprocess.run(
@@ -1594,7 +1585,19 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                         except Exception:
                             pass
 
-                # Fallback: xdg-open on desktop Linux
+                # macOS fallback: Launch Services (less reliable for fresh installs)
+                if not opened and sys.platform == "darwin" and not _is_vscode_remote():
+                    try:
+                        r = subprocess.run(
+                            ["open", vscode_uri],
+                            capture_output=True,
+                            timeout=5,
+                        )
+                        opened = r.returncode == 0
+                    except Exception:
+                        pass
+
+                # Linux desktop fallback: xdg-open
                 if not opened and not _is_vscode_remote():
                     try:
                         r = subprocess.run(
@@ -1607,7 +1610,15 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                         pass
 
         if not opened:
-            # Final fallback: print URL prominently (cmd-clickable in VS Code terminal)
+            # Not in VS Code, or VS Code path failed → system browser
+            try:
+                webbrowser.open(url)
+                opened = True
+            except Exception:
+                pass
+
+        if not opened:
+            # Final fallback: print URL prominently (cmd-clickable in terminals)
             print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
 
     if blocking:
@@ -1893,6 +1904,10 @@ async def _stop_server_when_viewer_closes(
                 break
             await asyncio.sleep(0.2)
         else:
+            print(
+                "[ArrayView] Viewer closed. Shutting down...",
+                flush=True,
+            )
             server.should_exit = True
             return
 
@@ -2019,7 +2034,6 @@ def _view_julia(
         )
         subprocess.Popen(
             [sys.executable, "-c", script],
-            stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         if not _wait_for_port(port, timeout=15.0):
@@ -2090,6 +2104,10 @@ def _serve_daemon(
         daemon=True,
     ).start()
     _wait_for_viewer_close()
+    print(
+        f"[ArrayView] Server stopped. Port {port} is now available.",
+        flush=True,
+    )
     os._exit(0)
 
 
@@ -2180,7 +2198,6 @@ def arrayview():
     )
     subprocess.Popen(
         [sys.executable, "-c", script],
-        stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     if not _wait_for_port(args.port, timeout=15.0):
