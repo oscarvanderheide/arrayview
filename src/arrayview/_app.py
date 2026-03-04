@@ -40,22 +40,32 @@ def _get_icon_png_path() -> str | None:
     try:
         import tempfile
         from PIL import ImageDraw
+
         # 512×512 canvas with ~10% transparent padding so the icon sits at the
         # same visual size as other macOS dock icons.
         canvas = 512
-        pad = int(canvas * 0.10)   # ~51px transparent margin each side
-        inner = canvas - 2 * pad   # ~410px icon content area
-        S = inner / 16             # scale factor for the 16-unit SVG design
+        pad = int(canvas * 0.10)  # ~51px transparent margin each side
+        inner = canvas - 2 * pad  # ~410px icon content area
+        S = inner / 16  # scale factor for the 16-unit SVG design
         img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         # Background with rounded corners
-        d.rounded_rectangle([pad, pad, pad + inner - 1, pad + inner - 1],
-                             radius=int(2.5 * S), fill="#0c0c0c")
+        d.rounded_rectangle(
+            [pad, pad, pad + inner - 1, pad + inner - 1],
+            radius=int(2.5 * S),
+            fill="#0c0c0c",
+        )
         # 3×3 grid of coloured squares
         colors = [
-            "#3a0ca3", "#560bad", "#c77dff",
-            "#4361ee", "#4cc9f0", "#f5c842",
-            "#4895ef", "#80ed99", "#f8961e",
+            "#3a0ca3",
+            "#560bad",
+            "#c77dff",
+            "#4361ee",
+            "#4cc9f0",
+            "#f5c842",
+            "#4895ef",
+            "#80ed99",
+            "#f8961e",
         ]
         xs = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
         ys = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
@@ -78,25 +88,27 @@ def _open_webview(
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
     icon_path = _get_icon_png_path() or ""
-    script = "\n".join([
-        "import sys, webview",
-        "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
-        "webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
-        "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
-        "if icon:",
-        "    if sys.platform == 'darwin':",
-        "        def _set_icon():",
-        "            try:",
-        "                import AppKit",
-        "                from PyObjCTools import AppHelper",
-        "                img = AppKit.NSImage.alloc().initWithContentsOfFile_(icon)",
-        "                AppHelper.callAfter(AppKit.NSApplication.sharedApplication().setApplicationIconImage_, img)",
-        "            except Exception: pass",
-        "        kw['func'] = _set_icon",
-        "    else:",
-        "        kw['icon'] = icon",
-        "webview.start(**kw)",
-    ])
+    script = "\n".join(
+        [
+            "import sys, webview",
+            "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
+            "webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
+            "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
+            "if icon:",
+            "    if sys.platform == 'darwin':",
+            "        def _set_icon():",
+            "            try:",
+            "                import AppKit",
+            "                from PyObjCTools import AppHelper",
+            "                img = AppKit.NSImage.alloc().initWithContentsOfFile_(icon)",
+            "                AppHelper.callAfter(AppKit.NSApplication.sharedApplication().setApplicationIconImage_, img)",
+            "            except Exception: pass",
+            "        kw['func'] = _set_icon",
+            "    else:",
+            "        kw['icon'] = icon",
+            "webview.start(**kw)",
+        ]
+    )
     return subprocess.Popen(
         [sys.executable, "-c", script, url, str(win_w), str(win_h), icon_path],
         stdout=subprocess.DEVNULL,
@@ -282,9 +294,9 @@ class Session:
         self.preload_skipped = False
         self.preload_lock = threading.Lock()
 
-        self.mask_level = 0          # 0=off, 1=Otsu, 2=2×Otsu
-        self.mask_otsu = None        # cached Otsu threshold (float)
-        self.mask_threshold = 0.0   # active threshold applied to rendering
+        self.mask_level = 0  # 0=off, 1=Otsu, 2=2×Otsu
+        self.mask_otsu = None  # cached Otsu threshold (float)
+        self.mask_threshold = 0.0  # active threshold applied to rendering
 
         self.compute_global_stats()
 
@@ -345,6 +357,8 @@ COLORMAP_GRADIENT_STOPS = {
 }
 COMPLEX_MODES = ["mag", "phase", "real", "imag"]
 REAL_MODES = ["real", "mag"]
+OVERLAY_COLOR = np.array([255, 80, 80], dtype=np.float32)
+OVERLAY_ALPHA = np.float32(0.45)
 
 app = FastAPI()
 
@@ -621,8 +635,16 @@ def render_rgba(
 ):
     has_override = vmin_override is not None and vmax_override is not None
     if not has_override:
-        key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale,
-               getattr(session, "mask_threshold", 0.0))
+        key = (
+            dim_x,
+            dim_y,
+            idx_tuple,
+            colormap,
+            dr,
+            complex_mode,
+            log_scale,
+            getattr(session, "mask_threshold", 0.0),
+        )
         if key in session.rgba_cache:
             session.rgba_cache.move_to_end(key)
             return session.rgba_cache[key]
@@ -644,6 +666,70 @@ def render_rgba(
             _, v = session.rgba_cache.popitem(last=False)
             session._rgba_bytes -= v.nbytes
     return rgba
+
+
+def _extract_overlay_mask(
+    overlay_sid: str | None,
+    dim_x: int,
+    dim_y: int,
+    idx_tuple: tuple[int, ...],
+    expected_shape: tuple[int, int],
+) -> np.ndarray | None:
+    """Return a boolean mask slice for overlay compositing, or None when unavailable."""
+    if not overlay_sid:
+        return None
+    ov_session = SESSIONS.get(str(overlay_sid))
+    if ov_session is None:
+        return None
+
+    ov_ndim = ov_session.data.ndim
+    if dim_x >= ov_ndim or dim_y >= ov_ndim:
+        return None
+
+    # Prefer leading-dim alignment, but also try trailing alignment to support
+    # data/mask pairs that differ by extra leading dimensions in the base data.
+    idx_candidates: list[tuple[int, ...]] = [
+        tuple(int(idx_tuple[i]) if i < len(idx_tuple) else 0 for i in range(ov_ndim))
+    ]
+    if len(idx_tuple) >= ov_ndim:
+        trailing = tuple(int(v) for v in idx_tuple[-ov_ndim:])
+        if trailing != idx_candidates[0]:
+            idx_candidates.append(trailing)
+
+    for ov_idx in idx_candidates:
+        try:
+            ov_raw = extract_slice(ov_session, dim_x, dim_y, list(ov_idx))
+        except Exception:
+            continue
+        if ov_raw.shape != expected_shape:
+            continue
+        mask = np.isfinite(ov_raw) & (ov_raw > 0.5)
+        if mask.any():
+            return mask
+    return None
+
+
+def _composite_overlay_mask(
+    rgba: np.ndarray, mask: np.ndarray | None, alpha: float = float(OVERLAY_ALPHA)
+) -> np.ndarray:
+    """Alpha-composite a red segmentation mask on top of an RGBA frame."""
+    if mask is None:
+        return rgba
+
+    out = rgba.copy()
+    base_rgb = out[mask, :3].astype(np.float32) / 255.0
+    base_a = out[mask, 3].astype(np.float32) / 255.0
+
+    ov_a = np.float32(alpha)
+    out_a = ov_a + base_a * (1.0 - ov_a)
+    denom = np.maximum(out_a, 1e-6)
+
+    ov_rgb = OVERLAY_COLOR / 255.0
+    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[:, None]
+
+    out[mask, :3] = np.clip(out_rgb * 255.0, 0.0, 255.0).astype(np.uint8)
+    out[mask, 3] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
+    return out
 
 
 def render_mosaic(
@@ -888,6 +974,14 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 vmax_override=vmax_override,
             )
 
+            # Overlay compositing (segmentation masks)
+            if dim_z < 0:
+                overlay_sid = msg.get("overlay_sid")
+                mask = _extract_overlay_mask(
+                    overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=(h, w)
+                )
+                rgba = _composite_overlay_mask(rgba, mask)
+
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
             await ws.send_bytes(header + vminmax + rgba.tobytes())
@@ -949,12 +1043,14 @@ async def set_mask(sid: str, request: Request):
         free_dims = set(int(d) for d in body.get("free_dims", [0, 1]))
         indices = [int(v) for v in str(body.get("indices", "0")).split(",")]
         loop = asyncio.get_running_loop()
+
         def _extract_subvol():
             slicer = tuple(
                 slice(None) if i in free_dims else indices[i]
                 for i in range(len(session.shape))
             )
             return session.data[slicer]
+
         subvol = await loop.run_in_executor(None, _extract_subvol)
         otsu = await loop.run_in_executor(None, lambda: _compute_otsu_threshold(subvol))
     except Exception as e:
@@ -967,7 +1063,12 @@ async def set_mask(sid: str, request: Request):
     session.mask_otsu = otsu
     session.rgba_cache.clear()
     session._rgba_bytes = 0
-    return {"level": level, "threshold": threshold, "otsu": otsu, "multiplier": multiplier}
+    return {
+        "level": level,
+        "threshold": threshold,
+        "otsu": otsu,
+        "multiplier": multiplier,
+    }
 
 
 @app.post("/preload/{sid}")
@@ -1220,6 +1321,7 @@ def get_slice(
     log_scale: bool = False,
     vmin_override: float | None = None,
     vmax_override: float | None = None,
+    overlay_sid: str | None = None,
 ):
     session = SESSIONS.get(sid)
     if not session:
@@ -1270,6 +1372,10 @@ def get_slice(
             vmin_override,
             vmax_override,
         )
+        mask = _extract_overlay_mask(
+            overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
+        )
+        rgba = _composite_overlay_mask(rgba, mask)
         raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
         _, vmin, vmax = _prepare_display(
             session,
@@ -1687,7 +1793,7 @@ def _find_vscode_ipc_hook() -> str | None:
             dbg += f" [stop at pid={pid}]"
             break
         val = _ipc_from_pid(pid)
-        dbg += f" pid{i+1}={pid}:ipc={val!r}"
+        dbg += f" pid{i + 1}={pid}:ipc={val!r}"
         if val:
             exists = os.path.exists(val)
             dbg += f"(exists={exists})"
@@ -1743,18 +1849,22 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             with open(package_json) as f:
                 data = json.load(f)
             metadata = data.get("__metadata")
-            if isinstance(metadata, dict) and metadata.get("targetPlatform") == "undefined":
+            if (
+                isinstance(metadata, dict)
+                and metadata.get("targetPlatform") == "undefined"
+            ):
                 del metadata["targetPlatform"]
                 with open(package_json, "w") as f:
                     json.dump(data, f, indent=8)
                     f.write("\n")
-                print(f"[ArrayView] patched targetPlatform in {package_json}", flush=True)
+                print(
+                    f"[ArrayView] patched targetPlatform in {package_json}", flush=True
+                )
         except Exception as exc:
             print(
                 f"[ArrayView] could not patch extension metadata at {package_json}: {exc}",
                 flush=True,
             )
-
 
 
 def _ensure_vscode_extension() -> bool:
@@ -1901,7 +2011,10 @@ def _print_viewer_location(url: str) -> None:
             port = 8000
             sid = None
         if sid:
-            print(f"[ArrayView] remote viewer ready on port {port} (session {sid})", flush=True)
+            print(
+                f"[ArrayView] remote viewer ready on port {port} (session {sid})",
+                flush=True,
+            )
         else:
             print(f"[ArrayView] remote viewer ready on port {port}", flush=True)
         print(
@@ -1914,7 +2027,6 @@ def _print_viewer_location(url: str) -> None:
         )
         return
     print(f"[ArrayView] {url}", flush=True)
-
 
 
 def _open_browser(url: str, blocking: bool = False) -> None:
@@ -1965,7 +2077,9 @@ def _open_browser(url: str, blocking: bool = False) -> None:
             ext_ok = _ensure_vscode_extension()
             if ext_ok:
                 if _VSCODE_EXT_FRESH_INSTALL:
-                    print("[ArrayView] waiting for extension to activate...", flush=True)
+                    print(
+                        "[ArrayView] waiting for extension to activate...", flush=True
+                    )
                     time.sleep(1.5)
                 _open_via_signal_file(url)
                 print(f"[ArrayView] wrote signal file for {url}", flush=True)
@@ -1981,7 +2095,9 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                     pass
             elif sys.platform.startswith("linux"):
                 try:
-                    r = subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
+                    r = subprocess.run(
+                        ["xdg-open", url], capture_output=True, timeout=5
+                    )
                     opened = r.returncode == 0
                 except Exception:
                     pass
@@ -1993,7 +2109,6 @@ def _open_browser(url: str, blocking: bool = False) -> None:
         _do()
     else:
         threading.Thread(target=_do, daemon=True).start()
-
 
 
 def _server_alive(port: int) -> bool:
@@ -2404,9 +2519,7 @@ def _view_julia(
     return _view_subprocess(data, name, port, window)
 
 
-def _view_subprocess(
-    data: np.ndarray, name: str, port: int, window: bool
-) -> str:
+def _view_subprocess(data: np.ndarray, name: str, port: int, window: bool) -> str:
     """Run the viewer in a separate subprocess server.
 
     Used when the calling process may exit shortly after view() returns
@@ -2512,7 +2625,13 @@ def _view_subprocess(
 
 
 def _serve_daemon(
-    filepath: str, port: int, sid: str, name: str = None, cleanup: bool = False
+    filepath: str,
+    port: int,
+    sid: str,
+    name: str = None,
+    cleanup: bool = False,
+    overlay_filepath: str = None,
+    overlay_sid: str = None,
 ) -> None:
     """Background server process. Loads data, serves it, exits when the UI closes.
     cleanup=True: delete filepath after loading (used when it is a temp file).
@@ -2526,6 +2645,17 @@ def _serve_daemon(
     session = Session(data, filepath=None if cleanup else filepath, name=name)
     session.sid = sid
     SESSIONS[session.sid] = session
+    if overlay_filepath and overlay_sid:
+        try:
+            ov_data = load_data(overlay_filepath)
+            ov_session = Session(ov_data, filepath=overlay_filepath, name="overlay")
+            ov_session.sid = overlay_sid
+            SESSIONS[overlay_sid] = ov_session
+        except Exception as e:
+            print(
+                f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
+                flush=True,
+            )
     threading.Thread(
         target=lambda: uvicorn.run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
@@ -2552,6 +2682,11 @@ def arrayview():
         "--browser",
         action="store_true",
         help="Open in web browser instead of native window",
+    )
+    parser.add_argument(
+        "--overlay",
+        metavar="FILE",
+        help="Segmentation mask to overlay (binary 0/1 array, same spatial shape)",
     )
     args = parser.parse_args()
 
@@ -2582,11 +2717,34 @@ def arrayview():
         # Server already running — register the new array.
         # If using webview, notify the existing shell to inject a new tab.
         try:
+            # Register overlay first (no notification) to get overlay_sid
+            overlay_sid = None
+            if args.overlay:
+                ov_body = json.dumps(
+                    {
+                        "filepath": os.path.abspath(args.overlay),
+                        "name": "overlay",
+                        "notify": False,
+                    }
+                ).encode()
+                ov_req = urllib.request.Request(
+                    f"http://127.0.0.1:{args.port}/load",
+                    data=ov_body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(ov_req, timeout=5) as resp:
+                    ov_result = json.loads(resp.read())
+                overlay_sid = ov_result.get("sid")
+
+            notify_webview = (
+                use_webview and overlay_sid is None
+            )  # webview inject skipped when overlay used
             body = json.dumps(
                 {
                     "filepath": os.path.abspath(args.file),
                     "name": name,
-                    "notify": use_webview,
+                    "notify": notify_webview,
                 }
             ).encode()
             req = urllib.request.Request(
@@ -2608,16 +2766,20 @@ def arrayview():
             sys.exit(1)
 
         sid = result["sid"]
-        if use_webview:
+        qs = f"?sid={sid}"
+        if overlay_sid:
+            qs += f"&overlay_sid={overlay_sid}"
+        if use_webview and overlay_sid is None:
             # Tab was injected into existing webview window
             print(f"Injected into existing window (port {args.port})")
         else:
-            url = f"http://localhost:{args.port}/?sid={sid}"
+            url = f"http://localhost:{args.port}/{qs}"
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
         return
 
     sid = uuid.uuid4().hex
+    overlay_sid = uuid.uuid4().hex if args.overlay else None
     encoded_name = urllib.parse.quote(name)
 
     # Configure .vscode/settings.json: in tunnel mode writes
@@ -2629,7 +2791,11 @@ def arrayview():
     # Spawn background server — exits automatically when the window/tab is closed
     script = (
         f"from arrayview._app import _serve_daemon;"
-        f"_serve_daemon({repr(os.path.abspath(args.file))}, {args.port}, {repr(sid)})"
+        f"_serve_daemon("
+        f"{repr(os.path.abspath(args.file))}, {args.port}, {repr(sid)},"
+        f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
+        f" overlay_sid={repr(overlay_sid)}"
+        f")"
     )
     subprocess.Popen(
         [sys.executable, "-c", script],
@@ -2641,14 +2807,23 @@ def arrayview():
         )
         sys.exit(1)
 
-    if use_webview:
+    qs = f"?sid={sid}"
+    if overlay_sid:
+        qs += f"&overlay_sid={overlay_sid}"
+
+    if use_webview and overlay_sid is None:
         url_shell = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
         if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
-            url = f"http://localhost:{args.port}/?sid={sid}"
+            url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
             _open_browser(url, blocking=False)
     else:
-        url = f"http://localhost:{args.port}/?sid={sid}"
+        if use_webview and overlay_sid:
+            print(
+                "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
+                flush=True,
+            )
+        url = f"http://localhost:{args.port}/{qs}"
         _print_viewer_location(url)
         _open_browser(url, blocking=True)

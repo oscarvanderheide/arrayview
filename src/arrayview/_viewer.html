@@ -308,6 +308,7 @@
 
         const urlParams = new URLSearchParams(window.__ARRAYVIEW_QUERY__ || window.location.search);
         const sid = urlParams.get('sid');
+        const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
         const httpTransport = transport === 'http';
         let _reportedFirstFrame = false;
@@ -681,6 +682,7 @@
                     params.set('vmin_override', String(manualVmin));
                     params.set('vmax_override', String(manualVmax));
                 }
+                if (overlay_sid) params.set('overlay_sid', overlay_sid);
 
                 const frame = await fetchSliceFrame(params);
                 const vmin = frame.vmin;
@@ -963,6 +965,7 @@
                 direction: lastDirection,
                 vmin_override: manualVmin,
                 vmax_override: manualVmax,
+                overlay_sid,
             }));
         }
 
@@ -1659,6 +1662,7 @@
                 indices: qIndices, colormap: v.colormap,
                 dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: current_slice_dim, direction: 1,
+                overlay_sid,
             }));
         }
 
@@ -1680,6 +1684,7 @@
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
                 });
+                if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 const frame = await fetchSliceFrame(params);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
@@ -1815,6 +1820,7 @@
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
+                overlay_sid,
             }));
         }
 
@@ -1834,6 +1840,7 @@
                     log_scale: String(logScale),
                     slice_dim: String(v.sliceDir),
                 });
+                if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (v.lockedVmin !== undefined && v.lockedVmin !== null && v.lockedVmax !== undefined && v.lockedVmax !== null) {
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
