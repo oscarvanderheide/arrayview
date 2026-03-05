@@ -1462,23 +1462,38 @@ def _find_vscode_ipc_hook() -> str | None:
             pass
         return ""
 
+    dbg = f"[ArrayView] _find_vscode_ipc_hook: pid={os.getpid()}"
     # Own environment first
     val = os.environ.get("VSCODE_IPC_HOOK_CLI", "")
-    if val and os.path.exists(val):
-        _VSCODE_IPC_HOOK_CACHE = val
-        return val
+    dbg += f" own_env={val!r}"
+    if val:
+        exists = os.path.exists(val)
+        dbg += f" exists={exists}"
+        if exists:
+            print(dbg + " → found in own env", flush=True)
+            _VSCODE_IPC_HOOK_CACHE = val
+            return val
+    else:
+        dbg += " TERM_PROGRAM=" + repr(os.environ.get("TERM_PROGRAM", ""))
 
     # Walk up to 12 ancestor processes
     pid = os.getpid()
-    for _ in range(12):
+    for i in range(12):
         pid = _ppid(pid)
         if pid <= 1:
+            dbg += f" [stop at pid={pid}]"
             break
         val = _ipc_from_pid(pid)
-        if val and os.path.exists(val):
-            _VSCODE_IPC_HOOK_CACHE = val
-            return val
+        dbg += f" pid{i+1}={pid}:ipc={val!r}"
+        if val:
+            exists = os.path.exists(val)
+            dbg += f"(exists={exists})"
+            if exists:
+                print(dbg + " → found in ancestor", flush=True)
+                _VSCODE_IPC_HOOK_CACHE = val
+                return val
 
+    print(dbg + " → NOT FOUND", flush=True)
     _VSCODE_IPC_HOOK_CACHE = None
     return None
 
@@ -1506,7 +1521,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.0.8"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.0.9"  # must match vscode-extension/package.json
 
 
 def _ensure_vscode_extension() -> bool:
@@ -1703,40 +1718,99 @@ def _open_browser(url: str, blocking: bool = False) -> None:
     """Open *url* on the user's VS Code client (laptop) or local browser.
 
     Strategy (in order):
-    1. IPC openExternal  — direct HTTP POST to VS Code's Unix socket. VS Code
-       forwards the request to the client laptop; in a tunnel session the URL
-       resolves via port-forwarding and opens in the laptop's default browser.
-       Also, .vscode/settings.json carries ``onAutoForward: openPreview`` so
-       VS Code should open the port in Simple Browser the first time it's seen.
+    1a. Local VS Code terminal (IPC hook found, NOT remote):
+        Send ``vscode://arrayview.arrayview-opener/open?url=<encoded>`` via
+        IPC openExternal.  The extension's onUri handler fires and calls
+        ``simpleBrowser.show(url)`` → Simple Browser tab opens.
+        Falls back to raw http IPC if the extension isn't installed.
+    1b. Remote/tunnel VS Code terminal (IPC hook found, IS remote):
+        Send raw ``http://`` URL via IPC openExternal.  VS Code forwards it
+        to the laptop; ``onAutoForward: openPreview`` handles Simple Browser
+        on the first fresh port open.
     2. open / xdg-open   — local desktop fallback (macOS / Linux).
     3. Print the URL     — always works as last resort (cmd-clickable in terminal).
     """
 
     def _do() -> None:
         ipc = _find_vscode_ipc_hook()
+        is_remote = _is_vscode_remote()
         opened = False
 
+        print(
+            f"[ArrayView] _open_browser: url={url!r} ipc={ipc!r} is_remote={is_remote}",
+            flush=True,
+        )
+
         if ipc:
-            # Primary path: direct IPC socket → VS Code forwards to client laptop
-            opened = _open_via_ipc(url, ipc)
+            if is_remote:
+                # Tunnel/SSH remote: raw http URL → IPC openExternal.
+                # VS Code forwards to laptop; onAutoForward:openPreview opens
+                # Simple Browser the first time the port is detected.
+                print("[ArrayView] _open_browser: branch=remote → openExternal raw http", flush=True)
+                opened = _open_via_ipc(url, ipc)
+            else:
+                # Local VS Code terminal: route through the extension's onUri
+                # handler so arrayview opens in Simple Browser, not the system
+                # browser.  vscode://… URIs are handled by the UI extension host
+                # on the same machine.
+                ext_ok = _ensure_vscode_extension()
+                vscode_uri = (
+                    "vscode://arrayview.arrayview-opener/open?url="
+                    + urllib.parse.quote(url, safe="")
+                )
+                print(
+                    f"[ArrayView] _open_browser: branch=local ext_ok={ext_ok} → openExternal vscode_uri={vscode_uri!r}",
+                    flush=True,
+                )
+                opened = _open_via_ipc(vscode_uri, ipc)
+                if not opened:
+                    # Extension not available — fall back to raw http (system browser)
+                    print("[ArrayView] _open_browser: vscode:// IPC failed → fallback raw http", flush=True)
+                    opened = _open_via_ipc(url, ipc)
         else:
-            # Ensure extension is installed for local desktop URI handler
-            _ensure_vscode_extension()
+            # No IPC hook — running locally (not in a remote/tunnel).
+            # TERM_PROGRAM=vscode means we ARE in a local VS Code terminal;
+            # use the OS vscode:// URI dispatch to trigger the extension's onUri handler.
+            in_vscode = _in_vscode_terminal()
+            print(
+                f"[ArrayView] _open_browser: branch=no-ipc in_vscode={in_vscode}",
+                flush=True,
+            )
+            ext_ok = _ensure_vscode_extension()
+            if in_vscode and ext_ok and sys.platform == "darwin":
+                vscode_uri = (
+                    "vscode://arrayview.arrayview-opener/open?url="
+                    + urllib.parse.quote(url, safe="")
+                )
+                print(
+                    f"[ArrayView] _open_browser: trying 'open {vscode_uri}'",
+                    flush=True,
+                )
+                try:
+                    r = subprocess.run(["open", vscode_uri], capture_output=True, timeout=5)
+                    opened = r.returncode == 0
+                    print(f"[ArrayView] _open_browser: open vscode:// rc={r.returncode}", flush=True)
+                except Exception as e:
+                    print(f"[ArrayView] _open_browser: open vscode:// failed: {e}", flush=True)
 
         if not opened:
-            # Local desktop fallback: open/xdg-open
+            # Last-resort desktop fallback: open/xdg-open with plain http URL
             if sys.platform == "darwin":
                 try:
+                    print(f"[ArrayView] _open_browser: fallback 'open {url}'", flush=True)
                     r = subprocess.run(["open", url], capture_output=True, timeout=5)
                     opened = r.returncode == 0
-                except Exception:
-                    pass
+                    print(f"[ArrayView] _open_browser: open rc={r.returncode}", flush=True)
+                except Exception as e:
+                    print(f"[ArrayView] _open_browser: open failed: {e}", flush=True)
             elif sys.platform.startswith("linux"):
                 try:
+                    print(f"[ArrayView] _open_browser: fallback 'xdg-open {url}'", flush=True)
                     r = subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
                     opened = r.returncode == 0
-                except Exception:
-                    pass
+                    print(f"[ArrayView] _open_browser: xdg-open rc={r.returncode}", flush=True)
+                except Exception as e:
+                    print(f"[ArrayView] _open_browser: xdg-open failed: {e}", flush=True)
 
         if not opened:
             print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
