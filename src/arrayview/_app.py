@@ -1527,68 +1527,78 @@ _VSCODE_EXT_VERSION = "0.0.9"  # must match vscode-extension/package.json
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension if not present
     or outdated.  Returns True if the extension is (now) installed.
+
+    The extension is ``extensionKind: ["ui"]`` — it only runs in the local
+    desktop VS Code, never in a remote/tunnel extension host.  Skip it
+    entirely when running on a remote.
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
         return True
 
-    code = _find_code_cli()
-    if not code:
-        print(f"[ArrayView] ext install: no 'code' CLI found", flush=True)
+    # Extension is UI-only: useless (and polluting) on remote/tunnel.
+    if _is_vscode_remote():
+        print("[ArrayView] ext: skipping install on remote/tunnel", flush=True)
         return False
 
-    # Ensure the IPC hook is available so the remote-cli `code` helper can
-    # communicate with VS Code (uv run and similar launchers strip env vars).
+    code = _find_code_cli()
+    if not code:
+        print("[ArrayView] ext install: no 'code' CLI found", flush=True)
+        return False
+
     env = dict(os.environ)
-    ipc = _find_vscode_ipc_hook()
-    if ipc:
-        env["VSCODE_IPC_HOOK_CLI"] = ipc
+    print(f"[ArrayView] ext install: code={code!r}", flush=True)
 
-    print(
-        f"[ArrayView] ext install: code={code!r} ipc={ipc!r}",
-        flush=True,
-    )
-
-    # Fast-path: check known extension directories directly.
+    # Local VS Code loads extensions from ~/.vscode/extensions only.
     ext_dir_name = f"arrayview.arrayview-opener-{_VSCODE_EXT_VERSION}"
-    import glob as _glob
-    ext_search_dirs = [
-        os.path.expanduser("~/.vscode/extensions"),
-        os.path.expanduser("~/.vscode-server/extensions"),
-        *_glob.glob(os.path.expanduser("~/.vscode/cli/servers/*/server/extensions")),
-        *_glob.glob(os.path.expanduser("~/.vscode-server/cli/servers/*/server/extensions")),
-    ]
-    for ext_base in ext_search_dirs:
-        if os.path.isdir(os.path.join(ext_base, ext_dir_name)):
-            print(f"[ArrayView] ext found at {ext_base}/{ext_dir_name}", flush=True)
-            _VSCODE_EXT_INSTALLED = True
-            return True
+    local_ext_base = os.path.expanduser("~/.vscode/extensions")
+    target_dir = os.path.join(local_ext_base, ext_dir_name)
 
-    # Slower check via CLI (covers non-standard install locations).
-    try:
-        r = subprocess.run(
-            [code, "--list-extensions", "--show-versions"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=env,
-        )
-        if r.returncode == 0:
-            for line in r.stdout.splitlines():
-                if line.startswith("arrayview.arrayview-opener@"):
-                    installed_ver = line.split("@", 1)[1].strip()
-                    if installed_ver == _VSCODE_EXT_VERSION:
-                        _VSCODE_EXT_INSTALLED = True
-                        return True
+    # Remove stale versions from ~/.vscode/extensions so VS Code doesn't
+    # load an old copy alongside (or instead of) the current one.
+    import glob as _glob
+    import shutil as _shutil
+    stale = [
+        d for d in _glob.glob(os.path.join(local_ext_base, "arrayview.arrayview-opener-*"))
+        if os.path.isdir(d) and os.path.basename(d) != ext_dir_name
+    ]
+    for stale_dir in stale:
+        try:
+            _shutil.rmtree(stale_dir)
+            print(f"[ArrayView] ext: removed stale {stale_dir}", flush=True)
+        except Exception as exc:
+            print(f"[ArrayView] ext: could not remove stale {stale_dir}: {exc}", flush=True)
+
+    # Also remove stale entries from VS Code's extensions.json registry so
+    # it doesn't get confused when the dirs are gone.
+    if stale:
+        ext_json_path = os.path.join(local_ext_base, "extensions.json")
+        if os.path.exists(ext_json_path):
+            try:
+                with open(ext_json_path) as fh:
+                    registry = json.load(fh)
+                stale_basenames = {os.path.basename(d) for d in stale}
+                cleaned = [
+                    e for e in registry
+                    if e.get("relativeLocation") not in stale_basenames
+                ]
+                if len(cleaned) != len(registry):
+                    with open(ext_json_path, "w") as fh:
+                        json.dump(cleaned, fh, indent=2)
                     print(
-                        f"[ArrayView] ext wrong version installed: {installed_ver} (want {_VSCODE_EXT_VERSION})",
+                        f"[ArrayView] ext: removed {len(registry)-len(cleaned)} stale registry entries",
                         flush=True,
                     )
-                    break
-    except Exception as exc:
-        print(f"[ArrayView] ext --list-extensions failed: {exc}", flush=True)
+            except Exception as exc:
+                print(f"[ArrayView] ext: could not clean registry: {exc}", flush=True)
 
-    # Not installed — install from the .vsix bundled inside our package.
+    # Fast-path: correct version already present.
+    if os.path.isdir(target_dir):
+        print(f"[ArrayView] ext found at {target_dir}", flush=True)
+        _VSCODE_EXT_INSTALLED = True
+        return True
+
+    # Install from the .vsix bundled inside our package.
     vsix_path = str(_pkg_files(__package__).joinpath("arrayview-opener.vsix"))
     if not os.path.isfile(vsix_path):
         print(f"[ArrayView] ext vsix not found at {vsix_path}", flush=True)
@@ -1611,9 +1621,14 @@ def _ensure_vscode_extension() -> bool:
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
             return True
+        if "restart" in combined.lower() or "reload" in combined.lower():
+            print(
+                "[ArrayView] VS Code needs to reload before the extension activates.\n"
+                "  Run: Cmd+Shift+P → Developer: Reload Window, then run arrayview again.",
+                flush=True,
+            )
     except Exception as exc:
         print(f"[ArrayView] ext install exception: {exc}", flush=True)
-        pass
     return False
 
 
@@ -1777,7 +1792,9 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                 flush=True,
             )
             ext_ok = _ensure_vscode_extension()
-            if in_vscode and ext_ok and sys.platform == "darwin":
+            if in_vscode and ext_ok and not _VSCODE_EXT_FRESH_INSTALL:
+                # Extension is already loaded in VS Code — vscode:// URI will
+                # trigger the onUri handler immediately.
                 vscode_uri = (
                     "vscode://arrayview.arrayview-opener/open?url="
                     + urllib.parse.quote(url, safe="")
@@ -1786,12 +1803,27 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                     f"[ArrayView] _open_browser: trying 'open {vscode_uri}'",
                     flush=True,
                 )
-                try:
-                    r = subprocess.run(["open", vscode_uri], capture_output=True, timeout=5)
-                    opened = r.returncode == 0
-                    print(f"[ArrayView] _open_browser: open vscode:// rc={r.returncode}", flush=True)
-                except Exception as e:
-                    print(f"[ArrayView] _open_browser: open vscode:// failed: {e}", flush=True)
+                if sys.platform == "darwin":
+                    try:
+                        r = subprocess.run(["open", vscode_uri], capture_output=True, timeout=5)
+                        opened = r.returncode == 0
+                        print(f"[ArrayView] _open_browser: open vscode:// rc={r.returncode}", flush=True)
+                    except Exception as e:
+                        print(f"[ArrayView] _open_browser: open vscode:// failed: {e}", flush=True)
+                elif sys.platform.startswith("linux"):
+                    try:
+                        r = subprocess.run(["xdg-open", vscode_uri], capture_output=True, timeout=5)
+                        opened = r.returncode == 0
+                        print(f"[ArrayView] _open_browser: xdg-open vscode:// rc={r.returncode}", flush=True)
+                    except Exception as e:
+                        print(f"[ArrayView] _open_browser: xdg-open vscode:// failed: {e}", flush=True)
+            elif in_vscode and _VSCODE_EXT_FRESH_INSTALL:
+                # Just installed — VS Code hasn't loaded the extension yet.
+                # Fall through to the http fallback and ask user to run again.
+                print(
+                    "[ArrayView] Extension installed. Please run arrayview again to open in Simple Browser.",
+                    flush=True,
+                )
 
         if not opened:
             # Last-resort desktop fallback: open/xdg-open with plain http URL
