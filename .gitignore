@@ -17,3 +17,4 @@ tests/snapshots/
 
 *.jl
 *.ipynb
+logs/
