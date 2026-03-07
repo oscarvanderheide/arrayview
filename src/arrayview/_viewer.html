@@ -63,6 +63,11 @@
             border: 1px solid var(--canvas-border); border-radius: 2px;
             image-rendering: pixelated; outline: none; cursor: crosshair;
         }
+        .axes-indicator {
+            position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
+            pointer-events: none; color: rgba(190,190,190,0.75);
+        }
+        :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
         #slim-cb { position: absolute; left: 100%; top: 0; margin-left: 4px; border-radius: 2px; border: none; cursor: default; width: 9px; }
         #slim-cb-vmax { position: absolute; left: calc(100% + 17px); top: 0; font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace; white-space: nowrap; pointer-events: none; transform: translateY(-2px); }
         #slim-cb-vmin { position: absolute; left: calc(100% + 17px); bottom: 0; font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace; white-space: nowrap; pointer-events: none; transform: translateY(2px); }
@@ -209,6 +214,14 @@
             <canvas id="slim-cb"></canvas>
             <div id="slim-cb-vmax"></div>
             <div id="slim-cb-vmin"></div>
+            <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                <text id="main-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                <text id="main-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+            </svg>
         </div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
@@ -823,17 +836,6 @@
             if (_fftActive)
                 text += `  <span class="muted">FFT</span>`;
             document.getElementById('info').innerHTML = text;
-            if (multiViewActive && mvViews.length) {
-                const dimLetters = {};
-                ['x','y','z'].forEach((l, i) => { if (mvDims[i] !== undefined) dimLetters[mvDims[i]] = l; });
-                mvViews.forEach(v => {
-                    if (!v.label) return;
-                    const l1 = dimLetters[v.dimY] || '?', l2 = dimLetters[v.dimX] || '?';
-                    const c1 = v.dimY === activeDim ? 'active-dim' : 'spatial-dim';
-                    const c2 = v.dimX === activeDim ? 'active-dim' : 'spatial-dim';
-                    v.label.innerHTML = `(<span class="${c1}">${l1}</span>,<span class="${c2}">${l2}</span>)`;
-                });
-            }
         }
 
         function setStatus(msg) {
@@ -1414,19 +1416,28 @@
                 pane.className = 'mv-pane';
                 const inner = document.createElement('div');
                 inner.className = 'mv-inner';
-                const label = document.createElement('div');
-                label.className = 'mv-label';
                 const wrap = document.createElement('div');
                 wrap.className = 'mv-canvas-wrap';
                 const cv = document.createElement('canvas');
                 cv.className = 'mv-canvas';
-                wrap.appendChild(cv);
-                inner.appendChild(label);
+                // Tight container so axes indicator is positioned relative to canvas
+                const cvBox = document.createElement('div');
+                cvBox.style.cssText = 'position:relative;display:inline-flex;';
+                cvBox.appendChild(cv);
+                const axSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                axSvg.classList.add('axes-indicator');
+                axSvg.setAttribute('viewBox', '0 0 40 40');
+                const _axLetters = ['x', 'y', 'z'];
+                const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
+                const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
+                axSvg.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/><polygon points="26,31 31,34 26,37" fill="currentColor"/><line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/><polygon points="3,13 6,8 9,13" fill="currentColor"/><text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">${_axX}</text><text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">${_axY}</text>`;
+                cvBox.appendChild(axSvg);
+                wrap.appendChild(cvBox);
                 inner.appendChild(wrap);
                 pane.appendChild(inner);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
-                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label,
+                    canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label: null,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
