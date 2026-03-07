@@ -100,7 +100,9 @@
             font-size: 11px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
             margin-bottom: 4px; min-height: 1em; text-align: center;
+            display: flex; align-items: center; justify-content: center; gap: 7px;
         }
+        #array-name svg { flex-shrink: 0; }
         #toast {
             position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -207,7 +209,21 @@
 </head>
 <body>
 <div id="wrapper">
-    <div id="array-name"></div>
+    <div id="array-name">
+        <svg width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+            <rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>
+            <rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/>
+            <rect x="6.5" y="2" width="3" height="3" fill="#560bad"/>
+            <rect x="11" y="2" width="3" height="3" fill="#c77dff"/>
+            <rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/>
+            <rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/>
+            <rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/>
+            <rect x="2" y="11" width="3" height="3" fill="#4895ef"/>
+            <rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/>
+            <rect x="11" y="11" width="3" height="3" fill="#f8961e"/>
+        </svg>
+        <span id="array-name-text"></span>
+    </div>
     <div id="info">Connecting...</div>
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
@@ -771,7 +787,7 @@
             });
             shape = data.shape;
             isComplex = data.is_complex || false;
-            if (data.name) document.getElementById('array-name').textContent = data.name;
+            if (data.name) document.getElementById('array-name-text').textContent = data.name;
             indices = shape.map(s => Math.floor(s / 2));
             dim_x = 0; dim_y = 1;
             current_slice_dim = shape.length > 2 ? 2 : 0;
