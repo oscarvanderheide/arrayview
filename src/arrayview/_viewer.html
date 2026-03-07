@@ -1303,12 +1303,25 @@
                 }
             } else if (e.key === 'M') {
                 maskLevel = (maskLevel + 1) % MASK_LEVELS;
+                // Determine free dims based on current view mode
+                let freeDims;
+                if (multiViewActive) {
+                    freeDims = mvDims.slice(); // all 3 spatial dims
+                } else if (dim_z >= 0) {
+                    // mosaic: x + y + z + active scroll dim
+                    const sd = (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) ? activeDim : -1;
+                    freeDims = sd >= 0 ? [dim_x, dim_y, dim_z, sd] : [dim_x, dim_y, dim_z];
+                } else {
+                    // normal: x + y + active scroll dim
+                    const sd = (activeDim !== dim_x && activeDim !== dim_y) ? activeDim : -1;
+                    freeDims = sd >= 0 ? [dim_x, dim_y, sd] : [dim_x, dim_y];
+                }
                 fetch(`/mask/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         level: maskLevel,
-                        dim_x, dim_y,
+                        free_dims: freeDims,
                         indices: indices.join(','),
                     }),
                 }).then(r => r.json()).then(d => {
