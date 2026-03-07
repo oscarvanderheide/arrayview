@@ -191,6 +191,25 @@ class TestKeyboard:
         assert page.is_visible("canvas#viewer")
         assert not page.is_visible("#multi-view-wrap.active")
 
+    def test_B_toggles_side_by_side_compare(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path):
+        path = tmp_path / "arr2d_compare.npy"
+        np.save(path, arr_2d * 0.5)
+        resp = client.post("/load", json={"filepath": str(path), "name": "arr2d_compare"})
+        sid_compare = resp.json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.once("dialog", lambda d: d.accept(sid_compare))
+        page.keyboard.press("B")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        assert page.is_visible("canvas#compare-left-canvas")
+        assert page.is_visible("canvas#compare-right-canvas")
+        assert "arr2d_compare" in page.inner_text("#compare-right-title").lower()
+
+        page.keyboard.press("B")
+        page.wait_for_timeout(350)
+        assert not page.is_visible("#compare-view-wrap.active")
+
     def test_d_cycles_dynamic_range_shows_toast(self, loaded_viewer, sid_2d):
         # d cycles dynamic range; result appears in #toast
         page = loaded_viewer(sid_2d)

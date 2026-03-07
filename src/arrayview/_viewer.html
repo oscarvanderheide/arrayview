@@ -180,6 +180,13 @@
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
+        #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 10px; }
+        #compare-view-wrap.active { display: flex; align-items: stretch; justify-content: center; }
+        .compare-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; }
+        .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
+        .compare-canvas-area { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+        .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
+        .compare-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
         #qmri-view-wrap.qmri-3 { grid-template-columns: repeat(3, 1fr); }
@@ -243,6 +250,40 @@
                 <text id="main-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
             </svg>
         </div>
+        <div id="compare-view-wrap">
+            <div class="compare-pane">
+                <div id="compare-left-title" class="compare-title"></div>
+                <div class="compare-canvas-area">
+                    <div class="compare-canvas-wrap">
+                        <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                            <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                            <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            <div class="compare-pane">
+                <div id="compare-right-title" class="compare-title"></div>
+                <div class="compare-canvas-area">
+                    <div class="compare-canvas-wrap">
+                        <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                            <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                            <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay">
@@ -286,6 +327,7 @@
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
+                <div class="help-row"><span class="key">B</span><span class="desc">toggle side-by-side compare</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">toggle zen mode</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
@@ -389,6 +431,13 @@
         let mvDims = [];
         let mvDraggingView = null;
         let mvPixelPending = false;
+        let compareActive = false;
+        let compareSid = urlParams.get('compare_sid') || null;
+        let compareName = '';
+        let compareRendering = false;
+        let comparePending = false;
+        let compareLeftFrame = null;
+        let compareRightFrame = null;
 
         let qmriActive = false;
         let qmriDim = -1;
@@ -406,6 +455,13 @@
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
+        const compareWrap = document.getElementById('compare-view-wrap');
+        const compareLeftCanvas = document.getElementById('compare-left-canvas');
+        const compareLeftCtx = compareLeftCanvas.getContext('2d');
+        const compareRightCanvas = document.getElementById('compare-right-canvas');
+        const compareRightCtx = compareRightCanvas.getContext('2d');
+        const compareLeftTitle = document.getElementById('compare-left-title');
+        const compareRightTitle = document.getElementById('compare-right-title');
         const slimCbCanvas = document.getElementById('slim-cb');
         slimCbCanvas.addEventListener('mouseenter', () => { cbHovered = true; drawSlimColorbar(cbMarkerFrac); });
         slimCbCanvas.addEventListener('mouseleave', () => { cbHovered = false; drawSlimColorbar(cbMarkerFrac); });
@@ -435,8 +491,35 @@
             drawSlimColorbar(cbMarkerFrac);
         }
 
+        function compareScaleCanvases() {
+            const panes = [
+                { frame: compareLeftFrame, canvas: compareLeftCanvas },
+                { frame: compareRightFrame, canvas: compareRightCanvas },
+            ];
+            for (const p of panes) {
+                if (!p.frame) continue;
+                const area = p.canvas.closest('.compare-canvas-area');
+                if (!area) continue;
+                const maxW = Math.max(50, area.clientWidth - 10);
+                const maxH = Math.max(50, area.clientHeight - 10);
+                const base = Math.min(maxW / p.frame.width, maxH / p.frame.height);
+                const scale = Math.max(0.01, base * userZoom);
+                p.canvas.style.width = Math.round(p.frame.width * scale) + 'px';
+                p.canvas.style.height = Math.round(p.frame.height * scale) + 'px';
+            }
+        }
+
+        function drawCompareFrame(target, frame) {
+            const cv = target === 'left' ? compareLeftCanvas : compareRightCanvas;
+            const c2d = target === 'left' ? compareLeftCtx : compareRightCtx;
+            cv.width = frame.width;
+            cv.height = frame.height;
+            c2d.putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
+        }
+
         window.addEventListener('resize', () => {
             if (multiViewActive) { mvScaleAllCanvases(); return; }
+            if (compareActive) { compareScaleCanvases(); return; }
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
 
@@ -591,6 +674,14 @@
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
                 const height = headerU32[2];
+                if (compareActive) {
+                    isRendering = false;
+                    if (pendingRequest) {
+                        pendingRequest = false;
+                        updateView();
+                    }
+                    return;
+                }
 
                 if (seq === wsSentSeq) {
                     const headerF32 = new Float32Array(buf, 12, 2);
@@ -658,8 +749,8 @@
             };
         }
 
-        async function fetchSliceFrame(params) {
-            const res = await fetch(`/slice/${sid}?${params.toString()}`);
+        async function fetchSliceFrame(params, targetSid = sid) {
+            const res = await fetch(`/slice/${targetSid}?${params.toString()}`);
             if (!res.ok) {
                 throw new Error(`Render failed (${res.status})`);
             }
@@ -752,6 +843,56 @@
             }
         }
 
+        async function compareRender() {
+            if (!compareSid) return;
+            if (compareRendering) {
+                comparePending = true;
+                return;
+            }
+            compareRendering = true;
+            try {
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    dim_z: String(dim_z),
+                    indices: indices.join(','),
+                    colormap: currentColormap(),
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                    slice_dim: String(current_slice_dim),
+                });
+                if (manualVmin !== null && manualVmax !== null) {
+                    params.set('vmin_override', String(manualVmin));
+                    params.set('vmax_override', String(manualVmax));
+                }
+                const leftParams = new URLSearchParams(params.toString());
+                const rightParams = new URLSearchParams(params.toString());
+                if (overlay_sid) leftParams.set('overlay_sid', overlay_sid);
+                const [left, right] = await Promise.all([
+                    fetchSliceFrame(leftParams, sid),
+                    fetchSliceFrame(rightParams, compareSid),
+                ]);
+                compareLeftFrame = left;
+                compareRightFrame = right;
+                currentVmin = left.vmin;
+                currentVmax = left.vmax;
+                drawCompareFrame('left', left);
+                drawCompareFrame('right', right);
+                compareScaleCanvases();
+                document.getElementById('loading-overlay').style.display = 'none';
+                document.getElementById('canvas-wrap').style.display = 'none';
+            } catch (e) {
+                setStatus(`Compare render failed: ${e.message || e}`);
+            } finally {
+                compareRendering = false;
+                if (comparePending) {
+                    comparePending = false;
+                    compareRender();
+                }
+            }
+        }
+
         function triggerPreload() {
             if (multiViewActive) return;
             if (shape.length < 3) return;
@@ -824,6 +965,7 @@
             restoreState();
             initWebSocket();
             triggerPreload();
+            if (compareSid) enterCompareModeBySid(compareSid);
         }
 
         function getModeLabel() {
@@ -878,6 +1020,8 @@
             let text = `[${idxStr}]`;
             if (_fftActive)
                 text += `  <span class="muted">FFT</span>`;
+            if (compareActive)
+                text += `  <span class="muted">COMPARE</span>`;
             document.getElementById('info').innerHTML = text;
         }
 
@@ -953,6 +1097,10 @@
 
         function updateView() {
             renderInfo();
+            if (compareActive) {
+                compareRender();
+                return;
+            }
             if (httpTransport) {
                 if (multiViewActive) {
                     mvViews.forEach(v => mvRender(v));
@@ -1158,17 +1306,20 @@
             }
             if (e.key === '+' || e.key === '=') {
                 userZoom = Math.min(userZoom * 1.1, 10.0);
-                scaleCanvas(canvas.width, canvas.height);
+                if (compareActive) compareScaleCanvases();
+                else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
-                scaleCanvas(canvas.width, canvas.height);
+                if (compareActive) compareScaleCanvases();
+                else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
                 userZoom = 1.0;
-                scaleCanvas(canvas.width, canvas.height);
+                if (compareActive) compareScaleCanvases();
+                else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: fit`);
                 saveState();
             } else if (e.key === 'b') {
@@ -1178,6 +1329,8 @@
                 if (multiViewActive) drawMvColorbar();
                 if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
                 saveState();
+            } else if (e.key === 'B') {
+                toggleCompareMode();
             } else if (e.key === 'Z') {
                 setZenMode(!zenMode);
                 saveState();
@@ -1433,6 +1586,7 @@
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
+                if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri();
                 if (multiViewActive) { exitMultiView(); } else {
                     // Pick the 3 dims with the largest extent so degenerate dims (size 1) are skipped.
@@ -1440,13 +1594,123 @@
                     enterMultiView(ranked.slice(0, 3).sort((a, b) => a - b));
                 }
             } else if (e.key === 'V') {
+                if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri();
                 if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
             } else if (e.key === 'q') {
+                if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri(); else enterQmri();
             }
         });
 
+
+        // --------------- Side-by-side compare ---------------
+        async function enterCompareModeBySid(targetSid, targetNameHint = '') {
+            if (!targetSid || targetSid === sid) {
+                showStatus('compare: choose a different session');
+                return false;
+            }
+            try {
+                const [baseRes, cmpRes] = await Promise.all([
+                    fetch(`/metadata/${sid}`),
+                    fetch(`/metadata/${targetSid}`),
+                ]);
+                if (!baseRes.ok || !cmpRes.ok) {
+                    showStatus('compare: could not load session metadata');
+                    return false;
+                }
+                const baseMeta = await baseRes.json();
+                const cmpMeta = await cmpRes.json();
+                const sameShape = Array.isArray(baseMeta.shape)
+                    && Array.isArray(cmpMeta.shape)
+                    && baseMeta.shape.length === cmpMeta.shape.length
+                    && baseMeta.shape.every((v, i) => Number(v) === Number(cmpMeta.shape[i]));
+                if (!sameShape) {
+                    showStatus(`compare: shape mismatch [${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}]`);
+                    return false;
+                }
+
+                if (multiViewActive) exitMultiView();
+                if (qmriActive) exitQmri();
+                compareSid = targetSid;
+                compareName = cmpMeta.name || targetNameHint || targetSid.slice(0, 8);
+                compareLeftTitle.textContent = baseMeta.name || document.getElementById('array-name-text').textContent || 'base';
+                compareRightTitle.textContent = compareName;
+                compareLeftFrame = null;
+                compareRightFrame = null;
+                compareRendering = false;
+                comparePending = false;
+                compareActive = true;
+                document.getElementById('canvas-wrap').style.display = 'none';
+                compareWrap.classList.add('active');
+                renderInfo();
+                updateView();
+                showStatus(`compare: ${compareName}`);
+                return true;
+            } catch (e) {
+                showStatus(`compare failed: ${e.message || e}`);
+                return false;
+            }
+        }
+
+        async function enterComparePrompt() {
+            const res = await fetch('/sessions');
+            if (!res.ok) { showStatus('compare: could not query sessions'); return; }
+            const sessions = await res.json();
+            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
+            if (!candidates.length) {
+                showStatus('compare: load a second array first');
+                return;
+            }
+            let defaultPick = '1';
+            if (compareSid) {
+                const idx = candidates.findIndex(s => s.sid === compareSid);
+                if (idx >= 0) defaultPick = String(idx + 1);
+            }
+            const options = candidates
+                .map((s, i) => `${i + 1}) ${s.name || '(unnamed)'} [${s.sid.slice(0, 8)}]`)
+                .join('\n');
+            const raw = window.prompt(`Side-by-side compare\nChoose array:\n${options}\n\nEnter number or sid:`, defaultPick);
+            if (raw === null) return;
+            const val = raw.trim();
+            if (!val) return;
+            let chosen = null;
+            const num = Number(val);
+            if (Number.isInteger(num) && num >= 1 && num <= candidates.length) {
+                chosen = candidates[num - 1];
+            } else {
+                chosen = candidates.find(s => s.sid === val || s.sid.startsWith(val));
+            }
+            if (!chosen) {
+                showStatus('compare: invalid selection');
+                return;
+            }
+            await enterCompareModeBySid(chosen.sid, chosen.name || '');
+        }
+
+        function exitCompareMode() {
+            compareActive = false;
+            compareLeftFrame = null;
+            compareRightFrame = null;
+            compareRendering = false;
+            comparePending = false;
+            compareWrap.classList.remove('active');
+            if (!multiViewActive && !qmriActive) document.getElementById('canvas-wrap').style.display = '';
+            updateView();
+            showStatus('compare: off');
+        }
+
+        async function toggleCompareMode() {
+            if (compareActive) {
+                exitCompareMode();
+                return;
+            }
+            if (compareSid) {
+                const ok = await enterCompareModeBySid(compareSid, compareName);
+                if (ok) return;
+            }
+            await enterComparePrompt();
+        }
 
         // --------------- Multi-view (3-plane) ---------------
         function enterMultiViewPrompt() {
@@ -1464,6 +1728,7 @@
 
         function enterMultiView(dims) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
+            if (compareActive) exitCompareMode();
             multiViewActive = true;
             mvDims = dims;
             hideLoadingOverlay();
@@ -1601,6 +1866,7 @@
             const n = shape[targetDim];
             if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
             activeDim = targetDim;
+            if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
             qmriActive = true;
             qmriDim = activeDim;
@@ -2083,7 +2349,7 @@
             saveState();
         }, { passive: false });
 
-        canvas.addEventListener('wheel', (e) => {
+        function onSliceWheel(e) {
             e.preventDefault();
             if (multiViewActive) return;
             if (e.deltaY > 0) {
@@ -2094,7 +2360,10 @@
                 indices[current_slice_dim] = Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + 1);
             }
             updateView();
-        }, {passive: false});
+        }
+        canvas.addEventListener('wheel', onSliceWheel, {passive: false});
+        compareLeftCanvas.addEventListener('wheel', onSliceWheel, {passive: false});
+        compareRightCanvas.addEventListener('wheel', onSliceWheel, {passive: false});
 
         function closeSocket() {
             if (ws) {
