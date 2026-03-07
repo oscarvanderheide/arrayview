@@ -18,7 +18,7 @@ from importlib.resources import files as _pkg_files
 import numpy as np
 import nibabel as nib
 import uvicorn
-from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 from PIL import Image
@@ -226,6 +226,10 @@ class Session:
         self.preload_total = 0
         self.preload_skipped = False
         self.preload_lock = threading.Lock()
+
+        self.mask_level = 0          # 0=off, 1=Otsu, 2=2×Otsu
+        self.mask_otsu = None        # cached Otsu threshold (float)
+        self.mask_threshold = 0.0   # active threshold applied to rendering
 
         self.compute_global_stats()
 
@@ -445,6 +449,29 @@ def apply_complex_mode(raw, complex_mode):
     return np.nan_to_num(result).astype(np.float32)
 
 
+def _compute_otsu_threshold(data) -> float:
+    """Compute Otsu's threshold on the absolute values of non-zero, finite elements."""
+    flat = np.abs(np.asarray(data, dtype=np.float64).ravel())
+    flat = flat[np.isfinite(flat) & (flat > 0)]
+    if len(flat) < 10:
+        return 0.0
+    if len(flat) > 1_000_000:
+        rng = np.random.default_rng(42)
+        flat = rng.choice(flat, 1_000_000, replace=False)
+    hist, edges = np.histogram(flat, bins=256)
+    centers = (edges[:-1] + edges[1:]) / 2
+    total = float(hist.sum())
+    if total == 0:
+        return 0.0
+    w_b = np.cumsum(hist) / total
+    w_f = 1.0 - w_b
+    mu_cum = np.cumsum(hist * centers)
+    mu_b = np.where(w_b > 0, mu_cum / (w_b * total), 0.0)
+    mu_f = np.where(w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / w_f, 0.0)
+    sigma_b_sq = w_b * w_f * (mu_b - mu_f) ** 2
+    return float(centers[int(np.argmax(sigma_b_sq))])
+
+
 def _prepare_display(
     session, raw, complex_mode, dr, log_scale, vmin_override=None, vmax_override=None
 ):
@@ -515,11 +542,13 @@ def apply_colormap_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    # Exactly-zero raw values → transparent so the canvas background shows through
-    zero_mask = (np.abs(raw) == 0) if np.iscomplexobj(raw) else (raw == 0)
-    if zero_mask.any():
+    # Exactly-zero or masked raw values → transparent so the canvas background shows through
+    abs_raw = np.abs(raw)
+    mask_thr = getattr(session, "mask_threshold", 0.0)
+    transparent = (abs_raw == 0) if mask_thr <= 0 else (abs_raw < mask_thr)
+    if transparent.any():
         rgba = rgba.copy()
-        rgba[zero_mask, 3] = 0
+        rgba[transparent, 3] = 0
     return rgba
 
 
@@ -537,7 +566,8 @@ def render_rgba(
 ):
     has_override = vmin_override is not None and vmax_override is not None
     if not has_override:
-        key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale)
+        key = (dim_x, dim_y, idx_tuple, colormap, dr, complex_mode, log_scale,
+               getattr(session, "mask_threshold", 0.0))
         if key in session.rgba_cache:
             session.rgba_cache.move_to_end(key)
             return session.rgba_cache[key]
@@ -834,6 +864,50 @@ def get_colormap(name: str):
     if not _ensure_lut(name):
         return Response(status_code=404)
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
+
+
+# Multipliers applied to the Otsu threshold for each mask level (level 0 = off)
+MASK_MULTIPLIERS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0]
+
+
+@app.post("/mask/{sid}")
+async def set_mask(sid: str, request: Request):
+    """Cycle mask level (0=off, 1–7 = increasing Otsu multiplier on current slice)."""
+    session = SESSIONS.get(sid)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    body = await request.json()
+    level = int(body.get("level", 0))
+    level = max(0, min(level, len(MASK_MULTIPLIERS) - 1))
+    if level == 0:
+        session.mask_level = 0
+        session.mask_threshold = 0.0
+        session.rgba_cache.clear()
+        session._rgba_bytes = 0
+        return {"level": 0, "threshold": 0.0, "multiplier": 0.0}
+    # Compute Otsu on the current visible slice
+    try:
+        dim_x = int(body.get("dim_x", 0))
+        dim_y = int(body.get("dim_y", 1))
+        indices = [int(v) for v in str(body.get("indices", "0")).split(",")]
+        loop = asyncio.get_running_loop()
+        raw_slice = await loop.run_in_executor(
+            None, lambda: extract_slice(session, dim_x, dim_y, indices)
+        )
+        otsu = await loop.run_in_executor(
+            None, lambda: _compute_otsu_threshold(raw_slice)
+        )
+    except Exception as e:
+        return {"error": str(e)}
+    otsu = float(otsu)
+    multiplier = MASK_MULTIPLIERS[level]
+    threshold = otsu * multiplier
+    session.mask_level = level
+    session.mask_threshold = threshold
+    session.mask_otsu = otsu  # cache for reference
+    session.rgba_cache.clear()
+    session._rgba_bytes = 0
+    return {"level": level, "threshold": threshold, "otsu": otsu, "multiplier": multiplier}
 
 
 @app.post("/preload/{sid}")

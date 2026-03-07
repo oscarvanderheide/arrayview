@@ -375,6 +375,8 @@
         let flipDims = {}; // per-dimension flip state used in multi-view
         let _fftActive = false;
         let logScale = false;
+        const MASK_LEVELS = 8; // 0=off, 1–7 = increasing Otsu multipliers
+        let maskLevel = 0;
         let multiViewActive = false;
         let mvViews = [];
         let mvDims = [];
@@ -1299,6 +1301,22 @@
                     }
                     renderInfo();
                 }
+            } else if (e.key === 'M') {
+                maskLevel = (maskLevel + 1) % MASK_LEVELS;
+                fetch(`/mask/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        level: maskLevel,
+                        dim_x, dim_y,
+                        indices: indices.join(','),
+                    }),
+                }).then(r => r.json()).then(d => {
+                    if (d.error) { showStatus('mask error: ' + d.error); return; }
+                    updateView(); triggerPreload();
+                    if (maskLevel === 0) showStatus('mask: off');
+                    else showStatus(`mask: ${d.multiplier?.toFixed(2)}× Otsu (thr=${d.threshold?.toFixed(3)})`);
+                });
             } else if (e.key === 'L') {
                 logScale = !logScale;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
