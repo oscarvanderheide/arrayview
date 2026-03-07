@@ -103,6 +103,9 @@
             display: flex; align-items: center; justify-content: center; gap: 7px;
         }
         #array-name svg { flex-shrink: 0; }
+        :root.zen-mode #array-name { display: none; }
+        :root.zen-mode .axes-indicator { display: none; }
+        :root.zen-mode #pixel-info { visibility: hidden; }
         #toast {
             position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -283,6 +286,7 @@
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
+                <div class="help-row"><span class="key">Z</span><span class="desc">toggle zen mode</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
@@ -346,7 +350,8 @@
             themeIdx = idx;
             const t = THEMES[idx];
             isDark = t !== 'light' && t !== 'solarized';
-            document.documentElement.className = t === 'dark' ? '' : t;
+            document.documentElement.classList.remove('light', 'solarized', 'nord');
+            if (t !== 'dark') document.documentElement.classList.add(t);
         }
         let isComplex = false;
         let complexMode = 0;
@@ -354,6 +359,7 @@
         let customColormap = null, customGradientStops = null;
 
         let cbVisible = true;
+        let zenMode = false;
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
@@ -447,16 +453,32 @@
         }
 
         let cbHovered = false;
+        const colorbarVisible = () => cbVisible && !zenMode;
         const _cbFmt = v => {
             const av = Math.abs(v);
             if (av === 0) return '0';
             if (av >= 1e4 || (av < 0.01 && av > 0)) return v.toExponential(1);
             return parseFloat(v.toPrecision(3)).toString();
         };
+        function setZenMode(enabled, opts = {}) {
+            zenMode = !!enabled;
+            document.documentElement.classList.toggle('zen-mode', zenMode);
+            if (zenMode) {
+                cbHovered = false;
+                cbMarkerFrac = null;
+                const pixelEl = document.getElementById('pixel-info');
+                pixelEl.textContent = '';
+                pixelEl.style.visibility = 'hidden';
+            }
+            drawSlimColorbar(cbMarkerFrac);
+            if (multiViewActive) drawMvColorbar();
+            if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
+            if (!opts.silent) showStatus(zenMode ? 'zen mode: on' : 'zen mode: off');
+        }
         function drawSlimColorbar(markerFrac) {
             const vmaxEl = document.getElementById('slim-cb-vmax');
             const vminEl = document.getElementById('slim-cb-vmin');
-            if (!cbVisible) {
+            if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
                 if (vmaxEl) vmaxEl.style.display = 'none';
                 if (vminEl) vminEl.style.display = 'none';
@@ -891,7 +913,7 @@
                 colormap_idx, dr_idx, indices: [...indices],
                 logScale, complexMode, flip_x, flip_y,
                 flipDims: {...flipDims}, userZoom,
-                customColormap, themeIdx,
+                customColormap, themeIdx, zenMode,
             }));
         }
 
@@ -911,6 +933,7 @@
                 userZoom    = s.userZoom ?? 1.0;
                 if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
                 else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
+                setZenMode(!!s.zenMode, { silent: true });
                 if (s.customColormap && colormap_idx === -1) {
                     // Re-fetch gradient stops so colorbar can render correctly
                     fetch(`/colormap/${encodeURIComponent(s.customColormap)}`)
@@ -1084,6 +1107,7 @@
         window.addEventListener('focus', () => sink.focus());
 
         canvas.addEventListener('mousemove', (e) => {
+            if (zenMode) return;
             if (dim_z >= 0) return;
             if (pixelHoverPending) return;
             pixelHoverPending = true;
@@ -1150,7 +1174,12 @@
             } else if (e.key === 'b') {
                 cbVisible = !cbVisible;
                 drawSlimColorbar(cbMarkerFrac);
-                showStatus(cbVisible ? 'colorbar: on' : 'colorbar: off');
+                showStatus(cbVisible ? (zenMode ? 'colorbar: on (hidden in zen mode)' : 'colorbar: on') : 'colorbar: off');
+                if (multiViewActive) drawMvColorbar();
+                if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
+                saveState();
+            } else if (e.key === 'Z') {
+                setZenMode(!zenMode);
                 saveState();
             } else if (e.key === 'z') {
                 if (dim_z >= 0) {
@@ -1509,6 +1538,7 @@
                     handleMvPointer(view, e);
                 });
                 cv.addEventListener('mousemove', (e) => {
+                    if (zenMode) return;
                     if (!view.lastW || !view.lastH) return;
                     const rect = cv.getBoundingClientRect();
                     const px = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
@@ -1730,7 +1760,7 @@
             if (!v.cbCanvas) return;
             const cssH = parseInt(v.canvas.style.height);
             if (!cssH || cssH < 10) { v.cbCanvas.style.display = 'none'; return; }
-            if (!cbVisible) { v.cbCanvas.style.display = 'none'; return; }
+            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; return; }
             v.cbCanvas.style.display = '';
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
@@ -1926,7 +1956,7 @@
             const cbCanvas = document.getElementById('mv-cb');
             const labelsEl = document.getElementById('mv-cb-labels');
             if (!cbCanvas || !labelsEl) return;
-            if (!cbVisible) { cbCanvas.style.display = 'none'; labelsEl.style.display = 'none'; return; }
+            if (!colorbarVisible()) { cbCanvas.style.display = 'none'; labelsEl.style.display = 'none'; return; }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const wrap = document.getElementById('multi-view-wrap');
