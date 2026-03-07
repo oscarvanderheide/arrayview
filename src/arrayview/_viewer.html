@@ -270,8 +270,29 @@
         const COMPLEX_MODES = __COMPLEX_MODES__;
         const REAL_MODES = __REAL_MODES__;
 
-        const urlParams = new URLSearchParams(window.location.search);
+        const urlParams = new URLSearchParams(window.__ARRAYVIEW_QUERY__ || window.location.search);
         const sid = urlParams.get('sid');
+        const transport = urlParams.get('transport') || 'ws';
+        const httpTransport = transport === 'http';
+        let _reportedFirstFrame = false;
+
+        function reportParent(phase, detail) {
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        source: 'arrayview-viewer',
+                        phase,
+                        detail: detail || null,
+                    }, '*');
+                }
+            } catch (_) {
+            }
+        }
+
+        reportParent('script-loaded', {
+            href: window.location.href,
+            transport,
+        });
 
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
@@ -483,11 +504,20 @@
         }
 
         function initWebSocket() {
+            if (httpTransport) {
+                reportParent('transport-http', { sid });
+                wsReady = true;
+                setStatus('');
+                sink.focus();
+                updateView();
+                return;
+            }
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
+                reportParent('ws-open', { host: location.host });
                 wsReady = true;
                 setStatus('');
                 sink.focus();
@@ -523,6 +553,14 @@
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
                     }
+                    if (!_reportedFirstFrame) {
+                        _reportedFirstFrame = true;
+                        reportParent('frame-rendered', {
+                            mode: 'ws',
+                            width,
+                            height,
+                        });
+                    }
                 }
 
                 isRendering = false;
@@ -535,11 +573,121 @@
             };
 
             ws.onclose = () => {
+                reportParent('ws-close', { sid });
                 wsReady = false;
                 setStatus('WebSocket closed.');
             };
+            ws.onerror = () => {
+                reportParent('ws-error', { sid });
+                ws.close();
+            };
+        }
 
-            ws.onerror = () => ws.close();
+        async function decodeBlobToImageData(blob) {
+            const bitmap = await createImageBitmap(blob);
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = bitmap.width;
+            tempCanvas.height = bitmap.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(bitmap, 0, 0);
+            return {
+                imageData: tempCtx.getImageData(0, 0, bitmap.width, bitmap.height),
+                width: bitmap.width,
+                height: bitmap.height,
+            };
+        }
+
+        async function fetchSliceFrame(params) {
+            const res = await fetch(`/slice/${sid}?${params.toString()}`);
+            if (!res.ok) {
+                throw new Error(`Render failed (${res.status})`);
+            }
+
+            const vmin = Number(res.headers.get('X-ArrayView-Vmin'));
+            const vmax = Number(res.headers.get('X-ArrayView-Vmax'));
+            const blob = await res.blob();
+            const decoded = await decodeBlobToImageData(blob);
+            return {
+                ...decoded,
+                vmin,
+                vmax,
+            };
+        }
+
+        async function updateViewHttp() {
+            if (isRendering) {
+                pendingRequest = true;
+                return;
+            }
+
+            isRendering = true;
+            try {
+                reportParent('http-render-start', {
+                    sid,
+                    dim_x,
+                    dim_y,
+                    slice_dim: current_slice_dim,
+                });
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    dim_z: String(dim_z),
+                    indices: indices.join(','),
+                    colormap: currentColormap(),
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                    slice_dim: String(current_slice_dim),
+                });
+                if (manualVmin !== null && manualVmax !== null) {
+                    params.set('vmin_override', String(manualVmin));
+                    params.set('vmax_override', String(manualVmax));
+                }
+
+                const frame = await fetchSliceFrame(params);
+                const vmin = frame.vmin;
+                const vmax = frame.vmax;
+                if (Number.isFinite(vmin) && Number.isFinite(vmax)) {
+                    currentVmin = vmin;
+                    currentVmax = vmax;
+                    if (manualVmin === null) {
+                        manualVmin = vmin;
+                        manualVmax = vmax;
+                    }
+                }
+
+                lastImageData = frame.imageData;
+                lastImgW = frame.width;
+                lastImgH = frame.height;
+                canvas.width = frame.width;
+                canvas.height = frame.height;
+                ctx.putImageData(applyFlips(lastImageData, frame.width, frame.height), 0, 0);
+                scaleCanvas(frame.width, frame.height);
+                document.getElementById('loading-overlay').style.display = 'none';
+                document.getElementById('canvas-wrap').style.display = '';
+                drawSlimColorbar(cbMarkerFrac);
+                if (!_reportedFirstFrame) {
+                    _reportedFirstFrame = true;
+                    reportParent('frame-rendered', {
+                        mode: 'http',
+                            width: frame.width,
+                            height: frame.height,
+                    });
+                }
+            } catch (e) {
+                const statusMatch = String(e.message || e).match(/\((\d+)\)/);
+                if (statusMatch) {
+                    reportParent('http-render-http-error', { status: Number(statusMatch[1]) });
+                }
+                reportParent('http-render-error', { message: e.message || String(e) });
+                setStatus(`HTTP render failed: ${e.message || e}`);
+            } finally {
+                isRendering = false;
+                if (pendingRequest) {
+                    pendingRequest = false;
+                    updateView();
+                }
+            }
         }
 
         function triggerPreload() {
@@ -587,13 +735,20 @@
 
         async function init() {
             if (!sid) { hideLoadingOverlay(); return; }
+            reportParent('metadata-request', { sid });
             const res = await fetch(`/metadata/${sid}`);
             if (!res.ok) {
+                reportParent('metadata-http-error', { status: res.status, sid });
                 const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
                 document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
                 return;
             }
             const data = await res.json();
+            reportParent('metadata-loaded', {
+                sid,
+                shape: data.shape,
+                is_complex: data.is_complex || false,
+            });
             shape = data.shape;
             isComplex = data.is_complex || false;
             if (data.name) document.getElementById('array-name').textContent = data.name;
@@ -745,6 +900,18 @@
 
         function updateView() {
             renderInfo();
+            if (httpTransport) {
+                if (multiViewActive) {
+                    mvViews.forEach(v => mvRender(v));
+                    return;
+                }
+                if (qmriActive) {
+                    qmriViews.forEach(v => qvRender(v));
+                    return;
+                }
+                updateViewHttp();
+                return;
+            }
             if (multiViewActive) { mvViews.forEach(v => mvRender(v)); return; }
             if (qmriActive) { qmriViews.forEach(v => qvRender(v)); return; }
             if (!wsReady) return;
@@ -1306,15 +1473,19 @@
                 });
                 return view;
             });
-            mvViews.forEach(v => {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                v.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-                v.ws.binaryType = 'arraybuffer';
-                v.ws.onopen = () => mvRender(v);
-                v.ws.onmessage = (event) => mvOnMessage(v, event);
-                v.ws.onclose = () => { v.rendering = false; };
-                v.ws.onerror = () => { v.rendering = false; if (v.ws) v.ws.close(); };
-            });
+            if (httpTransport) {
+                mvViews.forEach(v => mvRender(v));
+            } else {
+                mvViews.forEach(v => {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    v.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
+                    v.ws.binaryType = 'arraybuffer';
+                    v.ws.onopen = () => mvRender(v);
+                    v.ws.onmessage = (event) => mvOnMessage(v, event);
+                    v.ws.onclose = () => { v.rendering = false; };
+                    v.ws.onerror = () => { v.rendering = false; if (v.ws) v.ws.close(); };
+                });
+            }
             renderInfo();
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -1384,15 +1555,20 @@
                     qmriViews.forEach(v => qvRender(v));
                     saveState();
                 }, { passive: false });
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-                view.ws.binaryType = 'arraybuffer';
-                view.ws.onopen = () => qvRender(view);
-                view.ws.onmessage = (event) => qvOnMessage(view, event);
-                view.ws.onclose = () => { view.rendering = false; };
-                view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                if (!httpTransport) {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
+                    view.ws.binaryType = 'arraybuffer';
+                    view.ws.onopen = () => qvRender(view);
+                    view.ws.onmessage = (event) => qvOnMessage(view, event);
+                    view.ws.onclose = () => { view.rendering = false; };
+                    view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                }
                 return view;
             });
+            if (httpTransport) {
+                qmriViews.forEach(v => qvRender(v));
+            }
             renderInfo();
             showStatus('qMRI mode — press q to exit', 3000);
         }
@@ -1412,6 +1588,10 @@
         }
 
         function qvRender(v) {
+            if (httpTransport) {
+                qvRenderHttp(v);
+                return;
+            }
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
@@ -1423,6 +1603,40 @@
                 dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: current_slice_dim, direction: 1,
             }));
+        }
+
+        async function qvRenderHttp(v) {
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true;
+            v.seq++;
+            try {
+                const qIndices = [...indices];
+                qIndices[qmriDim] = v.qmriIdx;
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    dim_z: '-1',
+                    indices: qIndices.join(','),
+                    colormap: v.colormap,
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                    slice_dim: String(current_slice_dim),
+                });
+                const frame = await fetchSliceFrame(params);
+                v.vmin = frame.vmin;
+                v.vmax = frame.vmax;
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width;
+                v.lastH = frame.height;
+                qvScaleAllCanvases();
+                qvDrawFrame(v);
+                drawQvSlimCb(v);
+            } finally {
+                v.rendering = false;
+                if (v.pending) { v.pending = false; qvRender(v); }
+                else if (isPlaying && qmriViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            }
         }
 
         function qvDrawFrame(v) {
@@ -1530,6 +1744,10 @@
         }
 
         function mvRender(v) {
+            if (httpTransport) {
+                mvRenderHttp(v);
+                return;
+            }
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
@@ -1541,6 +1759,49 @@
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
             }));
+        }
+
+        async function mvRenderHttp(v) {
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true;
+            v.seq++;
+            try {
+                const params = new URLSearchParams({
+                    dim_x: String(v.dimX),
+                    dim_y: String(v.dimY),
+                    dim_z: '-1',
+                    indices: indices.join(','),
+                    colormap: currentColormap(),
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                    slice_dim: String(v.sliceDir),
+                });
+                if (v.lockedVmin !== undefined && v.lockedVmin !== null && v.lockedVmax !== undefined && v.lockedVmax !== null) {
+                    params.set('vmin_override', String(v.lockedVmin));
+                    params.set('vmax_override', String(v.lockedVmax));
+                }
+                const frame = await fetchSliceFrame(params);
+                v.vmin = frame.vmin;
+                v.vmax = frame.vmax;
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin;
+                    v.lockedVmax = v.vmax;
+                } else {
+                    v.vmin = v.lockedVmin;
+                    v.vmax = v.lockedVmax;
+                }
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width;
+                v.lastH = frame.height;
+                mvScaleAllCanvases();
+                mvDrawFrame(v);
+                drawMvColorbar();
+            } finally {
+                v.rendering = false;
+                if (v.pending) { v.pending = false; mvRender(v); }
+                else if (isPlaying && mvViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            }
         }
 
         function mvDrawFrame(v) {
