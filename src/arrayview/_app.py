@@ -514,7 +514,13 @@ def apply_colormap_rgba(
         normalized = np.zeros_like(data)
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
-    return lut[(normalized * 255).astype(np.uint8)]
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    # Exactly-zero raw values → transparent so the canvas background shows through
+    zero_mask = (np.abs(raw) == 0) if np.iscomplexobj(raw) else (raw == 0)
+    if zero_mask.any():
+        rgba = rgba.copy()
+        rgba[zero_mask, 3] = 0
+    return rgba
 
 
 def render_rgba(
