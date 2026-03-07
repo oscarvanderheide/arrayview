@@ -12,6 +12,9 @@ A fast, minimal viewer for multi-dimensional arrays, inspired by the great
 `uvx arrayview your_array.npy`
 
 Opens in a native window. To open in browser, pass `--browser` flag.
+When launched from a local VS Code terminal, browser mode targets VS Code Simple
+Browser via the bundled opener extension. In VS Code remote/tunnel sessions,
+ArrayView relies on VS Code port auto-forwarding and preview settings instead.
 
 ## Python
 

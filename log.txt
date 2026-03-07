@@ -1,0 +1,1569 @@
+
+# ArrayView Tunnel Integration — Attempt Log
+#
+# PURPOSE: Track every approach tried so we stop going in circles.
+# UPDATE THIS FILE after every attempt. Check it BEFORE trying something new.
+#
+# Setup: MacBook Air (VS Code client) ↔ devtunnel ↔ iMac (tunnel server)
+# Goal: `uv run arrayview data.npy` auto-opens in VS Code Simple Browser
+#
+# =============================================================================
+
+## Attempt 1 — onAutoForward: "openPreview" (v0.0.8-ish)
+Approach: Set `.vscode/settings.json` with `"remote.portsAttributes": { "8000": { "onAutoForward": "openPreview" } }`
+Result:  FAILED — Simple Browser opens but with the devtunnel public URL
+         (https://oscars-imachome-8000.euw.devtunnels.ms/...) which triggers
+         GitHub OAuth login → 403 Forbidden. The devtunnel URL requires auth
+         that Simple Browser can't handle.
+Lesson:  onAutoForward "openPreview" opens the PUBLIC devtunnel URL, not localhost.
+         This approach is fundamentally broken for private tunnels.
+
+## Attempt 2 — onAutoForward: "silent" + IPC command execution
+Approach: Set onAutoForward to "silent" (port forwards silently without opening).
+         Then try to send `{"type": "command", "command": "simpleBrowser.show"}`
+         over the VSCODE_IPC_HOOK_CLI Unix domain socket to trigger Simple Browser.
+Result:  FAILED — IPC socket returned HTTP 404.
+         The VS Code CLI IPC protocol does NOT support arbitrary command execution.
+         It only supports a limited set of message types (openExternal, status, etc).
+Lesson:  Cannot execute VS Code commands via IPC socket. The socket only supports
+         "open" (openExternal) and a few other types. "command" type → 404.
+
+## Attempt 3 — openExternal IPC with localhost URL
+Approach: Send `{"type": "open", "uris": ["http://localhost:8000/..."]}` via IPC
+         socket, hoping VS Code would open it in Simple Browser.
+Result:  FAILED — VS Code converts localhost URLs to devtunnel URLs when using
+         openExternal, then opens system browser with the devtunnel URL → OAuth error.
+Lesson:  openExternal through IPC always resolves to the public tunnel URL.
+         Cannot use IPC openExternal to open localhost in Simple Browser.
+
+## Attempt 4 — VS Code Extension with signal file (v0.0.14)
+Approach: Wrote a VS Code extension (arrayview-opener) that:
+         - Activates on startup (onStartupFinished)
+         - Watches ~/.arrayview/open-request.json via fs.watch + polling
+         - When signal file appears, calls vscode.env.asExternalUri(localhost)
+           to get the forwarded URL, then opens THAT URL in simpleBrowser.show()
+Result:  PARTIAL — Extension activated successfully. Simple Browser opened.
+         But it opened the devtunnel URL (from asExternalUri) → white screen / auth error.
+Lesson:  asExternalUri() returns the public devtunnel URL. Passing that to
+         simpleBrowser.show() has the same OAuth problem. Need to pass localhost
+         URL directly to simpleBrowser.show() — it handles forwarding internally.
+
+## Attempt 5 — asExternalUri for side-effect only, localhost to Simple Browser (v0.0.15)
+Approach: Changed extension to:
+         1. Call asExternalUri(localhost) ONLY as side-effect (triggers port forwarding)
+         2. Pass the ORIGINAL localhost URL to simpleBrowser.show()
+         Extension logs confirmed: "port forwarding established" + "opening Simple
+         Browser with localhost url"
+Result:  FAILED — ERR_CONNECTION_REFUSED in Simple Browser.
+         The port forwarding hadn't fully initialized when Simple Browser tried
+         to connect.
+Lesson:  asExternalUri() returns before the forwarding proxy is ready.
+         Need a delay between asExternalUri() and simpleBrowser.show().
+
+## Attempt 6 — Added 2s delay after asExternalUri (v0.0.16)
+Approach: Added `await sleep(2000)` after asExternalUri() call, before
+         simpleBrowser.show(). Rebuilt VSIX.
+Result:  FAILED — VS Code never picked up the new extension version.
+         Old versions (0.0.14, 0.0.15, 0.0.16) accumulated in
+         ~/.vscode-server/extensions/. VS Code kept running the old one.
+Lesson:  Simply rebuilding VSIX and copying files doesn't make VS Code reload
+         the extension. Need to clean old versions AND reload the window.
+
+## Attempt 7 — Stale version cleanup + copy to both dirs (v0.0.17)
+Approach: Updated _ensure_vscode_extension() to:
+         1. Remove all older arrayview extension versions from both
+            ~/.vscode/extensions/ and ~/.vscode-server/extensions/
+         2. Copy extension to BOTH directories
+         3. Register in ~/.vscode-server/extensions/extensions.json
+Result:  FAILED — Extension installed in both directories but NEVER ACTIVATES.
+         extension.log is 0 bytes. Signal file persists unconsumed.
+Root cause found: The extension directory was copied to ~/.vscode/extensions/
+         but was NOT registered in ~/.vscode/extensions/extensions.json.
+         VS Code reads the registry JSON to decide which extensions to load.
+         The code only registered in ~/.vscode-server/extensions/extensions.json.
+Lesson:  Manually copying extension files is fragile. VS Code maintains a registry
+         (extensions.json) and only loads extensions listed there. Directory-only
+         copies are invisible to VS Code. Should use `code --install-extension`
+         or `code-server --install-extension` which handles registration properly.
+
+# =============================================================================
+# CURRENT STATUS (as of session end):
+# - Extension v0.0.17 directory exists in both ~/.vscode/ and ~/.vscode-server/
+# - Registered in ~/.vscode-server/extensions/extensions.json only
+# - NOT registered in ~/.vscode/extensions/extensions.json
+# - Extension never activates (log is 0 bytes)
+# - Signal file written but never consumed
+#
+# WHAT TO TRY NEXT:
+# - Use `code-server --install-extension` for tunnel-side installation
+#   (path: ~/.vscode/cli/servers/Stable-<commit>/server/bin/code-server)
+# - Use `code --install-extension` for local-side installation
+# - These handle the extensions.json registry automatically
+# - After install, MUST reload VS Code window (Ctrl+Shift+P → Reload Window)
+# - If extension activates but ERR_CONNECTION_REFUSED (attempt 5 issue),
+#   the 2s delay (attempt 6) should fix it — but need to verify
+#
+# KEY INSIGHT from TUNNEL_PLAN.md:
+# simpleBrowser.show(localhostUrl) auto-forwards through tunnels — no need
+# for asExternalUri at all. Just show the localhost URL directly.
+# =============================================================================
+
+# RULES FOR FUTURE ATTEMPTS:
+# 1. READ THIS FILE before trying anything new
+# 2. UPDATE THIS FILE after every attempt
+# 3. Never manually copy extension dirs — use code --install-extension
+# 4. Always reload VS Code window after extension install
+# 5. Check extension.log to verify activation before testing
+# 6. Always use localhost (not 127.0.0.1) in URLs
+
+## Attempt 8 — v0.2.0: simplified extension, code --install-extension (2026-03-06)
+Approach: 
+  - Rewrote extension.js v0.2.0: removed asExternalUri entirely (caused OAuth errors
+    in attempts 4-5), removed URI handler (not needed), removed sleep delay.
+    Extension now ONLY does: poll for signal file → simpleBrowser.show(localhostUrl).
+    simpleBrowser.show() auto-forwards through tunnels — no asExternalUri needed.
+  - Changed extensionKind from ["workspace", "ui"] to ["workspace"] only.
+  - Rewrote _ensure_vscode_extension() to use code --list-extensions + code --install-extension
+    instead of manual directory copying (which didn't register in extensions.json — attempt 7).
+  - Built VSIX manually (Node.js v11.1.0 too old for npx @vscode/vsce).
+  - Uninstalled old v0.0.17, cleaned all stale dirs, installed v0.2.0 via:
+      code --install-extension arrayview-opener.vsix --force
+    This installed to ~/.vscode-server/extensions/ and registered in extensions.json.
+  - Also installed via tunnel server's code-server binary:
+      ~/.vscode/cli/servers/Stable-0870c.../server/bin/code-server --install-extension
+Result: FAILED — Extension still does not activate after window reload.
+  extension.log is empty (0 bytes). Signal file not consumed.
+  
+Root cause analysis:
+  - Extension IS in ~/.vscode-server/extensions/arrayview.arrayview-opener-0.2.0/
+  - Extension IS in extensions.json registry with correct metadata
+  - code --list-extensions shows arrayview.arrayview-opener@0.2.0
+  - code-server --list-extensions also shows it
+  - Extension host log (exthost14/remoteexthost.log) shows other onStartupFinished
+    extensions activating (vscode.debug-auto-launch, vscode.merge-conflict, 
+    GitHub.vscode-pull-request-github) but NOT arrayview-opener
+  - Extension DID activate ONCE earlier (11:22:51, remoteName=tunnel, appHost=desktop)
+    but that was v0.0.17 before we uninstalled it
+  - Other extensions (copilot, copilot-chat) load from ~/.vscode-server/extensions/
+    so the directory IS correct
+
+Key question: Why does VS Code skip arrayview-opener during onStartupFinished activation
+even though it's properly installed and registered?
+
+Possible reasons to investigate:
+  a) Extension installed AFTER the extension host started — extension host may cache
+     the extension list at startup and not re-scan even after window reload
+  b) extensionKind: ["workspace"] might not be correct for tunnel sessions
+     — the earlier successful activation was with ["workspace", "ui"] (v0.0.17)
+  c) The VSIX was built manually (zip) without vsce — maybe missing required
+     metadata that vsce adds (like __metadata in package.json)?
+  d) The tunnel server might need a full server restart, not just window reload
+  e) VS Code might be using a cached/compiled extension scan from before v0.2.0
+     was installed — need to clear that cache
+
+## Attempt 8b — Deep investigation into WHY extension host skips arrayview (2026-03-06 ~13:00)
+
+Investigation findings:
+
+1. ACTIVATION HISTORY — full exthost sweep:
+   - exthost1  (07:01, pid 25333): arrayview ACTIVATED ✓ (v0.0.14)
+   - exthost2  (07:53, pid 27213): arrayview ACTIVATED ✓ (v0.0.14)
+   - exthost3  (09:51, pid 31080): arrayview ACTIVATED ✓ (v0.0.15)
+   - exthost4  (09:52, pid 31355): arrayview ACTIVATED ✓ (v0.0.15)
+   - exthost5  (10:43, pid 34153): arrayview ACTIVATED ✓ (v0.0.16)
+   - exthost6  (10:59, pid 34978): arrayview NOT found ✗
+   - exthost7  (11:03, pid 35214): arrayview NOT found ✗
+   - exthost8  (11:10, pid 35822): arrayview NOT found ✗
+   - exthost9  (11:32, pid 37200): arrayview NOT found ✗
+   - exthost10 (12:12, pid 38784): arrayview ACTIVATED ✓ (v0.2.0, hot-installed at 12:22:51)
+   - exthost11 (12:23, pid 39463): arrayview NOT found ✗
+   - exthost12 (12:26, pid 39980): arrayview NOT found ✗
+   - exthost13 (12:28, pid 40374): arrayview NOT found ✗
+   - exthost14 (12:34, pid 41249): arrayview NOT found ✗
+   - exthost15 (12:47, pid 42527): arrayview NOT found ✗
+
+   KEY PATTERN: Extension activates when HOT-INSTALLED into a running exthost
+   (exthost1-5: installed while running; exthost10: installed at 12:22 into running host).
+   But extension NEVER loads on a cold start (exthost6-9, 11-15).
+   This means on startup, VS Code's extension scanner SKIPS it.
+
+2. INSTALLED PACKAGE.JSON has suspicious __metadata:
+   ~/.vscode-server/extensions/arrayview.arrayview-opener-0.2.0/package.json:
+     "__metadata": {
+       "installedTimestamp": 1772797070264,
+       "targetPlatform": "undefined",   ← literal string "undefined"!
+       "size": 3070
+     }
+   Compare with working extension (ms-python.vscode-python-envs):
+     "targetPlatform": "darwin-x64"
+   
+   The literal string "undefined" may cause VS Code's platform filter to reject
+   the extension at scan time on cold start. Hot-install bypasses this check.
+
+3. .obsolete FILE contents:
+   ~/.vscode-server/extensions/.obsolete:
+   {"arrayview.arrayview-opener-0.0.4":true,"arrayview.arrayview-opener-0.0.5":true,
+    "arrayview.arrayview-opener-0.0.14":true,"arrayview.arrayview-opener-0.0.15":true,
+    "arrayview.arrayview-opener-0.0.17":true}
+   v0.2.0 is NOT in .obsolete — so that's not the issue.
+
+4. extensions.json REGISTRY ENTRY is intact:
+   identifier: arrayview.arrayview-opener, version: 0.2.0
+   location: ~/.vscode-server/extensions/arrayview.arrayview-opener-0.2.0
+   metadata: isMachineScoped=true, source="vsix", pinned=true
+   No "removed" marker. Looks correct.
+
+5. remoteagent.log confirms clean install:
+   12:22:31 — Uninstalled v0.0.17
+   12:22:51 — Installed v0.2.0, extracted, renamed, success
+   No errors.
+
+6. VS Code Node.js = v22.22.0 at:
+   ~/.vscode/cli/servers/Stable-0870c.../server/node
+   System Node.js = v11.1.0 (too old for vsce/npx)
+   npm = v6.4.1 (incompatible with Node 22, npx fails with "cb.apply is not a function")
+
+CONCLUSION:
+  The hand-built VSIX (zip) produces "targetPlatform": "undefined" in __metadata.
+  VS Code's extension scanner at cold-start filters by platform and rejects
+  extensions with a platform that doesn't match the host. The string "undefined"
+  doesn't match "darwin-x64" → extension is silently skipped.
+  Hot-install works because the extension management API bypasses platform filtering.
+
+## Attempt 9 — Fix targetPlatform issue via post-install patch in Python (2026-03-06)
+Approach:
+  - Added _patch_extension_metadata() to _app.py: after every force-install,
+    reads ~/.vscode-server/extensions/arrayview.arrayview-opener-VERSION/package.json
+    and also ~/.vscode/extensions/... and removes "targetPlatform": "undefined" from
+    __metadata. This makes VS Code's cold-start scanner accept the extension.
+  - Always force-installs (code --install-extension --force) every time arrayview runs:
+    hot-install immediately activates the extension in the running extension host.
+    Python waits 1.5s after install, then writes the signal file.
+  - Extension is v0.2.2. Uses asExternalUri() as side-effect for port forwarding,
+    then simpleBrowser.show(localhost:PORT) with the original URL.
+  - Fixed: _VSCODE_EXT_VERSION was "0.2.1" but VSIX is "0.2.2" → patch was looking
+    in wrong directory. Fixed to "0.2.2".
+
+Result: PARTIAL FAILURE — ERR_CONNECTION_REFUSED in Simple Browser.
+  Python output confirmed:
+    - IPC hook found in own env ✓ (is_remote=True ✓)
+    - code = ~/.vscode/cli/servers/.../remote-cli/code ✓
+    - Extension installed successfully ✓ (rc=0)
+    - onAutoForward=silent written to settings.json ✓
+    - Waited 1.5s for activation ✓
+    - Signal file written ✓
+    - Simple Browser DID open (extension activated, picked up signal file) ✓
+    - ERR_CONNECTION_REFUSED when Simple Browser tried to load localhost:8000 ✗
+
+  Notable: no "[ArrayView] patched ..." message → targetPlatform was already absent
+  or already fixed from a previous run. Extension loaded via hot-install as expected.
+
+Root cause: asExternalUri() returns before the devtunnel port forwarding PROXY on the
+  client (MacBook) is ready to accept connections. Simple Browser tries to load
+  localhost:8000 but the tunnel proxy hasn't finished connecting yet.
+
+Lesson: asExternalUri() return value signals "forwarding was triggered" not
+  "forwarding is ready to accept connections". Need to wait after asExternalUri
+  before calling simpleBrowser.show().
+
+## Attempt 10 — Add 10s delay in extension after asExternalUri (v0.2.3) (2026-03-06)
+Approach:
+  - Changed extension.js: added `await new Promise(resolve => setTimeout(resolve, 10000))`
+    between asExternalUri() completing and simpleBrowser.show() call.
+  - Bumped to v0.2.3, rebuilt VSIX, updated _VSCODE_EXT_VERSION.
+
+Result: FAILED — ERR_CONNECTION_REFUSED, SAME AS BEFORE.
+  - "[ArrayView] patched .../arrayview.arrayview-opener-0.2.3/..." DID print ✓
+    (version fix working, targetPlatform removed correctly)
+  - Simple Browser opened ~1s after signal file written ✗
+    (expected: ~10s from signal file write → asExternalUri + 10s delay)
+  - The 10s delay in v0.2.3 was NOT being respected.
+
+Root cause: The OLD extension (v0.2.2 or earlier) is still running in the extension host
+  alongside the newly hot-installed v0.2.3. `--force` installs v0.2.3 and activates it,
+  but does NOT synchronously deactivate v0.2.2 first. Both extensions have their polling
+  intervals running. v0.2.2's 1s polling fires first, picks up the signal file, and calls
+  simpleBrowser.show() immediately (no delay). v0.2.3's handler also fires but the race
+  is already lost.
+
+Lesson: Force-installing while an old version is running creates two concurrent instances.
+  Must explicitly UNINSTALL the old version first to trigger clean deactivation (VS Code
+  calls deactivate() → dispose() on context.subscriptions → clears setInterval and
+  fs.watch). Only then install the new version.
+
+Note: cmd+click on localhost URL in VS Code tunnel terminal → system browser is EXPECTED.
+  VS Code's terminal link handler converts localhost to the devtunnel public URL and opens
+  in system browser. This is unrelated to our mechanism.
+
+## Attempt 11 — Uninstall old version before installing new (v0.2.4) (2026-03-06)
+  Changed _ensure_vscode_extension() in _app.py to:
+    1. Run `code --uninstall-extension arrayview.arrayview-opener` first
+    2. Sleep 1s for clean deactivation
+    3. Run `code --install-extension vsix --force`
+    4. Sleep 1.5s for activation
+    5. Write signal file
+
+  Also added version logging to extension: `=== ACTIVATE v<version> ===` and
+  `deactivate v<version>` to confirm which version is actually running.
+
+Result: FAILED — extension never activated. Zero log entries from this run.
+  Python output confirmed:
+    - IPC hook found ✓
+    - code CLI found ✓
+    - Uninstall rc=0 ✓
+    - Install rc=0 ✓ ("Extension 'arrayview-opener.vsix' was successfully installed.")
+    - targetPlatform patched ✓ (0.2.4 directory found)
+    - Waited 1.5s ✓
+    - Signal file written ✓
+    - extension.log: NO new entries after install of v0.2.4 ✗
+
+Root cause: Explicit uninstall BREAKS hot-activation on reinstall.
+  VS Code hot-install works by pushing the extension into the running extension
+  host. But after an explicit uninstall in the same session, VS Code marks the
+  extension internally (possibly as "pending removal") and does NOT hot-activate
+  the reinstalled version. The extension host silently skips it.
+  Historical evidence: exthost1-5 and exthost10 all hot-activated without prior
+  uninstall. exthost11-15 (post-uninstall) never activated. This matches exactly.
+
+Lesson: NEVER uninstall before reinstalling. Uninstall breaks hot-activation.
+  The old instance race problem (attempt 10) must be solved differently.
+
+## Attempt 12 — Version stamp in signal file, no uninstall (v0.2.5) (2026-03-06)
+Approach:
+  - Reverted to force-install only (no uninstall) — hot-activation must work.
+  - Signal file now contains {"url": "...", "version": "0.2.5"}.
+  - Extension checks: if data.version !== _version → log mismatch and return.
+    This prevents any older running instance from consuming the signal.
+    Only the freshly hot-installed v0.2.5 will have _version="0.2.5" → processes.
+  - Removed the 1s pre-install sleep (no uninstall = no need to wait for deactivate).
+  - 10s delay after asExternalUri still in place for tunnel proxy readiness.
+
+Status: IMPLEMENTED, not yet tested.
+
+## Attempt 13 — onAutoForward: "openPreview" without extension (v0.3.0) (2026-03-06)
+Approach:
+  - Removed extension from the tunnel/remote path entirely.
+  - Set onAutoForward: "openPreview" in .vscode/settings.json for remote sessions.
+  - Idea: VS Code auto-detects port 8000, auto-opens Simple Browser.
+  - Cleaned up dead code: _patch_extension_metadata(), _open_via_ipc().
+
+Result: FAILED — TWO ISSUES:
+  1. Port auto-detection: VS Code didn't detect port 8000 at first. Port not
+     listed in Ports panel. Root cause: settings were written AFTER the server
+     started listening. Fixed by writing settings before server start.
+  2. After VS Code window reload, port WAS detected and Simple Browser opened,
+     but with the DEVTUNNEL PUBLIC URL (https://global.rel.tunnels.api.visualstudio.com)
+     → 403 Forbidden (same OAuth issue as Attempt 1).
+
+Conclusion: onAutoForward: "openPreview" ALWAYS opens the devtunnel public URL
+  in Simple Browser, NOT localhost. This is fundamentally broken for private tunnels.
+  Confirmed that Attempt 1's finding still holds. The ONLY way to get Simple Browser
+  to use localhost (which VS Code's tunnel proxy handles transparently) is to call
+  simpleBrowser.show('http://localhost:PORT/...') from within an extension.
+
+## Attempt 14 — Minimal extension v0.3.0: retry loop, no asExternalUri (2026-03-06)
+Approach:
+  - Brought extension back for ALL VS Code sessions (local + remote).
+  - Reverted onAutoForward to "silent" (prevent devtunnel URL auto-open).
+  - Extension changes (v0.3.0):
+    * NO asExternalUri — not needed, simpleBrowser.show(localhost) works directly
+    * Retry loop: checks server reachability via HTTP GET /ping every 1s, up to 15 retries
+    * Only calls simpleBrowser.show() once server responds (or after 15s timeout)
+    * Version stamp check still in place (prevents stale instance consumption)
+  - Python _open_browser(): unified path for local+remote, both use extension+signal file.
+  - Built VSIX manually (zip) — same as before.
+
+Stale version concern:
+  - The version stamp mechanism (attempt 12) solves the stale instance problem:
+    signal file contains {"version": "0.3.0"}, old running instances (e.g. v0.2.5)
+    check data.version !== _version → mismatch → ignore signal file.
+    Only the freshly hot-installed v0.3.0 has _version="0.3.0" → processes the signal.
+  - Force-install (code --install-extension --force) hot-activates the new version
+    alongside any old instances. The old instances keep running but are harmless
+    because they can't consume version-stamped signals meant for the new version.
+  - Cold-start issue (targetPlatform: "undefined"): hand-built VSIX still has this
+    problem. Extension won't auto-activate on VS Code window reload. But force-install
+    hot-activation works. Each `uv run arrayview` call force-installs, so this is
+    acceptable. User needs to reload window ONCE if they've never run arrayview
+    in this VS Code session (to get a clean extension host).
+
+STATUS: First test FAILED — version mismatch.
+
+Result of first test:
+  - After reload, v0.2.5 cold-start activated (NOT v0.3.0).
+  - v0.2.5 was previously patched by _patch_extension_metadata() so it doesn't have
+    targetPlatform: "undefined" — that's why it cold-starts successfully.
+  - v0.3.0 was force-installed but did NOT hot-replace the already-running v0.2.5.
+  - Signal file contained version "0.3.0", running extension was v0.2.5 → mismatch → ignored.
+  - extension.log confirmed: "SIGNAL: version mismatch (signal=0.3.0, mine=0.2.5), ignoring"
+
+## Attempt 14b — In-place patch of v0.2.5 extension.js (2026-03-06)
+Approach:
+  - Instead of fighting the version/install system, directly patched
+    ~/.vscode-server/extensions/arrayview.arrayview-opener-0.2.5/extension.js
+    with the new code (retry loop, no version check, no asExternalUri).
+  - v0.2.5 cold-starts successfully (proven). After patching its code, it will
+    cold-start with the new behavior.
+  - Removed version check from extension entirely — it causes more harm than good
+    when the cold-start version differs from the VSIX version.
+  - Key insight: the version stamp (attempt 12) was designed to prevent OLD instances
+    from consuming signals during hot-install races. But after a reload, there's only
+    ONE instance. The version check blocks it from working.
+
+STATUS: User needs to reload VS Code window, then run `uv run arrayview data.npy`.
+
+## Attempt 15 — Root-cause analysis of persistent ERR_CONNECTION_REFUSED (2026-03-06)
+Approach:
+  - Reviewed the actual repo code instead of iterating on more delays.
+  - Checked extension host placement and current opener logic.
+
+Findings:
+  - `vscode-extension/package.json` sets `"extensionKind": ["workspace"]`.
+    In a tunnel session, that means the extension runs on the REMOTE machine
+    (iMac), not in the local VS Code UI process on the MacBook.
+  - The retry loop added in v0.3.0 calls `http.get()` against `localhost:PORT`
+    from the REMOTE extension host. That only proves the ArrayView server is up
+    on the iMac. It does NOT prove the client-side forwarded localhost proxy is
+    ready on the MacBook.
+  - Therefore the current "wait until /ping succeeds, then open Simple Browser"
+    logic is checking the wrong thing. This explains why the retry loop can pass
+    and Simple Browser can still fail with `ERR_CONNECTION_REFUSED`.
+  - `Cmd+click` opening a devtunnel URL with 403 is unrelated noise: terminal link
+    handling is converting the URL through the public tunnel path, which is not
+    the same path used by `simpleBrowser.show(localhostUrl)`.
+
+Conclusion:
+  - `asExternalUri()` might still be useful as a side-effect to trigger port
+    forwarding, but it is NOT sufficient evidence of a fix by itself, and more
+    delay tuning in the current workspace-host extension is mostly guesswork.
+  - The next real fix needs to target the CLIENT/UI side of the connection or use
+    a VS Code API that explicitly guarantees the local forward is established,
+    instead of probing remote localhost and assuming the client proxy is ready.
+
+## Attempt 16 — Version-isolated signal file + remote openExternal path (2026-03-06)
+Approach:
+  - Stopped trying to prove client-forward readiness by probing `localhost` from
+    the remote extension host. That check was fundamentally invalid (attempt 15).
+  - Introduced a versioned signal filename: `~/.arrayview/open-request-v031.json`.
+    This avoids stale hot-installed extension instances consuming the request,
+    without relying on a version field inside the payload.
+  - Changed extension behavior:
+    * Local VS Code: still uses `simpleBrowser.show(localhostUrl)`.
+    * Remote/tunnel VS Code: resolves the URL with `vscode.env.asExternalUri()`
+      and opens the resolved URI via `vscode.env.openExternal()`.
+
+Reasoning:
+  - `openExternal(http://localhost:PORT)` is a documented VS Code path for opening
+    an auto-forwarded localhost server from an extension.
+  - In remote sessions, using `openExternal(resolved)` is more explicit than asking
+    Simple Browser to race the client-side proxy startup.
+  - The user no longer cares whether the target is Simple Browser specifically; the
+    priority is that the viewer opens on the client and works reliably.
+
+Status:
+  - Implemented in repo as v0.3.1.
+  - Not yet tunnel-verified in this session.
+
+## Attempt 17 — Fix malformed VSIX and restore live-session compatibility (2026-03-06)
+Approach:
+  - User test showed the bundled `.vsix` was malformed: VS Code reported
+    `extension/package.json not found inside zip`.
+  - Root cause: archive was zipped from the extension folder contents directly,
+    so files landed at the zip root instead of under `extension/`.
+  - Rebuilt the VSIX with the correct `extension/` top-level layout.
+  - Tightened `_ensure_vscode_extension()` so installer output containing
+    `Failed Installing Extensions` or the missing-package error is treated as a
+    real failure instead of a successful install.
+  - Restored the signal filename to `open-request.json` because the live active
+    extension in the user's session was still `v0.3.0`; the temporary
+    `open-request-v031.json` file meant nothing could consume the request.
+  - Patched the installed `v0.3.0` extension.js in place with the newer logic
+    (remote path uses `asExternalUri()` + `openExternal()`, watcher follows the
+    configured signal filename).
+
+Observed result:
+  - After restoring `open-request.json`, the active `v0.3.0` extension consumed
+    the request again.
+  - Extension log showed:
+    * `SIGNAL: found signal file`
+    * `BROWSER: calling simpleBrowser.show(http://localhost:8000/...)...`
+    * `BROWSER: simpleBrowser.show completed`
+
+Durability fix:
+  - Reintroduced post-install metadata patching in Python so newly installed
+    versions have `targetPlatform: "undefined"` removed from `package.json`.
+    This is needed so the extension has a chance to load after future reloads.
+
+## Attempt 18 — Remote webview switched to HTTP render transport (2026-03-06)
+Approach:
+  - Black `ArrayView` tab showed the remote webview panel was opening, but the
+    viewer still depended on WebSockets.
+  - Root cause: VS Code webview `portMapping` supports `http/https`, but not
+    `ws/wss`. The existing viewer uses `/ws/{sid}` for frame delivery, so the
+    panel could open yet fail to render the live view.
+  - Added explicit `transport=http` mode to `_viewer.html`.
+  - Extended `/slice/{sid}` to support the same render options used by the WS
+    path: `dim_z`, `complex_mode`, `log_scale`, `vmin_override`, `vmax_override`,
+    and it now returns `X-ArrayView-Vmin` / `X-ArrayView-Vmax` headers.
+  - Remote extension webview now appends `transport=http` to the panel URL.
+
+Tradeoff:
+  - Remote preview is currently single-view only. Multi-view and qMRI mode are
+    explicitly blocked in HTTP transport until a non-WS implementation exists.
+
+## Attempt 18 — Remote webview panel with portMapping (2026-03-06)
+Approach:
+  - Attempt 17 confirmed `v0.3.1` was active and consuming the signal, but its
+    remote path used `asExternalUri()` + `openExternal()`, which resolved to the
+    public devtunnel URL and opened the system browser with a 403.
+  - Replaced the remote branch again:
+    * Remote/tunnel: create a VS Code webview panel instead of calling
+      `openExternal()`.
+    * The panel embeds the arrayview URL in an `<iframe>`.
+    * Uses `portMapping: [{ webviewPort: port, extensionHostPort: port }]` so
+      VS Code maps `localhost:PORT` inside the client UI back to the remote
+      extension host port explicitly.
+    * Local sessions still use `simpleBrowser.show(url)`.
+  - Bumped to v0.3.2 and changed the signal file again
+    (`open-request-v032.json`) so the currently running v0.3.1 instance cannot
+    intercept the new request.
+
+Reasoning:
+  - `simpleBrowser.show(localhost)` can complete without making the tab visible
+    in the current client window.
+  - `openExternal(asExternalUri(...))` deterministically opens the public tunnel
+    URL, which is wrong for private tunnels.
+  - A dedicated webview panel keeps rendering inside VS Code and uses the API
+    specifically meant for remote localhost mapping.
+
+## Attempt 19 — Remote panel renders viewer directly (2026-03-06)
+Approach:
+  - Stopped using the remote webview panel as a temporary bootstrap that then
+    asks VS Code to open Simple Browser.
+  - Root cause found in the extension HTML: the panel created an `<iframe>` but
+    never assigned `src` or made the frame visible. After `/ping` succeeded it
+    only posted a `ready` message back to the extension host, so the panel could
+    stay black forever if that second handoff failed or was invisible.
+  - Changed the remote opener so the panel itself is the viewer:
+    * wait for `/ping`
+    * set `iframe.src = panelUrl`
+    * reveal the iframe in-place
+    * log iframe load/error events back to `~/.arrayview/extension.log`
+  - Bumped extension version to `0.3.3` and signal file to
+    `open-request-v033.json` to keep stale live instances from consuming new
+    requests.
+
+Reasoning:
+  - This removes one moving part from the remote path. If the panel opens and
+    portMapping works, the viewer should render in that same panel instead of
+    depending on a second Simple Browser command.
+  - The new iframe load/error logs should make the next validation binary: either
+    the iframe loads, or we get a concrete failure point instead of a black tab.
+
+## Attempt 20 — Force extension activation (2026-03-07)
+Approach:
+  - Changed the VS Code extension activation event from `onStartupFinished` to `*`.
+  - Bumped the extension version to `0.3.4`.
+  - Bumped the signal file to `open-request-v034.json` so only the new code will
+    consume new requests.
+
+Reasoning:
+  - The extension is installed and registered as `arrayview.arrayview-opener@0.3.3`,
+    but the live tunnel session never logs `ACTIVATE v0.3.3` and never consumes
+    `open-request-v033.json`.
+  - That makes activation timing the current bottleneck, not signal handling or
+    viewer rendering.
+
+## Attempt 21 — Fix extension parse error (2026-03-07)
+Approach:
+  - Inspected the remote extension-host log instead of only `~/.arrayview/extension.log`.
+  - Found the real activation failure: `SyntaxError: Unexpected identifier 'window'`
+    while loading `arrayview.arrayview-opener-0.3.1/extension.js`.
+  - Fixed the root cause by removing nested JavaScript template literals from the
+    HTML template returned by `getWebviewHtml()`.
+  - Bumped the extension version to `0.3.5` and signal file to
+    `open-request-v035.json`.
+
+Reasoning:
+  - The extension host was attempting activation, but the file could not even be
+    parsed. That explains why there was no `ACTIVATE` line in `~/.arrayview/extension.log`
+    for newer builds and why changing activation events had no visible effect.
+
+## Attempt 22 — Remove fetch-based bootstrap (2026-03-07)
+Approach:
+  - Used the now-working `0.3.5` logging to inspect the black remote panel.
+  - Found that the panel always logs `ping attempt N failed: Failed to fetch`
+    even while `curl http://localhost:8000/ping` succeeds on the remote host.
+  - Removed the webview `fetch('/ping')` preflight and load the iframe directly.
+  - Kept the remote panel logging, but changed it to report iframe loading state
+    instead of polling reachability.
+  - Bumped the extension version to `0.3.6` and signal file to
+    `open-request-v036.json`.
+
+Reasoning:
+  - The failure is not server startup; it is specifically the webview's fetch path.
+  - Port mapping may still work for iframe navigation even when scripted fetches
+    to `localhost` from the webview fail, so the preflight check is actively
+    blocking a path that may otherwise succeed.
+
+## Attempt 23 — Anticipatory iframe diagnostics (2026-03-07)
+Approach:
+  - Added two diagnostic layers instead of waiting for the next single failure.
+  - In the VS Code webview bootstrap:
+    * try both `localhost` and `127.0.0.1` candidates automatically
+    * log candidate selection and fallback decisions
+    * distinguish iframe load from viewer-ready state
+  - In the viewer itself:
+    * post structured `window.parent.postMessage(...)` events for
+      metadata request/result, transport mode, websocket lifecycle, HTTP render
+      start/errors, and first-frame render
+  - Bumped the extension version to `0.3.7` and signal file to
+    `open-request-v037.json`.
+
+Reasoning:
+  - The remaining branches are now narrow: wrong localhost variant, iframe load
+    without viewer readiness, or viewer readiness without first-frame render.
+  - Logging those phases explicitly should prevent another blind iteration.
+
+## Attempt 24 — Automatic Simple Browser fallback (2026-03-07)
+Approach:
+  - Used the `0.3.7` diagnostics to observe that both iframe candidates
+    (`localhost` and `127.0.0.1`) load, but the embedded viewer never emits even
+    the first `viewer phase` event.
+  - Treated that as evidence that the iframe path is fundamentally the wrong
+    transport in this tunnel setup.
+  - Added an automatic remote fallback: after the webview probe exhausts both
+    candidates without a rendered frame, the extension calls
+    `simpleBrowser.show(...)` directly and logs start/success/failure.
+  - Bumped the extension version to `0.3.8` and signal file to
+    `open-request-v038.json`.
+
+Reasoning:
+  - This preserves the richer diagnostics while also moving forward automatically
+    to the next plausible working path instead of stopping at a black panel.
+  - If the Simple Browser fallback works, we can keep the webview only as a probe;
+    if it fails too, the logs will now show that explicitly.
+
+## Attempt 25 — Resolve forwarded URL before Simple Browser (2026-03-07)
+Approach:
+  - Observed that the `0.3.8` fallback opens a Simple Browser tab, but that tab
+    ends in `ERR_CONNECTION_REFUSED` while the remote backend is still healthy.
+  - Treated that as evidence that `simpleBrowser.show(http://localhost:...)`
+    in this tunnel window is still targeting a client-side localhost that is not
+    forwarded.
+  - Changed the fallback to call `vscode.env.asExternalUri(...)` first, log the
+    resolved URL, and then open that resolved URL in Simple Browser.
+  - Bumped the extension version to `0.3.9` and signal file to
+    `open-request-v039.json`.
+
+Reasoning:
+  - This tests the next plausible transport directly instead of assuming that
+    Simple Browser can interpret raw remote localhost URLs correctly in the
+    tunnel client.
+  - The log now distinguishes three branches clearly: resolution failure,
+    resolved URL opened, or Simple Browser command failure.
+
+## Attempt 26 — Preserve sid/query on resolved tunnel URL (2026-03-07)
+Approach:
+  - Inspected the `0.3.9` log and found that `asExternalUri(...)` resolved
+    `http://localhost:8000/?sid=...&transport=http` to the bare origin
+    `https://...-8000....devtunnels.ms/`.
+  - Reconstructed the final URL by taking the resolved origin and reapplying the
+    original pathname, query string, and hash.
+  - Added explicit logging for both the raw resolved URL and the reconstructed
+    final fallback URL.
+  - Bumped the extension version to `0.3.10` and signal file to
+    `open-request-v0310.json`.
+
+Reasoning:
+  - The white Simple Browser tab is plausibly just the wrong URL: the viewer
+    session id was being dropped before navigation.
+  - Reconstructing the URL is a targeted fix with clear success/failure logs.
+
+## Attempt 27 — Probe + Simple Browser fallback still fails (2026-03-07)
+Approach:
+  - Added a staged remote fallback in `v0.3.8`:
+    * first probe the remote webview/iframe path with detailed logging
+    * if no frame renders, open a second tab via `simpleBrowser.show(...)`
+  - Kept the backend URL on raw `http://localhost:8000/?sid=...&transport=http`
+    for the fallback.
+
+Observed result:
+  - The probe reliably reached: `viewer iframe loaded` but never reached any
+    viewer phase or `frame-rendered` event.
+  - After timeout, the fallback reliably opened a Simple Browser tab.
+  - That tab still produced `ERR_CONNECTION_REFUSED` even while the remote
+    backend remained healthy (`/ping` and `/metadata/<sid>` both returned 200).
+
+Conclusion:
+  - This ruled out the ArrayView backend as the cause of the white/black screens.
+  - It also showed that the extension command path is working correctly: VS Code
+    is opening the tab, but the browser-side network path is wrong.
+
+## Attempt 28 — asExternalUri resolves to auth/postback URL (2026-03-07)
+Approach:
+  - In `v0.3.9`, changed the fallback to resolve the localhost URL through
+    `vscode.env.asExternalUri(...)` before opening it in Simple Browser.
+  - In `v0.3.10`, preserved the original `?sid=...&transport=http` query when
+    rebuilding the resolved URL, because the first resolved form dropped the
+    session query entirely.
+
+Observed result:
+  - `asExternalUri(...)` no longer produced raw `localhost`, but resolved to a
+    devtunnel/browser-facing URL.
+  - Even with the original query preserved, the final tab landed on a URL of the form:
+    `https://...devtunnels.ms/auth/postback/github?rd=%2F%3Fsid=...%26transport%3Dhttp&tunnel=1`
+  - The page then showed a white screen instead of the viewer.
+
+Conclusion:
+  - The browser/tunnel family of solutions is now exhausted in practice:
+    * raw localhost in Simple Browser → `ERR_CONNECTION_REFUSED`
+    * iframe/webview to localhost/127.0.0.1 → loads but never renders a frame
+    * `asExternalUri(...)` / devtunnel URL → auth/postback / white screen
+  - This is not just one more bug in the same path. It indicates the current
+    architecture is wrong for private tunnels.
+
+## Attempt 29 — Evaluate direct extension-host proxy renderer (2026-03-07)
+Question:
+  Has the idea "extension host fetches remote localhost itself and renders in a
+  VS Code webview without depending on browser/tunnel routing" already been tried?
+
+Answer:
+  - No, not as an architecture.
+  - The closest prior work is Attempts 18–24, but those still depended on the
+    browser/webview navigating to `localhost` or a tunnel URL from the client UI.
+  - Attempt 18 added HTTP transport to the viewer, but the client-side page was
+    still responsible for fetching `/metadata` and `/slice`.
+  - Attempts 18–24 therefore remained vulnerable to exactly the failures we now
+    keep seeing: localhost mapping problems, iframe isolation, tunnel auth, and
+    Simple Browser/network ambiguity.
+
+What earlier history says we should learn from:
+  - Attempt 15 already established that checks from the remote workspace
+    extension host and checks from the client browser are not equivalent.
+  - Attempt 18 showed the server already exposes a usable HTTP rendering API:
+    `/metadata/{sid}` and `/slice/{sid}` are enough to render at least a useful
+    single-view preview.
+  - The older tunnel notes in `TUNNEL_PLAN.md` also showed browser-visible URLs
+    can lose params, hit the wrong origin, or trigger auth/postback behavior.
+
+Current best next direction:
+  - Build a direct extension-host proxy viewer.
+  - Concretely: keep the VS Code extension running on the remote/workspace host,
+    let that Node extension fetch `http://localhost:8000/metadata/<sid>` and
+    `http://localhost:8000/slice/<sid>?...` itself, then serve the image/data
+    into a VS Code webview using `webview.postMessage(...)` or inlined data URLs.
+  - That would remove all dependence on:
+    * tunnel/browser localhost forwarding
+    * Simple Browser behavior
+    * devtunnel auth/postback URLs
+    * iframe navigation to remote localhost
+
+Honest status:
+  - The only robust achievement so far is extension install/version activation
+    plus much better diagnostics.
+  - The end-user tunnel viewer still does not work.
+  - More iteration on the current browser/tunnel path is unlikely to pay off.
+
+## Attempt 30 — Replace remote browser path with extension-host proxy renderer (2026-03-07)
+Approach:
+  - Replaced the remote branch in the VS Code extension with a new architecture:
+    the workspace extension host now fetches `/metadata/{sid}` and `/slice/{sid}`
+    from remote `localhost` itself and pushes a rendered JPEG into a VS Code
+    webview as a data URL.
+  - Added minimal controls in the webview for slice dimension selection and
+    slice navigation, so the first proof-of-concept is useful enough to verify
+    that rendering works without Simple Browser, `asExternalUri(...)`, iframes,
+    or tunnel/browser forwarding.
+  - Bumped the extension version/signal handshake to `0.4.0` /
+    `open-request-v0400.json` and rebuilt the bundled VSIX archive manually,
+    because this machine only has Node 11 and modern `vsce` packaging no longer
+    runs here.
+
+Observed result:
+  - Code changes are in place and the updated bundled VSIX was rebuilt.
+  - Static validation is clean for `vscode-extension/extension.js`.
+  - End-to-end tunnel validation has not happened yet from this session, so this
+    attempt is implemented but not yet proven.
+
+Conclusion:
+  - This is the first attempt that fully removes browser/tunnel URL navigation
+    from the remote rendering path.
+  - If this works, it should bypass the entire family of failures from Attempts
+    18–29.
+  - If it still fails, the failure will finally be in the new proxy-renderer
+    path itself rather than in VS Code tunnel/browser routing.
+
+## Attempt 31 — Restore the real viewer UI on top of the proxy transport (2026-03-07)
+Approach:
+  - Kept the extension-host proxy architecture from Attempt 30, but replaced the
+    temporary minimal slice panel with the real ArrayView frontend.
+  - Changed the remote extension path so it now fetches the backend-rendered
+    viewer HTML for `/?sid=...&transport=http`, injects a small bridge script,
+    and proxies the viewer's `fetch(...)` calls through the workspace extension
+    host back to remote `localhost`.
+  - Extended `_viewer.html` so `transport=http` can render not just the main
+    view, but also multi-view and qMRI via `/slice/{sid}`.
+  - Fixed an implementation mistake where the old temporary proxy-panel code was
+    accidentally appended after the new extension module export in
+    `vscode-extension/extension.js`, then rebuilt the bundled VSIX again.
+
+Observed result:
+  - `src/arrayview/_viewer.html` and `vscode-extension/extension.js` both pass
+    static validation after cleanup.
+  - The rebuilt VSIX now contains the intended real-viewer bridge code path.
+  - End-to-end tunnel validation still has not been run in this session, so the
+    architecture is implemented but not yet runtime-proven.
+
+Conclusion:
+  - The remote path no longer depends on Simple Browser, iframe navigation, or
+    devtunnel URL routing to render the actual viewer UI.
+  - The next step is a real tunnel smoke test plus extension log inspection if
+    the panel fails to render.
+
+## Attempt 32 — Prioritize smooth remote scrolling over auto-open (2026-03-07)
+Approach:
+  - Reassessed the real requirement: smooth scrolling matters more than opening
+    inside VS Code automatically.
+  - Stopped using the extension/proxy viewer path for remote VS Code sessions.
+  - Changed `_open_browser()` so tunnel/remote runs now only:
+    * write `remote.portsAttributes` with `onAutoForward: silent`
+    * print the viewer URL and explicit guidance to open the port from VS Code's
+      Ports tab in a real browser
+    * avoid auto-opening Simple Browser or the extension-host proxy viewer
+  - Kept the helper extension available for local VS Code sessions only.
+
+Reasoning:
+  - The proxy/webview architecture adds an extra request/decode/render hop per
+    frame and cannot match the original websocket viewer for latency or feel.
+  - A real browser over VS Code port forwarding keeps the existing websocket
+    transport and is the best current path for "buttery" scrolling.
+
+Status:
+  - Remote-launch behavior is now aligned with the performance-first workflow.
+  - End-to-end tunnel validation is still pending, but the code no longer routes
+    remote runs through the slower proxy viewer path.
+
+## Attempt 33 — Make manual browser open use a public tunnel URL without auth (2026-03-07)
+Approach:
+  - User tried the manual system-browser workflow from the Ports tab and still
+    hit `.../auth/postback/github?...` with `403 Forbidden`.
+  - Root cause: the forwarded port was still marked with `onAutoForward: silent`
+    only, so opening the public devtunnel URL from the browser required tunnel
+    auth.
+  - Updated remote `portsAttributes` to keep `onAutoForward: silent` but also set
+    `privacy: public` in both `_configure_vscode_port_preview()` and the checked-in
+    `.vscode/settings.json`.
+
+Reasoning:
+  - We still want manual open in a real browser for websocket smoothness.
+  - `privacy: public` removes the auth/postback barrier for the tunnel URL while
+    preserving the original browser/websocket viewer path.
+
+Status:
+  - The next remote run should rewrite `.vscode/settings.json` with the public
+    port attribute and the Ports tab browser action should stop returning 403.
+
+## Attempt 34 — Distinguish public tunnel URL from local forwarded address (2026-03-07)
+Approach:
+  - User still hit `...devtunnels.ms/auth/postback/github?...` with `403 Forbidden`
+    when opening in the system browser.
+  - Treated that as evidence that the browser action was still targeting the
+    PUBLIC tunnel URL, not the locally forwarded address.
+  - Updated the remote launch guidance in `_open_browser()` to explicitly say:
+    * do not use the devtunnel auth/postback URL
+    * use the Ports tab's local forwarded address (`Copy Local Address` / localhost)
+      in the real browser instead
+
+Reasoning:
+  - The performance goal is the original websocket viewer in a real browser.
+  - The public tunnel URL and the local forwarded address are not equivalent in
+    this setup; only the local forwarded address avoids the auth/postback flow.
+
+Status:
+  - The code now points users at the correct browser target.
+  - If local forwarding itself is unavailable in this tunnel client, the next
+    step will be to validate that separately rather than chasing the public URL.
+
+## Attempt 35 — Remove misleading localhost terminal links in remote sessions (2026-03-07)
+Approach:
+  - User confirmed that cmd-clicking the printed `http://localhost:8000/?sid=...`
+    in the tunnel terminal opened the public devtunnel auth URL and failed with
+    `403 Forbidden`.
+  - Root cause: VS Code terminal link handling in tunnel sessions rewrites that
+    localhost URL to the public tunnel URL, so the printed link itself is a trap.
+  - Added `_print_viewer_location(url)` and replaced direct remote URL prints so
+    tunnel sessions now show:
+    * port/session information
+    * explicit guidance to use the Ports tab local forwarded address
+    * no clickable localhost URL in terminal output
+
+Reasoning:
+  - Once smoothness became the main requirement, the correct target was always
+    the real browser on a local forwarded address.
+  - Printing a localhost URL in the remote terminal encouraged exactly the wrong
+    action and sent the user to the auth/postback failure path.
+
+Status:
+  - Remote output now avoids the misleading cmd-click path.
+  - The next validation should focus on whether the Ports tab exposes a usable
+    local forwarded address in this tunnel session.
+
+## Attempt 36 — Confirm tunnel client does not expose a true local forwarded address (2026-03-07)
+Approach:
+  - User tested the exact recommended workflow in the current tunnel window.
+  - Result: VS Code's Ports tab `Copy Local Address` still returned
+    `https://...devtunnels.ms/`, and opening it still hit the GitHub auth/postback
+    `403 Forbidden` page.
+
+Conclusion:
+  - This is not a stale-auth problem caused by many prior attempts.
+  - The current VS Code tunnel client is not providing a real localhost-style
+    forwarded browser address for this port; it is still routing browser opens
+    through the public devtunnel URL.
+  - That means the "smooth real browser over local forwarded port" workflow is
+    unavailable in this environment as currently configured.
+
+Implication:
+  - Further tweaks to printed URLs or browser instructions will not fix this.
+  - The next viable options are architectural rather than cosmetic:
+    * use a different remote transport that provides real local forwarding
+      (for example SSH remote / explicit SSH port forward), or
+    * accept the lower-smoothness in-VS-Code proxy path as the tunnel fallback.
+
+## Attempt 37 — Force public + openPreview because that actually works (2026-03-07)
+Approach:
+  - User manually changed the forwarded port in the Ports tab from private to
+    public and confirmed that this fixed the auth/postback failure.
+  - User also confirmed that with the port public, opening in a Simple Browser
+    tab works.
+  - Restored the runtime source of truth in `_configure_vscode_port_preview()`
+    so remote sessions now force:
+    * `privacy: public`
+    * `onAutoForward: openPreview`
+  - Updated the remote launch messages to match the newly validated workflow.
+
+Conclusion:
+  - The previous assumption in Attempts 34–36 was too broad.
+  - In this setup, the practical working path is: public port + openPreview +
+    Simple Browser tab.
+  - Runtime settings must enforce that state instead of relying on a manual fix
+    in the Ports UI.
+
+## Attempt 38 — End-to-end tunnel validation succeeded (2026-03-07)
+Observed result:
+  - With `remote.portsAttributes` forcing
+    * `onAutoForward: openPreview`
+    * `privacy: public`
+    the ArrayView port opens successfully in a VS Code Simple Browser tab.
+  - The previous `403 Forbidden` auth/postback failure is resolved.
+  - Remote rendering path is now working in the user's actual tunnel setup.
+
+Conclusion:
+  - The working tunnel configuration is confirmed.
+  - Source of truth is now the runtime writer in `_configure_vscode_port_preview()`
+    plus the checked-in `.vscode/settings.json`.
+
+## Attempt 39 — Remove abandoned remote proxy opener path (2026-03-07)
+Approach:
+  - Deleted the extension-host remote proxy/webview implementation that had been
+    added during Attempts 30–31.
+  - Narrowed `arrayview-opener` back to its only still-useful job: in local VS
+    Code sessions, consume a signal file and call `simpleBrowser.show(...)`.
+  - Switched the extension manifest back to a UI extension and bumped the
+    versioned signal handshake to `0.5.0` / `open-request-v0500.json` so stale
+    `0.4.0` instances cannot consume new requests.
+  - Kept remote/tunnel opening on the validated `remote.portsAttributes`
+    configuration (`openPreview` + `public`) instead of the extension.
+
+Conclusion:
+  - The repo no longer carries the failed remote proxy renderer as live code.
+  - The extension remains necessary for automatic local Simple Browser opening,
+    because the Python/CLI side still has no direct public API to invoke
+    `simpleBrowser.show(...)` without going through a VS Code extension.
+
+## Attempt 40 — Fix macOS tunnel remote detection after env stripping (2026-03-07)
+Approach:
+  - User reported the forwarded port was being marked private again in the VS Code
+    tunnel window.
+  - Root cause: on macOS tunnel hosts, `_is_vscode_remote()` depends on finding the
+    tunnel `remote-cli` path, but `_find_code_cli()` only searched for that path when
+    `VSCODE_IPC_HOOK_CLI` existed in the current process environment.
+  - `uv run` strips that env var, so the recovered ancestor IPC hook was ignored,
+    `_is_vscode_remote()` could return False, and `_configure_vscode_port_preview()`
+    would take the local branch that removes `privacy` and `onAutoForward`.
+  - Updated `_find_code_cli()` to also use `_find_vscode_ipc_hook()` when choosing the
+    remote-cli helper.
+
+Conclusion:
+  - macOS tunnel sessions should stay classified as remote even when launcher tools
+    strip `VSCODE_IPC_HOOK_CLI` from the immediate process environment.
+  - That keeps `remote.portsAttributes` on `privacy: public` and
+    `onAutoForward: openPreview` instead of reverting the port to private.
+
+## Attempt 41 — Stop removing public/openPreview settings in VS Code terminals (2026-03-07)
+Approach:
+  - User still reproduced the port reopening as private even after closing it and
+    restarting ArrayView.
+  - Root cause: `_configure_vscode_port_preview()` still had a local cleanup branch
+    that removed `privacy` and `onAutoForward` whenever the session was classified as
+    non-remote.
+  - Even with the macOS tunnel detection fix from Attempt 40, that branch is too risky:
+    a single misclassification rewrites the workspace settings back to a private port.
+  - Changed `_configure_vscode_port_preview()` so any run from a VS Code terminal writes
+    `openPreview` + `public`, and no code path removes those keys anymore.
+
+Conclusion:
+  - ArrayView no longer has a branch that can silently revert the workspace port
+    settings from public back to private.
+  - In tunnel windows this should keep the forwarded port consistently on the
+    validated `openPreview` + `public` configuration.
+
+## Attempt 42 — Write remote Machine settings instead of workspace settings (2026-03-07)
+Approach:
+  - User still observed the port reopening as private in the VS Code tunnel window.
+  - Revisited the trust boundary: even if ArrayView writes `privacy: public` into
+    `.vscode/settings.json`, VS Code can treat that as an untrusted workspace-level
+    request and keep the forwarded port private.
+  - Updated `_configure_vscode_port_preview()` so remote/tunnel sessions now write
+    `remote.portsAttributes` into the remote Machine settings file(s):
+    * `~/.vscode/cli/data/Machine/settings.json` when present
+    * `~/.vscode-server/data/Machine/settings.json` when present
+  - Added JSON-with-comments parsing so existing VS Code settings files are preserved.
+  - Local VS Code terminals still use the workspace `.vscode/settings.json` path.
+
+Conclusion:
+  - Remote sessions now configure `privacy: public` at the trusted Machine scope
+    instead of the workspace scope.
+  - This should match the manual fix that previously worked in the Ports UI / user
+    settings path and stop the port from being forced back to private.
+
+## Attempt 43 — Add startup diagnostics for port config branch/targets (2026-03-07)
+Approach:
+  - After several runs still reopened the port as private, added explicit startup
+    diagnostics to `_configure_vscode_port_preview()`.
+  - The function now prints:
+    * whether ArrayView thinks it is in a VS Code terminal
+    * whether it thinks the session is remote
+    * the recovered IPC hook path
+    * the resolved `code` CLI path
+    * whether it is writing workspace or Machine settings
+    * the exact settings file path(s) it targeted
+
+Conclusion:
+  - The next run will show the actual branch and target files in the terminal
+    output instead of forcing another blind iteration.
+
+## Attempt 44 — Actively invoke VS Code's tunnel privacy/openPreview commands (2026-03-07)
+Approach:
+  - Startup diagnostics proved ArrayView was already taking the correct remote
+    branch and writing both remote Machine settings files, yet the port still
+    appeared as private.
+  - Inspected VS Code's workbench bundle and found internal tunnel commands:
+    * `remote.tunnel.privacy<id>` for privacy changes
+    * `remote.tunnel.openPreview` for opening the forwarded port preview
+  - Reintroduced the opener extension as a workspace extension and kept it minimal:
+    on remote signal-file requests it now builds a tunnel context for the port,
+    tries the public-privacy command, and then calls `remote.tunnel.openPreview`.
+  - Python remote `_open_browser()` now force-installs that extension, waits for
+    activation if needed, and writes the remote signal file in addition to the
+    Machine settings.
+
+Conclusion:
+  - The remote path no longer depends solely on passive settings being honored.
+  - It now has an active UI-command fallback that asks VS Code itself to make the
+    port public and open the preview, which is closer to what the Ports panel does.
+
+## Attempt 45 — Remove duplicate remote preview races and serialize signal handling (2026-03-07)
+Approach:
+  - User reported multiple tabs opening, with one working and another hanging,
+    plus later runs still looking flaky.
+  - Root cause hypothesis: two separate races were still present:
+    * remote Machine settings used `onAutoForward: openPreview` while the opener
+      extension also called `remote.tunnel.openPreview`, producing duplicate tabs
+    * the signal file could be processed more than once because activation,
+      polling, and `fs.watch` can all trigger `tryOpenSignalFile()` near-simultaneously
+  - Changed the remote settings writer to use:
+    * `privacy: public`
+    * `onAutoForward: silent`
+    so the extension is the only component that opens the preview in tunnel sessions.
+  - Added signal robustness in the extension:
+    * versioned signal filename bumped to `open-request-v0601.json`
+    * each signal now includes a `requestId`
+    * extension serializes signal processing with an in-flight guard
+    * duplicate `requestId` or near-immediate duplicate URL opens are ignored
+    * a small delay is inserted between privacy promotion and preview opening
+
+Conclusion:
+  - The remote path now has a single preview opener instead of passive and active
+    paths competing with each other.
+  - Logging remains in place so the next run will show whether duplicate triggers
+    were suppressed and whether one request now produces one tab consistently.
+
+## Attempt 46 — Revert signal handshake to the active 0.6.0 channel (2026-03-07)
+Approach:
+  - User reported the port had fallen back to private again after the `0.6.1`
+    changes.
+  - Root cause: the latest run installed extension `0.6.1`, but the live remote
+    extension host did not hot-activate it. The extension log still showed `0.6.0`
+    as the active handler.
+  - Because the signal filename had been bumped to `open-request-v0601.json`, the
+    still-active `0.6.0` extension never saw the request, so no privacy-promotion
+    command ran and the remote path silently degraded to settings-only behavior.
+  - Reverted the signal handshake back to `open-request-v0600.json` so the active
+    `0.6.0` handler can continue processing requests while the `0.6.1` code is
+    present on disk.
+
+Conclusion:
+  - The immediate regression was caused by a signal-version mismatch, not by the
+    privacy command path itself.
+  - Until extension hot-activation is fully reliable, the signal filename must stay
+    compatible with the currently active remote extension instance.
+
+## Attempt 47 — Pass a real forwarded-tunnel context to the privacy command (2026-03-07)
+Approach:
+  - Inspected the VS Code workbench bundle and found the privacy command handler
+    only acts when the argument satisfies the forwarded-tunnel shape check:
+    it must include `tunnelType`, `remoteHost`, and `source`.
+  - Root cause: the extension was passing only a thin `{remoteHost, remotePort,
+    localPort, name}` object, so `executeCommand(...)` could return without error
+    while doing nothing.
+  - Updated the remote opener to:
+    * pass a forwarded-tunnel-shaped context with `tunnelType: 'Forwarded'`
+      and a truthy `source`
+    * discover the actual registered `remote.tunnel.privacy...` command id at runtime
+      via `getCommands(true)` instead of hardcoding fragile guesses
+    * retry until the privacy command is actually registered after window reload
+    * keep detailed logs of available privacy commands and each attempt
+
+Conclusion:
+  - A successful privacy command call should now mean the handler actually had a
+    valid tunnel item to operate on, rather than a no-op with a misleading success.
+  - This is the correct next fix for the remaining "still private after reload"
+    behavior.
+
+## Attempt 48 — Delay remote server start so VS Code can ingest port settings (2026-03-07)
+Approach:
+  - Added a targeted 2-second settle delay after writing remote VS Code port settings
+    and before spawning the ArrayView server process.
+  - Root cause addressed: VS Code's settings file watcher and port scanner run on
+    separate timelines, so the port can be detected before newly written Machine
+    settings are in memory.
+  - The delay is only applied on the fresh remote browser path, where the port is
+    about to appear for the first time.
+
+Conclusion:
+  - This removes the remaining file-watcher race on first port detection.
+  - The remote path now uses both defenses:
+    * trusted Machine settings written before server startup
+    * a short wait so VS Code can ingest them before the port appears
+    * extension-side tunnel commands after startup as an active fallback
+
+## Attempt 49 — Prewarm VS Code's in-memory remote config before the port appears (2026-03-07)
+Approach:
+  - Added a two-phase remote opener flow so ArrayView no longer waits until after
+    the server is listening to involve the extension.
+  - The opener extension now supports a `configure-port` signal action that updates
+    `remote.portsAttributes` through `vscode.workspace.getConfiguration('remote')`
+    with `ConfigurationTarget.Global`, which updates VS Code's live in-memory remote
+    config instead of only writing JSON on disk.
+  - Python now sends that `configure-port` signal before spawning the server and then
+    waits the existing 2-second settle window. After the server starts, it sends the
+    usual `open-preview` signal.
+  - The remote extension also pre-seeds port 8000 on activation, because that is the
+    dominant default path for ArrayView runs.
+
+Conclusion:
+  - The remote path no longer relies only on file writes plus watcher latency before
+    first detection of the new port.
+  - VS Code now gets a chance to update its live global remote port attributes before
+    port 8000 starts listening, while the post-start privacy/openPreview commands
+    remain as a second line of defense.
+
+## Attempt 50 — Bump the extension version so the new signal handler actually loads (2026-03-07)
+Approach:
+  - Validating Attempt 49 showed the active extension host still logging
+    `SIGNAL: missing url` for a standalone `{"action":"configure-port","port":8000}`
+    signal, even though the installed on-disk `0.6.1` code already contained the
+    new `configure-port` branch.
+  - That means the running extension host kept an older in-memory `0.6.1` instance
+    alive after reinstall, so the new prewarm logic never actually executed.
+  - Bumped the package/Python extension version to `0.6.2` so VS Code hot-installs
+    a genuinely new extension identity and activates the updated handler instead of
+    silently reusing stale `0.6.1` code.
+  - Moved the signal channel to `open-request-v0602.json` so any still-running
+    `0.6.1` instance cannot steal the new prelaunch `configure-port` request.
+
+Conclusion:
+  - Attempt 49 cannot be judged until a new extension version is loaded by the
+    remote extension host.
+  - The next validation must confirm that `configure-port` logs as such before the
+    server starts, rather than falling through to `missing url`.
+
+## Attempt 51 — Stale bundled VSIX was still installing 0.6.1 (2026-03-07)
+Approach:
+  - Validated Attempt 50 with a truly fresh run: cleared the existing port-8000
+    listener so ArrayView executed the prelaunch `configure-port` path before the
+    server started.
+  - Observed that the Python side wrote `open-request-v0602.json`, but the file
+    remained on disk unconsumed and `~/.arrayview/extension.log` still showed only
+    `=== ACTIVATE v0.6.1 ===` with no `0.6.2` activity.
+  - Checked VS Code's remote-agent logs and the packaged VSIX contents instead of
+    assuming the built artifact matched the repo source.
+  - Root cause: the bundled `src/arrayview/arrayview-opener.vsix` was stale and
+    still installed extension `0.6.1`, even though `vscode-extension/package.json`
+    and `_app.py` had already been bumped to `0.6.2`.
+
+## Attempt 52 — Expire stale opener signals so reload cannot replay an old open (2026-03-07)
+Approach:
+  - Fresh remote logs showed `=== ACTIVATE v0.6.2 ===` immediately consuming an old
+    `open-preview` signal on activation before the next run started, which reopened
+    an old ArrayView tab and interfered with the ordering of the next launch.
+  - Added `sentAtMs` and `maxAgeMs` metadata to every Python-written opener signal.
+  - Updated the VS Code extension to drop expired signals before acting on them.
+  - Bumped the extension/signal channel to `0.6.3` / `open-request-v0603.json` so
+    a still-running `0.6.2` host cannot consume the new protocol.
+
+Conclusion:
+  - Window reloads can no longer replay an old `open-preview` file from a previous
+    run once that signal ages out.
+  - This removes one confirmed cause of duplicate or out-of-order preview opens,
+    while keeping activation-time pickup for genuinely fresh signals after install.
+  - Added a runtime guard in `_ensure_vscode_extension()` that inspects the VSIX's
+    internal `extension/package.json` and aborts installation if its version does
+    not match `_VSCODE_EXT_VERSION`, so this packaging mismatch can no longer fail
+    silently.
+
+Conclusion:
+  - The current blocker is packaging, not the source code or the signal logic.
+  - Rebuilding the bundled VSIX with the real `0.6.2` contents is now required,
+    and future stale artifacts will be surfaced immediately instead of reinstalling
+    the wrong extension version behind the scenes.
+
+## Attempt 53 — Remove `vsce` packaging warnings from the extension manifest (2026-03-07)
+Approach:
+  - Replaced `"activationEvents": ["*"]` with `"onStartupFinished"` because the
+    opener only needs to be live after the workbench has finished starting.
+  - Added a `repository` block and a `files` allowlist to the extension manifest.
+  - Added `vscode-extension/LICENSE` so the extension package has an in-folder
+    license file during `vsce package`.
+  - Bumped the extension version to `0.6.4` and updated `_VSCODE_EXT_VERSION`
+    to match before rebuilding the bundled VSIX.
+
+Result: SUCCESS — `vsce package` now completes without the previous repository,
+  star-activation, license, or file-inclusion warnings, and the rebuilt
+  bundled VSIX verifies as version `0.6.4`.
+
+Lesson: Once Node 24 is available, packaging issues become normal extension
+        manifest hygiene instead of toolchain incompatibility.
+
+## Attempt 54 — Restore hot-install activation and remove duplicate auto-preview (2026-03-07)
+Approach:
+  - User validation after `0.6.4` showed two Simple Browser tabs and a private
+    forwarded port, then later runs left the current `open-request-v0603.json`
+    file unconsumed.
+  - Found two regressions:
+    1. The `0.6.4` packaging cleanup changed activation from `"*"` to
+       `"onStartupFinished"`, which prevents the newly installed opener from
+       becoming live immediately during the same `arrayview` run.
+    2. The workspace `.vscode/settings.json` still had
+       `"onAutoForward": "openPreview"`, which can open a second preview tab
+       independently of the extension path.
+  - Reverted the opener activation event to `"*"` and changed the workspace
+    port behavior back to `"silent"`.
+  - Bumped the extension version to `0.6.5` so the fixed VSIX can replace the
+    broken `0.6.4` install cleanly.
+
+Result: IN PROGRESS — source fix is applied; next step is to rebuild/install the
+        `0.6.5` VSIX and verify the signal is consumed during the same run.
+
+Lesson: This extension is not a normal startup-only feature; it relies on
+        hot-install activation during `arrayview` runs, so packaging hygiene
+        cannot come at the cost of activation semantics.
+
+## Attempt 55 — Bridge signals to the still-running v0.6.2 host (2026-03-07)
+Approach:
+  - A fresh `0.6.5` install still left `~/.arrayview/open-request-v0603.json`
+    untouched and produced no new extension log entries, which means the live
+    remote extension host had not switched over to the current watcher yet.
+  - Added a Python-side compatibility bridge so every new opener signal is
+    written to both `open-request-v0603.json` and `open-request-v0602.json`.
+  - This lets the still-running `0.6.2` host continue to receive `configure-port`
+    and `open-preview` requests until the VS Code window is reloaded and the
+    newer extension instance becomes live.
+
+Result: SUCCESS — a fresh `uv run arrayview data.npy` recreated
+  `open-request-v0602.json`, the active extension host consumed it,
+  logged `remote.tunnel.privacypublic(8000) completed`, and then
+  `remote.tunnel.openPreview(8000) succeeded`.
+
+Lesson: Versioned signal files protect against stale consumers, but when the
+  remote extension host keeps an older version alive across reinstalls,
+  a temporary compatibility channel is necessary to avoid a hard reload
+  requirement.
+
+## Attempt 56 — Reopen the preview after bootstrap privacy promotion (2026-03-07)
+Approach:
+  - User validation showed the bootstrap preview opens only one Simple Browser
+    tab now, but it still lands on the private auth page even though the Ports
+    panel turns public shortly afterward.
+  - Fresh `0.6.7` logs confirmed the sequence:
+    1. no privacy command exists initially,
+    2. opener bootstraps with `remote.tunnel.openPreview`,
+    3. privacy command appears,
+    4. `remote.tunnel.privacypublic(...)` completes with a public tunnel result,
+    5. but the already-open preview stays on the stale private/auth state.
+  - Changed the opener so that when privacy becomes public after bootstrap, it
+    waits briefly and calls `remote.tunnel.openPreview(...)` again to refresh the
+    already-open preview with the now-public tunnel.
+  - Bumped the extension version to `0.6.8` and updated Python's expected
+    `_VSCODE_EXT_VERSION` to match.
+
+Result: IN PROGRESS — source fix is applied; next step is to rebuild/install
+        `0.6.8` and verify the log shows the post-privacy preview refresh.
+
+Lesson: The bootstrap preview can succeed too early; once privacy promotion
+        completes, the preview must be refreshed so the user is not left on the
+        initial private/auth page.
+
+## Attempt 57 — Probe the public tunnel before opening the preview (2026-03-07)
+Approach:
+  - User feedback narrowed the remaining bug further: the preview opens only one
+    tab, but it still lands on the auth/private page and only becomes usable
+    later when the Ports panel eventually flips to public.
+  - The `0.6.8` fix refreshes the preview after bootstrap promotion, but the
+    underlying problem is that `remote.tunnel.privacypublic(...)` returns before
+    the public tunnel URL is actually serving the viewer.
+  - Added a readiness probe in the extension:
+    - derive the public tunnel URL from the privacy command result,
+    - poll that URL until it returns a 2xx response for the actual viewer path,
+    - only then open or refresh the preview.
+  - Bumped the extension version to `0.6.9` and updated Python's expected
+    `_VSCODE_EXT_VERSION` to match.
+
+Result: IN PROGRESS — source probe is applied; next step is to rebuild/install
+        `0.6.9` and verify the log reports public URL readiness before preview.
+
+Lesson: The privacy command completing is not the same as the public tunnel being
+        ready for clients; the opener has to wait for the public URL itself, not
+        just the command result.
+
+## Attempt 56 — Bootstrap the tunnel before promoting privacy on fresh 0.6.5 hosts (2026-03-07)
+Approach:
+  - Fresh `0.6.5` logs showed `remote.tunnel.openPreview(8000)` succeeding while
+    all `remote.tunnel.privacy*` commands remained unavailable for the full retry
+    window, which leaves the preview tab attached to a still-private tunnel.
+  - Changed the opener sequence so it first tries to promote privacy before
+    preview when the privacy commands are already present, but if they are not,
+    it opens one preview to bootstrap tunnel registration, then retries the
+    privacy command against that live tunnel without opening a second tab.
+  - Bumped the extension version to `0.6.6` and updated Python's expected
+    bundled version to match.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install `0.6.6`
+        and verify the post-preview privacy promotion path in the extension log.
+
+Lesson: On a fresh remote extension host, the privacy commands may only exist
+        after a tunnel has been materialized, so trying to make the port public
+        before any preview/forward action is a race that can never succeed.
+
+## Attempt 57 — Match VS Code's tunnel item shape and log privacy command results (2026-03-07)
+Approach:
+  - `0.6.6` proved that the opener is now stable and the privacy command runs on
+    the fresh host, but the port still remained private in the UI.
+  - Tightened the synthetic tunnel context passed to `remote.tunnel.*` commands so
+    it more closely matches VS Code's serialized `ITunnelItem` shape:
+    `localAddress`, `localUri`, `closeable`, `label`, `protocol`, a structured
+    `privacy` field, and a `source` object with both enum-like `source` and
+    `description`.
+  - Added explicit logging of the return values from `remote.tunnel.privacypublic`
+    and `remote.tunnel.openPreview` so we can distinguish "completed but returned
+    undefined" from a real forwarded-tunnel result.
+  - Bumped the extension version to `0.6.7`.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install `0.6.7`
+        and inspect whether `privacypublic` returns a real tunnel or `undefined`.
+
+Lesson: The remaining failure is narrow enough that command return values are now
+        more useful than additional timing changes.
+
+## Attempt 58 — Use explicit forward-plus-public commands before opening preview (2026-03-07)
+Approach:
+  - Fresh `0.6.13` validation proved the pure native path is not reliable in this
+    tunnel session: Python prewrote `openPreview/public`, the extension only ran
+    `configure-port`, and VS Code still neither opened a tab nor kept the port public.
+  - Reintroduced the post-start remote `open-preview` signal, but changed the
+    extension's remote behavior so it no longer relies on `asExternalUri()` or a
+    bootstrap `openPreview`.
+  - New remote flow:
+    1. `configure-port` still prewarms `openPreview/public` in live remote config.
+    2. Post-start `open-preview` now asks VS Code to materialize the tunnel via
+       `remote.tunnel.forward` / `remote.tunnel.openTunnel`.
+    3. Once a forwarded tunnel exists, the extension applies `remote.tunnel.privacypublic`.
+    4. Only after that does it call `remote.tunnel.openPreview`.
+  - Bumped the extension version to `0.6.14` and updated Python's expected
+    `_VSCODE_EXT_VERSION` to match.
+
+Result: IN PROGRESS — source updated; next step is to package/install `0.6.14`
+        and inspect whether `remote.tunnel.forward` can create the tunnel without
+        opening the private auth page first.
+
+Lesson: Native auto-forward and preview are too racy in this environment; if
+        VS Code exposes a forward-without-preview command, we need to use that
+        explicitly to break the private-first catch-22.
+
+## Attempt 58 — Replace blocked proposed tunnel API with `asExternalUri` public URL open (2026-03-07)
+Approach:
+  - Fresh `0.6.11` logs showed the new `workspace.openTunnel(...)` path fails
+    immediately because `tunnels` is a proposed API and cannot be used by a
+    normal installed extension.
+  - Removed that dead path entirely.
+  - Kept the remote prewarm on `privacy: public` + `onAutoForward: silent`, then
+    changed the remote opener to:
+    1. call `vscode.env.asExternalUri(http://localhost:8000/)` to ask VS Code for
+       the public forwarded base URL,
+    2. reapply the viewer path and query string,
+    3. poll the final public viewer URL until it returns a 2xx response,
+    4. only then call `simpleBrowser.show(...)` on that public URL.
+  - Bumped the extension version to `0.6.12`.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install `0.6.12`
+  and verify that the first preview opens only after the public URL itself
+  is live.
+
+Lesson: `workspace.openTunnel(...)` would have been the cleanest primitive, but
+  it is not available in production extensions, so the remote path has to
+  rely on stable VS Code APIs only.
+
+## Attempt 58 — Remove the bootstrap preview catch-22 and rely on native public auto-forward (2026-03-07)
+Approach:
+  - Fresh `0.6.9` logs after a real reload showed the exact catch-22:
+    the remote opener prewarmed `configure-port`, but on a clean run the privacy
+    commands were still unavailable, so the fallback path called
+    `remote.tunnel.openPreview(8000)` first. That opens a private/auth tab before
+    the port ever becomes public.
+  - Reverted the remote architecture back to the clean prewarm pipeline:
+    1. `configure-port` updates remote global `portsAttributes` to
+       `privacy: public` + `onAutoForward: openPreview`
+    2. Python still sends that signal before the server starts and waits for VS Code
+       to ingest it
+    3. after startup, remote runs no longer send an explicit `open-preview` command
+       at all
+  - Changed the extension so remote `open-preview` actions are ignored instead of
+    trying the bootstrap/refresh/polling logic.
+  - Bumped the extension version to `0.6.10`.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install `0.6.10`
+        and validate that the very first tab is opened only by VS Code's native
+        public auto-forwarder, not by the extension.
+
+Lesson: The bootstrap `openPreview` hack is the direct cause of the initial
+        private/auth tab; if the port must be public before the preview opens,
+        the extension cannot be the component that creates that first preview.
+
+## Attempt 59 — Create the public tunnel explicitly, then open the preview (2026-03-07)
+Approach:
+  - Fresh `0.6.10` evidence showed the native `openPreview + public` path still
+    races: the first tab can open against a private tunnel before public state is
+    actually effective.
+  - Switched the remote path back to `onAutoForward: silent` so VS Code does not
+    open any preview on its own.
+  - Changed the remote opener extension so `open-preview` now:
+    1. calls `vscode.workspace.openTunnel(...)` with `privacy: 'public'`,
+    2. waits for the returned public URL to answer,
+    3. only then invokes `remote.tunnel.openPreview`.
+  - Removed the temporary `v0602` compatibility signal bridge so an older opener
+    instance cannot steal the current remote signal on fresh runs.
+  - Bumped the extension version to `0.6.11`.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install `0.6.11`
+        and verify that the first preview opens only after a public tunnel exists.
+
+Lesson: The reliable sequence is "create public tunnel first, preview second";
+        any path that lets auto-forward open the preview independently can still
+        race and show the private/auth page first.
+
+## Attempt 60 — Remove the live `silent` config conflict from the extension (2026-03-07)
+Approach:
+  - Fresh `0.6.12` runtime inspection showed a concrete mismatch:
+    Python writes remote Machine settings as `onAutoForward: openPreview` +
+    `privacy: public`, but the live workspace extension was still calling
+    `remote.update('portsAttributes', ...)` with `onAutoForward: silent`.
+  - That means the in-memory config seen by VS Code during the run could diverge
+    from the on-disk Machine settings and suppress the native preview path.
+  - Changed the extension's live config writer to match Python exactly:
+    `onAutoForward: openPreview`, `privacy: public`.
+
+Result: IN PROGRESS — source updated; next step is to rebuild/install the
+        extension and validate a truly fresh run with aligned in-memory and
+        on-disk port attributes.
+
+Lesson: The live `remote.update(...)` call wins over whatever was written to disk,
+        so extension-side config must never disagree with Python-side config.
+
+## Attempt 61 — Remove non-existent tunnel commands, use simpleBrowser.show directly (2026-03-07)
+Approach:
+  - Reviewed the v0.6.14 extension log from the latest run. The entire openRemotePreview()
+    function fails because it depends on commands that don't exist in this tunnel session:
+    * `remote.tunnel.forward` — not found (6 argument variants tried)
+    * `remote.tunnel.openTunnel` — not found (6 argument variants tried)
+    * `remote.tunnel.privacypublic` — none of the `remote.tunnel.privacy*` commands
+      are registered at all (20 retry attempts over ~6 seconds, all showed 0 matches)
+  - These are internal VS Code UI commands that are only dynamically registered when
+    the Ports panel has already materialized a tunnel. They are NOT part of the stable
+    extension API and cannot be used proactively by third-party extensions.
+  - The proven working path (Attempts 37-38) was:
+    1. Pre-seed `remote.portsAttributes` with `privacy: public` + `onAutoForward: openPreview`
+       via `getConfiguration().update()` BEFORE the server starts
+    2. Wait for VS Code to ingest the config (2s settle from Attempt 48)
+    3. Start the server — VS Code auto-detects the port and opens a public preview
+  - Removed ALL non-existent command machinery from the extension:
+    * `ensureForwardedTunnel()` — deleted (all 6 command variants are "not found")
+    * `ensurePublicTunnel()` — deleted (privacy commands never registered)
+    * `openTunnelPreview()` — deleted (depended on tunnel being forwarded first)
+    * `buildTunnelContext()` — deleted (only used by the above)
+    * `findPrivacyCommandId()` — deleted (only used by the above)
+    * `describeResult()` — deleted (only used for logging the above)
+  - New remote `open-preview` handler:
+    1. `ensureRemotePortAttributes(port)` — keep pre-seeding config (works, confirmed in logs)
+    2. `vscode.env.asExternalUri(localhost:PORT)` — trigger port forwarding as side-effect
+    3. `sleep(2000)` — wait for forwarding to be ready
+    4. `simpleBrowser.show(localhostUrl)` — open the viewer directly
+  - This matches the KEY INSIGHT from Attempt 8 and confirmed in Attempts 37-38:
+    simpleBrowser.show(localhostUrl) works in tunnel sessions when the port is forwarded
+    and public. The extension's config update ensures public, the native auto-forward
+    handles detection, and simpleBrowser.show is just a belt-and-suspenders backup.
+  - Bumped extension to v0.7.0, signal file to open-request-v0700.json.
+  - Built VSIX manually (Node 11 npm too old for vsce), verified version 0.7.0 inside.
+  - Updated _app.py version/signal constants to match.
+
+Result: IMPLEMENTED, awaiting tunnel validation.
+
+Key reasoning:
+  - The v0.6.14 approach was trying to programmatically create and promote tunnels
+    using internal commands that VS Code doesn't expose to extensions. This was
+    always going to fail. The extension now does what it CAN do (update config, call
+    asExternalUri, call simpleBrowser.show) instead of what it CAN'T do (create
+    tunnels, set tunnel privacy).
+  - The config pre-seeding already works (the extension log shows it succeeding
+    every time). The remaining question is whether VS Code's native auto-forward
+    path opens the preview before the extension's simpleBrowser.show backup fires.
+    In either case, the viewer should open.
+## Attempt 62 — Restore missing _find_server_port and _in_vscode_tunnel (2026-03-07)
+Approach:
+  - Running test suite after v0.7.0 commit revealed 1 failure: tests for
+    `_find_server_port` and `_in_vscode_tunnel` which had been removed from
+    `_app.py` during the v0.7.0 extension simplification.
+  - `_find_server_port(port, search_range=20)` → `(found_port, already_running)`:
+    Returns `(port, True)` if an ArrayView server is already alive; otherwise
+    scans `port..port+search_range` for a free port and returns `(found, False)`.
+  - `_in_vscode_tunnel()` → bool: Returns True when SSH_CLIENT, SSH_CONNECTION,
+    VSCODE_INJECTION, or VSCODE_AGENT_FOLDER is set.
+  - These are utility functions; their absence did not affect the tunnel path
+    but broke the test suite.
+
+Result: FIXED — all 40 test_api.py tests pass.
+
+Lesson: Pure code cleanup / extension removal must be checked against the full
+test suite. Any function removed from _app.py may be referenced by tests.
+
