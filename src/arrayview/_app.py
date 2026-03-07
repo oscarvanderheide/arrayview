@@ -29,21 +29,76 @@ import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: 
 # ---------------------------------------------------------------------------
 # Subprocess GUI Launcher
 # ---------------------------------------------------------------------------
+_ICON_PNG_PATH: str | None = None
+
+
+def _get_icon_png_path() -> str | None:
+    """Generate the ArrayView logo as a 512×512 PNG (with padding) and cache the path."""
+    global _ICON_PNG_PATH
+    if _ICON_PNG_PATH is not None:
+        return _ICON_PNG_PATH
+    try:
+        import tempfile
+        from PIL import ImageDraw
+        # 512×512 canvas with ~10% transparent padding so the icon sits at the
+        # same visual size as other macOS dock icons.
+        canvas = 512
+        pad = int(canvas * 0.10)   # ~51px transparent margin each side
+        inner = canvas - 2 * pad   # ~410px icon content area
+        S = inner / 16             # scale factor for the 16-unit SVG design
+        img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        # Background with rounded corners
+        d.rounded_rectangle([pad, pad, pad + inner - 1, pad + inner - 1],
+                             radius=int(2.5 * S), fill="#0c0c0c")
+        # 3×3 grid of coloured squares
+        colors = [
+            "#3a0ca3", "#560bad", "#c77dff",
+            "#4361ee", "#4cc9f0", "#f5c842",
+            "#4895ef", "#80ed99", "#f8961e",
+        ]
+        xs = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
+        ys = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
+        sq = int(3 * S)
+        for row, y in enumerate(ys):
+            for col, x in enumerate(xs):
+                d.rectangle([x, y, x + sq - 1, y + sq - 1], fill=colors[row * 3 + col])
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        img.save(tmp.name, "PNG")
+        tmp.close()
+        _ICON_PNG_PATH = tmp.name
+    except Exception:
+        _ICON_PNG_PATH = ""
+    return _ICON_PNG_PATH or None
+
+
 def _open_webview(
     url: str, win_w: int, win_h: int, capture_stderr: bool = False
 ) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel."""
-    # Qt WebEngine renders at device-pixel-ratio scale, producing a thin
-    # scrollbar at zoom=1.0.  A slightly lower zoom prevents it.
-    script = (
-        "import sys,webview;"
-        "u,w,h=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]);"
-        "webview.create_window('ArrayView',u,width=w,height=h,background_color='#111111');"
-        "webview.start(**({'gui':'qt'} if sys.platform.startswith('linux') else {}))"
-    )
+    icon_path = _get_icon_png_path() or ""
+    script = "\n".join([
+        "import sys, webview",
+        "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
+        "webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
+        "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
+        "if icon:",
+        "    if sys.platform == 'darwin':",
+        "        def _set_icon():",
+        "            try:",
+        "                import AppKit",
+        "                from PyObjCTools import AppHelper",
+        "                img = AppKit.NSImage.alloc().initWithContentsOfFile_(icon)",
+        "                AppHelper.callAfter(AppKit.NSApplication.sharedApplication().setApplicationIconImage_, img)",
+        "            except Exception: pass",
+        "        kw['func'] = _set_icon",
+        "    else:",
+        "        kw['icon'] = icon",
+        "webview.start(**kw)",
+    ])
     return subprocess.Popen(
-        [sys.executable, "-c", script, url, str(win_w), str(win_h)],
+        [sys.executable, "-c", script, url, str(win_w), str(win_h), icon_path],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
     )
