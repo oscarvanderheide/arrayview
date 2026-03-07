@@ -927,7 +927,12 @@ MASK_MULTIPLIERS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0]
 
 @app.post("/mask/{sid}")
 async def set_mask(sid: str, request: Request):
-    """Cycle mask level (0=off, 1–7 = increasing Otsu multiplier on current slice)."""
+    """Cycle mask level (0=off, 1–7 = increasing Otsu multiplier).
+
+    Client sends ``free_dims`` (list of dim indices to keep free) and
+    ``indices`` (current full index tuple). Otsu is computed on the
+    sub-volume formed by those free dims.
+    """
     session = SESSIONS.get(sid)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -940,18 +945,18 @@ async def set_mask(sid: str, request: Request):
         session.rgba_cache.clear()
         session._rgba_bytes = 0
         return {"level": 0, "threshold": 0.0, "multiplier": 0.0}
-    # Compute Otsu on the current visible slice
     try:
-        dim_x = int(body.get("dim_x", 0))
-        dim_y = int(body.get("dim_y", 1))
+        free_dims = set(int(d) for d in body.get("free_dims", [0, 1]))
         indices = [int(v) for v in str(body.get("indices", "0")).split(",")]
         loop = asyncio.get_running_loop()
-        raw_slice = await loop.run_in_executor(
-            None, lambda: extract_slice(session, dim_x, dim_y, indices)
-        )
-        otsu = await loop.run_in_executor(
-            None, lambda: _compute_otsu_threshold(raw_slice)
-        )
+        def _extract_subvol():
+            slicer = tuple(
+                slice(None) if i in free_dims else indices[i]
+                for i in range(len(session.shape))
+            )
+            return session.data[slicer]
+        subvol = await loop.run_in_executor(None, _extract_subvol)
+        otsu = await loop.run_in_executor(None, lambda: _compute_otsu_threshold(subvol))
     except Exception as e:
         return {"error": str(e)}
     otsu = float(otsu)
@@ -959,7 +964,7 @@ async def set_mask(sid: str, request: Request):
     threshold = otsu * multiplier
     session.mask_level = level
     session.mask_threshold = threshold
-    session.mask_otsu = otsu  # cache for reference
+    session.mask_otsu = otsu
     session.rgba_cache.clear()
     session._rgba_bytes = 0
     return {"level": level, "threshold": threshold, "otsu": otsu, "multiplier": multiplier}
