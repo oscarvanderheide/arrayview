@@ -121,11 +121,12 @@
         #help-box {
             padding: 22px 30px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 13px;
+            font-size: 13px; display: flex; gap: 36px; align-items: flex-start;
         }
-        .help-row { display: flex; align-items: baseline; line-height: 2.2; }
+        .help-col { flex: 1; min-width: 0; }
+        .help-row { display: flex; align-items: baseline; line-height: 2.1; }
         .help-row .key {
-            flex-shrink: 0; width: 190px; color: var(--help-key); font-weight: 600;
+            flex-shrink: 0; width: 130px; color: var(--help-key); font-weight: 600;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; font-size: 12px;
         }
         .help-row .desc { color: var(--text); }
@@ -134,7 +135,7 @@
             color: var(--muted); margin: 16px 0 4px; padding-bottom: 4px;
             border-bottom: 1px solid var(--border);
         }
-        .help-section:first-child { margin-top: 0; }
+        .help-section:first-child, .help-col > .help-section:first-child { margin-top: 0; }
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
@@ -228,38 +229,43 @@
     </div>
     <div id="help-overlay">
         <div id="help-box">
-            <div class="help-section">Navigation</div>
-            <div class="help-row"><span class="key">scroll</span><span class="desc">previous / next slice (active dim)</span></div>
-            <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim</span></div>
-            <div class="help-row"><span class="key">j / ↓</span><span class="desc">on x/y: flip axis &nbsp;|&nbsp; else: prev index</span></div>
-            <div class="help-row"><span class="key">k / ↑</span><span class="desc">on x/y: flip axis &nbsp;|&nbsp; else: next index</span></div>
-            <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
-            <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
-            <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
-            <div class="help-section">Axes &amp; Views</div>
-            <div class="help-row"><span class="key">x</span><span class="desc">swap horizontal dim with slice dim</span></div>
-            <div class="help-row"><span class="key">y</span><span class="desc">swap vertical dim with slice dim</span></div>
-            <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
-            <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
-            <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
-            <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
-            <div class="help-section">Display</div>
-            <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
-            <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
-            <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
-            <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
-            <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar (slim, with min/max)</span></div>
-            <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
-            <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
-            <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
-            <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
-            <div class="help-section">Info &amp; Export</div>
-            <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
-            <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
-            <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
-            <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
-            <div class="help-row"><span class="key">e</span><span class="desc">copy view state to clipboard</span></div>
-            <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
+            <div class="help-col">
+                <div class="help-section">Navigation</div>
+                <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice</span></div>
+                <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim</span></div>
+                <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index (no-op on spatial dims)</span></div>
+                <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis direction</span></div>
+                <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
+                <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
+                <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
+                <div class="help-section">Axes &amp; Views</div>
+                <div class="help-row"><span class="key">x</span><span class="desc">swap horizontal dim with slice dim</span></div>
+                <div class="help-row"><span class="key">y</span><span class="desc">swap vertical dim with slice dim</span></div>
+                <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
+                <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
+                <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
+                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
+            </div>
+            <div class="help-col">
+                <div class="help-section">Display</div>
+                <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
+                <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
+                <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
+                <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
+                <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
+                <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
+                <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
+                <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
+                <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
+                <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
+                <div class="help-section">Info &amp; Export</div>
+                <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
+                <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
+                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
+                <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
+                <div class="help-row"><span class="key">e</span><span class="desc">copy view state to clipboard</span></div>
+                <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
+            </div>
         </div>
     </div>
 </div>
