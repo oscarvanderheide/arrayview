@@ -65,7 +65,7 @@
             background: var(--bg);
         }
         .axes-indicator {
-            position: absolute; bottom: 2px; left: -42px; width: 40px; height: 40px;
+            position: absolute; bottom: -20px; left: -42px; width: 40px; height: 40px;
             pointer-events: none; color: rgba(190,190,190,0.75);
         }
         :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
@@ -173,7 +173,7 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: space-evenly; flex: 0 0 auto; gap: 8px; }
         #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; }
-        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; }
+        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 8px; flex: 1; min-width: 0; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
