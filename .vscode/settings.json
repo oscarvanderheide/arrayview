@@ -1,0 +1,10 @@
+{
+  "remote.portsAttributes": {
+    "8000": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    }
+  }
+}
