@@ -1880,6 +1880,14 @@
                     document.getElementById('info-overlay').classList.remove('visible');
                     return;
                 }
+                if (e.key === 'j' || e.key === 'ArrowDown') {
+                    setHelpTab(helpTabIdx + 1);
+                    return;
+                }
+                if (e.key === 'k' || e.key === 'ArrowUp') {
+                    setHelpTab(helpTabIdx - 1);
+                    return;
+                }
                 return;
             }
             if (e.key === 'Escape') {
