@@ -233,35 +233,32 @@
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
-        #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 10px; }
-        #compare-view-wrap.active { display: flex; align-items: stretch; justify-content: center; }
+        #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
+        #compare-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
+        #compare-panes { flex: 1; min-height: 0; width: 100%; display: flex; gap: 22px; align-items: stretch; justify-content: center; overflow: visible; }
         .compare-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; }
-        #compare-view-wrap.registration-mode { gap: 0; }
+        #compare-view-wrap.registration-mode #compare-panes { gap: 0; }
         #compare-view-wrap.registration-mode .compare-pane.compare-secondary,
         #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { display: none; }
         .compare-pane.compare-tertiary { display: none; }
         #compare-view-wrap.has-third .compare-pane.compare-tertiary { display: flex; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
-        .compare-canvas-area { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+        .compare-canvas-area {
+            flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
+            padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
+        }
         .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
         .compare-canvas {
             border: 1px solid var(--canvas-border); border-radius: 2px;
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
             max-width: 100%; max-height: 100%;
         }
-        #compare-slim-cb {
-            position: absolute; left: 100%; top: 0; margin-left: 4px;
-            border-radius: 2px; border: none; width: 9px; pointer-events: none;
-        }
-        #compare-slim-cb-vmax {
-            position: absolute; left: calc(100% + 17px); top: 0;
-            font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace;
-            white-space: nowrap; pointer-events: none; transform: translateY(-2px);
-        }
-        #compare-slim-cb-vmin {
-            position: absolute; left: calc(100% + 17px); bottom: 0;
-            font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace;
-            white-space: nowrap; pointer-events: none; transform: translateY(2px);
+        #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
+        #compare-view-wrap.active #compare-cb-wrap { display: block; }
+        #compare-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
+        #compare-cb-labels {
+            display: flex; justify-content: center; gap: 0; font-size: 11px;
+            color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto;
         }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
@@ -327,56 +324,59 @@
             </svg>
         </div>
         <div id="compare-view-wrap">
-            <div class="compare-pane compare-primary">
-                <div id="compare-left-title" class="compare-title"></div>
-                <div class="compare-canvas-area">
-                    <div class="compare-canvas-wrap">
-                        <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
-                        <canvas id="compare-slim-cb"></canvas>
-                        <div id="compare-slim-cb-vmax"></div>
-                        <div id="compare-slim-cb-vmin"></div>
-                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                            <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                            <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                        </svg>
+            <div id="compare-panes">
+                <div class="compare-pane compare-primary">
+                    <div id="compare-left-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-secondary">
+                    <div id="compare-right-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-tertiary">
+                    <div id="compare-third-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="compare-pane compare-secondary">
-                <div id="compare-right-title" class="compare-title"></div>
-                <div class="compare-canvas-area">
-                    <div class="compare-canvas-wrap">
-                        <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
-                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                            <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                            <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                        </svg>
-                    </div>
-                </div>
-            </div>
-            <div class="compare-pane compare-tertiary">
-                <div id="compare-third-title" class="compare-title"></div>
-                <div class="compare-canvas-area">
-                    <div class="compare-canvas-wrap">
-                        <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
-                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                            <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                            <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                        </svg>
-                    </div>
-                </div>
+            <div id="compare-cb-wrap">
+                <canvas id="compare-cb"></canvas>
+                <div id="compare-cb-labels"></div>
             </div>
         </div>
         <div id="multi-view-wrap"></div>
@@ -432,7 +432,7 @@
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
-                <div class="help-row"><span class="key">B</span><span class="desc">toggle side-by-side compare</span></div>
+                <div class="help-row"><span class="key">B</span><span class="desc">toggle compare picker (single-array launch)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -469,6 +469,7 @@
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
+        const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
         let _reportedFirstFrame = false;
 
@@ -591,12 +592,11 @@
         const compareLeftTitle = document.getElementById('compare-left-title');
         const compareRightTitle = document.getElementById('compare-right-title');
         const compareThirdTitle = document.getElementById('compare-third-title');
+        const compareCbCanvas = document.getElementById('compare-cb');
+        const compareCbLabels = document.getElementById('compare-cb-labels');
         const slimCbCanvas = document.getElementById('slim-cb');
-        const compareSlimCbCanvas = document.getElementById('compare-slim-cb');
         const slimCbVmaxEl = document.getElementById('slim-cb-vmax');
         const slimCbVminEl = document.getElementById('slim-cb-vmin');
-        const compareSlimCbVmaxEl = document.getElementById('compare-slim-cb-vmax');
-        const compareSlimCbVminEl = document.getElementById('compare-slim-cb-vmin');
         slimCbCanvas.addEventListener('mouseenter', () => { cbHovered = true; drawSlimColorbar(cbMarkerFrac); });
         slimCbCanvas.addEventListener('mouseleave', () => { cbHovered = false; drawSlimColorbar(cbMarkerFrac); });
         const sink = document.getElementById('keyboard-sink');
@@ -632,16 +632,20 @@
             if (!row) return;
             const rowW = Math.max(100, row.clientWidth);
             const rowH = Math.max(100, row.clientHeight);
-            const paneGap = 10;
-            const sidePadding = 44; // viewer-row padding + breathing room
-            const titleReserve = 28;
+            const paneGap = 24;
+            const sidePadding = 54;
+            const titleReserve = 34;
+            const cbReserve = colorbarVisible() ? 42 : 0;
+            const axesReserveX = 26; // keep room for left x/y indicator arrow + labels
+            const axesReserveY = 28; // keep room for bottom x/y indicator arrow + labels
+            const fitSlack = 0.96;
             const hasThird = compareWrap.classList.contains('has-third');
             const paneCount = registrationMode ? 1 : (hasThird ? 3 : 2);
-            const availW = Math.max(
+            const fallbackPaneW = Math.max(
                 50,
                 (rowW - sidePadding - (paneCount - 1) * paneGap) / paneCount
             );
-            const availH = Math.max(50, rowH - titleReserve);
+            const fallbackPaneH = Math.max(50, rowH - titleReserve - cbReserve);
             const panes = registrationMode
                 ? [{ frame: compareRegistrationFrame || compareLeftFrame, canvas: compareLeftCanvas }]
                 : [
@@ -651,8 +655,13 @@
                 ];
             for (const p of panes) {
                 if (!p.frame) continue;
+                const paneArea = p.canvas.closest('.compare-canvas-area');
+                const paneW = paneArea?.clientWidth || fallbackPaneW;
+                const paneH = paneArea?.clientHeight || fallbackPaneH;
+                const availW = Math.max(40, paneW - axesReserveX);
+                const availH = Math.max(40, paneH - axesReserveY);
                 const base = Math.min(availW / p.frame.width, availH / p.frame.height);
-                const scale = Math.max(0.01, base * userZoom);
+                const scale = Math.max(0.01, base * fitSlack * userZoom);
                 p.canvas.style.width = Math.round(p.frame.width * scale) + 'px';
                 p.canvas.style.height = Math.round(p.frame.height * scale) + 'px';
             }
@@ -741,6 +750,41 @@
             requestAnimationFrame(() => compareScaleCanvases());
         }
 
+        function drawCompareColorbar() {
+            if (!compareActive || !colorbarVisible()) {
+                compareCbCanvas.style.display = 'none';
+                compareCbLabels.textContent = '';
+                return;
+            }
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops) return;
+            const wrap = document.getElementById('compare-cb-wrap');
+            const widthCss = Math.max(160, Math.min(920, (wrap?.clientWidth || 600) - 100));
+            const heightCss = 8;
+            const dpr = window.devicePixelRatio || 1;
+            compareCbCanvas.width = Math.round(widthCss * dpr);
+            compareCbCanvas.height = Math.round(heightCss * dpr);
+            compareCbCanvas.style.width = `${widthCss}px`;
+            compareCbCanvas.style.height = `${heightCss}px`;
+            compareCbCanvas.style.display = '';
+            const c2 = compareCbCanvas.getContext('2d');
+            c2.clearRect(0, 0, compareCbCanvas.width, compareCbCanvas.height);
+            c2.save();
+            c2.scale(dpr, dpr);
+            const grad = c2.createLinearGradient(0, 0, widthCss, 0);
+            const n = stops.length;
+            for (let i = 0; i < n; i++) {
+                const t = n <= 1 ? 0 : i / (n - 1);
+                const rgb = stops[i];
+                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+            }
+            c2.fillStyle = grad;
+            c2.fillRect(0, 0, widthCss, heightCss);
+            c2.restore();
+            compareCbLabels.style.width = `${widthCss}px`;
+            compareCbLabels.innerHTML = `<span>${_cbFmt(currentVmin)}</span><span style="flex:1"></span><span>${_cbFmt(currentVmax)}</span>`;
+        }
+
         window.addEventListener('resize', () => {
             if (multiViewActive) { mvScaleAllCanvases(); return; }
             if (compareActive) { compareScaleCanvases(); return; }
@@ -783,41 +827,32 @@
             if (!opts.silent) showStatus(zenMode ? 'zen mode: on' : 'zen mode: off');
         }
         function drawSlimColorbar(markerFrac) {
-            const hideMain = () => {
+            if (compareActive) {
+                drawCompareColorbar();
                 slimCbCanvas.style.display = 'none';
                 slimCbVmaxEl.style.display = 'none';
                 slimCbVminEl.style.display = 'none';
-            };
-            const hideCompare = () => {
-                compareSlimCbCanvas.style.display = 'none';
-                compareSlimCbVmaxEl.style.display = 'none';
-                compareSlimCbVminEl.style.display = 'none';
-            };
+                return;
+            }
             if (!colorbarVisible()) {
-                hideMain();
-                hideCompare();
+                slimCbCanvas.style.display = 'none';
+                slimCbVmaxEl.style.display = 'none';
+                slimCbVminEl.style.display = 'none';
                 return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
-            const useCompareBar = compareActive;
-            const targetCanvas = useCompareBar ? compareSlimCbCanvas : slimCbCanvas;
-            const vmaxEl = useCompareBar ? compareSlimCbVmaxEl : slimCbVmaxEl;
-            const vminEl = useCompareBar ? compareSlimCbVminEl : slimCbVminEl;
-            const sourceH = useCompareBar ? compareLeftCanvas.style.height : canvas.style.height;
-            const cssH = parseInt(sourceH);
+            const cssH = parseInt(canvas.style.height);
             if (!cssH || cssH < 10) return;
-            if (useCompareBar) hideMain();
-            else hideCompare();
             const stripW = 9;
             const dpr = window.devicePixelRatio || 1;
-            targetCanvas.width = Math.round(stripW * dpr);
-            targetCanvas.height = Math.round(cssH * dpr);
-            targetCanvas.style.width = stripW + 'px';
-            targetCanvas.style.height = cssH + 'px';
-            targetCanvas.style.display = '';
-            const sCtx = targetCanvas.getContext('2d');
-            sCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+            slimCbCanvas.width = Math.round(stripW * dpr);
+            slimCbCanvas.height = Math.round(cssH * dpr);
+            slimCbCanvas.style.width = stripW + 'px';
+            slimCbCanvas.style.height = cssH + 'px';
+            slimCbCanvas.style.display = '';
+            const sCtx = slimCbCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
             sCtx.scale(dpr, dpr);
             const n = stops.length;
             for (let row = 0; row < cssH; row++) {
@@ -839,10 +874,10 @@
                 sCtx.beginPath(); sCtx.moveTo(0, my + 0.5); sCtx.lineTo(stripW, my + 0.5); sCtx.stroke();
             }
             // Update external label elements
-            vmaxEl.textContent = _cbFmt(currentVmax);
-            vmaxEl.style.display = '';
-            vminEl.textContent = _cbFmt(currentVmin);
-            vminEl.style.display = '';
+            slimCbVmaxEl.textContent = _cbFmt(currentVmax);
+            slimCbVmaxEl.style.display = '';
+            slimCbVminEl.textContent = _cbFmt(currentVmin);
+            slimCbVminEl.style.display = '';
         }
 
         function showDataInfo(rows) {
@@ -1448,7 +1483,9 @@
             params.set('sid', sid);
             if (overlay_sid) params.set('overlay_sid', overlay_sid);
             if (compareSid) params.set('compare_sid', compareSid);
-            if (compareSidList.length) params.set('compare_sids', compareSidList.join(','));
+            if (compareSidList.length && (compareLocked || compareSidList.length > 1)) {
+                params.set('compare_sids', compareSidList.join(','));
+            }
             if (httpTransport) params.set('transport', 'http');
             const encoded = encodeStateParam(collectStateSnapshot());
             if (encoded) params.set('state', encoded);
@@ -2078,10 +2115,6 @@
             for (const s of candidates) {
                 if (s.name) compareNameBySid[s.sid] = s.name;
             }
-            compareSidList = [
-                ...compareSidList.filter(s => candidates.some(c => c.sid === s)),
-                ...candidates.map(c => c.sid).filter(s => !compareSidList.includes(s)),
-            ];
             return candidates;
         }
 
@@ -2167,6 +2200,10 @@
         }
 
         async function toggleCompareMode() {
+            if (compareLocked) {
+                showStatus('compare is fixed for multi-array launch');
+                return;
+            }
             if (compareActive) {
                 exitCompareMode();
                 return;
