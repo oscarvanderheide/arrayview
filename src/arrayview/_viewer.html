@@ -408,7 +408,7 @@
                 <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
                 <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
-                <div class="help-row"><span class="key">e</span><span class="desc">copy view state to clipboard</span></div>
+                <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
                 <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
                 </div>
             </div>
@@ -426,6 +426,7 @@
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
+        const stateParam = urlParams.get('state') || null;
         const httpTransport = transport === 'http';
         let _reportedFirstFrame = false;
 
@@ -1040,7 +1041,11 @@
             // initialize per-dimension flip flags
             flipDims = {};
             for (let i = 0; i < shape.length; i++) flipDims[i] = false;
-            restoreState();
+            restoreStateFromSessionStorage();
+            if (stateParam) {
+                const decodedUrlState = decodeStateParam(stateParam);
+                if (decodedUrlState) applyStateSnapshot(decodedUrlState);
+            }
             initWebSocket();
             triggerPreload();
             if (compareSid) enterCompareModeBySid(compareSid);
@@ -1129,48 +1134,140 @@
             }, duration);
         }
 
-        function saveState() {
-            if (!sid) return;
-            sessionStorage.setItem('av_' + sid, JSON.stringify({
-                colormap_idx, dr_idx, indices: [...indices],
-                logScale, complexMode, flip_x, flip_y,
-                flipDims: {...flipDims}, userZoom,
-                customColormap, themeIdx, zenMode,
-            }));
+        function collectStateSnapshot() {
+            return {
+                colormap_idx,
+                dr_idx,
+                indices: [...indices],
+                logScale,
+                complexMode,
+                flip_x,
+                flip_y,
+                flipDims: {...flipDims},
+                userZoom,
+                customColormap,
+                themeIdx,
+                zenMode,
+                dim_x,
+                dim_y,
+                dim_z,
+                current_slice_dim,
+                activeDim,
+            };
         }
 
-        function restoreState() {
+        function refreshCustomColormap(name) {
+            if (!name) {
+                customColormap = null;
+                customGradientStops = null;
+                return;
+            }
+            fetch(`/colormap/${encodeURIComponent(name)}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (d) {
+                        customColormap = name;
+                        customGradientStops = d.gradient_stops;
+                    } else {
+                        colormap_idx = 0;
+                        customColormap = null;
+                        customGradientStops = null;
+                    }
+                });
+        }
+
+        function applyStateSnapshot(s) {
+            if (!s || typeof s !== 'object') return false;
+            colormap_idx = s.colormap_idx ?? colormap_idx;
+            dr_idx = s.dr_idx ?? dr_idx;
+            if (Array.isArray(s.indices) && s.indices.length === shape.length) {
+                indices = s.indices.map((v, i) => {
+                    const n = Number(v);
+                    if (!Number.isFinite(n)) return indices[i];
+                    return Math.max(0, Math.min(shape[i] - 1, Math.round(n)));
+                });
+            }
+            logScale = s.logScale ?? false;
+            complexMode = s.complexMode ?? 0;
+            flip_x = s.flip_x ?? false;
+            flip_y = s.flip_y ?? false;
+            flipDims = s.flipDims ?? {};
+            userZoom = s.userZoom ?? 1.0;
+            if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
+            else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
+            setZenMode(!!s.zenMode, { silent: true });
+
+            if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
+            if (Number.isInteger(s.dim_y) && s.dim_y >= 0 && s.dim_y < shape.length) dim_y = s.dim_y;
+            if (Number.isInteger(s.dim_z) && s.dim_z >= -1 && s.dim_z < shape.length) dim_z = s.dim_z;
+            if (
+                Number.isInteger(s.current_slice_dim)
+                && s.current_slice_dim >= 0
+                && s.current_slice_dim < shape.length
+            ) {
+                current_slice_dim = s.current_slice_dim;
+            }
+            if (Number.isInteger(s.activeDim) && s.activeDim >= 0 && s.activeDim < shape.length) {
+                activeDim = s.activeDim;
+            }
+
+            if (s.customColormap && colormap_idx === -1) refreshCustomColormap(s.customColormap);
+            else if (colormap_idx !== -1) {
+                customColormap = null;
+                customGradientStops = null;
+            }
+            return true;
+        }
+
+        function saveState() {
+            if (!sid) return;
+            sessionStorage.setItem('av_' + sid, JSON.stringify(collectStateSnapshot()));
+        }
+
+        function restoreStateFromSessionStorage() {
             const raw = sessionStorage.getItem('av_' + sid);
             if (!raw) return false;
             try {
-                const s = JSON.parse(raw);
-                colormap_idx = s.colormap_idx ?? colormap_idx;
-                dr_idx       = s.dr_idx ?? dr_idx;
-                if (s.indices?.length === shape.length) indices = s.indices;
-                logScale    = s.logScale ?? false;
-                complexMode = s.complexMode ?? 0;
-                flip_x      = s.flip_x ?? false;
-                flip_y      = s.flip_y ?? false;
-                flipDims    = s.flipDims ?? {};
-                userZoom    = s.userZoom ?? 1.0;
-                if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
-                else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
-                setZenMode(!!s.zenMode, { silent: true });
-                if (s.customColormap && colormap_idx === -1) {
-                    // Re-fetch gradient stops so colorbar can render correctly
-                    fetch(`/colormap/${encodeURIComponent(s.customColormap)}`)
-                        .then(r => r.ok ? r.json() : null)
-                        .then(d => {
-                            if (d) {
-                                customColormap = s.customColormap;
-                                customGradientStops = d.gradient_stops;
-                            } else {
-                                colormap_idx = 0; // fall back if colormap disappeared
-                            }
-                        });
-                }
-                return true;
-            } catch (e) { return false; }
+                return applyStateSnapshot(JSON.parse(raw));
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function encodeStateParam(s) {
+            try {
+                const json = JSON.stringify(s);
+                const bytes = new TextEncoder().encode(json);
+                let bin = '';
+                for (const b of bytes) bin += String.fromCharCode(b);
+                return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function decodeStateParam(encoded) {
+            if (!encoded) return null;
+            try {
+                const padded = encoded.replace(/-/g, '+').replace(/_/g, '/');
+                const need = (4 - (padded.length % 4)) % 4;
+                const bin = atob(padded + '='.repeat(need));
+                const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+                return JSON.parse(new TextDecoder().decode(bytes));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function buildReusableUrl() {
+            const params = new URLSearchParams();
+            params.set('sid', sid);
+            if (overlay_sid) params.set('overlay_sid', overlay_sid);
+            if (compareSid) params.set('compare_sid', compareSid);
+            if (httpTransport) params.set('transport', 'http');
+            const encoded = encodeStateParam(collectStateSnapshot());
+            if (encoded) params.set('state', encoded);
+            return `${window.location.origin}/?${params.toString()}`;
         }
 
         function updateView() {
@@ -1662,20 +1759,10 @@
                     });
                 }
             } else if (e.key === 'e') {
-                fetch(`/info/${sid}`).then(r => r.json()).then(d => {
-                    const lines = [
-                        `# arrayview state`,
-                        `file:     ${d.filepath || '(no file)'}`,
-                        `shape:    [${d.shape.join(', ')}]`,
-                        `colormap: ${currentColormap()}`,
-                        `indices:  [${indices.join(', ')}]`,
-                        `range:    ${DR_LABELS[dr_idx]}`,
-                    ];
-                    if (logScale) lines.push('log:      on');
-                    navigator.clipboard.writeText(lines.join('\n')).then(() => {
-                        showStatus('state copied to clipboard');
-                    }).catch(() => showStatus('clipboard unavailable'));
-                });
+                const reusableUrl = buildReusableUrl();
+                navigator.clipboard.writeText(reusableUrl).then(() => {
+                    showStatus('reusable URL copied');
+                }).catch(() => showStatus('clipboard unavailable'));
             } else if (e.key === 'f') {
                 if (_fftActive) {
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
