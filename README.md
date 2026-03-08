@@ -13,6 +13,12 @@ A fast, minimal viewer for multi-dimensional arrays, inspired by the great
 
 Opens in a native window. To open in browser, pass `--browser` flag.
 
+For compare mode, pass extra array paths:
+
+`uvx arrayview base.npy moving.npy`
+
+`uvx arrayview base.npy moving.npy registered.npy`
+
 ## Python
 
 `uv add arrayview`
