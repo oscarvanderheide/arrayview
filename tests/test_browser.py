@@ -230,6 +230,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
+        assert page.is_visible("canvas#compare-cb")
         assert "arr2d_compare" in page.inner_text("#compare-right-title").lower()
 
         page.keyboard.press("B")
@@ -253,8 +254,8 @@ class TestKeyboard:
         page.keyboard.press("B")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-right-canvas")
-        assert page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("canvas#compare-slim-cb")
+        assert not page.is_visible("canvas#compare-third-canvas")
+        assert page.is_visible("canvas#compare-cb")
 
         page.keyboard.press("R")
         page.wait_for_timeout(400)
@@ -276,6 +277,29 @@ class TestKeyboard:
         classes = page.get_attribute("#compare-view-wrap", "class") or ""
         assert "registration-mode" not in classes
         assert page.is_visible("canvas#compare-right-canvas")
+
+    def test_B_is_locked_for_multi_array_launch(
+        self, page, server_url, sid_2d, arr_2d, client, tmp_path
+    ):
+        path1 = tmp_path / "arr2d_compare_locked_1.npy"
+        path2 = tmp_path / "arr2d_compare_locked_2.npy"
+        np.save(path1, arr_2d * 0.5)
+        np.save(path2, np.flipud(arr_2d))
+        sid1 = client.post("/load", json={"filepath": str(path1), "name": "arr2d_compare_locked_1"}).json()["sid"]
+        sid2 = client.post("/load", json={"filepath": str(path2), "name": "arr2d_compare_locked_2"}).json()["sid"]
+
+        page.goto(f"{server_url}/?sid={sid_2d}&compare_sid={sid1}&compare_sids={sid1},{sid2}")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(500)
+        assert page.is_visible("canvas#compare-third-canvas")
+        assert page.is_visible("canvas#compare-cb")
+
+        _focus_kb(page)
+        page.keyboard.press("B")
+        page.wait_for_timeout(250)
+        assert page.is_visible("#compare-view-wrap.active")
+        status = page.inner_text("#status").lower()
+        assert "fixed" in status or "multi-array" in status
 
     def test_d_cycles_dynamic_range_shows_toast(self, loaded_viewer, sid_2d):
         # d cycles dynamic range; result appears in #toast
