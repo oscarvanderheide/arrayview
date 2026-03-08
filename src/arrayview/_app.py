@@ -2692,8 +2692,8 @@ def arrayview():
         nargs="+",
         metavar="FILE",
         help=(
-            "Array paths. First path is the base array; optional second/third paths "
-            "are preloaded for compare mode."
+            "Array paths. First path is the base array; optional additional paths "
+            "are preloaded for compare mode (up to 6 total files)."
         ),
     )
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
@@ -2713,8 +2713,10 @@ def arrayview():
         help="Deprecated: second array for side-by-side compare mode",
     )
     args = parser.parse_args()
-    if len(args.files) > 3:
-        parser.error("At most three FILE arguments are supported.")
+    if len(args.files) > 6:
+        parser.error(
+            "At most six FILE arguments are supported; concat arrays first for larger compare sets."
+        )
     if args.compare and len(args.files) > 1:
         parser.error("Use either positional compare files or --compare, not both.")
 
