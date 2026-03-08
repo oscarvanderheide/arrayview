@@ -46,6 +46,16 @@ _JS_CENTER_PIXEL = """
 }
 """
 
+_JS_COMPARE_LEFT_CENTER_PIXEL = """
+() => {
+    const c = document.querySelector('canvas#compare-left-canvas');
+    if (!c) return null;
+    const ctx = c.getContext('2d');
+    const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+    return [d[0], d[1], d[2]];
+}
+"""
+
 _JS_MV_CANVAS_COUNT = """
 () => document.querySelectorAll('.mv-canvas').length
 """
@@ -225,6 +235,45 @@ class TestKeyboard:
         page.keyboard.press("B")
         page.wait_for_timeout(350)
         assert not page.is_visible("#compare-view-wrap.active")
+
+    def test_R_registration_overlay_and_n_cycles_compare_target(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        path1 = tmp_path / "arr2d_compare_1.npy"
+        path2 = tmp_path / "arr2d_compare_2.npy"
+        np.save(path1, arr_2d * 0.35)
+        np.save(path2, np.flipud(arr_2d))
+        sid1 = client.post("/load", json={"filepath": str(path1), "name": "arr2d_compare_1"}).json()["sid"]
+        sid2 = client.post("/load", json={"filepath": str(path2), "name": "arr2d_compare_2"}).json()["sid"]
+        assert sid1 != sid2
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.once("dialog", lambda d: d.accept(sid1))
+        page.keyboard.press("B")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        assert page.is_visible("canvas#compare-right-canvas")
+
+        page.keyboard.press("R")
+        page.wait_for_timeout(400)
+        classes = page.get_attribute("#compare-view-wrap", "class") or ""
+        assert "registration-mode" in classes
+
+        before = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        page.keyboard.press("]")
+        page.wait_for_timeout(250)
+        after = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        assert before != after
+
+        page.keyboard.press("n")
+        page.wait_for_timeout(800)
+        assert "arr2d_compare_2" in page.inner_text("#compare-right-title").lower()
+
+        page.keyboard.press("R")
+        page.wait_for_timeout(400)
+        classes = page.get_attribute("#compare-view-wrap", "class") or ""
+        assert "registration-mode" not in classes
+        assert page.is_visible("canvas#compare-right-canvas")
 
     def test_d_cycles_dynamic_range_shows_toast(self, loaded_viewer, sid_2d):
         # d cycles dynamic range; result appears in #toast
