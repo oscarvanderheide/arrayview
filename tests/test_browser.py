@@ -250,15 +250,26 @@ class TestKeyboard:
 
     def test_e_copies_state_to_clipboard(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
-        # Grant clipboard permissions
         page.context.grant_permissions(["clipboard-read", "clipboard-write"])
         _focus_kb(page)
+        page.keyboard.press("c")
+        page.wait_for_timeout(500)
+        expected_px = page.evaluate(_JS_CENTER_PIXEL)
         page.keyboard.press("e")
         page.wait_for_timeout(800)
-        toast = page.inner_text("#toast").strip()
-        assert "clipboard" in toast.lower() or "state" in toast.lower() or "copied" in toast.lower(), (
-            f"Expected clipboard toast, got: '{toast}'"
+        copied = page.evaluate("() => navigator.clipboard.readText()")
+        assert f"sid={sid_2d}" in copied
+        assert "state=" in copied
+        feedback = (page.inner_text("#status") + " " + page.inner_text("#toast")).strip()
+        assert "clipboard" in feedback.lower() or "url" in feedback.lower() or "copied" in feedback.lower(), (
+            f"Expected clipboard/status message, got: '{feedback}'"
         )
+        page2 = page.context.new_page()
+        page2.goto(copied)
+        page2.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page2.wait_for_timeout(400)
+        assert page2.evaluate(_JS_CENTER_PIXEL) == expected_px
+        page2.close()
 
     def test_s_puts_status_message(self, loaded_viewer, sid_2d):
         # s triggers download and sets #status to "Screenshot saved."
