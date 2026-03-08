@@ -173,6 +173,22 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert not page.is_visible("#help-overlay.visible")
 
+    def test_help_overlay_jk_switches_sections(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("?")
+        page.wait_for_selector("#help-overlay.visible", timeout=2_000)
+        assert page.inner_text(".help-tab.active").strip().lower() == "navigation"
+        page.keyboard.press("j")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "display"
+        page.keyboard.press("k")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
+
     def test_v_activates_multiview_on_3d(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
