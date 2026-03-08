@@ -133,11 +133,39 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 13px;
             display: flex;
+            flex-direction: column;
+            gap: 0;
+            width: min(860px, 92vw);
+            max-height: min(560px, 88vh);
+            overflow: hidden;
+        }
+        .help-main {
+            display: flex;
             gap: 18px;
             align-items: stretch;
-            width: min(860px, 92vw);
-            height: min(560px, 88vh);
+            flex: 1;
+            min-height: 0;
             overflow: hidden;
+        }
+        .help-footer {
+            flex-shrink: 0;
+            border-top: 1px solid var(--border);
+            margin-top: 14px;
+            padding-top: 10px;
+            text-align: right;
+            font-size: 11px;
+            color: var(--muted);
+            letter-spacing: 0.04em;
+        }
+        .help-footer kbd {
+            display: inline-block;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0px 5px;
+            font-family: 'SF Mono', ui-monospace, monospace;
+            font-size: 11px;
+            color: var(--help-key);
+            background: var(--surface-2);
         }
         #help-tabs {
             flex-shrink: 0;
@@ -187,7 +215,7 @@
         }
         .help-row .desc { color: var(--text); }
         @media (max-width: 760px) {
-            #help-box { width: min(96vw, 560px); height: min(86vh, 640px); }
+            #help-box { width: min(96vw, 560px); max-height: min(86vh, 640px); }
             #help-tabs { width: 132px; }
             .help-row .key { width: 102px; }
         }
@@ -443,6 +471,7 @@
     </div>
     <div id="help-overlay">
         <div id="help-box">
+            <div class="help-main">
             <div id="help-tabs">
                 <button type="button" class="help-tab active" data-help-panel="navigation">Navigation</button>
                 <button type="button" class="help-tab" data-help-panel="axes">Axes &amp; Views</button>
@@ -497,6 +526,8 @@
                 <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
                 </div>
             </div>
+            </div>
+            <div class="help-footer">press <kbd>?</kbd> to close</div>
         </div>
     </div>
 </div>
