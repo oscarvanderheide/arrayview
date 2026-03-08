@@ -267,6 +267,17 @@ class TestKeyboard:
         page.wait_for_timeout(150)
         assert page.is_visible("#main-axes-svg")
 
+    def test_t_keeps_mosaic_mode_active(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        page.keyboard.press("z")
+        page.wait_for_timeout(150)
+        assert not page.is_visible("#main-axes-svg")
+
+        page.keyboard.press("t")
+        page.wait_for_timeout(200)
+        assert not page.is_visible("#main-axes-svg")
+
     def test_B_toggles_side_by_side_compare(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path):
         path = tmp_path / "arr2d_compare.npy"
         np.save(path, arr_2d * 0.5)
