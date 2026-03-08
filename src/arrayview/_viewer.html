@@ -261,6 +261,12 @@
         }
         #roi-panel table { border-collapse: collapse; }
         #roi-panel td:first-child { color: var(--muted); padding-right: 14px; }
+        #mv-orientation {
+            display: none; position: fixed; top: 14px; right: 14px; z-index: 4;
+            width: 120px; height: 120px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); pointer-events: none;
+        }
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: space-evenly; flex: 0 0 auto; gap: 8px; }
@@ -506,6 +512,7 @@
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="help-hint">?</div>
+    <canvas id="mv-orientation"></canvas>
     <div id="roi-panel"><table id="roi-table"></table></div>
     <div id="info-overlay">
         <div id="info-box"><table id="info-table"></table></div>
@@ -2565,6 +2572,7 @@
                     v.ws.onerror = () => { v.rendering = false; if (v.ws) v.ws.close(); };
                 });
             }
+            document.getElementById('mv-orientation').style.display = 'block';
             renderInfo();
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -2574,6 +2582,7 @@
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
+            document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
@@ -2888,6 +2897,100 @@
             }
         }
 
+        function drawMvOrientation() {
+            const cv = document.getElementById('mv-orientation');
+            if (!cv || !multiViewActive || mvDims.length < 3) return;
+            const dpr = window.devicePixelRatio || 1;
+            const cssSize = 120;
+            if (cv.width !== cssSize * dpr || cv.height !== cssSize * dpr) {
+                cv.width = cssSize * dpr;
+                cv.height = cssSize * dpr;
+            }
+            const ctx = cv.getContext('2d');
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            ctx.scale(dpr, dpr);
+
+            // Normalized cuboid dims (longest axis = 1)
+            const d0 = shape[mvDims[0]] || 1;
+            const d1 = shape[mvDims[1]] || 1;
+            const d2 = shape[mvDims[2]] || 1;
+            const maxDim = Math.max(d0, d1, d2);
+            const W = d2 / maxDim;  // width  (z-axis in 3D widget → left-right)
+            const H = d0 / maxDim;  // height (dim0 → up-down)
+            const D = d1 / maxDim;  // depth  (dim1 → front-back)
+
+            // Isometric projection: 3D (x,y,z) in [0,W]×[0,H]×[0,D] → canvas 2D
+            const A = Math.PI / 6; // 30°
+            const cosA = Math.cos(A), sinA = Math.sin(A);
+            const scale = cssSize * 0.38;
+            const cx = cssSize * 0.5, cy = cssSize * 0.54;
+            const iso = (x, y, z) => ({
+                sx: cx + (x - z) * cosA * scale,
+                sy: cy + ((x + z) * sinA - y) * scale
+            });
+
+            // 8 corners: (x ∈ {0,W}, y ∈ {0,H}, z ∈ {0,D})
+            const corners = [];
+            for (let xi = 0; xi <= 1; xi++)
+            for (let yi = 0; yi <= 1; yi++)
+            for (let zi = 0; zi <= 1; zi++)
+                corners.push(iso(xi * W, yi * H, zi * D));
+            // corner index: xi*4 + yi*2 + zi
+            const c = (xi, yi, zi) => corners[xi*4 + yi*2 + zi];
+
+            // Draw 12 wireframe edges
+            ctx.strokeStyle = getComputedStyle(cv).getPropertyValue('border-color') ||
+                              'rgba(120,120,120,0.5)';
+            // Use a slightly brighter border
+            const isDark = !document.documentElement.classList.contains('light') &&
+                           !document.documentElement.classList.contains('solarized');
+            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
+            ctx.lineWidth = 0.75;
+            const edges = [
+                // bottom face (y=0)
+                [c(0,0,0),c(1,0,0)],[c(0,0,0),c(0,0,1)],[c(1,0,0),c(1,0,1)],[c(0,0,1),c(1,0,1)],
+                // top face (y=1)
+                [c(0,1,0),c(1,1,0)],[c(0,1,0),c(0,1,1)],[c(1,1,0),c(1,1,1)],[c(0,1,1),c(1,1,1)],
+                // verticals
+                [c(0,0,0),c(0,1,0)],[c(1,0,0),c(1,1,0)],[c(0,0,1),c(0,1,1)],[c(1,0,1),c(1,1,1)],
+            ];
+            edges.forEach(([a, b]) => {
+                ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+            });
+
+            // Three slice planes
+            // Slice fractions: position within each dim's extent
+            const f0 = (shape[mvDims[0]] > 1) ? indices[mvDims[0]] / (shape[mvDims[0]] - 1) : 0.5; // ⊥ dim0 (horizontal plane)
+            const f1 = (shape[mvDims[1]] > 1) ? indices[mvDims[1]] / (shape[mvDims[1]] - 1) : 0.5; // ⊥ dim1 (depth plane)
+            const f2 = (shape[mvDims[2]] > 1) ? indices[mvDims[2]] / (shape[mvDims[2]] - 1) : 0.5; // ⊥ dim2 (side plane)
+
+            const planes = [
+                // ⊥ dim0: horizontal plane at y = f0*H  (quad: z∈[0,D], x∈[0,W])
+                { fill: 'rgba(255,90,90,0.30)', stroke: 'rgba(255,90,90,0.7)',
+                  pts: [iso(0, f0*H, 0), iso(W, f0*H, 0), iso(W, f0*H, D), iso(0, f0*H, D)] },
+                // ⊥ dim1: depth plane at z = f1*D  (quad: x∈[0,W], y∈[0,H])
+                { fill: 'rgba(100,210,130,0.28)', stroke: 'rgba(100,210,130,0.65)',
+                  pts: [iso(0, 0, f1*D), iso(W, 0, f1*D), iso(W, H, f1*D), iso(0, H, f1*D)] },
+                // ⊥ dim2: side plane at x = f2*W  (quad: z∈[0,D], y∈[0,H])
+                { fill: 'rgba(80,170,255,0.28)', stroke: 'rgba(80,170,255,0.65)',
+                  pts: [iso(f2*W, 0, 0), iso(f2*W, 0, D), iso(f2*W, H, D), iso(f2*W, H, 0)] },
+            ];
+
+            planes.forEach(({ fill, stroke, pts }) => {
+                ctx.beginPath();
+                ctx.moveTo(pts[0].sx, pts[0].sy);
+                pts.slice(1).forEach(p => ctx.lineTo(p.sx, p.sy));
+                ctx.closePath();
+                ctx.fillStyle = fill;
+                ctx.fill();
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // reset scale
+        }
+
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
@@ -2914,6 +3017,7 @@
             v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             v.ctx.restore();
+            drawMvOrientation();
         }
 
         function mvOnMessage(v, event) {
