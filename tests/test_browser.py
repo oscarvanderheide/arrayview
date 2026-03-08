@@ -346,6 +346,40 @@ class TestKeyboard:
         assert page2.evaluate(_JS_CENTER_PIXEL) == expected_px
         page2.close()
 
+    def test_reusable_url_restores_multiview_mode(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        page.keyboard.press("e")
+        page.wait_for_timeout(600)
+        copied = page.evaluate("() => navigator.clipboard.readText()")
+        assert "state=" in copied
+
+        page.goto(copied)
+        page.wait_for_selector("#multi-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(400)
+        assert page.evaluate(_JS_MV_CANVAS_COUNT) == 3
+
+    def test_reusable_url_restores_qmri_mode(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        _focus_kb(page)
+        page.keyboard.press("q")
+        page.wait_for_selector("#qmri-view-wrap.active", timeout=5_000)
+
+        page.keyboard.press("e")
+        page.wait_for_timeout(700)
+        copied = page.evaluate("() => navigator.clipboard.readText()")
+        assert "state=" in copied
+
+        page.goto(copied)
+        page.wait_for_selector("#qmri-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(500)
+        assert page.locator("canvas.qv-canvas").count() == 5
+
     def test_s_puts_status_message(self, loaded_viewer, sid_2d):
         # s triggers download and sets #status to "Screenshot saved."
         page = loaded_viewer(sid_2d)
