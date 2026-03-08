@@ -2632,6 +2632,8 @@ def _serve_daemon(
     cleanup: bool = False,
     overlay_filepath: str = None,
     overlay_sid: str = None,
+    compare_filepath: str = None,
+    compare_sid: str = None,
 ) -> None:
     """Background server process. Loads data, serves it, exits when the UI closes.
     cleanup=True: delete filepath after loading (used when it is a temp file).
@@ -2654,6 +2656,18 @@ def _serve_daemon(
         except Exception as e:
             print(
                 f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
+                flush=True,
+            )
+    if compare_filepath and compare_sid:
+        try:
+            cmp_data = load_data(compare_filepath)
+            cmp_name = os.path.basename(compare_filepath) or "compare"
+            cmp_session = Session(cmp_data, filepath=compare_filepath, name=cmp_name)
+            cmp_session.sid = compare_sid
+            SESSIONS[compare_sid] = cmp_session
+        except Exception as e:
+            print(
+                f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                 flush=True,
             )
     threading.Thread(
@@ -2687,6 +2701,11 @@ def arrayview():
         "--overlay",
         metavar="FILE",
         help="Segmentation mask to overlay (binary 0/1 array, same spatial shape)",
+    )
+    parser.add_argument(
+        "--compare",
+        metavar="FILE",
+        help="Second array for side-by-side compare mode (must have same shape as main array)",
     )
     args = parser.parse_args()
 
@@ -2735,11 +2754,36 @@ def arrayview():
                 )
                 with urllib.request.urlopen(ov_req, timeout=5) as resp:
                     ov_result = json.loads(resp.read())
+                if "error" in ov_result:
+                    print(f"Error from server while loading overlay: {ov_result['error']}")
+                    sys.exit(1)
                 overlay_sid = ov_result.get("sid")
 
+            compare_sid = None
+            if args.compare:
+                cmp_body = json.dumps(
+                    {
+                        "filepath": os.path.abspath(args.compare),
+                        "name": os.path.basename(args.compare),
+                        "notify": False,
+                    }
+                ).encode()
+                cmp_req = urllib.request.Request(
+                    f"http://127.0.0.1:{args.port}/load",
+                    data=cmp_body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(cmp_req, timeout=5) as resp:
+                    cmp_result = json.loads(resp.read())
+                if "error" in cmp_result:
+                    print(f"Error from server while loading compare array: {cmp_result['error']}")
+                    sys.exit(1)
+                compare_sid = cmp_result.get("sid")
+
             notify_webview = (
-                use_webview and overlay_sid is None
-            )  # webview inject skipped when overlay used
+                use_webview and overlay_sid is None and compare_sid is None
+            )  # webview inject skipped when overlay/compare used
             body = json.dumps(
                 {
                     "filepath": os.path.abspath(args.file),
@@ -2769,17 +2813,25 @@ def arrayview():
         qs = f"?sid={sid}"
         if overlay_sid:
             qs += f"&overlay_sid={overlay_sid}"
-        if use_webview and overlay_sid is None:
+        if compare_sid:
+            qs += f"&compare_sid={compare_sid}"
+        if use_webview and overlay_sid is None and compare_sid is None:
             # Tab was injected into existing webview window
             print(f"Injected into existing window (port {args.port})")
         else:
             url = f"http://localhost:{args.port}/{qs}"
+            if use_webview and compare_sid:
+                print(
+                    "[ArrayView] Compare mode: opening browser (webview tab injection does not carry compare_sid)",
+                    flush=True,
+                )
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
         return
 
     sid = uuid.uuid4().hex
     overlay_sid = uuid.uuid4().hex if args.overlay else None
+    compare_sid = uuid.uuid4().hex if args.compare else None
     encoded_name = urllib.parse.quote(name)
 
     # Configure .vscode/settings.json: in tunnel mode writes
@@ -2794,7 +2846,9 @@ def arrayview():
         f"_serve_daemon("
         f"{repr(os.path.abspath(args.file))}, {args.port}, {repr(sid)},"
         f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
-        f" overlay_sid={repr(overlay_sid)}"
+        f" overlay_sid={repr(overlay_sid)},"
+        f" compare_filepath={repr(os.path.abspath(args.compare) if args.compare else None)},"
+        f" compare_sid={repr(compare_sid)}"
         f")"
     )
     subprocess.Popen(
@@ -2810,8 +2864,10 @@ def arrayview():
     qs = f"?sid={sid}"
     if overlay_sid:
         qs += f"&overlay_sid={overlay_sid}"
+    if compare_sid:
+        qs += f"&compare_sid={compare_sid}"
 
-    if use_webview and overlay_sid is None:
+    if use_webview and overlay_sid is None and compare_sid is None:
         url_shell = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
         if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
@@ -2822,6 +2878,11 @@ def arrayview():
         if use_webview and overlay_sid:
             print(
                 "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
+                flush=True,
+            )
+        if use_webview and compare_sid:
+            print(
+                "[ArrayView] Compare mode: opening browser (webview tab injection not supported with compare)",
                 flush=True,
             )
         url = f"http://localhost:{args.port}/{qs}"
