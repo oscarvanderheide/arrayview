@@ -1877,6 +1877,7 @@
         sink.addEventListener('keydown', (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
+            const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
             if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
             if (helpOverlay.classList.contains('visible')) {
                 if (e.key === 'Escape') {
@@ -1957,7 +1958,7 @@
                 }
                 activeDim = current_slice_dim;
                 updateView(); triggerPreload();
-            } else if (e.key === ' ') {
+            } else if (isSpaceKey) {
                 e.preventDefault();
                 togglePlay();
             } else if (e.key === 'T') {
