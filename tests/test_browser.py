@@ -247,6 +247,15 @@ class TestKeyboard:
         assert page.is_visible("canvas#viewer")
         assert not page.is_visible("#multi-view-wrap.active")
 
+    def test_zen_mode_keeps_array_name_visible(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        assert page.is_visible("#array-name")
+        page.keyboard.press("Z")
+        page.wait_for_timeout(150)
+        assert page.is_visible("#array-name")
+        assert page.inner_text("#array-name-text").strip() != ""
+
     def test_B_toggles_side_by_side_compare(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path):
         path = tmp_path / "arr2d_compare.npy"
         np.save(path, arr_2d * 0.5)
