@@ -157,6 +157,26 @@
             color: var(--muted);
             letter-spacing: 0.04em;
         }
+        .mode-badge {
+            display: inline-block; font-size: 0.62em; font-weight: 600;
+            letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
+            vertical-align: middle; line-height: 1.5; margin-left: 6px;
+        }
+        .mode-badge-compare {
+            background: rgba(67, 97, 238, 0.18); color: #7b9ff5;
+            border: 1px solid rgba(67, 97, 238, 0.3);
+        }
+        .mode-badge-reg {
+            background: rgba(180, 142, 173, 0.18); color: #c4a8bf;
+            border: 1px solid rgba(180, 142, 173, 0.3);
+        }
+        .mode-badge-fft {
+            background: rgba(80, 200, 140, 0.15); color: #6ed4a8;
+            border: 1px solid rgba(80, 200, 140, 0.25);
+        }
+        :root.light .mode-badge-compare { background: rgba(67,97,238,0.1); color: #3a5cc7; border-color: rgba(67,97,238,0.25); }
+        :root.light .mode-badge-reg { background: rgba(140,90,140,0.1); color: #8c5a8c; border-color: rgba(140,90,140,0.25); }
+        :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         .help-footer kbd {
             display: inline-block;
             border: 1px solid var(--border);
@@ -1435,11 +1455,11 @@
             }).join(', ');
             let text = `[${idxStr}]`;
             if (_fftActive)
-                text += `  <span class="muted">FFT</span>`;
+                text += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (compareActive)
-                text += `  <span class="muted">COMPARE</span>`;
+                text += `<span class="mode-badge mode-badge-compare">COMPARE</span>`;
             if (compareActive && registrationMode)
-                text += `  <span class="muted">REG</span>`;
+                text += `<span class="mode-badge mode-badge-reg">REG</span>`;
             document.getElementById('info').innerHTML = text;
             const mainAxes = document.getElementById('main-axes-svg');
             mainAxes.style.display = dim_z >= 0 ? 'none' : '';
