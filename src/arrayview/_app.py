@@ -2831,6 +2831,7 @@ def arrayview():
             qs += f"&overlay_sid={overlay_sid}"
         if compare_sids:
             qs += f"&compare_sid={compare_sids[0]}"
+            qs += f"&compare_sids={','.join(compare_sids)}"
         if use_webview and overlay_sid is None and not compare_sids:
             # Tab was injected into existing webview window
             print(f"Injected into existing window (port {args.port})")
@@ -2907,6 +2908,7 @@ def arrayview():
         qs += f"&overlay_sid={overlay_sid}"
     if compare_sids:
         qs += f"&compare_sid={compare_sids[0]}"
+        qs += f"&compare_sids={','.join(compare_sids)}"
 
     if use_webview and overlay_sid is None and not compare_sids:
         url_shell = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"

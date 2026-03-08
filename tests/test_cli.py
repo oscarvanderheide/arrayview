@@ -57,6 +57,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch):
     assert requests[1]["filepath"] == cmp2
     assert requests[2]["filepath"] == base
     assert "compare_sid=sid_cmp1" in opened["url"]
+    assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
 def test_cli_rejects_more_than_three_files(monkeypatch):
