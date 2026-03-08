@@ -136,7 +136,9 @@
             display: flex;
             gap: 18px;
             align-items: stretch;
-            min-width: min(760px, 92vw);
+            width: min(860px, 92vw);
+            height: min(560px, 88vh);
+            overflow: hidden;
         }
         #help-tabs {
             flex-shrink: 0;
@@ -166,8 +168,8 @@
             color: var(--text);
             background: var(--surface-2);
         }
-        #help-panels { flex: 1; min-width: 0; display: flex; }
-        .help-panel { display: none; width: 100%; }
+        #help-panels { flex: 1; min-width: 0; min-height: 0; display: flex; }
+        .help-panel { display: none; width: 100%; height: 100%; overflow: auto; box-sizing: border-box; padding-right: 4px; }
         .help-panel.active { display: block; }
         .help-panel-title {
             font-size: 10px;
@@ -196,7 +198,7 @@
         }
         .help-row .desc { color: var(--text); }
         @media (max-width: 760px) {
-            #help-box { min-width: 0; width: min(96vw, 560px); }
+            #help-box { width: min(96vw, 560px); height: min(86vh, 640px); }
             #help-tabs { width: 132px; }
             .help-row .key { width: 102px; }
         }
