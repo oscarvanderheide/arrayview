@@ -1417,6 +1417,8 @@
             if (compareActive && registrationMode)
                 text += `  <span class="muted">REG</span>`;
             document.getElementById('info').innerHTML = text;
+            const mainAxes = document.getElementById('main-axes-svg');
+            mainAxes.style.display = dim_z >= 0 ? 'none' : '';
         }
 
         function setStatus(msg) {

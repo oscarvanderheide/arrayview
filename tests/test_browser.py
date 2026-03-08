@@ -256,6 +256,17 @@ class TestKeyboard:
         assert page.is_visible("#array-name")
         assert page.inner_text("#array-name-text").strip() != ""
 
+    def test_z_mosaic_hides_main_axes_indicator(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        assert page.is_visible("#main-axes-svg")
+        page.keyboard.press("z")
+        page.wait_for_timeout(150)
+        assert not page.is_visible("#main-axes-svg")
+        page.keyboard.press("z")
+        page.wait_for_timeout(150)
+        assert page.is_visible("#main-axes-svg")
+
     def test_B_toggles_side_by_side_compare(self, loaded_viewer, sid_2d, arr_2d, client, tmp_path):
         path = tmp_path / "arr2d_compare.npy"
         np.save(path, arr_2d * 0.5)
