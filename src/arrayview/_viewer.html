@@ -237,7 +237,10 @@
         #compare-view-wrap.active { display: flex; align-items: stretch; justify-content: center; }
         .compare-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; }
         #compare-view-wrap.registration-mode { gap: 0; }
-        #compare-view-wrap.registration-mode .compare-pane.compare-secondary { display: none; }
+        #compare-view-wrap.registration-mode .compare-pane.compare-secondary,
+        #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { display: none; }
+        .compare-pane.compare-tertiary { display: none; }
+        #compare-view-wrap.has-third .compare-pane.compare-tertiary { display: flex; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
         .compare-canvas-area { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
         .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
@@ -245,6 +248,20 @@
             border: 1px solid var(--canvas-border); border-radius: 2px;
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
             max-width: 100%; max-height: 100%;
+        }
+        #compare-slim-cb {
+            position: absolute; left: 100%; top: 0; margin-left: 4px;
+            border-radius: 2px; border: none; width: 9px; pointer-events: none;
+        }
+        #compare-slim-cb-vmax {
+            position: absolute; left: calc(100% + 17px); top: 0;
+            font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace;
+            white-space: nowrap; pointer-events: none; transform: translateY(-2px);
+        }
+        #compare-slim-cb-vmin {
+            position: absolute; left: calc(100% + 17px); bottom: 0;
+            font-size: 15px; line-height: 1; color: var(--muted); font-family: monospace;
+            white-space: nowrap; pointer-events: none; transform: translateY(2px);
         }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
@@ -315,6 +332,9 @@
                 <div class="compare-canvas-area">
                     <div class="compare-canvas-wrap">
                         <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                        <canvas id="compare-slim-cb"></canvas>
+                        <div id="compare-slim-cb-vmax"></div>
+                        <div id="compare-slim-cb-vmin"></div>
                         <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                             <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                             <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -338,6 +358,22 @@
                             <polygon points="3,13 6,8 9,13" fill="currentColor"/>
                             <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
                             <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            <div class="compare-pane compare-tertiary">
+                <div id="compare-third-title" class="compare-title"></div>
+                <div class="compare-canvas-area">
+                    <div class="compare-canvas-wrap">
+                        <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                        <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                            <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                            <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                            <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                            <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                            <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
                         </svg>
                     </div>
                 </div>
@@ -432,6 +468,7 @@
         const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
+        const compareSidsParam = urlParams.get('compare_sids') || '';
         const httpTransport = transport === 'http';
         let _reportedFirstFrame = false;
 
@@ -509,12 +546,21 @@
         let mvPixelPending = false;
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
+        let compareSidList = compareSidsParam
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s && s !== sid);
+        if (compareSid && !compareSidList.includes(compareSid) && compareSid !== sid) {
+            compareSidList.unshift(compareSid);
+        }
         let compareName = '';
         let compareBaseName = '';
+        const compareNameBySid = {};
         let compareRendering = false;
         let comparePending = false;
         let compareLeftFrame = null;
         let compareRightFrame = null;
+        let compareThirdFrame = null;
         let compareRegistrationFrame = null;
         let registrationMode = false;
         let registrationAlpha = 0.5;
@@ -540,9 +586,17 @@
         const compareLeftCtx = compareLeftCanvas.getContext('2d');
         const compareRightCanvas = document.getElementById('compare-right-canvas');
         const compareRightCtx = compareRightCanvas.getContext('2d');
+        const compareThirdCanvas = document.getElementById('compare-third-canvas');
+        const compareThirdCtx = compareThirdCanvas.getContext('2d');
         const compareLeftTitle = document.getElementById('compare-left-title');
         const compareRightTitle = document.getElementById('compare-right-title');
+        const compareThirdTitle = document.getElementById('compare-third-title');
         const slimCbCanvas = document.getElementById('slim-cb');
+        const compareSlimCbCanvas = document.getElementById('compare-slim-cb');
+        const slimCbVmaxEl = document.getElementById('slim-cb-vmax');
+        const slimCbVminEl = document.getElementById('slim-cb-vmin');
+        const compareSlimCbVmaxEl = document.getElementById('compare-slim-cb-vmax');
+        const compareSlimCbVminEl = document.getElementById('compare-slim-cb-vmin');
         slimCbCanvas.addEventListener('mouseenter', () => { cbHovered = true; drawSlimColorbar(cbMarkerFrac); });
         slimCbCanvas.addEventListener('mouseleave', () => { cbHovered = false; drawSlimColorbar(cbMarkerFrac); });
         const sink = document.getElementById('keyboard-sink');
@@ -581,7 +635,8 @@
             const paneGap = 10;
             const sidePadding = 44; // viewer-row padding + breathing room
             const titleReserve = 28;
-            const paneCount = registrationMode ? 1 : 2;
+            const hasThird = compareWrap.classList.contains('has-third');
+            const paneCount = registrationMode ? 1 : (hasThird ? 3 : 2);
             const availW = Math.max(
                 50,
                 (rowW - sidePadding - (paneCount - 1) * paneGap) / paneCount
@@ -592,6 +647,7 @@
                 : [
                     { frame: compareLeftFrame, canvas: compareLeftCanvas },
                     { frame: compareRightFrame, canvas: compareRightCanvas },
+                    ...(hasThird ? [{ frame: compareThirdFrame, canvas: compareThirdCanvas }] : []),
                 ];
             for (const p of panes) {
                 if (!p.frame) continue;
@@ -600,6 +656,7 @@
                 p.canvas.style.width = Math.round(p.frame.width * scale) + 'px';
                 p.canvas.style.height = Math.round(p.frame.height * scale) + 'px';
             }
+            drawSlimColorbar(cbMarkerFrac);
         }
 
         function compareLuma(imgData, i) {
@@ -634,15 +691,23 @@
         }
 
         function drawCompareFrame(target, frame) {
-            const cv = target === 'left' ? compareLeftCanvas : compareRightCanvas;
-            const c2d = target === 'left' ? compareLeftCtx : compareRightCtx;
+            const cv = target === 'left'
+                ? compareLeftCanvas
+                : (target === 'right' ? compareRightCanvas : compareThirdCanvas);
+            const c2d = target === 'left'
+                ? compareLeftCtx
+                : (target === 'right' ? compareRightCtx : compareThirdCtx);
             cv.width = frame.width;
             cv.height = frame.height;
             c2d.putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
         }
 
         function updateCompareTitles() {
+            const extras = compareSidList.filter(s => s && s !== compareSid);
+            const thirdSid = extras[0] || null;
+            const thirdName = thirdSid ? (compareNameBySid[thirdSid] || thirdSid.slice(0, 8)) : '';
             compareRightTitle.textContent = compareName || '';
+            compareThirdTitle.textContent = thirdName;
             if (registrationMode) {
                 const movingPct = Math.round(registrationAlpha * 100);
                 compareLeftTitle.textContent = `${compareBaseName || 'fixed'} (magenta) + ${compareName || 'moving'} (green ${movingPct}%)`;
@@ -653,6 +718,10 @@
 
         function applyCompareLayout() {
             compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
+            compareWrap.classList.toggle(
+                'has-third',
+                compareActive && !registrationMode && compareSidList.filter(s => s && s !== compareSid).length > 0
+            );
             updateCompareTitles();
         }
 
@@ -666,6 +735,7 @@
                 compareRegistrationFrame = null;
                 drawCompareFrame('left', compareLeftFrame);
                 drawCompareFrame('right', compareRightFrame);
+                if (compareThirdFrame) drawCompareFrame('third', compareThirdFrame);
             }
             compareScaleCanvases();
             requestAnimationFrame(() => compareScaleCanvases());
@@ -713,27 +783,41 @@
             if (!opts.silent) showStatus(zenMode ? 'zen mode: on' : 'zen mode: off');
         }
         function drawSlimColorbar(markerFrac) {
-            const vmaxEl = document.getElementById('slim-cb-vmax');
-            const vminEl = document.getElementById('slim-cb-vmin');
-            if (!colorbarVisible()) {
+            const hideMain = () => {
                 slimCbCanvas.style.display = 'none';
-                if (vmaxEl) vmaxEl.style.display = 'none';
-                if (vminEl) vminEl.style.display = 'none';
+                slimCbVmaxEl.style.display = 'none';
+                slimCbVminEl.style.display = 'none';
+            };
+            const hideCompare = () => {
+                compareSlimCbCanvas.style.display = 'none';
+                compareSlimCbVmaxEl.style.display = 'none';
+                compareSlimCbVminEl.style.display = 'none';
+            };
+            if (!colorbarVisible()) {
+                hideMain();
+                hideCompare();
                 return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
-            const cssH = parseInt(canvas.style.height);
+            const useCompareBar = compareActive;
+            const targetCanvas = useCompareBar ? compareSlimCbCanvas : slimCbCanvas;
+            const vmaxEl = useCompareBar ? compareSlimCbVmaxEl : slimCbVmaxEl;
+            const vminEl = useCompareBar ? compareSlimCbVminEl : slimCbVminEl;
+            const sourceH = useCompareBar ? compareLeftCanvas.style.height : canvas.style.height;
+            const cssH = parseInt(sourceH);
             if (!cssH || cssH < 10) return;
+            if (useCompareBar) hideMain();
+            else hideCompare();
             const stripW = 9;
             const dpr = window.devicePixelRatio || 1;
-            slimCbCanvas.width = Math.round(stripW * dpr);
-            slimCbCanvas.height = Math.round(cssH * dpr);
-            slimCbCanvas.style.width = stripW + 'px';
-            slimCbCanvas.style.height = cssH + 'px';
-            slimCbCanvas.style.display = '';
-            const sCtx = slimCbCanvas.getContext('2d');
-            sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
+            targetCanvas.width = Math.round(stripW * dpr);
+            targetCanvas.height = Math.round(cssH * dpr);
+            targetCanvas.style.width = stripW + 'px';
+            targetCanvas.style.height = cssH + 'px';
+            targetCanvas.style.display = '';
+            const sCtx = targetCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
             sCtx.scale(dpr, dpr);
             const n = stops.length;
             for (let row = 0; row < cssH; row++) {
@@ -755,8 +839,10 @@
                 sCtx.beginPath(); sCtx.moveTo(0, my + 0.5); sCtx.lineTo(stripW, my + 0.5); sCtx.stroke();
             }
             // Update external label elements
-            if (vmaxEl) { vmaxEl.textContent = _cbFmt(currentVmax); vmaxEl.style.display = ''; }
-            if (vminEl) { vminEl.textContent = _cbFmt(currentVmin); vminEl.style.display = ''; }
+            vmaxEl.textContent = _cbFmt(currentVmax);
+            vmaxEl.style.display = '';
+            vminEl.textContent = _cbFmt(currentVmin);
+            vminEl.style.display = '';
         }
 
         function showDataInfo(rows) {
@@ -1022,13 +1108,18 @@
                 }
                 const leftParams = new URLSearchParams(params.toString());
                 const rightParams = new URLSearchParams(params.toString());
+                const extraSid = compareSidList.find(s => s && s !== compareSid) || null;
+                const thirdParams = new URLSearchParams(params.toString());
                 if (overlay_sid) leftParams.set('overlay_sid', overlay_sid);
-                const [left, right] = await Promise.all([
+                const requests = [
                     fetchSliceFrame(leftParams, sid),
                     fetchSliceFrame(rightParams, compareSid),
-                ]);
+                ];
+                if (extraSid && !registrationMode) requests.push(fetchSliceFrame(thirdParams, extraSid));
+                const [left, right, third] = await Promise.all(requests);
                 compareLeftFrame = left;
                 compareRightFrame = right;
+                compareThirdFrame = third || null;
                 currentVmin = left.vmin;
                 currentVmax = left.vmax;
                 applyCompareLayout();
@@ -1120,6 +1211,7 @@
                 const decodedUrlState = decodeStateParam(stateParam);
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
             }
+            if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             initWebSocket();
             triggerPreload();
             if (compareSid) enterCompareModeBySid(compareSid);
@@ -1230,6 +1322,7 @@
                 current_slice_dim,
                 activeDim,
                 compareSid,
+                compareSidList: [...compareSidList],
                 compareName,
                 registrationMode,
                 registrationAlpha,
@@ -1291,6 +1384,11 @@
                 activeDim = s.activeDim;
             }
             if (typeof s.compareSid === 'string' && s.compareSid.trim()) compareSid = s.compareSid.trim();
+            if (Array.isArray(s.compareSidList)) {
+                compareSidList = s.compareSidList
+                    .map(v => String(v || '').trim())
+                    .filter(v => v && v !== sid);
+            }
             if (typeof s.compareName === 'string') compareName = s.compareName;
             registrationMode = !!s.registrationMode;
             if (Number.isFinite(Number(s.registrationAlpha))) {
@@ -1350,6 +1448,7 @@
             params.set('sid', sid);
             if (overlay_sid) params.set('overlay_sid', overlay_sid);
             if (compareSid) params.set('compare_sid', compareSid);
+            if (compareSidList.length) params.set('compare_sids', compareSidList.join(','));
             if (httpTransport) params.set('transport', 'http');
             const encoded = encodeStateParam(collectStateSnapshot());
             if (encoded) params.set('state', encoded);
@@ -1947,9 +2046,12 @@
                 if (qmriActive) exitQmri();
                 compareSid = targetSid;
                 compareName = cmpMeta.name || targetNameHint || targetSid.slice(0, 8);
+                compareNameBySid[targetSid] = compareName;
+                if (!compareSidList.includes(targetSid) && targetSid !== sid) compareSidList.unshift(targetSid);
                 compareBaseName = baseMeta.name || document.getElementById('array-name-text').textContent || 'base';
                 compareLeftFrame = null;
                 compareRightFrame = null;
+                compareThirdFrame = null;
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
@@ -1972,7 +2074,15 @@
             const res = await fetch('/sessions');
             if (!res.ok) { showStatus('compare: could not query sessions'); return []; }
             const sessions = await res.json();
-            return sessions.filter(s => s.sid && s.sid !== sid);
+            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
+            for (const s of candidates) {
+                if (s.name) compareNameBySid[s.sid] = s.name;
+            }
+            compareSidList = [
+                ...compareSidList.filter(s => candidates.some(c => c.sid === s)),
+                ...candidates.map(c => c.sid).filter(s => !compareSidList.includes(s)),
+            ];
+            return candidates;
         }
 
         async function enterComparePrompt() {
@@ -2043,12 +2153,15 @@
             compareActive = false;
             compareLeftFrame = null;
             compareRightFrame = null;
+            compareThirdFrame = null;
             compareRegistrationFrame = null;
             compareRendering = false;
             comparePending = false;
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
+            compareWrap.classList.remove('has-third');
             if (!multiViewActive && !qmriActive) document.getElementById('canvas-wrap').style.display = '';
+            drawSlimColorbar(cbMarkerFrac);
             updateView();
             showStatus('compare: off');
         }

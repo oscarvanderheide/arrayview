@@ -253,6 +253,8 @@ class TestKeyboard:
         page.keyboard.press("B")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-right-canvas")
+        assert page.is_visible("canvas#compare-third-canvas")
+        assert page.is_visible("canvas#compare-slim-cb")
 
         page.keyboard.press("R")
         page.wait_for_timeout(400)
