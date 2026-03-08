@@ -479,10 +479,12 @@
             return colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx];
         }
 
+        // const MAX_CANVAS_FIT_PX = 600;
+
         function getBaseScale(w, h) {
             const row = document.getElementById('viewer-row');
-            const maxW = Math.max(100, row.clientWidth - 40);
-            const maxH = Math.max(100, row.clientHeight - 40);
+            // const maxW = Math.min(MAX_CANVAS_FIT_PX, Math.max(100, row.clientWidth - 40));
+            // const maxH = Math.min(MAX_CANVAS_FIT_PX, Math.max(100, row.clientHeight - 40));
             if (maxW <= 0 || maxH <= 0) return 1.0;
             return Math.min(maxW / w, maxH / h);
         }
@@ -503,8 +505,8 @@
             const paneGap = 10;
             const sidePadding = 44; // viewer-row padding + breathing room
             const titleReserve = 28;
-            const availW = Math.max(50, (rowW - sidePadding - paneGap) / 2);
-            const availH = Math.max(50, rowH - titleReserve);
+            // const availW = Math.min(MAX_CANVAS_FIT_PX, Math.max(50, (rowW - sidePadding - paneGap) / 2));
+            // const availH = Math.min(MAX_CANVAS_FIT_PX, Math.max(50, rowH - titleReserve));
             const panes = [
                 { frame: compareLeftFrame, canvas: compareLeftCanvas },
                 { frame: compareRightFrame, canvas: compareRightCanvas },
