@@ -725,7 +725,9 @@ def _composite_overlay_mask(
     denom = np.maximum(out_a, 1e-6)
 
     ov_rgb = OVERLAY_COLOR / 255.0
-    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[:, None]
+    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[
+        :, None
+    ]
 
     out[mask, :3] = np.clip(out_rgb * 255.0, 0.0, 255.0).astype(np.uint8)
     out[mask, 3] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
@@ -1397,6 +1399,52 @@ def get_slice(
             "X-ArrayView-Vmin": str(vmin),
             "X-ArrayView-Vmax": str(vmax),
         },
+    )
+
+
+@app.get("/volume/{sid}")
+def get_volume(sid: str, dims: str, indices: str, max_dim: int = 32):
+    """Return a downsampled 3D sub-volume as binary float32 for orientation rendering.
+
+    Response: [uint32 n0, uint32 n1, uint32 n2, float32 * n0*n1*n2]
+    NaN preserved; caller treats NaN and 0 as transparent.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    dim_list = [int(d) for d in dims.split(",")]
+    if len(dim_list) != 3 or len(set(dim_list)) != 3:
+        return Response(status_code=400)
+
+    idx_list = [int(i) for i in indices.split(",")]
+    ndim = len(session.shape)
+    if len(idx_list) != ndim or any(d >= ndim for d in dim_list):
+        return Response(status_code=400)
+
+    # Build slicer: keep the 3 requested dims, fix all others
+    slicer = [
+        slice(None) if i in dim_list else max(0, min(idx_list[i], session.shape[i] - 1))
+        for i in range(ndim)
+    ]
+    vol = session.data[tuple(slicer)]  # 3D, axes in sorted(dim_list) order
+
+    # Transpose to requested (dim_list[0], dim_list[1], dim_list[2]) axis order
+    sorted_dims = sorted(dim_list)
+    axis_map = {d: i for i, d in enumerate(sorted_dims)}
+    vol = np.transpose(vol, [axis_map[d] for d in dim_list])
+
+    # Downsample so no axis exceeds max_dim
+    slices = tuple(
+        slice(None, None, max(1, s // max_dim))
+        for s in vol.shape
+    )
+    vol = np.array(vol[slices], dtype=np.float32)
+
+    shape_header = np.array(vol.shape, dtype=np.uint32).tobytes()
+    return Response(
+        content=shape_header + vol.tobytes(),
+        media_type="application/octet-stream",
     )
 
 
@@ -2771,7 +2819,9 @@ def arrayview():
                 with urllib.request.urlopen(ov_req, timeout=5) as resp:
                     ov_result = json.loads(resp.read())
                 if "error" in ov_result:
-                    print(f"Error from server while loading overlay: {ov_result['error']}")
+                    print(
+                        f"Error from server while loading overlay: {ov_result['error']}"
+                    )
                     sys.exit(1)
                 overlay_sid = ov_result.get("sid")
 
@@ -2793,7 +2843,9 @@ def arrayview():
                 with urllib.request.urlopen(cmp_req, timeout=5) as resp:
                     cmp_result = json.loads(resp.read())
                 if "error" in cmp_result:
-                    print(f"Error from server while loading compare array: {cmp_result['error']}")
+                    print(
+                        f"Error from server while loading compare array: {cmp_result['error']}"
+                    )
                     sys.exit(1)
                 compare_sid = cmp_result.get("sid")
                 if compare_sid:
@@ -2896,7 +2948,9 @@ def arrayview():
             with urllib.request.urlopen(cmp_req, timeout=5) as resp:
                 cmp_result = json.loads(resp.read())
             if "error" in cmp_result:
-                print(f"Error from server while loading compare array: {cmp_result['error']}")
+                print(
+                    f"Error from server while loading compare array: {cmp_result['error']}"
+                )
                 sys.exit(1)
             compare_sid = cmp_result.get("sid")
             if compare_sid:
