@@ -246,6 +246,8 @@
         }
         .compare-pane { min-width: 0; min-height: 0; display: none; flex-direction: column; align-items: center; }
         .compare-pane.active { display: flex; }
+        #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { order: 2; }
+        #compare-view-wrap.registration-mode .compare-pane.compare-secondary { order: 3; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
@@ -716,7 +718,11 @@
             const axesReserveY = 28; // keep room for bottom x/y indicator arrow + labels
             const fitSlack = 0.96;
             const activeFrames = registrationMode
-                ? (compareRegistrationFrame ? [compareRegistrationFrame] : [])
+                ? [
+                    compareFrames[0] || null,
+                    compareFrames[1] || null,
+                    compareRegistrationFrame || null,
+                ].filter(Boolean)
                 : compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
@@ -795,7 +801,10 @@
         function updateCompareTitles() {
             const labels = compareDisplaySids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length) {
-                labels[0] = `${compareBaseName || 'fixed'} + ${compareName || 'moving'}`;
+                const movingPct = Math.round(registrationAlpha * 100);
+                labels[0] = `${compareBaseName || 'fixed'} fixed`;
+                labels[1] = `${compareName || 'moving'} moving`;
+                labels[2] = `overlay (${movingPct}% moving)`;
             }
             compareTitles.forEach((el, idx) => {
                 el.textContent = labels[idx] || '';
@@ -803,7 +812,7 @@
         }
 
         function applyCompareLayout() {
-            const count = registrationMode ? 1 : Math.max(1, compareDisplaySids.length);
+            const count = registrationMode ? 3 : Math.max(1, compareDisplaySids.length);
             const cols = count <= 2 ? count : (count === 4 ? 2 : 3);
             document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
             comparePaneEls.forEach((pane, idx) => {
@@ -821,7 +830,9 @@
                 if (!left || !right) return;
                 compareRegistrationFrame = buildRegistrationFrame(left, right);
                 if (!compareRegistrationFrame) return;
-                drawCompareFrame(0, compareRegistrationFrame);
+                drawCompareFrame(0, left);
+                drawCompareFrame(1, right);
+                drawCompareFrame(2, compareRegistrationFrame);
             } else {
                 compareRegistrationFrame = null;
                 for (let i = 0; i < compareFrames.length && i < compareCanvases.length; i++) {

@@ -56,6 +56,16 @@ _JS_COMPARE_LEFT_CENTER_PIXEL = """
 }
 """
 
+_JS_COMPARE_OVERLAY_CENTER_PIXEL = """
+() => {
+    const c = document.querySelector('canvas#compare-third-canvas');
+    if (!c) return null;
+    const ctx = c.getContext('2d');
+    const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+    return [d[0], d[1], d[2]];
+}
+"""
+
 _JS_MV_CANVAS_COUNT = """
 () => document.querySelectorAll('.mv-canvas').length
 """
@@ -261,11 +271,14 @@ class TestKeyboard:
         page.wait_for_timeout(400)
         classes = page.get_attribute("#compare-view-wrap", "class") or ""
         assert "registration-mode" in classes
+        assert page.is_visible("canvas#compare-left-canvas")
+        assert page.is_visible("canvas#compare-right-canvas")
+        assert page.is_visible("canvas#compare-third-canvas")
 
-        before = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        before = page.evaluate(_JS_COMPARE_OVERLAY_CENTER_PIXEL)
         page.keyboard.press("]")
         page.wait_for_timeout(250)
-        after = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        after = page.evaluate(_JS_COMPARE_OVERLAY_CENTER_PIXEL)
         assert before != after
 
         page.keyboard.press("n")
