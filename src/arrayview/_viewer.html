@@ -236,6 +236,8 @@
         #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 10px; }
         #compare-view-wrap.active { display: flex; align-items: stretch; justify-content: center; }
         .compare-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; }
+        #compare-view-wrap.registration-mode { gap: 0; }
+        #compare-view-wrap.registration-mode .compare-pane.compare-secondary { display: none; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
         .compare-canvas-area { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
         .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
@@ -308,7 +310,7 @@
             </svg>
         </div>
         <div id="compare-view-wrap">
-            <div class="compare-pane">
+            <div class="compare-pane compare-primary">
                 <div id="compare-left-title" class="compare-title"></div>
                 <div class="compare-canvas-area">
                     <div class="compare-canvas-wrap">
@@ -324,7 +326,7 @@
                     </div>
                 </div>
             </div>
-            <div class="compare-pane">
+            <div class="compare-pane compare-secondary">
                 <div id="compare-right-title" class="compare-title"></div>
                 <div class="compare-canvas-area">
                     <div class="compare-canvas-wrap">
@@ -395,6 +397,9 @@
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
                 <div class="help-row"><span class="key">B</span><span class="desc">toggle side-by-side compare</span></div>
+                <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
+                <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">toggle zen mode</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
@@ -505,10 +510,14 @@
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareName = '';
+        let compareBaseName = '';
         let compareRendering = false;
         let comparePending = false;
         let compareLeftFrame = null;
         let compareRightFrame = null;
+        let compareRegistrationFrame = null;
+        let registrationMode = false;
+        let registrationAlpha = 0.5;
 
         let qmriActive = false;
         let qmriDim = -1;
@@ -572,12 +581,18 @@
             const paneGap = 10;
             const sidePadding = 44; // viewer-row padding + breathing room
             const titleReserve = 28;
-            // const availW = Math.min(MAX_CANVAS_FIT_PX, Math.max(50, (rowW - sidePadding - paneGap) / 2));
-            // const availH = Math.min(MAX_CANVAS_FIT_PX, Math.max(50, rowH - titleReserve));
-            const panes = [
-                { frame: compareLeftFrame, canvas: compareLeftCanvas },
-                { frame: compareRightFrame, canvas: compareRightCanvas },
-            ];
+            const paneCount = registrationMode ? 1 : 2;
+            const availW = Math.max(
+                50,
+                (rowW - sidePadding - (paneCount - 1) * paneGap) / paneCount
+            );
+            const availH = Math.max(50, rowH - titleReserve);
+            const panes = registrationMode
+                ? [{ frame: compareRegistrationFrame || compareLeftFrame, canvas: compareLeftCanvas }]
+                : [
+                    { frame: compareLeftFrame, canvas: compareLeftCanvas },
+                    { frame: compareRightFrame, canvas: compareRightCanvas },
+                ];
             for (const p of panes) {
                 if (!p.frame) continue;
                 const base = Math.min(availW / p.frame.width, availH / p.frame.height);
@@ -587,12 +602,73 @@
             }
         }
 
+        function compareLuma(imgData, i) {
+            return (0.299 * imgData[i] + 0.587 * imgData[i + 1] + 0.114 * imgData[i + 2]) / 255;
+        }
+
+        function buildRegistrationFrame(leftFrame, rightFrame, movingAlpha = registrationAlpha) {
+            if (!leftFrame || !rightFrame) return null;
+            if (leftFrame.width !== rightFrame.width || leftFrame.height !== rightFrame.height) return null;
+            const aMoving = Math.max(0.05, Math.min(0.95, Number(movingAlpha) || 0.5));
+            const aFixed = 1 - aMoving;
+            const L = leftFrame.imageData.data;
+            const R = rightFrame.imageData.data;
+            const out = new Uint8ClampedArray(L.length);
+            for (let i = 0; i < L.length; i += 4) {
+                const leftV = compareLuma(L, i) * aFixed;
+                const rightV = compareLuma(R, i) * aMoving;
+                const leftA = (L[i + 3] / 255) * aFixed;
+                const rightA = (R[i + 3] / 255) * aMoving;
+                out[i] = Math.min(255, Math.round(255 * (leftV)));
+                out[i + 1] = Math.min(255, Math.round(255 * (rightV)));
+                out[i + 2] = Math.min(255, Math.round(255 * (leftV)));
+                out[i + 3] = Math.min(255, Math.round(255 * (leftA + rightA)));
+            }
+            return {
+                imageData: new ImageData(out, leftFrame.width, leftFrame.height),
+                width: leftFrame.width,
+                height: leftFrame.height,
+                vmin: leftFrame.vmin,
+                vmax: leftFrame.vmax,
+            };
+        }
+
         function drawCompareFrame(target, frame) {
             const cv = target === 'left' ? compareLeftCanvas : compareRightCanvas;
             const c2d = target === 'left' ? compareLeftCtx : compareRightCtx;
             cv.width = frame.width;
             cv.height = frame.height;
             c2d.putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
+        }
+
+        function updateCompareTitles() {
+            compareRightTitle.textContent = compareName || '';
+            if (registrationMode) {
+                const movingPct = Math.round(registrationAlpha * 100);
+                compareLeftTitle.textContent = `${compareBaseName || 'fixed'} (magenta) + ${compareName || 'moving'} (green ${movingPct}%)`;
+            } else {
+                compareLeftTitle.textContent = compareBaseName || 'base';
+            }
+        }
+
+        function applyCompareLayout() {
+            compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
+            updateCompareTitles();
+        }
+
+        function drawCompareFramesFromCache() {
+            if (!compareLeftFrame || !compareRightFrame) return;
+            if (registrationMode) {
+                compareRegistrationFrame = buildRegistrationFrame(compareLeftFrame, compareRightFrame);
+                if (!compareRegistrationFrame) return;
+                drawCompareFrame('left', compareRegistrationFrame);
+            } else {
+                compareRegistrationFrame = null;
+                drawCompareFrame('left', compareLeftFrame);
+                drawCompareFrame('right', compareRightFrame);
+            }
+            compareScaleCanvases();
+            requestAnimationFrame(() => compareScaleCanvases());
         }
 
         window.addEventListener('resize', () => {
@@ -955,12 +1031,10 @@
                 compareRightFrame = right;
                 currentVmin = left.vmin;
                 currentVmax = left.vmax;
-                drawCompareFrame('left', left);
-                drawCompareFrame('right', right);
+                applyCompareLayout();
+                drawCompareFramesFromCache();
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = 'none';
-                compareScaleCanvases();
-                requestAnimationFrame(() => compareScaleCanvases());
             } catch (e) {
                 setStatus(`Compare render failed: ${e.message || e}`);
             } finally {
@@ -1105,6 +1179,8 @@
                 text += `  <span class="muted">FFT</span>`;
             if (compareActive)
                 text += `  <span class="muted">COMPARE</span>`;
+            if (compareActive && registrationMode)
+                text += `  <span class="muted">REG</span>`;
             document.getElementById('info').innerHTML = text;
         }
 
@@ -1153,6 +1229,10 @@
                 dim_z,
                 current_slice_dim,
                 activeDim,
+                compareSid,
+                compareName,
+                registrationMode,
+                registrationAlpha,
             };
         }
 
@@ -1209,6 +1289,12 @@
             }
             if (Number.isInteger(s.activeDim) && s.activeDim >= 0 && s.activeDim < shape.length) {
                 activeDim = s.activeDim;
+            }
+            if (typeof s.compareSid === 'string' && s.compareSid.trim()) compareSid = s.compareSid.trim();
+            if (typeof s.compareName === 'string') compareName = s.compareName;
+            registrationMode = !!s.registrationMode;
+            if (Number.isFinite(Number(s.registrationAlpha))) {
+                registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
             }
 
             if (s.customColormap && colormap_idx === -1) refreshCustomColormap(s.customColormap);
@@ -1552,6 +1638,22 @@
                 saveState();
             } else if (e.key === 'B') {
                 toggleCompareMode();
+            } else if (e.key === 'R') {
+                toggleRegistrationMode();
+            } else if (e.key === 'n') {
+                if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
+                cycleCompareTarget(1);
+            } else if (e.key === '[' || e.key === ']') {
+                if (!compareActive || !registrationMode) {
+                    showStatus('registration overlay inactive (press R in compare mode)');
+                    return;
+                }
+                const step = e.key === ']' ? 0.05 : -0.05;
+                registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+                applyCompareLayout();
+                drawCompareFramesFromCache();
+                showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+                saveState();
             } else if (e.key === 'Z') {
                 setZenMode(!zenMode);
                 saveState();
@@ -1845,15 +1947,16 @@
                 if (qmriActive) exitQmri();
                 compareSid = targetSid;
                 compareName = cmpMeta.name || targetNameHint || targetSid.slice(0, 8);
-                compareLeftTitle.textContent = baseMeta.name || document.getElementById('array-name-text').textContent || 'base';
-                compareRightTitle.textContent = compareName;
+                compareBaseName = baseMeta.name || document.getElementById('array-name-text').textContent || 'base';
                 compareLeftFrame = null;
                 compareRightFrame = null;
+                compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
                 document.getElementById('canvas-wrap').style.display = 'none';
                 compareWrap.classList.add('active');
+                applyCompareLayout();
                 renderInfo();
                 updateView();
                 requestAnimationFrame(() => compareScaleCanvases());
@@ -1865,11 +1968,15 @@
             }
         }
 
-        async function enterComparePrompt() {
+        async function getCompareCandidates() {
             const res = await fetch('/sessions');
-            if (!res.ok) { showStatus('compare: could not query sessions'); return; }
+            if (!res.ok) { showStatus('compare: could not query sessions'); return []; }
             const sessions = await res.json();
-            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
+            return sessions.filter(s => s.sid && s.sid !== sid);
+        }
+
+        async function enterComparePrompt() {
+            const candidates = await getCompareCandidates();
             if (!candidates.length) {
                 showStatus('compare: load a second array first');
                 return;
@@ -1900,13 +2007,47 @@
             await enterCompareModeBySid(chosen.sid, chosen.name || '');
         }
 
+        async function cycleCompareTarget(step = 1) {
+            const candidates = await getCompareCandidates();
+            if (!candidates.length) {
+                showStatus('compare: load a second array first');
+                return;
+            }
+            let idx = candidates.findIndex(s => s.sid === compareSid);
+            if (idx < 0) idx = 0;
+            else idx = (idx + step + candidates.length) % candidates.length;
+            const chosen = candidates[idx];
+            await enterCompareModeBySid(chosen.sid, chosen.name || '');
+        }
+
+        async function toggleRegistrationMode() {
+            if (!compareActive) {
+                if (compareSid) {
+                    const ok = await enterCompareModeBySid(compareSid, compareName);
+                    if (!ok) await enterComparePrompt();
+                } else {
+                    await enterComparePrompt();
+                }
+                if (!compareActive) return;
+            }
+            registrationMode = !registrationMode;
+            applyCompareLayout();
+            drawCompareFramesFromCache();
+            const movingPct = Math.round(registrationAlpha * 100);
+            if (registrationMode) showStatus(`registration: on (moving ${movingPct}%)`);
+            else showStatus('registration: off');
+            saveState();
+        }
+
         function exitCompareMode() {
             compareActive = false;
             compareLeftFrame = null;
             compareRightFrame = null;
+            compareRegistrationFrame = null;
             compareRendering = false;
             comparePending = false;
             compareWrap.classList.remove('active');
+            compareWrap.classList.remove('registration-mode');
             if (!multiViewActive && !qmriActive) document.getElementById('canvas-wrap').style.display = '';
             updateView();
             showStatus('compare: off');
