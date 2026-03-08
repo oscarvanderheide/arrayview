@@ -301,6 +301,32 @@ class TestKeyboard:
         status = page.inner_text("#status").lower()
         assert "fixed" in status or "multi-array" in status
 
+    def test_multi_array_launch_supports_six_compare_panes(
+        self, page, server_url, sid_2d, arr_2d, client, tmp_path
+    ):
+        compare_sids = []
+        for i in range(5):
+            path = tmp_path / f"arr2d_compare_{i}.npy"
+            np.save(path, arr_2d * (0.2 + 0.1 * i))
+            sid_i = client.post(
+                "/load", json={"filepath": str(path), "name": f"arr2d_compare_{i}"}
+            ).json()["sid"]
+            compare_sids.append(sid_i)
+
+        page.goto(
+            f"{server_url}/?sid={sid_2d}&compare_sid={compare_sids[0]}&compare_sids={','.join(compare_sids)}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(700)
+
+        assert page.is_visible("canvas#compare-sixth-canvas")
+        active_panes = page.evaluate("() => document.querySelectorAll('#compare-panes .compare-pane.active').length")
+        assert active_panes == 6
+        grid_cols = page.evaluate(
+            "() => getComputedStyle(document.querySelector('#compare-panes')).gridTemplateColumns.split(' ').length"
+        )
+        assert grid_cols == 3
+
     def test_d_cycles_dynamic_range_shows_toast(self, loaded_viewer, sid_2d):
         # d cycles dynamic range; result appears in #toast
         page = loaded_viewer(sid_2d)

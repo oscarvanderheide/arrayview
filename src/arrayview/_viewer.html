@@ -235,13 +235,17 @@
         .mv-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; }
         #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #compare-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
-        #compare-panes { flex: 1; min-height: 0; width: 100%; display: flex; gap: 22px; align-items: stretch; justify-content: center; overflow: visible; }
-        .compare-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; }
-        #compare-view-wrap.registration-mode #compare-panes { gap: 0; }
-        #compare-view-wrap.registration-mode .compare-pane.compare-secondary,
-        #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { display: none; }
-        .compare-pane.compare-tertiary { display: none; }
-        #compare-view-wrap.has-third .compare-pane.compare-tertiary { display: flex; }
+        #compare-panes {
+            flex: 1; min-height: 0; width: 100%;
+            display: grid;
+            grid-template-columns: repeat(var(--compare-cols, 2), minmax(0, 1fr));
+            gap: 18px;
+            align-content: center;
+            justify-content: center;
+            overflow: visible;
+        }
+        .compare-pane { min-width: 0; min-height: 0; display: none; flex-direction: column; align-items: center; }
+        .compare-pane.active { display: flex; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
@@ -369,6 +373,54 @@
                                 <polygon points="3,13 6,8 9,13" fill="currentColor"/>
                                 <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
                                 <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-quaternary">
+                    <div id="compare-fourth-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-quinary">
+                    <div id="compare-fifth-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-senary">
+                    <div id="compare-sixth-title" class="compare-title"></div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
                             </svg>
                         </div>
                     </div>
@@ -559,9 +611,9 @@
         const compareNameBySid = {};
         let compareRendering = false;
         let comparePending = false;
-        let compareLeftFrame = null;
-        let compareRightFrame = null;
-        let compareThirdFrame = null;
+        let compareFrames = [];
+        let compareDisplaySids = [];
+        let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
         let registrationMode = false;
         let registrationAlpha = 0.5;
@@ -586,15 +638,24 @@
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const compareWrap = document.getElementById('compare-view-wrap');
-        const compareLeftCanvas = document.getElementById('compare-left-canvas');
-        const compareLeftCtx = compareLeftCanvas.getContext('2d');
-        const compareRightCanvas = document.getElementById('compare-right-canvas');
-        const compareRightCtx = compareRightCanvas.getContext('2d');
-        const compareThirdCanvas = document.getElementById('compare-third-canvas');
-        const compareThirdCtx = compareThirdCanvas.getContext('2d');
-        const compareLeftTitle = document.getElementById('compare-left-title');
-        const compareRightTitle = document.getElementById('compare-right-title');
-        const compareThirdTitle = document.getElementById('compare-third-title');
+        const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane'));
+        const compareCanvases = [
+            document.getElementById('compare-left-canvas'),
+            document.getElementById('compare-right-canvas'),
+            document.getElementById('compare-third-canvas'),
+            document.getElementById('compare-fourth-canvas'),
+            document.getElementById('compare-fifth-canvas'),
+            document.getElementById('compare-sixth-canvas'),
+        ];
+        const compareCtxs = compareCanvases.map(cv => cv.getContext('2d'));
+        const compareTitles = [
+            document.getElementById('compare-left-title'),
+            document.getElementById('compare-right-title'),
+            document.getElementById('compare-third-title'),
+            document.getElementById('compare-fourth-title'),
+            document.getElementById('compare-fifth-title'),
+            document.getElementById('compare-sixth-title'),
+        ];
         const compareCbCanvas = document.getElementById('compare-cb');
         const compareCbLabels = document.getElementById('compare-cb-labels');
         const slimCbCanvas = document.getElementById('slim-cb');
@@ -654,31 +715,34 @@
             const axesReserveX = 26; // keep room for left x/y indicator arrow + labels
             const axesReserveY = 28; // keep room for bottom x/y indicator arrow + labels
             const fitSlack = 0.96;
-            const hasThird = compareWrap.classList.contains('has-third');
-            const paneCount = registrationMode ? 1 : (hasThird ? 3 : 2);
+            const activeFrames = registrationMode
+                ? (compareRegistrationFrame ? [compareRegistrationFrame] : [])
+                : compareFrames.filter(Boolean);
+            const paneCount = activeFrames.length;
+            if (!paneCount) return;
+            const cols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+            const rows = Math.max(1, Math.ceil(paneCount / cols));
             const fallbackPaneW = Math.max(
                 50,
-                (rowW - sidePadding - (paneCount - 1) * paneGap) / paneCount
+                (rowW - sidePadding - (cols - 1) * paneGap) / cols
             );
-            const fallbackPaneH = Math.max(50, rowH - titleReserve - cbReserve);
-            const panes = registrationMode
-                ? [{ frame: compareRegistrationFrame || compareLeftFrame, canvas: compareLeftCanvas }]
-                : [
-                    { frame: compareLeftFrame, canvas: compareLeftCanvas },
-                    { frame: compareRightFrame, canvas: compareRightCanvas },
-                    ...(hasThird ? [{ frame: compareThirdFrame, canvas: compareThirdCanvas }] : []),
-                ];
-            for (const p of panes) {
-                if (!p.frame) continue;
-                const paneArea = p.canvas.closest('.compare-canvas-area');
+            const fallbackPaneH = Math.max(
+                50,
+                (rowH - titleReserve - cbReserve - (rows - 1) * paneGap) / rows
+            );
+            for (let i = 0; i < paneCount; i++) {
+                const frame = activeFrames[i];
+                const cv = compareCanvases[i];
+                if (!frame || !cv) continue;
+                const paneArea = cv.closest('.compare-canvas-area');
                 const paneW = paneArea?.clientWidth || fallbackPaneW;
                 const paneH = paneArea?.clientHeight || fallbackPaneH;
                 const availW = Math.max(40, paneW - axesReserveX);
                 const availH = Math.max(40, paneH - axesReserveY);
-                const base = Math.min(availW / p.frame.width, availH / p.frame.height);
+                const base = Math.min(availW / frame.width, availH / frame.height);
                 const scale = Math.max(0.01, base * fitSlack * userZoom);
-                p.canvas.style.width = Math.round(p.frame.width * scale) + 'px';
-                p.canvas.style.height = Math.round(p.frame.height * scale) + 'px';
+                cv.style.width = Math.round(frame.width * scale) + 'px';
+                cv.style.height = Math.round(frame.height * scale) + 'px';
             }
             drawSlimColorbar(cbMarkerFrac);
         }
@@ -714,55 +778,77 @@
             };
         }
 
-        function drawCompareFrame(target, frame) {
-            const cv = target === 'left'
-                ? compareLeftCanvas
-                : (target === 'right' ? compareRightCanvas : compareThirdCanvas);
-            const c2d = target === 'left'
-                ? compareLeftCtx
-                : (target === 'right' ? compareRightCtx : compareThirdCtx);
+        function drawCompareFrame(idx, frame) {
+            const cv = compareCanvases[idx];
+            const c2d = compareCtxs[idx];
+            if (!cv || !c2d) return;
             cv.width = frame.width;
             cv.height = frame.height;
             c2d.putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
         }
 
+        function comparePaneLabelForSid(sidVal) {
+            if (sidVal === sid) return compareBaseName || 'base';
+            return compareNameBySid[sidVal] || sidVal.slice(0, 8);
+        }
+
         function updateCompareTitles() {
-            const extras = compareSidList.filter(s => s && s !== compareSid);
-            const thirdSid = extras[0] || null;
-            const thirdName = thirdSid ? (compareNameBySid[thirdSid] || thirdSid.slice(0, 8)) : '';
-            compareRightTitle.textContent = compareName || '';
-            compareThirdTitle.textContent = thirdName;
-            if (registrationMode) {
-                const movingPct = Math.round(registrationAlpha * 100);
-                compareLeftTitle.textContent = `${compareBaseName || 'fixed'} (magenta) + ${compareName || 'moving'} (green ${movingPct}%)`;
-            } else {
-                compareLeftTitle.textContent = compareBaseName || 'base';
+            const labels = compareDisplaySids.map(sidVal => comparePaneLabelForSid(sidVal));
+            if (registrationMode && labels.length) {
+                labels[0] = `${compareBaseName || 'fixed'} + ${compareName || 'moving'}`;
             }
+            compareTitles.forEach((el, idx) => {
+                el.textContent = labels[idx] || '';
+            });
         }
 
         function applyCompareLayout() {
+            const count = registrationMode ? 1 : Math.max(1, compareDisplaySids.length);
+            const cols = count <= 2 ? count : (count === 4 ? 2 : 3);
+            document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
+            comparePaneEls.forEach((pane, idx) => {
+                pane.classList.toggle('active', compareActive && idx < count);
+            });
             compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
-            compareWrap.classList.toggle(
-                'has-third',
-                compareActive && !registrationMode && compareSidList.filter(s => s && s !== compareSid).length > 0
-            );
             updateCompareTitles();
         }
 
         function drawCompareFramesFromCache() {
-            if (!compareLeftFrame || !compareRightFrame) return;
+            if (!compareFrames.length) return;
             if (registrationMode) {
-                compareRegistrationFrame = buildRegistrationFrame(compareLeftFrame, compareRightFrame);
+                const left = compareFrames[0];
+                const right = compareFrames[1];
+                if (!left || !right) return;
+                compareRegistrationFrame = buildRegistrationFrame(left, right);
                 if (!compareRegistrationFrame) return;
-                drawCompareFrame('left', compareRegistrationFrame);
+                drawCompareFrame(0, compareRegistrationFrame);
             } else {
                 compareRegistrationFrame = null;
-                drawCompareFrame('left', compareLeftFrame);
-                drawCompareFrame('right', compareRightFrame);
-                if (compareThirdFrame) drawCompareFrame('third', compareThirdFrame);
+                for (let i = 0; i < compareFrames.length && i < compareCanvases.length; i++) {
+                    const frame = compareFrames[i];
+                    if (frame) drawCompareFrame(i, frame);
+                }
             }
             compareScaleCanvases();
             requestAnimationFrame(() => compareScaleCanvases());
+        }
+
+        function getCompareRenderSids() {
+            const orderedTargets = [compareSid, ...compareSidList.filter(s => s && s !== compareSid)]
+                .filter(Boolean);
+            const out = [sid];
+            const seen = new Set([sid]);
+            for (const sidVal of orderedTargets) {
+                if (seen.has(sidVal)) continue;
+                seen.add(sidVal);
+                out.push(sidVal);
+                if (out.length >= compareCanvases.length) break;
+            }
+            if (orderedTargets.length > compareCanvases.length - 1 && !compareOverflowNotified) {
+                showStatus('compare: showing first 6 arrays');
+                compareOverflowNotified = true;
+            }
+            return out;
         }
 
         function drawCompareColorbar() {
@@ -1156,22 +1242,16 @@
                     params.set('vmin_override', String(manualVmin));
                     params.set('vmax_override', String(manualVmax));
                 }
-                const leftParams = new URLSearchParams(params.toString());
-                const rightParams = new URLSearchParams(params.toString());
-                const extraSid = compareSidList.find(s => s && s !== compareSid) || null;
-                const thirdParams = new URLSearchParams(params.toString());
-                if (overlay_sid) leftParams.set('overlay_sid', overlay_sid);
-                const requests = [
-                    fetchSliceFrame(leftParams, sid),
-                    fetchSliceFrame(rightParams, compareSid),
-                ];
-                if (extraSid && !registrationMode) requests.push(fetchSliceFrame(thirdParams, extraSid));
-                const [left, right, third] = await Promise.all(requests);
-                compareLeftFrame = left;
-                compareRightFrame = right;
-                compareThirdFrame = third || null;
-                currentVmin = left.vmin;
-                currentVmax = left.vmax;
+                const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
+                const requests = renderSids.map(sidVal => {
+                    const reqParams = new URLSearchParams(params.toString());
+                    if (sidVal === sid && overlay_sid) reqParams.set('overlay_sid', overlay_sid);
+                    return fetchSliceFrame(reqParams, sidVal);
+                });
+                compareFrames = await Promise.all(requests);
+                compareDisplaySids = renderSids;
+                currentVmin = compareFrames[0].vmin;
+                currentVmax = compareFrames[0].vmax;
                 applyCompareLayout();
                 drawCompareFramesFromCache();
                 document.getElementById('loading-overlay').style.display = 'none';
@@ -2145,9 +2225,9 @@
                 compareNameBySid[targetSid] = compareName;
                 if (!compareSidList.includes(targetSid) && targetSid !== sid) compareSidList.unshift(targetSid);
                 compareBaseName = baseMeta.name || document.getElementById('array-name-text').textContent || 'base';
-                compareLeftFrame = null;
-                compareRightFrame = null;
-                compareThirdFrame = null;
+                compareFrames = [];
+                compareDisplaySids = [];
+                compareOverflowNotified = false;
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
@@ -2243,15 +2323,14 @@
 
         function exitCompareMode() {
             compareActive = false;
-            compareLeftFrame = null;
-            compareRightFrame = null;
-            compareThirdFrame = null;
+            compareFrames = [];
+            compareDisplaySids = [];
             compareRegistrationFrame = null;
             compareRendering = false;
             comparePending = false;
+            compareOverflowNotified = false;
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
-            compareWrap.classList.remove('has-third');
             if (!multiViewActive && !qmriActive) document.getElementById('canvas-wrap').style.display = '';
             drawSlimColorbar(cbMarkerFrac);
             updateView();
@@ -2928,8 +3007,7 @@
             updateView();
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
-        compareLeftCanvas.addEventListener('wheel', onSliceWheel, {passive: false});
-        compareRightCanvas.addEventListener('wheel', onSliceWheel, {passive: false});
+        compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
 
         function closeSocket() {
             if (ws) {

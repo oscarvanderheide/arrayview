@@ -60,11 +60,44 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch):
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
 
-def test_cli_rejects_more_than_three_files(monkeypatch):
+def test_cli_rejects_more_than_six_files(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy"],
+        ["arrayview", "a.npy", "b.npy", "c.npy", "d.npy", "e.npy", "f.npy", "g.npy"],
     )
     with pytest.raises(SystemExit):
         appmod.arrayview()
+
+
+def test_cli_accepts_six_total_files_for_compare(monkeypatch):
+    files = [f"/tmp/a{i}.npy" for i in range(6)]
+    requests = []
+    opened = {}
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
+    monkeypatch.setattr(appmod, "load_data", lambda _: np.zeros((8, 8), dtype=np.float32))
+    monkeypatch.setattr(appmod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(appmod, "_port_in_use", lambda _: False)
+    monkeypatch.setattr(appmod, "_can_native_window", lambda: False)
+    monkeypatch.setattr(
+        appmod,
+        "_open_browser",
+        lambda url, blocking=False: opened.setdefault("url", url),
+    )
+
+    def fake_urlopen(req, timeout=5):
+        body = json.loads((req.data or b"{}").decode())
+        requests.append(body)
+        fp = body.get("filepath")
+        idx = files.index(fp)
+        return _DummyResponse({"sid": f"sid_{idx}", "name": f"a{idx}.npy"})
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    assert len(requests) == 6
+    compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 6)])
+    assert "compare_sid=sid_1" in opened["url"]
+    assert f"compare_sids={compare_sid_csv}" in opened["url"]
