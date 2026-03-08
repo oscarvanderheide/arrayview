@@ -209,6 +209,26 @@ class TestKeyboard:
         page.wait_for_timeout(120)
         assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
 
+    def test_help_overlay_size_stays_constant_across_sections(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("?")
+        page.wait_for_selector("#help-overlay.visible", timeout=2_000)
+        initial = page.evaluate(
+            "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
+        )
+        page.keyboard.press("j")
+        page.wait_for_timeout(120)
+        after_1 = page.evaluate(
+            "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
+        )
+        page.keyboard.press("j")
+        page.wait_for_timeout(120)
+        after_2 = page.evaluate(
+            "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
+        )
+        assert initial == after_1 == after_2
+
     def test_v_activates_multiview_on_3d(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
