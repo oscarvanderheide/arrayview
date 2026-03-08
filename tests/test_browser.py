@@ -218,6 +218,25 @@ class TestKeyboard:
         page.wait_for_timeout(120)
         assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
 
+    def test_help_overlay_keyboard_switches_sections(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("?")
+        page.wait_for_selector("#help-overlay.visible", timeout=2_000)
+        assert page.inner_text(".help-tab.active").strip().lower() == "navigation"
+        page.keyboard.press("j")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "display"
+        page.keyboard.press("k")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
+        page.keyboard.press("ArrowUp")
+        page.wait_for_timeout(120)
+        assert page.inner_text(".help-tab.active").strip().lower() == "navigation"
+
     def test_help_overlay_size_stays_constant_across_sections(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
