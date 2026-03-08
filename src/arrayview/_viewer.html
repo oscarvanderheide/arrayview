@@ -186,7 +186,11 @@
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
         .compare-canvas-area { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
         .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
-        .compare-canvas { border: 1px solid var(--canvas-border); border-radius: 2px; image-rendering: pixelated; cursor: crosshair; background: var(--bg); }
+        .compare-canvas {
+            border: 1px solid var(--canvas-border); border-radius: 2px;
+            image-rendering: pixelated; cursor: crosshair; background: var(--bg);
+            max-width: 100%; max-height: 100%;
+        }
         #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #qmri-view-wrap.active { display: grid; align-items: stretch; }
         #qmri-view-wrap.qmri-3 { grid-template-columns: repeat(3, 1fr); }
@@ -492,17 +496,22 @@
         }
 
         function compareScaleCanvases() {
+            const row = document.getElementById('viewer-row');
+            if (!row) return;
+            const rowW = Math.max(100, row.clientWidth);
+            const rowH = Math.max(100, row.clientHeight);
+            const paneGap = 10;
+            const sidePadding = 44; // viewer-row padding + breathing room
+            const titleReserve = 28;
+            const availW = Math.max(50, (rowW - sidePadding - paneGap) / 2);
+            const availH = Math.max(50, rowH - titleReserve);
             const panes = [
                 { frame: compareLeftFrame, canvas: compareLeftCanvas },
                 { frame: compareRightFrame, canvas: compareRightCanvas },
             ];
             for (const p of panes) {
                 if (!p.frame) continue;
-                const area = p.canvas.closest('.compare-canvas-area');
-                if (!area) continue;
-                const maxW = Math.max(50, area.clientWidth - 10);
-                const maxH = Math.max(50, area.clientHeight - 10);
-                const base = Math.min(maxW / p.frame.width, maxH / p.frame.height);
+                const base = Math.min(availW / p.frame.width, availH / p.frame.height);
                 const scale = Math.max(0.01, base * userZoom);
                 p.canvas.style.width = Math.round(p.frame.width * scale) + 'px';
                 p.canvas.style.height = Math.round(p.frame.height * scale) + 'px';
@@ -879,9 +888,10 @@
                 currentVmax = left.vmax;
                 drawCompareFrame('left', left);
                 drawCompareFrame('right', right);
-                compareScaleCanvases();
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = 'none';
+                compareScaleCanvases();
+                requestAnimationFrame(() => compareScaleCanvases());
             } catch (e) {
                 setStatus(`Compare render failed: ${e.message || e}`);
             } finally {
@@ -1645,6 +1655,7 @@
                 compareWrap.classList.add('active');
                 renderInfo();
                 updateView();
+                requestAnimationFrame(() => compareScaleCanvases());
                 showStatus(`compare: ${compareName}`);
                 return true;
             } catch (e) {
