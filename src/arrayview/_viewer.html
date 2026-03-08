@@ -2950,8 +2950,9 @@
             const isDarkVol = !document.documentElement.classList.contains('light') &&
                               !document.documentElement.classList.contains('solarized');
 
-            // Collect + sort voxels back-to-front
-            const voxels = [];
+            // Pass 1: accumulate per-pixel norm sum + voxel count
+            const sumNorm  = new Float32Array(cssSize * cssSize);
+            const sumCount = new Uint16Array(cssSize * cssSize);
             for (let i0 = 0; i0 < n0; i0++) {
                 const vy = (i0 / Math.max(1, n0 - 1)) * H;
                 for (let i1 = 0; i1 < n1; i1++) {
@@ -2964,28 +2965,31 @@
                         const px = Math.round(sx), py = Math.round(sy);
                         if (px < 0 || px >= cssSize || py < 0 || py >= cssSize) continue;
                         const norm = Math.max(0, Math.min(1, (val - vmin) / range));
-                        voxels.push({ px, py, depth: vx + vz, norm });
+                        const off = py * cssSize + px;
+                        sumNorm[off] += norm;
+                        sumCount[off]++;
                     }
                 }
             }
-            voxels.sort((a, b) => b.depth - a.depth);
 
-            for (const { px, py, norm } of voxels) {
-                const brightness = isDarkVol ? Math.round(norm * 180 + 50) : Math.round(220 - norm * 170);
-                const aSrc = Math.round(norm * 18 + 4);
-                for (let dy = 0; dy < pxDpr; dy++) {
-                for (let dx = 0; dx < pxDpr; dx++) {
-                    const ox = px * pxDpr + dx, oy = py * pxDpr + dy;
-                    if (ox >= pxSize || oy >= pxSize) continue;
-                    const off = (oy * pxSize + ox) * 4;
-                    const aDst = pixels[off + 3];
-                    const aOut = aSrc + aDst * (255 - aSrc) / 255;
-                    if (aOut < 1) { pixels[off] = pixels[off+1] = pixels[off+2] = brightness; pixels[off+3] = aSrc; continue; }
-                    pixels[off]   = (brightness * aSrc + pixels[off]   * aDst * (255 - aSrc) / 255) / aOut;
-                    pixels[off+1] = (brightness * aSrc + pixels[off+1] * aDst * (255 - aSrc) / 255) / aOut;
-                    pixels[off+2] = (brightness * aSrc + pixels[off+2] * aDst * (255 - aSrc) / 255) / aOut;
-                    pixels[off+3] = Math.min(255, aOut);
-                }}
+            // Pass 2: Beer-Lambert alpha from count, average norm for brightness
+            const kappa = 0.12; // extinction per voxel — 32 solid voxels → ~98% opaque
+            for (let py = 0; py < cssSize; py++) {
+                for (let px = 0; px < cssSize; px++) {
+                    const off = py * cssSize + px;
+                    if (sumCount[off] === 0) continue;
+                    const avgNorm  = sumNorm[off] / sumCount[off];
+                    const alpha    = Math.round((1 - Math.exp(-sumCount[off] * kappa)) * 240);
+                    const bright   = isDarkVol ? Math.round(avgNorm * 200 + 30) : Math.round(220 - avgNorm * 180);
+                    for (let dy = 0; dy < pxDpr; dy++) {
+                    for (let dx = 0; dx < pxDpr; dx++) {
+                        const ox = px * pxDpr + dx, oy = py * pxDpr + dy;
+                        if (ox >= pxSize || oy >= pxSize) continue;
+                        const pixOff = (oy * pxSize + ox) * 4;
+                        pixels[pixOff] = pixels[pixOff+1] = pixels[pixOff+2] = bright;
+                        pixels[pixOff+3] = alpha;
+                    }}
+                }
             }
             octx.putImageData(imgData, 0, 0);
             return oc;
