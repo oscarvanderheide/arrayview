@@ -565,6 +565,9 @@
         let compareRegistrationFrame = null;
         let registrationMode = false;
         let registrationAlpha = 0.5;
+        let pendingViewMode = null;
+        let pendingMvDims = null;
+        let pendingQmriDim = null;
 
         let qmriActive = false;
         let qmriDim = -1;
@@ -607,6 +610,18 @@
 
         function currentColormap() {
             return colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx];
+        }
+
+        function defaultMultiViewDims() {
+            const ranked = [...Array(shape.length).keys()].sort((a, b) => shape[b] - shape[a]);
+            return ranked.slice(0, 3).sort((a, b) => a - b);
+        }
+
+        function currentViewMode() {
+            if (qmriActive) return 'qmri';
+            if (multiViewActive) return 'multiview';
+            if (dim_z >= 0) return 'mosaic';
+            return 'single';
         }
 
         // const MAX_CANVAS_FIT_PX = 600;
@@ -1248,8 +1263,9 @@
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             initWebSocket();
-            triggerPreload();
-            if (compareSid) enterCompareModeBySid(compareSid);
+            const restoredCompositeMode = restoreCompositeModeFromSnapshot();
+            if (!restoredCompositeMode) triggerPreload();
+            if (compareSid && !multiViewActive && !qmriActive) enterCompareModeBySid(compareSid);
         }
 
         function getModeLabel() {
@@ -1361,6 +1377,9 @@
                 compareName,
                 registrationMode,
                 registrationAlpha,
+                viewMode: currentViewMode(),
+                mvDims: multiViewActive ? [...mvDims] : null,
+                qmriDim: qmriActive ? qmriDim : null,
             };
         }
 
@@ -1429,6 +1448,26 @@
             if (Number.isFinite(Number(s.registrationAlpha))) {
                 registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
             }
+            pendingViewMode = (typeof s.viewMode === 'string') ? s.viewMode : null;
+            if (Array.isArray(s.mvDims) && s.mvDims.length === 3) {
+                const dims = s.mvDims.map(v => Number(v));
+                if (
+                    dims.every(Number.isInteger)
+                    && dims.every(d => d >= 0 && d < shape.length)
+                    && new Set(dims).size === 3
+                ) {
+                    pendingMvDims = [...dims].sort((a, b) => a - b);
+                } else {
+                    pendingMvDims = null;
+                }
+            } else {
+                pendingMvDims = null;
+            }
+            if (Number.isInteger(s.qmriDim) && s.qmriDim >= 0 && s.qmriDim < shape.length) {
+                pendingQmriDim = s.qmriDim;
+            } else {
+                pendingQmriDim = null;
+            }
 
             if (s.customColormap && colormap_idx === -1) refreshCustomColormap(s.customColormap);
             else if (colormap_idx !== -1) {
@@ -1436,6 +1475,28 @@
                 customGradientStops = null;
             }
             return true;
+        }
+
+        function restoreCompositeModeFromSnapshot() {
+            const targetMode = pendingViewMode;
+            const targetMvDims = pendingMvDims ? [...pendingMvDims] : null;
+            const targetQmriDim = pendingQmriDim;
+            pendingViewMode = null;
+            pendingMvDims = null;
+            pendingQmriDim = null;
+
+            if (targetMode === 'multiview') {
+                if (shape.length < 3) return false;
+                const dims = targetMvDims || defaultMultiViewDims();
+                enterMultiView(dims);
+                return multiViewActive;
+            }
+            if (targetMode === 'qmri') {
+                if (Number.isInteger(targetQmriDim)) activeDim = targetQmriDim;
+                enterQmri();
+                return qmriActive;
+            }
+            return false;
         }
 
         function saveState() {
@@ -2038,9 +2099,7 @@
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri();
                 if (multiViewActive) { exitMultiView(); } else {
-                    // Pick the 3 dims with the largest extent so degenerate dims (size 1) are skipped.
-                    const ranked = [...Array(shape.length).keys()].sort((a, b) => shape[b] - shape[a]);
-                    enterMultiView(ranked.slice(0, 3).sort((a, b) => a - b));
+                    enterMultiView(defaultMultiViewDims());
                 }
             } else if (e.key === 'V') {
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
