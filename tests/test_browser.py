@@ -56,6 +56,15 @@ _JS_COMPARE_LEFT_CENTER_PIXEL = """
 }
 """
 
+_JS_COMPARE_LEFT_CSS_SIZE = """
+() => {
+    const c = document.querySelector('canvas#compare-left-canvas');
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return [Math.round(r.width), Math.round(r.height)];
+}
+"""
+
 _JS_COMPARE_OVERLAY_CENTER_PIXEL = """
 () => {
     const c = document.querySelector('canvas#compare-third-canvas');
@@ -193,19 +202,19 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert not page.is_visible("#help-overlay.visible")
 
-    def test_help_overlay_jk_switches_sections(self, loaded_viewer, sid_2d):
+    def test_help_overlay_tabs_switch_sections(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("?")
         page.wait_for_selector("#help-overlay.visible", timeout=2_000)
         assert page.inner_text(".help-tab.active").strip().lower() == "navigation"
-        page.keyboard.press("j")
+        page.click(".help-tab[data-help-panel='axes']")
         page.wait_for_timeout(120)
         assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
-        page.keyboard.press("ArrowDown")
+        page.click(".help-tab[data-help-panel='display']")
         page.wait_for_timeout(120)
         assert page.inner_text(".help-tab.active").strip().lower() == "display"
-        page.keyboard.press("k")
+        page.click(".help-tab[data-help-panel='axes']")
         page.wait_for_timeout(120)
         assert page.inner_text(".help-tab.active").strip().lower() == "axes & views"
 
@@ -217,12 +226,12 @@ class TestKeyboard:
         initial = page.evaluate(
             "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
         )
-        page.keyboard.press("j")
+        page.click(".help-tab[data-help-panel='axes']")
         page.wait_for_timeout(120)
         after_1 = page.evaluate(
             "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
         )
-        page.keyboard.press("j")
+        page.click(".help-tab[data-help-panel='display']")
         page.wait_for_timeout(120)
         after_2 = page.evaluate(
             "() => { const b = document.querySelector('#help-box').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }"
@@ -297,6 +306,46 @@ class TestKeyboard:
         page.keyboard.press("B")
         page.wait_for_timeout(350)
         assert not page.is_visible("#compare-view-wrap.active")
+
+    def test_compare_space_keeps_playing(self, loaded_viewer, sid_3d, arr_3d, client, tmp_path):
+        path = tmp_path / "arr3d_compare.npy"
+        np.save(path, np.flip(arr_3d, axis=0))
+        sid_compare = client.post("/load", json={"filepath": str(path), "name": "arr3d_compare"}).json()["sid"]
+
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.once("dialog", lambda d: d.accept(sid_compare))
+        page.keyboard.press("B")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+
+        page.keyboard.press("Space")
+        page.wait_for_timeout(250)
+        p1 = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        page.wait_for_timeout(250)
+        p2 = page.evaluate(_JS_COMPARE_LEFT_CENTER_PIXEL)
+        page.keyboard.press("Space")
+        assert p1 != p2
+
+    def test_compare_scale_stays_stable_on_first_scroll(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_scale.npy"
+        np.save(path, arr_3d * 0.8)
+        sid_compare = client.post("/load", json={"filepath": str(path), "name": "arr3d_compare_scale"}).json()["sid"]
+
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.once("dialog", lambda d: d.accept(sid_compare))
+        page.keyboard.press("B")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(350)
+        before = page.evaluate(_JS_COMPARE_LEFT_CSS_SIZE)
+
+        page.hover("canvas#compare-left-canvas")
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(350)
+        after = page.evaluate(_JS_COMPARE_LEFT_CSS_SIZE)
+        assert before == after
 
     def test_R_registration_overlay_and_n_cycles_compare_target(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
