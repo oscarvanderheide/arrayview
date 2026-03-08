@@ -349,6 +349,17 @@ class TestKeyboard:
         toast = page.inner_text("#toast").strip()
         assert "range" in toast.lower(), f"Expected DR toast, got: '{toast}'"
 
+    def test_space_toggles_playback(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Space")
+        page.wait_for_timeout(250)
+        assert "playing" in page.inner_text("#status").lower()
+
+        page.keyboard.press("Space")
+        page.wait_for_timeout(150)
+        assert "playing" not in page.inner_text("#status").lower()
+
     def test_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
         # i fetches /info and shows shape/dtype in #data-info
         page = loaded_viewer(sid_2d)
