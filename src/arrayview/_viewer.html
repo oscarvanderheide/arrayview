@@ -58,7 +58,6 @@
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
             width: 100%; padding: 8px; box-sizing: border-box;
         }
-        #viewer-row.full-mode { flex: 1; min-height: 0; overflow: auto; }
         #canvas-wrap { position: relative; display: inline-flex; justify-content: center; align-items: center; align-self: flex-start; }
         canvas {
             image-rendering: pixelated; outline: none; cursor: crosshair;
@@ -763,10 +762,6 @@
             return Math.min(maxW / w, maxH / h) * 0.65;
         }
 
-        function setViewerRowFull(full) {
-            document.getElementById('viewer-row').classList.toggle('full-mode', full);
-        }
-
         function scaleCanvas(w, h) {
             const baseScale = getBaseScale(w, h);
             const finalScale = baseScale * userZoom;
@@ -791,19 +786,17 @@
                 : compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
-            const rect = panesEl.getBoundingClientRect();
-            if (rect.width < 20 || rect.height < 20) {
-                requestAnimationFrame(() => compareScaleCanvases());
-                return;
-            }
-            let needsRetry = false;
             const cols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
             const rows = Math.max(1, Math.ceil(paneCount / cols));
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
             const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
-            const paneOuterW = Math.max(20, (rect.width - (cols - 1) * colGap) / cols);
-            const paneOuterH = Math.max(20, (rect.height - (rows - 1) * rowGap) / rows);
+            // Use window dimensions (same approach as normal view)
+            const uiReserveH = 130 + 40; // status/info + compare colorbar
+            const totalW = Math.max(100, window.innerWidth - 80) * 0.65;
+            const totalH = Math.max(100, window.innerHeight - uiReserveH) * 0.65;
+            const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
+            const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
@@ -814,9 +807,6 @@
                 const scale = Math.max(0.01, base * fitSlack * userZoom);
                 cv.style.width = Math.round(frame.width * scale) + 'px';
                 cv.style.height = Math.round(frame.height * scale) + 'px';
-            }
-            if (needsRetry) {
-                requestAnimationFrame(() => compareScaleCanvases());
             }
             drawSlimColorbar(cbMarkerFrac);
         }
@@ -970,6 +960,7 @@
         window.addEventListener('resize', () => {
             if (multiViewActive) { mvScaleAllCanvases(); return; }
             if (compareActive) { compareScaleCanvases(); return; }
+            if (qmriActive) { qvScaleAllCanvases(); return; }
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
 
@@ -1978,19 +1969,25 @@
             }
             if (e.key === '+' || e.key === '=') {
                 userZoom = Math.min(userZoom * 1.1, 10.0);
-                if (compareActive) compareScaleCanvases();
+                if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive) qvScaleAllCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
-                if (compareActive) compareScaleCanvases();
+                if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive) qvScaleAllCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
                 userZoom = 1.0;
-                if (compareActive) compareScaleCanvases();
+                if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive) qvScaleAllCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: fit`);
                 saveState();
@@ -2334,7 +2331,6 @@
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
-                setViewerRowFull(true);
                 document.getElementById('canvas-wrap').style.display = 'none';
                 compareWrap.classList.add('active');
                 applyCompareLayout();
@@ -2435,7 +2431,6 @@
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
             if (!multiViewActive && !qmriActive) {
-                setViewerRowFull(false);
                 document.getElementById('canvas-wrap').style.display = '';
             }
             drawSlimColorbar(cbMarkerFrac);
@@ -2477,7 +2472,6 @@
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             multiViewActive = true;
-            setViewerRowFull(true);
             mvDims = dims;
             hideLoadingOverlay();
             document.getElementById('canvas-wrap').style.display = 'none';
@@ -2599,7 +2593,6 @@
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
-            setViewerRowFull(false);
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('multi-view-wrap');
@@ -2620,7 +2613,6 @@
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
             qmriActive = true;
-            setViewerRowFull(true);
             qmriDim = activeDim;
             const cmaps = QMRI_COLORMAPS[n];
             document.getElementById('canvas-wrap').style.display = 'none';
@@ -2686,7 +2678,6 @@
             qmriDim = -1;
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriViews = [];
-            setViewerRowFull(false);
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
@@ -2762,11 +2753,18 @@
         function qvScaleAllCanvases() {
             const ready = qmriViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
+            const n = ready.length;
+            // matches CSS: qmri-6 is 3x2, others are n×1
+            const cols = n === 6 ? 3 : n;
+            const rows = n === 6 ? 2 : 1;
+            const gap = 8;
+            const labelH = 24; // qv-label height estimate
+            const uiReserveH = 130 + rows * labelH;
+            const paneW = Math.max(50, (window.innerWidth - 80 - (cols - 1) * gap) / cols * 0.65);
+            const paneH = Math.max(50, (window.innerHeight - uiReserveH - (rows - 1) * gap) / rows * 0.65);
             let minScale = Infinity;
             for (const v of ready) {
-                const maxW = Math.max(50, v.area.clientWidth - 4);
-                const maxH = Math.max(50, v.area.clientHeight - 4);
-                minScale = Math.min(minScale, maxW / v.lastW, maxH / v.lastH);
+                minScale = Math.min(minScale, (paneW - 4) / v.lastW, (paneH - 4) / v.lastH);
             }
             minScale = Math.max(0.01, minScale * userZoom);
             for (const v of ready) {
@@ -3123,8 +3121,11 @@
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
-            const availH = Math.max(50, mvWrap.clientHeight - cbH - labelH);
-            const availW = Math.max(50, (mvWrap.clientWidth - 16) / 3 - 4);
+            // Use window dimensions (same centering approach as normal view)
+            const uiReserveH = 130 + cbH + labelH;
+            const gap = 16;
+            const availH = Math.max(50, (window.innerHeight - uiReserveH) * 0.65);
+            const availW = Math.max(50, (window.innerWidth - 80 - gap * 2) / 3 * 0.65);
             const T = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
             for (const v of ready) {
                 const scale = Math.min(T / v.lastW, T / v.lastH);
