@@ -3218,21 +3218,42 @@
 
             // Three slice planes
             // Slice fractions: position within each dim's extent
-            const f0 = (shape[mvDims[0]] > 1) ? indices[mvDims[0]] / (shape[mvDims[0]] - 1) : 0.5; // ⊥ dim0 (horizontal plane)
-            const f1 = (shape[mvDims[1]] > 1) ? indices[mvDims[1]] / (shape[mvDims[1]] - 1) : 0.5; // ⊥ dim1 (depth plane)
-            const f2 = (shape[mvDims[2]] > 1) ? indices[mvDims[2]] / (shape[mvDims[2]] - 1) : 0.5; // ⊥ dim2 (side plane)
-
-            const planes = [
-                // ⊥ dim0: horizontal plane at y = f0*H  (quad: z∈[0,D], x∈[0,W])
-                { fill: 'rgba(255,90,90,0.30)', stroke: 'rgba(255,90,90,0.7)',
-                  pts: [iso(0, f0*H, 0), iso(W, f0*H, 0), iso(W, f0*H, D), iso(0, f0*H, D)] },
-                // ⊥ dim1: depth plane at z = f1*D  (quad: x∈[0,W], y∈[0,H])
-                { fill: 'rgba(100,210,130,0.28)', stroke: 'rgba(100,210,130,0.65)',
-                  pts: [iso(0, 0, f1*D), iso(W, 0, f1*D), iso(W, H, f1*D), iso(0, H, f1*D)] },
-                // ⊥ dim2: side plane at x = f2*W  (quad: z∈[0,D], y∈[0,H])
-                { fill: 'rgba(80,170,255,0.28)', stroke: 'rgba(80,170,255,0.65)',
-                  pts: [iso(f2*W, 0, 0), iso(f2*W, 0, D), iso(f2*W, H, D), iso(f2*W, H, 0)] },
+            const f0 = (shape[mvDims[0]] > 1) ? indices[mvDims[0]] / (shape[mvDims[0]] - 1) : 0.5;
+            const f1 = (shape[mvDims[1]] > 1) ? indices[mvDims[1]] / (shape[mvDims[1]] - 1) : 0.5;
+            const f2 = (shape[mvDims[2]] > 1) ? indices[mvDims[2]] / (shape[mvDims[2]] - 1) : 0.5;
+            const planeColors = [
+                { fill: 'rgba(255,90,90,0.30)',   stroke: 'rgba(255,90,90,0.7)' },
+                { fill: 'rgba(100,210,130,0.28)', stroke: 'rgba(100,210,130,0.65)' },
+                { fill: 'rgba(80,170,255,0.28)',  stroke: 'rgba(80,170,255,0.65)' },
             ];
+            let planes;
+            if (obliqueVecs) {
+                // Oblique planes: draw a quad centered at crosshair, extending along bh/bv.
+                // Basis vectors are unit vecs in (dim0,dim1,dim2) voxel space.
+                // Mapping to widget (x,y,z) space: widget_x=vox_dim2/maxDim, etc.
+                const cx_w = f2 * W, cy_w = f0 * H, cz_w = f1 * D;
+                const ext = 0.44; // extend 44% of longest dim in each direction
+                planes = obliqueVecs.map((ov, i) => {
+                    const bh = ov.bh, bv = ov.bv;
+                    const dhx = ext * bh[2], dhy = ext * bh[0], dhz = ext * bh[1];
+                    const dvx = ext * bv[2], dvy = ext * bv[0], dvz = ext * bv[1];
+                    return { ...planeColors[i], pts: [
+                        iso(cx_w+dhx+dvx, cy_w+dhy+dvy, cz_w+dhz+dvz),
+                        iso(cx_w+dhx-dvx, cy_w+dhy-dvy, cz_w+dhz-dvz),
+                        iso(cx_w-dhx-dvx, cy_w-dhy-dvy, cz_w-dhz-dvz),
+                        iso(cx_w-dhx+dvx, cy_w-dhy+dvy, cz_w-dhz+dvz),
+                    ]};
+                });
+            } else {
+                planes = [
+                    // ⊥ dim0: horizontal plane at y = f0*H  (quad: z∈[0,D], x∈[0,W])
+                    { ...planeColors[0], pts: [iso(0, f0*H, 0), iso(W, f0*H, 0), iso(W, f0*H, D), iso(0, f0*H, D)] },
+                    // ⊥ dim1: depth plane at z = f1*D  (quad: x∈[0,W], y∈[0,H])
+                    { ...planeColors[1], pts: [iso(0, 0, f1*D), iso(W, 0, f1*D), iso(W, H, f1*D), iso(0, H, f1*D)] },
+                    // ⊥ dim2: side plane at x = f2*W  (quad: z∈[0,D], y∈[0,H])
+                    { ...planeColors[2], pts: [iso(f2*W, 0, 0), iso(f2*W, 0, D), iso(f2*W, H, D), iso(f2*W, H, 0)] },
+                ];
+            }
 
             planes.forEach(({ fill, stroke, pts }) => {
                 ctx.beginPath();
