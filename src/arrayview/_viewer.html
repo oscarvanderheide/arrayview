@@ -550,7 +550,6 @@
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
-                <div class="help-row"><span class="key">b</span><span class="desc">toggle colorbar</span></div>
                 <div class="help-row"><span class="key">B</span><span class="desc">toggle compare picker (single-array launch)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
@@ -1990,13 +1989,6 @@
                 if (compareActive) compareScaleCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: fit`);
-                saveState();
-            } else if (e.key === 'b') {
-                cbVisible = !cbVisible;
-                drawSlimColorbar(cbMarkerFrac);
-                showStatus(cbVisible ? (zenMode ? 'colorbar: on (hidden in zen mode)' : 'colorbar: on') : 'colorbar: off');
-                if (multiViewActive) drawMvColorbar();
-                if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
                 saveState();
             } else if (e.key === 'B') {
                 toggleCompareMode();
