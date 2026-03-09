@@ -47,17 +47,18 @@
         #wrapper {
             background: var(--bg); color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            display: flex; flex-direction: column; align-items: center;
-            padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: auto;
         }
         #info {
             margin-bottom: 10px; font-size: 20px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
         }
         #viewer-row {
-            display: flex; align-items: center; justify-content: center; flex: 1;
-            min-height: 0; width: 100%; overflow: auto; padding: 16px; box-sizing: border-box;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            width: 100%; padding: 8px; box-sizing: border-box;
         }
+        #viewer-row.full-mode { flex: 1; min-height: 0; overflow: auto; }
         #canvas-wrap { position: relative; display: inline-flex; justify-content: center; align-items: center; align-self: flex-start; }
         canvas {
             image-rendering: pixelated; outline: none; cursor: crosshair;
@@ -756,11 +757,14 @@
         // const MAX_CANVAS_FIT_PX = 600;
 
         function getBaseScale(w, h) {
-            const row = document.getElementById('viewer-row');
-            const maxW = Math.max(100, row.clientWidth - 40);
-            const maxH = Math.max(100, row.clientHeight - 40);
-            if (maxW <= 0 || maxH <= 0) return 1.0;
-            return Math.min(maxW / w, maxH / h);
+            // viewer-row wraps content; use window dimensions with a comfortable cap
+            const maxW = Math.max(100, window.innerWidth - 80);
+            const maxH = Math.max(100, window.innerHeight - 120);
+            return Math.min(maxW / w, maxH / h) * 0.65;
+        }
+
+        function setViewerRowFull(full) {
+            document.getElementById('viewer-row').classList.toggle('full-mode', full);
         }
 
         function scaleCanvas(w, h) {
@@ -2330,6 +2334,7 @@
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
+                setViewerRowFull(true);
                 document.getElementById('canvas-wrap').style.display = 'none';
                 compareWrap.classList.add('active');
                 applyCompareLayout();
@@ -2429,7 +2434,10 @@
             compareOverflowNotified = false;
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
-            if (!multiViewActive && !qmriActive) document.getElementById('canvas-wrap').style.display = '';
+            if (!multiViewActive && !qmriActive) {
+                setViewerRowFull(false);
+                document.getElementById('canvas-wrap').style.display = '';
+            }
             drawSlimColorbar(cbMarkerFrac);
             updateView();
             showStatus('compare: off');
@@ -2469,6 +2477,7 @@
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             multiViewActive = true;
+            setViewerRowFull(true);
             mvDims = dims;
             hideLoadingOverlay();
             document.getElementById('canvas-wrap').style.display = 'none';
@@ -2590,6 +2599,7 @@
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
+            setViewerRowFull(false);
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('multi-view-wrap');
@@ -2610,6 +2620,7 @@
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
             qmriActive = true;
+            setViewerRowFull(true);
             qmriDim = activeDim;
             const cmaps = QMRI_COLORMAPS[n];
             document.getElementById('canvas-wrap').style.display = 'none';
@@ -2675,6 +2686,7 @@
             qmriDim = -1;
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriViews = [];
+            setViewerRowFull(false);
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
