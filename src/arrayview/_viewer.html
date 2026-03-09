@@ -64,7 +64,7 @@
             background: var(--bg);
         }
         .axes-indicator {
-            position: absolute; bottom: -18px; left: -18px; width: 40px; height: 40px;
+            position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
             pointer-events: none; color: rgba(190,190,190,0.75);
         }
         :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
@@ -775,8 +775,6 @@
         function compareScaleCanvases() {
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
-            const axesReserveX = 26; // keep room for left x/y indicator arrow + labels
-            const axesReserveY = 28; // keep room for bottom x/y indicator arrow + labels
             const titleReserve = 28;
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
             const panePadY = 30; // .compare-canvas-area bottom-heavy vertical padding
@@ -807,8 +805,8 @@
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
                 if (!frame || !cv) continue;
-                const availW = Math.max(40, paneOuterW - panePadX - axesReserveX);
-                const availH = Math.max(40, paneOuterH - titleReserve - panePadY - axesReserveY);
+                const availW = Math.max(40, paneOuterW - panePadX);
+                const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
                 const base = Math.min(availW / frame.width, availH / frame.height);
                 const scale = Math.max(0.01, base * fitSlack * userZoom);
                 cv.style.width = Math.round(frame.width * scale) + 'px';
