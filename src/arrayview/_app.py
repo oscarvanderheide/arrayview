@@ -335,7 +335,7 @@ class Session:
 
 SESSIONS = {}
 
-COLORMAPS = ["gray", "lipari", "navia", "viridis", "plasma", "RdBu_r"]
+COLORMAPS = ["gray", "lipari", "navia", "viridis", "plasma", "RdBu_r", "twilight_shifted"]
 DR_PERCENTILES = [(0, 100), (1, 99), (5, 95), (10, 90)]
 DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 
