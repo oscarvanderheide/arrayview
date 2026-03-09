@@ -11,7 +11,7 @@ out_dir = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(out_dir, exist_ok=True)
 
 # ── Image: 3D sphere phantom (shape 40×80×80) ──────────────────────────
-D, H, W = 192, 256, 256
+D, H, W = 128, 128, 64
 z = np.linspace(-1, 1, D)[:, None, None]
 y = np.linspace(-1, 1, H)[None, :, None]
 x = np.linspace(-1, 1, W)[None, None, :]
@@ -26,16 +26,15 @@ vy = np.broadcast_to(x * 0.4, shape).copy()
 vz = np.broadcast_to(z * 0.2, shape).copy()  # slight axial expansion
 vfield = np.stack([vz, vy, vx], axis=-1).astype(np.float32)
 
-# add a time dimension to the vector fields where the vectors rotate over time
-T = 25  # number of time steps
+# add a time dimension: shape must be (T, *spatial, 3) — time first, components last
+T = 25
 vfield_time = np.zeros((T, D, H, W, 3), dtype=np.float32)
 for t in range(T):
-    angle = t / T * 2 * np.pi  # full rotation over T steps
+    angle = t / T * 2 * np.pi
     cos_a, sin_a = np.cos(angle), np.sin(angle)
-    # Rotate the x-y components of the vector field
-    vfield_time[t, ..., 0] = vz  # z component stays the same
-    vfield_time[t, ..., 1] = cos_a * vy + sin_a * vx  # rotate y component
-    vfield_time[t, ..., 2] = cos_a * vx - sin_a * vy  # rotate x component
+    vfield_time[t, ..., 0] = vz  # z component (dim 0)
+    vfield_time[t, ..., 1] = cos_a * vy + sin_a * vx  # y component (dim 1)
+    vfield_time[t, ..., 2] = cos_a * vx - sin_a * vy  # x component (dim 2)
 
 np.save(os.path.join(out_dir, "phantom.npy"), image)
 np.save(os.path.join(out_dir, "vfield.npy"), vfield)

@@ -1499,6 +1499,94 @@ def get_slice(
     )
 
 
+@app.get("/oblique/{sid}")
+def get_oblique(
+    sid: str,
+    center: str,       # comma-sep floats — full N-dim index (e.g. "32.0,30.0,35.0")
+    basis_h: str,      # 3 floats in mv_dims order, unit vector → horizontal
+    basis_v: str,      # 3 floats in mv_dims order, unit vector → vertical
+    mv_dims: str,      # 3 ints: which array dims are the 3 spatial dims
+    size_w: int,
+    size_h: int,
+    colormap: str = "gray",
+    dr: int = 1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    vmin_override: float | None = None,
+    vmax_override: float | None = None,
+):
+    """Render an oblique (arbitrarily-oriented) slice through a 3-D volume."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    from scipy.ndimage import map_coordinates
+
+    ctr = [float(x) for x in center.split(",")]
+    bh = [float(x) for x in basis_h.split(",")]
+    bv = [float(x) for x in basis_v.split(",")]
+    dims = [int(x) for x in mv_dims.split(",")]
+
+    ndim = len(session.shape)
+    hw, hh = size_w / 2.0, size_h / 2.0
+    s_arr = np.arange(size_w, dtype=np.float64) - hw
+    t_arr = np.arange(size_h, dtype=np.float64) - hh
+    ss, tt = np.meshgrid(s_arr, t_arr)  # (size_h, size_w)
+
+    # Build full N-dim coordinate grids; non-spatial dims use fixed center value
+    coords = np.empty((ndim, size_h, size_w), dtype=np.float64)
+    for ai in range(ndim):
+        if ai in dims:
+            ji = dims.index(ai)
+            coords[ai] = ctr[ai] + ss * bh[ji] + tt * bv[ji]
+        else:
+            coords[ai] = ctr[ai]
+
+    data = session.data
+    if np.iscomplexobj(data):
+        if complex_mode == 1:
+            data_f = np.angle(data).astype(np.float32)
+        elif complex_mode == 2:
+            data_f = data.real.astype(np.float32)
+        elif complex_mode == 3:
+            data_f = data.imag.astype(np.float32)
+        else:
+            data_f = np.abs(data).astype(np.float32)
+    else:
+        data_f = np.nan_to_num(np.asarray(data, dtype=np.float32))
+
+    sampled = map_coordinates(data_f, coords, order=1, mode="constant", cval=0.0).astype(np.float32)
+
+    if log_scale:
+        sampled = np.log1p(np.abs(sampled)).astype(np.float32)
+
+    if vmin_override is not None and vmax_override is not None:
+        vmin, vmax = float(vmin_override), float(vmax_override)
+    else:
+        vmin, vmax = _compute_vmin_vmax(session, sampled, dr, complex_mode)
+
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    if vmax > vmin:
+        normalized = np.clip((sampled - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(sampled)
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+
+    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        },
+    )
+
+
 @app.get("/grid/{sid}")
 def get_grid(
     sid: str,

@@ -547,6 +547,7 @@
                 <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
+                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices to axis-aligned (3-plane view)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
@@ -676,6 +677,10 @@
         let mvDims = [];
         let mvDraggingView = null;
         let mvPixelPending = false;
+        // Oblique MPR state (multi-view only)
+        let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
+        let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
+        let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareSidList = compareSidsParam
@@ -1086,6 +1091,20 @@
                 }
             }
             return new ImageData(out, w, h);
+        }
+
+        // ── 3-D vector math helpers (used for oblique MPR) ──────────────────────
+        function cross3(a, b) {
+            return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+        }
+        function dot3(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+        function norm3(a) { return Math.sqrt(dot3(a, a)); }
+        function normalize3(a) { const n=norm3(a); return n>1e-12 ? a.map(x=>x/n) : [1,0,0]; }
+        /** Rodrigues rotation: rotate v about axis by theta (radians). */
+        function rodrigues(v, axis, theta) {
+            const k = normalize3(axis), ct = Math.cos(theta), st = Math.sin(theta);
+            const vk = dot3(v, k), vc = cross3(k, v);
+            return v.map((vi, i) => vi*ct + vc[i]*st + k[i]*vk*(1-ct));
         }
 
         function _drawArrow(ctx, x1, y1, x2, y2) {
@@ -2400,6 +2419,16 @@
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri();
                 if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
+            } else if (e.key === 'o' || e.key === 'O') {
+                if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
+                if (obliqueVecs === null) { showStatus('oblique: drag a crosshair line to rotate'); return; }
+                obliqueVecs = null; obliqueDrag = null; mvNavDragPrev = null;
+                mvViews.forEach(v => {
+                    v.lockedVmin = null; v.lockedVmax = null;
+                    v.rendering = false; v.pending = false; v.seq++;
+                });
+                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                showStatus('oblique: reset to axis-aligned');
             } else if (e.key === 'q') {
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri(); else enterQmri();
@@ -2657,25 +2686,44 @@
                     if (e.button !== 0) return;
                     e.preventDefault();
                     sink.focus();
-                    mvDraggingView = view;
-                    handleMvPointer(view, e);
+                    if (!view.lastW || !view.lastH) return;
+                    const rect = cv.getBoundingClientRect();
+                    const px = (e.clientX - rect.left) * view.lastW / rect.width;
+                    const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    const hitJ = mvCrossHairHit(view, px, py);
+                    if (hitJ >= 0) {
+                        initObliqueVecs();
+                        obliqueDrag = {
+                            viewI: mvViews.indexOf(view), viewJ: hitJ,
+                            prevX: px, prevY: py,
+                            cx: view.lastW / 2, cy: view.lastH / 2,
+                        };
+                    } else {
+                        mvNavDragPrev = { x: px, y: py };
+                        mvDraggingView = view;
+                        handleMvPointer(view, e);
+                    }
                 });
                 cv.addEventListener('mousemove', (e) => {
                     if (zenMode) return;
                     if (!view.lastW || !view.lastH) return;
                     const rect = cv.getBoundingClientRect();
-                    const px = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-                    const py = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                    const px = (e.clientX - rect.left) * view.lastW / rect.width;
+                    const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    // Cursor feedback: grab when hovering over a crosshair line
+                    const hj = mvCrossHairHit(view, px, py);
+                    cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
                     if (!mvPixelPending) {
+                        const ipx = Math.floor(px), ipy = Math.floor(py);
                         mvPixelPending = true;
                         setTimeout(() => { mvPixelPending = false; }, 50);
-                        fetch(`/pixel/${sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
+                        fetch(`/pixel/${sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
                             .then(r => r.json()).then(d => {
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                                     const el = document.getElementById('pixel-info');
-                                    el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
+                                    el.textContent = `(${ipx}, ${ipy}) = ${fmt(d.value)}`;
                                     el.style.visibility = 'visible';
                                 }
                             });
@@ -2709,6 +2757,7 @@
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
+            obliqueVecs = null; obliqueDrag = null;
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('multi-view-wrap');
@@ -2958,17 +3007,82 @@
         function handleMvPointer(view, e) {
             if (!view.lastW || !view.lastH) return;
             const rect = view.canvas.getBoundingClientRect();
-            const px = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-            const py = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-            const fx = flipDims[view.dimX] || false;
-            const fy = flipDims[view.dimY] || false;
-            indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1, fx ? shape[view.dimX] - 1 - px : px));
-            indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1, fy ? shape[view.dimY] - 1 - py : py));
-            renderInfo();
-            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            const px = (e.clientX - rect.left) * view.lastW / rect.width;
+            const py = (e.clientY - rect.top) * view.lastH / rect.height;
+            if (obliqueVecs) {
+                // Incremental movement so we don't accumulate per-event offsets
+                const dpx = mvNavDragPrev ? px - mvNavDragPrev.x : 0;
+                const dpy = mvNavDragPrev ? py - mvNavDragPrev.y : 0;
+                mvNavDragPrev = { x: px, y: py };
+                if (dpx === 0 && dpy === 0) return;
+                const i = mvViews.indexOf(view);
+                if (i < 0) return;
+                const vi = obliqueVecs[i];
+                for (let k = 0; k < 3; k++) {
+                    const ni = Math.round(indices[mvDims[k]] + dpx * vi.bh[k] + dpy * vi.bv[k]);
+                    indices[mvDims[k]] = Math.max(0, Math.min(shape[mvDims[k]] - 1, ni));
+                }
+                renderInfo();
+                // Only re-render the OTHER views; view i stays fixed during drag
+                mvViews.forEach(v => mvDrawFrame(v));
+                mvViews.forEach((v, j) => { if (j !== i) mvRender(v); });
+            } else {
+                const fx = flipDims[view.dimX] || false;
+                const fy = flipDims[view.dimY] || false;
+                indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1,
+                    fx ? shape[view.dimX] - 1 - Math.floor(px) : Math.floor(px)));
+                indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1,
+                    fy ? shape[view.dimY] - 1 - Math.floor(py) : Math.floor(py)));
+                renderInfo();
+                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            }
+        }
+
+        async function mvRenderOblique(v) {
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true; v.seq++;
+            const i = mvViews.indexOf(v);
+            const vi = obliqueVecs[i];
+            try {
+                const params = new URLSearchParams({
+                    center: indices.join(','),
+                    basis_h: vi.bh.join(','),
+                    basis_v: vi.bv.join(','),
+                    mv_dims: mvDims.join(','),
+                    size_w: String(shape[v.dimX]),
+                    size_h: String(shape[v.dimY]),
+                    colormap: currentColormap(),
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale),
+                });
+                if (v.lockedVmin !== null && v.lockedVmax !== null) {
+                    params.set('vmin_override', String(v.lockedVmin));
+                    params.set('vmax_override', String(v.lockedVmax));
+                }
+                const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
+                if (!resp.ok) throw new Error(`oblique ${resp.status}`);
+                const blob = await resp.blob();
+                const decoded = await decodeBlobToImageData(blob);
+                const fvmin = parseFloat(resp.headers.get('X-ArrayView-Vmin') || '0');
+                const fvmax = parseFloat(resp.headers.get('X-ArrayView-Vmax') || '1');
+                v.vmin = fvmin; v.vmax = fvmax;
+                if (v.lockedVmin === null) { v.lockedVmin = fvmin; v.lockedVmax = fvmax; }
+                else { v.vmin = v.lockedVmin; v.vmax = v.lockedVmax; }
+                v.lastImageData = decoded.imageData;
+                v.lastW = decoded.width; v.lastH = decoded.height;
+                mvScaleAllCanvases();
+                mvDrawFrame(v);
+                drawMvColorbar();
+            } catch (e) { /* ignore aborted / transient errors */ } finally {
+                v.rendering = false;
+                if (v.pending) { v.pending = false; mvRender(v); }
+                else if (isPlaying && mvViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            }
         }
 
         function mvRender(v) {
+            if (obliqueVecs) { mvRenderOblique(v); return; }
             if (httpTransport) {
                 mvRenderHttp(v);
                 return;
@@ -3126,31 +3240,95 @@
             ctx.setTransform(1, 0, 0, 1, 0, 0); // reset scale
         }
 
+        /** Return the index (in mvViews) of the other view whose crosshair line was hit,
+         *  or -1 if no hit. px/py are in canvas (image pixel) coordinates. */
+        function mvCrossHairHit(v, px, py) {
+            if (!v.lastW || !v.lastH) return -1;
+            const i = mvViews.indexOf(v);
+            if (i < 0) return -1;
+            const rect = v.canvas.getBoundingClientRect();
+            const cssPxPerCanvasPx = v.lastW ? rect.width / v.lastW : 1;
+            const thr = 10 / cssPxPerCanvasPx; // 10 CSS-px hit zone in canvas pixels
+            if (obliqueVecs) {
+                const vi = obliqueVecs[i];
+                const cx = v.lastW / 2, cy = v.lastH / 2;
+                for (let j = 0; j < mvViews.length; j++) {
+                    if (j === i) continue;
+                    const L = cross3(vi.n, obliqueVecs[j].n);
+                    const lh = dot3(L, vi.bh), lv = dot3(L, vi.bv);
+                    const len = Math.sqrt(lh*lh + lv*lv);
+                    if (len < 1e-10) continue;
+                    // Perpendicular distance from (px-cx, py-cy) to line direction
+                    const dist = Math.abs((px-cx)*lv/len - (py-cy)*lh/len);
+                    if (dist < thr) return j;
+                }
+            } else {
+                const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+                const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+                const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+                if (Math.abs(px - cx) < thr) // vertical line → view j that slices along dimX
+                    return mvViews.findIndex((v2, j) => j !== i && v2.sliceDir === v.dimX);
+                if (Math.abs(py - cy) < thr) // horizontal line → view j that slices along dimY
+                    return mvViews.findIndex((v2, j) => j !== i && v2.sliceDir === v.dimY);
+            }
+            return -1;
+        }
+
+        /** Lazily initialise obliqueVecs from the current axis-aligned configuration. */
+        function initObliqueVecs() {
+            if (obliqueVecs !== null) return;
+            obliqueVecs = mvViews.map(v => {
+                const bh = [0, 0, 0], bvec = [0, 0, 0];
+                bh[mvDims.indexOf(v.dimX)]   = flipDims[v.dimX] ? -1 : 1;
+                bvec[mvDims.indexOf(v.dimY)] = flipDims[v.dimY] ? -1 : 1;
+                return { bh, bv: bvec, n: cross3(bh, bvec) };
+            });
+        }
+
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
             }
-            v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
-            // Crosshair lines: account for per-dim flips
-            const fx = flipDims[v.dimX] || false;
-            const fy = flipDims[v.dimY] || false;
-            const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
-            const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+            // In oblique mode the basis vectors already encode flip direction;
+            // axis-aligned mode needs the software flip applied.
+            v.ctx.putImageData(
+                obliqueVecs ? v.lastImageData : applyMvFlips(v, v.lastImageData, v.lastW, v.lastH),
+                0, 0
+            );
             v.ctx.save();
             v.ctx.strokeStyle = 'rgba(255, 0, 0, 0.75)';
-            // Compute visual scale (CSS px per canvas pixel) so line width remains
-            // approximately 1 CSS pixel regardless of canvas CSS scaling.
-            let scale = 0.5;
+            let scale = 1;
             try {
                 const rectW = v.canvas.getBoundingClientRect().width;
-                scale = rectW && v.lastW ? (rectW / v.lastW) : 1;
-            } catch (e) { scale = 1; }
-            const desiredCssPx = 1; // visual thickness in CSS pixels
-            v.ctx.lineWidth = Math.max(0.5, desiredCssPx / scale);
-            v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
-            v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+                scale = rectW && v.lastW ? rectW / v.lastW : 1;
+            } catch (e) {}
+            v.ctx.lineWidth = Math.max(0.5, 1 / scale);
+            const i = mvViews.indexOf(v);
+            if (obliqueVecs && i >= 0) {
+                const cx = v.lastW / 2, cy = v.lastH / 2;
+                const vi = obliqueVecs[i];
+                mvViews.forEach((_, j) => {
+                    if (j === i) return;
+                    const L = cross3(vi.n, obliqueVecs[j].n);
+                    const lh = dot3(L, vi.bh), lv = dot3(L, vi.bv);
+                    const len = Math.sqrt(lh*lh + lv*lv);
+                    if (len < 1e-10) return;
+                    const ext = Math.max(v.lastW, v.lastH) * 2;
+                    const dh = lh / len * ext, dv = lv / len * ext;
+                    v.ctx.beginPath();
+                    v.ctx.moveTo(cx - dh, cy - dv);
+                    v.ctx.lineTo(cx + dh, cy + dv);
+                    v.ctx.stroke();
+                });
+            } else {
+                const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+                const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+                const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+                v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
+                v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            }
             v.ctx.restore();
             drawMvOrientation();
         }
@@ -3256,10 +3434,51 @@
 
         // Multi-view drag: continue tracking even when mouse leaves the canvas
         document.addEventListener('mousemove', (e) => {
-            if (!multiViewActive || !mvDraggingView) return;
-            handleMvPointer(mvDraggingView, e);
+            if (!multiViewActive) return;
+            if (obliqueDrag) {
+                // Oblique rotation: rotate view j's plane about view i's normal
+                const v = mvViews[obliqueDrag.viewI];
+                if (!v || !v.lastW || !v.lastH) return;
+                const rect = v.canvas.getBoundingClientRect();
+                const px = (e.clientX - rect.left) * v.lastW / rect.width;
+                const py = (e.clientY - rect.top)  * v.lastH / rect.height;
+                const { cx, cy, viewJ, prevX, prevY } = obliqueDrag;
+                const dAngle = Math.atan2(py - cy, px - cx) - Math.atan2(prevY - cy, prevX - cx);
+                if (Math.abs(dAngle) > 0.001) {
+                    const vi = obliqueVecs[obliqueDrag.viewI];
+                    const vj = obliqueVecs[viewJ];
+                    vj.bh = rodrigues(vj.bh, vi.n, dAngle);
+                    vj.bv = rodrigues(vj.bv, vi.n, dAngle);
+                    vj.n  = rodrigues(vj.n,  vi.n, dAngle);
+                    obliqueDrag.prevX = px; obliqueDrag.prevY = py;
+                    mvViews.forEach(v2 => mvDrawFrame(v2));
+                    if (!obliqueDrag._renderTimer) {
+                        obliqueDrag._renderTimer = setTimeout(() => {
+                            obliqueDrag && (obliqueDrag._renderTimer = null);
+                            mvViews.forEach(v2 => mvRender(v2));
+                        }, 60);
+                    }
+                }
+                return;
+            }
+            if (mvDraggingView) handleMvPointer(mvDraggingView, e);
         });
-        document.addEventListener('mouseup', () => { mvDraggingView = null; });
+        document.addEventListener('mouseup', () => {
+            if (obliqueDrag) {
+                if (obliqueDrag._renderTimer) {
+                    clearTimeout(obliqueDrag._renderTimer);
+                    obliqueDrag._renderTimer = null;
+                }
+                obliqueDrag = null;
+                mvViews.forEach(v => mvRender(v));
+            }
+            if (mvDraggingView && obliqueVecs) {
+                // Re-render the dragged view now that drag ended
+                mvRender(mvDraggingView);
+            }
+            mvNavDragPrev = null;
+            mvDraggingView = null;
+        });
 
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
