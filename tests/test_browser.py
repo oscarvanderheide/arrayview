@@ -151,13 +151,10 @@ class TestBasicRender:
         text = page.inner_text("#info")
         assert "x" in text and "y" in text
 
-    def test_colorbar_hidden_by_default_shown_after_b(self, loaded_viewer, sid_2d):
+    def test_colorbar_visible_by_default(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
-        assert not page.is_visible("canvas#colorbar"), "Colorbar should start hidden"
-        _focus_kb(page)
-        page.keyboard.press("b")
-        page.wait_for_timeout(300)
-        assert page.is_visible("canvas#colorbar"), "Colorbar should appear after pressing b"
+        assert page.is_visible("canvas#slim-cb"), "Colorbar should be visible by default"
+        assert page.is_visible("#slim-cb-labels"), "Colorbar labels should be visible"
 
     def test_3d_array_renders(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -587,26 +584,16 @@ class TestROIDrag:
 
 
 class TestColorbarWindowLevel:
-    def test_colorbar_drag_changes_canvas(self, loaded_viewer, sid_2d):
+    def test_colorbar_rendered_with_gradient(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        # Turn on colorbar
-        page.keyboard.press("b")
-        page.wait_for_timeout(300)
-        before = page.evaluate(_JS_CENTER_PIXEL)
-        # Drag the colorbar downward (pan window toward higher values → image darkens)
-        cb = page.locator("canvas#colorbar")
+        cb = page.locator("canvas#slim-cb")
         box = cb.bounding_box()
         assert box is not None, "Colorbar not visible"
-        mid_x = box["x"] + box["width"] / 2
-        mid_y = box["y"] + box["height"] / 2
-        page.mouse.move(mid_x, mid_y)
-        page.mouse.down()
-        page.mouse.move(mid_x, mid_y + 60, steps=10)
-        page.mouse.up()
-        page.wait_for_timeout(600)
-        after = page.evaluate(_JS_CENTER_PIXEL)
-        assert before != after, "Center pixel unchanged after colorbar drag"
+        # Colorbar should be horizontal: wider than tall
+        assert box["width"] > box["height"], "Colorbar should be horizontal"
+        # Labels should show vmin on left, vmax on right
+        labels_text = page.inner_text("#slim-cb-labels")
+        assert labels_text.strip(), "Colorbar labels should have content"
 
 
 class TestCustomColormap:
