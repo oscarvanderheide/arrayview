@@ -2737,6 +2737,9 @@
                             prevX: px, prevY: py,
                             cx: view.lastW / 2, cy: view.lastH / 2,
                         };
+                        // Start oblique renders immediately so the transition from
+                        // axis-aligned to oblique is correct before any rotation.
+                        mvViews.forEach(v => mvRender(v));
                     } else {
                         mvNavDragPrev = { x: px, y: py };
                         mvDraggingView = view;
@@ -3049,22 +3052,22 @@
             const px = (e.clientX - rect.left) * view.lastW / rect.width;
             const py = (e.clientY - rect.top) * view.lastH / rect.height;
             if (obliqueVecs) {
-                // Incremental movement so we don't accumulate per-event offsets
-                const dpx = mvNavDragPrev ? px - mvNavDragPrev.x : 0;
-                const dpy = mvNavDragPrev ? py - mvNavDragPrev.y : 0;
-                mvNavDragPrev = { x: px, y: py };
-                if (dpx === 0 && dpy === 0) return;
+                // Invert the projection to set indices from click position.
+                // The render is at volume center; offset from center → indices.
                 const i = mvViews.indexOf(view);
                 if (i < 0) return;
                 const vi = obliqueVecs[i];
+                const off_h = px - view.lastW / 2;
+                const off_v = py - view.lastH / 2;
                 for (let k = 0; k < 3; k++) {
-                    const ni = Math.round(indices[mvDims[k]] + dpx * vi.bh[k] + dpy * vi.bv[k]);
-                    indices[mvDims[k]] = Math.max(0, Math.min(shape[mvDims[k]] - 1, ni));
+                    const d = mvDims[k];
+                    const nv = (shape[d] - 1) / 2 + off_h * vi.bh[k] + off_v * vi.bv[k];
+                    indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
                 }
                 renderInfo();
-                // Only re-render the OTHER views; view i stays fixed during drag
+                // During drag: only redraw crosshairs (no network request).
+                // Re-renders happen on mouseup so views that changed depth update.
                 mvViews.forEach(v => mvDrawFrame(v));
-                mvViews.forEach((v, j) => { if (j !== i) mvRender(v); });
             } else {
                 const fx = flipDims[view.dimX] || false;
                 const fy = flipDims[view.dimY] || false;
@@ -3083,8 +3086,16 @@
             const i = mvViews.indexOf(v);
             const vi = obliqueVecs[i];
             try {
+                // Render center: volume center shifted along view i's normal to match
+                // the current depth (indices projected onto the normal). This keeps the
+                // in-plane extent fixed (no image shift during navigation/scrolling)
+                // while the depth follows indices — exactly matching axis-aligned behavior.
+                const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
+                const depthOff = dot3(diff, vi.n);
+                const center3d = [...indices];
+                mvDims.forEach((d, k) => { center3d[d] = (shape[d] - 1) / 2 + depthOff * vi.n[k]; });
                 const params = new URLSearchParams({
-                    center: indices.join(','),
+                    center: center3d.join(','),
                     basis_h: vi.bh.join(','),
                     basis_v: vi.bv.join(','),
                     mv_dims: mvDims.join(','),
@@ -3311,15 +3322,17 @@
             const thr = 10 / cssPxPerCanvasPx; // 10 CSS-px hit zone in canvas pixels
             if (obliqueVecs) {
                 const vi = obliqueVecs[i];
-                const cx = v.lastW / 2, cy = v.lastH / 2;
+                const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
+                const chx = v.lastW / 2 + dot3(diff, vi.bh);
+                const chy = v.lastH / 2 + dot3(diff, vi.bv);
                 for (let j = 0; j < mvViews.length; j++) {
                     if (j === i) continue;
                     const L = cross3(vi.n, obliqueVecs[j].n);
                     const lh = dot3(L, vi.bh), lv = dot3(L, vi.bv);
                     const len = Math.sqrt(lh*lh + lv*lv);
                     if (len < 1e-10) continue;
-                    // Perpendicular distance from (px-cx, py-cy) to line direction
-                    const dist = Math.abs((px-cx)*lv/len - (py-cy)*lh/len);
+                    // Perpendicular distance from click to the crosshair line
+                    const dist = Math.abs((px-chx)*lv/len - (py-chy)*lh/len);
                     if (dist < thr) return j;
                 }
             } else {
@@ -3367,8 +3380,13 @@
             v.ctx.lineWidth = Math.max(0.5, 1 / scale);
             const i = mvViews.indexOf(v);
             if (obliqueVecs && i >= 0) {
-                const cx = v.lastW / 2, cy = v.lastH / 2;
                 const vi = obliqueVecs[i];
+                // Project indices offset from volume center onto this view's canvas.
+                // The render is centered at volume center, so a displacement of
+                // (indices[d] - center[d]) maps directly to canvas pixels via bh/bv.
+                const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
+                const chx = v.lastW / 2 + dot3(diff, vi.bh);
+                const chy = v.lastH / 2 + dot3(diff, vi.bv);
                 mvViews.forEach((_, j) => {
                     if (j === i) return;
                     const L = cross3(vi.n, obliqueVecs[j].n);
@@ -3378,8 +3396,8 @@
                     const ext = Math.max(v.lastW, v.lastH) * 2;
                     const dh = lh / len * ext, dv = lv / len * ext;
                     v.ctx.beginPath();
-                    v.ctx.moveTo(cx - dh, cy - dv);
-                    v.ctx.lineTo(cx + dh, cy + dv);
+                    v.ctx.moveTo(chx - dh, chy - dv);
+                    v.ctx.lineTo(chx + dh, chy + dv);
                     v.ctx.stroke();
                 });
             } else {
@@ -3534,8 +3552,8 @@
                 mvViews.forEach(v => mvRender(v));
             }
             if (mvDraggingView && obliqueVecs) {
-                // Re-render the dragged view now that drag ended
-                mvRender(mvDraggingView);
+                // After oblique navigation, re-render views whose depth may have changed.
+                mvViews.forEach(v => mvRender(v));
             }
             mvNavDragPrev = null;
             mvDraggingView = null;
