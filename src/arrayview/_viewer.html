@@ -2429,14 +2429,15 @@
                 if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
             } else if (e.key === 'o' || e.key === 'O') {
                 if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
-                if (obliqueVecs === null) { showStatus('oblique: drag a crosshair line to rotate'); return; }
+                // Reset crosshair to volume center and clear any oblique rotation
+                mvDims.forEach(d => { indices[d] = Math.floor((shape[d] - 1) / 2); });
                 obliqueVecs = null; obliqueDrag = null; mvNavDragPrev = null;
                 mvViews.forEach(v => {
                     v.lockedVmin = null; v.lockedVmax = null;
                     v.rendering = false; v.pending = false; v.seq++;
                 });
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                showStatus('oblique: reset to axis-aligned');
+                showStatus('origin reset');
             } else if (e.key === 'q') {
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) exitQmri(); else enterQmri();
