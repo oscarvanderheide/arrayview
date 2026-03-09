@@ -377,7 +377,7 @@
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
-            <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;image-rendering:pixelated;display:none;"></canvas>
+            <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;image-rendering:pixelated;display:none;background:transparent;"></canvas>
             <canvas id="slim-cb"></canvas>
             <div id="slim-cb-vmax"></div>
             <div id="slim-cb-vmin"></div>
@@ -643,6 +643,7 @@
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         const vfieldCanvas = document.getElementById('vfield-canvas');
+        let _vfieldAbort = null;
 
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
@@ -770,10 +771,7 @@
             const finalScale = baseScale * userZoom;
             canvas.style.width  = Math.round(w * finalScale) + 'px';
             canvas.style.height = Math.round(h * finalScale) + 'px';
-            if (hasVectorfield) {
-                vfieldCanvas.style.width  = canvas.style.width;
-                vfieldCanvas.style.height = canvas.style.height;
-            }
+            if (hasVectorfield) drawVectorOverlay();
             drawSlimColorbar(cbMarkerFrac);
         }
 
@@ -1102,32 +1100,46 @@
                 vfieldCanvas.style.display = 'none';
                 return;
             }
-            vfieldCanvas.width = canvas.width;
-            vfieldCanvas.height = canvas.height;
-            vfieldCanvas.style.width = canvas.style.width;
+            // Cancel any in-flight request so only the latest slice wins
+            if (_vfieldAbort) _vfieldAbort.abort();
+            _vfieldAbort = new AbortController();
+            const signal = _vfieldAbort.signal;
+
+            const dispW = parseInt(canvas.style.width)  || canvas.width;
+            const dispH = parseInt(canvas.style.height) || canvas.height;
+            // Update CSS layout immediately (no canvas clear yet — avoids flicker)
+            vfieldCanvas.style.width  = canvas.style.width;
             vfieldCanvas.style.height = canvas.style.height;
-            vfieldCanvas.style.display = '';
-            const W = canvas.width, H = canvas.height;
+            const imgW = canvas.width, imgH = canvas.height;
+            const sx = dispW / imgW, sy = dispH / imgH;
             const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(',') });
             try {
-                const res = await fetch(`/vectorfield/${sid}?${params}`);
-                if (!res.ok) return;
+                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal });
+                if (!res.ok || signal.aborted) return;
                 const data = await res.json();
+                if (signal.aborted) return;
+                // Resize only when display dimensions changed (avoids clearing canvas on every scroll)
+                if (vfieldCanvas.width !== dispW || vfieldCanvas.height !== dispH) {
+                    vfieldCanvas.width  = dispW;
+                    vfieldCanvas.height = dispH;
+                }
                 const ctx2 = vfieldCanvas.getContext('2d');
-                ctx2.clearRect(0, 0, W, H);
+                ctx2.clearRect(0, 0, dispW, dispH);
                 ctx2.strokeStyle = 'rgba(30, 220, 90, 0.85)';
                 ctx2.fillStyle   = 'rgba(30, 220, 90, 0.85)';
-                ctx2.lineWidth = 1;
+                ctx2.lineWidth = 1.2;
                 ctx2.lineCap = 'round';
                 for (const [ix, iy, vx, vy] of data.arrows) {
-                    // Apply same flip transforms as the image
-                    const ax = flip_x ? (W - 1 - ix) : ix;
-                    const ay = flip_y ? (H - 1 - iy) : iy;
-                    const avx = flip_x ? -vx : vx;
-                    const avy = flip_y ? -vy : vy;
+                    const ax = (flip_x ? (imgW - 1 - ix) : ix) * sx;
+                    const ay = (flip_y ? (imgH - 1 - iy) : iy) * sy;
+                    const avx = (flip_x ? -vx : vx) * sx;
+                    const avy = (flip_y ? -vy : vy) * sy;
                     _drawArrow(ctx2, ax + 0.5, ay + 0.5, ax + 0.5 + avx * data.scale, ay + 0.5 + avy * data.scale);
                 }
-            } catch (_) { /* ignore */ }
+                vfieldCanvas.style.display = '';
+            } catch (e) {
+                if (e.name !== 'AbortError') { /* ignore */ }
+            }
         }
 
         function applyMvFlips(v, imageData, w, h) {
