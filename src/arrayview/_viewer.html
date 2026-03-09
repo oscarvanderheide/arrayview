@@ -63,6 +63,7 @@
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
         }
+        .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--border); }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
             pointer-events: none; color: rgba(190,190,190,0.75);
@@ -279,7 +280,7 @@
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 8px; flex: 1; min-width: 0; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-        .mv-canvas-wrap.bordered { outline: 1px solid var(--border); }
+        .mv-canvas-wrap.canvas-bordered { outline: 1px solid var(--border); }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
         #reg-blend-bar-wrap {
@@ -549,11 +550,11 @@
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
                 <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices and crosshair to center (3-plane view)</span></div>
-                <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas borders (3-plane view)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
+                <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -683,7 +684,7 @@
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
-        let mvBorders = false; // toggled by 'b' key in multiview
+        let canvasBorders = false; // toggled by 'b' key
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareSidList = compareSidsParam
@@ -2205,10 +2206,17 @@
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
             } else if (e.key === 'b') {
-                if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
-                mvBorders = !mvBorders;
-                mvViews.forEach(v => { if (v.wrap) v.wrap.classList.toggle('bordered', mvBorders); });
-                showToast(mvBorders ? 'borders: on' : 'borders: off');
+                canvasBorders = !canvasBorders;
+                if (multiViewActive) {
+                    mvViews.forEach(v => { if (v.wrap) v.wrap.classList.toggle('canvas-bordered', canvasBorders); });
+                } else if (compareActive) {
+                    document.querySelectorAll('.compare-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
+                } else if (qmriActive) {
+                    document.querySelectorAll('.qv-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
+                } else {
+                    document.getElementById('canvas-wrap').classList.toggle('canvas-bordered', canvasBorders);
+                }
+                showToast(canvasBorders ? 'borders: on' : 'borders: off');
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'g') {
