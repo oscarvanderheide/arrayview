@@ -1402,52 +1402,6 @@ def get_slice(
     )
 
 
-@app.get("/volume/{sid}")
-def get_volume(sid: str, dims: str, indices: str, max_dim: int = 32):
-    """Return a downsampled 3D sub-volume as binary float32 for orientation rendering.
-
-    Response: [uint32 n0, uint32 n1, uint32 n2, float32 * n0*n1*n2]
-    NaN preserved; caller treats NaN and 0 as transparent.
-    """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
-
-    dim_list = [int(d) for d in dims.split(",")]
-    if len(dim_list) != 3 or len(set(dim_list)) != 3:
-        return Response(status_code=400)
-
-    idx_list = [int(i) for i in indices.split(",")]
-    ndim = len(session.shape)
-    if len(idx_list) != ndim or any(d >= ndim for d in dim_list):
-        return Response(status_code=400)
-
-    # Build slicer: keep the 3 requested dims, fix all others
-    slicer = [
-        slice(None) if i in dim_list else max(0, min(idx_list[i], session.shape[i] - 1))
-        for i in range(ndim)
-    ]
-    vol = session.data[tuple(slicer)]  # 3D, axes in sorted(dim_list) order
-
-    # Transpose to requested (dim_list[0], dim_list[1], dim_list[2]) axis order
-    sorted_dims = sorted(dim_list)
-    axis_map = {d: i for i, d in enumerate(sorted_dims)}
-    vol = np.transpose(vol, [axis_map[d] for d in dim_list])
-
-    # Downsample so no axis exceeds max_dim
-    slices = tuple(
-        slice(None, None, max(1, s // max_dim))
-        for s in vol.shape
-    )
-    vol = np.array(vol[slices], dtype=np.float32)
-
-    shape_header = np.array(vol.shape, dtype=np.uint32).tobytes()
-    return Response(
-        content=shape_header + vol.tobytes(),
-        media_type="application/octet-stream",
-    )
-
-
 @app.get("/grid/{sid}")
 def get_grid(
     sid: str,
