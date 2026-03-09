@@ -529,7 +529,7 @@
                 <div class="help-panel-title">Navigation</div>
                 <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice</span></div>
                 <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim</span></div>
-                <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index (no-op on spatial dims)</span></div>
+                <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index; reverse direction on spatial dims</span></div>
                 <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis direction</span></div>
                 <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
                 <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
@@ -2118,18 +2118,14 @@
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                     saveState();
-                } else if (activeDim === dim_x || activeDim === dim_y) {
-                    const isX = activeDim === dim_x;
-                    const other = isX ? dim_y : dim_x;
-                    const avail = [...Array(shape.length).keys()].filter(d => d !== other);
-                    if (avail.length > 1) {
-                        const ci = avail.indexOf(activeDim);
-                        const newDim = avail[(ci + 1) % avail.length];
-                        if (isX) { current_slice_dim = dim_x; dim_x = newDim; }
-                        else     { current_slice_dim = dim_y; dim_y = newDim; }
-                        activeDim = newDim;
-                        updateView(); triggerPreload(); saveState();
-                    }
+                } else if (activeDim === dim_x) {
+                    flip_x = !flip_x;
+                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                    renderInfo(); saveState();
+                } else if (activeDim === dim_y) {
+                    flip_y = !flip_y;
+                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                    renderInfo(); saveState();
                 } else {
                     lastDirection = -1;
                     indices[activeDim] = Math.max(0, indices[activeDim] - 1);
@@ -2143,18 +2139,14 @@
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                     saveState();
-                } else if (activeDim === dim_x || activeDim === dim_y) {
-                    const isX = activeDim === dim_x;
-                    const other = isX ? dim_y : dim_x;
-                    const avail = [...Array(shape.length).keys()].filter(d => d !== other);
-                    if (avail.length > 1) {
-                        const ci = avail.indexOf(activeDim);
-                        const newDim = avail[(ci - 1 + avail.length) % avail.length];
-                        if (isX) { current_slice_dim = dim_x; dim_x = newDim; }
-                        else     { current_slice_dim = dim_y; dim_y = newDim; }
-                        activeDim = newDim;
-                        updateView(); triggerPreload(); saveState();
-                    }
+                } else if (activeDim === dim_x) {
+                    flip_x = !flip_x;
+                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                    renderInfo(); saveState();
+                } else if (activeDim === dim_y) {
+                    flip_y = !flip_y;
+                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                    renderInfo(); saveState();
                 } else {
                     lastDirection = 1;
                     indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
