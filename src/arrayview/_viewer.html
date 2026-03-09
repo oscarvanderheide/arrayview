@@ -1907,9 +1907,31 @@
         }
 
         function saveScreenshot() {
+            let dataUrl, filename;
+            if (multiViewActive && mvViews.length) {
+                // Composite all multiview canvases side by side
+                const gap = 12;
+                const canvases = mvViews.map(v => v.canvas).filter(c => c.width && c.height);
+                if (!canvases.length) return;
+                const totalW = canvases.reduce((s, c) => s + c.width, 0) + gap * (canvases.length - 1);
+                const totalH = Math.max(...canvases.map(c => c.height));
+                const off = document.createElement('canvas');
+                off.width = totalW; off.height = totalH;
+                const offCtx = off.getContext('2d');
+                let x = 0;
+                canvases.forEach(c => {
+                    offCtx.drawImage(c, x, Math.round((totalH - c.height) / 2));
+                    x += c.width + gap;
+                });
+                dataUrl = off.toDataURL('image/png');
+                filename = `multiview_${indices.join('-')}.png`;
+            } else {
+                dataUrl = canvas.toDataURL('image/png');
+                filename = `slice_${indices.join('-')}.png`;
+            }
             const link = document.createElement('a');
-            link.download = `slice_${indices.join('-')}.png`;
-            link.href = canvas.toDataURL('image/png');
+            link.download = filename;
+            link.href = dataUrl;
             link.click();
             setStatus('Screenshot saved.');
             setTimeout(() => setStatus(''), 2000);
