@@ -9,7 +9,7 @@
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(255,255,255,0.1);
-            --active-dim: #f5c842; --spatial-dim: #b48ead; --q-dim-color: #9b72cf;
+            --active-dim: #f5c842; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
             --help-key: #f5c842; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
         }
@@ -18,7 +18,7 @@
             --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
             --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
             --highlight: #000; --canvas-border: rgba(0,0,0,0.14);
-            --active-dim: #c47d00; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8;
+            --active-dim: #c47d00; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
             --help-key: #c47d00; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
         }
@@ -27,7 +27,7 @@
             --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
             --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
             --highlight: #073642; --canvas-border: rgba(0,0,0,0.13);
-            --active-dim: #b58900; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4;
+            --active-dim: #b58900; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
             --help-key: #b58900; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
         }
@@ -36,7 +36,7 @@
             --border: #3b4252; --border-subtle: rgba(216,222,233,0.07);
             --text: #d8dee9; --muted: #616e88; --subtle: #3b4252;
             --highlight: #eceff4; --canvas-border: rgba(216,222,233,0.12);
-            --active-dim: #ebcb8b; --spatial-dim: #b48ead; --q-dim-color: #b48ead;
+            --active-dim: #ebcb8b; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #ebcb8b; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
             --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
         }
@@ -76,6 +76,10 @@
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
+        .vfield-t-dim { color: var(--vfield-t-dim); }
+        .vfield-t-dim .dim-track-fill { background: var(--vfield-t-dim); opacity: 0.45; }
+        .active-vfield-t { font-weight: bold; }
+        .active-vfield-t .dim-track-fill { opacity: 1; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
         .dim-label {
@@ -617,7 +621,7 @@
         let activeDim = 2;
         let indices = [];
         let colormap_idx = 0, dr_idx = 1;
-        let isPlaying = false, playInterval = null;
+        let isPlaying = false, playInterval = null, playingVfieldT = false;
         let dim_z = -1;
         let lastDirection = 1;
         let isDark = true;
@@ -1128,8 +1132,8 @@
                 }
                 const ctx2 = vfieldCanvas.getContext('2d');
                 ctx2.clearRect(0, 0, dispW, dispH);
-                ctx2.strokeStyle = 'rgba(30, 220, 90, 0.85)';
-                ctx2.fillStyle   = 'rgba(30, 220, 90, 0.85)';
+                ctx2.strokeStyle = 'rgba(163, 190, 140, 0.88)';
+                ctx2.fillStyle   = 'rgba(163, 190, 140, 0.88)';
                 ctx2.lineWidth = 1.2;
                 ctx2.lineCap = 'round';
                 for (const [ix, iy, vx, vy] of data.arrows) {
@@ -1503,7 +1507,7 @@
         }
 
         function renderInfo() {
-            const idxStr = indices.map((v, i) => {
+            let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
                 const d = `data-dim="${i}"`;
                 if (qmriActive && i === qmriDim) {
@@ -1547,15 +1551,15 @@
                 return active ? `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
-            let text = `[${idxStr}]`;
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
                 const track = `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>`;
-                const inner = `<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
-                const cls = tActive ? 'active-dim dim-label dim-chip' : 'dim-label dim-chip';
-                text += ` <span class="${cls}" data-dim="${VFIELD_T_DIM}">t ${inner}</span>`;
+                const inner = `t<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
+                const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label dim-chip' : 'vfield-t-dim dim-label dim-chip';
+                idxStr += `, <span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
+            let text = `[${idxStr}]`;
             if (_fftActive)
                 text += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (compareActive)
@@ -1842,7 +1846,7 @@
 
         function stopPlay() {
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
-            isPlaying = false; setStatus('');
+            isPlaying = false; playingVfieldT = false; setStatus('');
         }
 
         function playNext() {
@@ -1856,11 +1860,28 @@
             }, delay);
         }
 
+        async function playNextVfieldT() {
+            if (!isPlaying || !playingVfieldT) return;
+            const t0 = performance.now();
+            vfieldT = (vfieldT + 1) % vfieldNTimes;
+            renderInfo();
+            await drawVectorOverlay();
+            if (!isPlaying || !playingVfieldT) return;
+            const elapsed = performance.now() - t0;
+            playInterval = setTimeout(playNextVfieldT, Math.max(0, 40 - elapsed));
+        }
+
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
             setStatus('▶ playing  (Space to stop)');
-            playNext();
+            if (activeDim === VFIELD_T_DIM) {
+                playingVfieldT = true;
+                playLastFrameTime = performance.now();
+                playNextVfieldT();
+            } else {
+                playNext();
+            }
         }
 
         function saveScreenshot() {
