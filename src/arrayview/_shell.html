@@ -22,7 +22,7 @@
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border-top: 2px solid transparent; transition: background 0.1s; color: #888;
         }
-        .tab.active { background: #0c0c0c; border-top: 2px solid #f5c842; color: #d8d8d8; }
+        .tab.active { background: #0c0c0c; border-top: 2px solid transparent; color: #d8d8d8; }
         .tab:hover:not(.active) { background: #222; color: #bbb; }
         .tab span { overflow: hidden; text-overflow: ellipsis; }
         .tab-close {
@@ -56,7 +56,7 @@
             tabBar.classList.toggle('visible', count > 1);
         }
 
-        function addTab(sid, name) {
+        function addTab(sid, name, url) {
             if (tabs[sid]) { activateTab(sid); return; }
 
             const btn = document.createElement('div');
@@ -64,7 +64,7 @@
             btn.innerHTML = `<span>${name}</span><span class="tab-close">&times;</span>`;
 
             const iframe = document.createElement('iframe');
-            iframe.src = `/?sid=${sid}`;
+            iframe.src = url || `/?sid=${sid}`;
 
             tabs[sid] = { btn, iframe };
 
@@ -121,15 +121,19 @@
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
             if (msg.action === 'new_tab') {
-                addTab(msg.sid, msg.name);
+                addTab(msg.sid, msg.name, msg.url);
             }
         };
 
         const params = new URLSearchParams(window.location.search);
         const initSid = params.get('init_sid');
         const initName = params.get('init_name');
+        const initCompareSid = params.get('init_compare_sid');
+        const initCompareSids = params.get('init_compare_sids');
         if (initSid) {
-            addTab(initSid, initName || 'Array');
+            let url = `/?sid=${initSid}`;
+            if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
+            addTab(initSid, initName || 'Array', url);
         } else {
             fetch('/sessions').then(r => r.json()).then(sessions => {
                 sessions.forEach(s => addTab(s.sid, s.name));
