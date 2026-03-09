@@ -667,7 +667,6 @@
         let mvViews = [];
         let mvDims = [];
         let mvDraggingView = null;
-        let mvVolumeData = null; // cached {shape,data,dims,vmin,vmax}
         let mvPixelPending = false;
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -2574,8 +2573,6 @@
                 });
             }
             document.getElementById('mv-orientation').style.display = 'block';
-            mvVolumeData = null;
-            fetchMvVolume();
             renderInfo();
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -2585,7 +2582,6 @@
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
-            mvVolumeData = null;
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('multi-view-wrap');
@@ -2901,99 +2897,6 @@
             }
         }
 
-        async function fetchMvVolume() {
-            if (!multiViewActive || mvDims.length < 3) return;
-            const dims = mvDims.slice(0, 3).join(',');
-            const idx  = indices.join(',');
-            try {
-                const resp = await fetch(`/volume/${sid}?dims=${dims}&indices=${idx}&max_dim=32`);
-                if (!resp.ok) return;
-                const buf = await resp.arrayBuffer();
-                const volShape = [...new Uint32Array(buf, 0, 3)];
-                const data  = new Float32Array(buf, 12);
-                let vmin = Infinity, vmax = -Infinity;
-                for (let i = 0; i < data.length; i++) {
-                    const v = data[i];
-                    if (!isNaN(v) && v !== 0) { if (v < vmin) vmin = v; if (v > vmax) vmax = v; }
-                }
-                // Pre-render volume to an offscreen canvas (only needs redraw when data changes)
-                mvVolumeData = { shape: volShape, dims: [...mvDims],
-                                 canvas: buildVolumeCanvas(volShape, data, vmin, vmax) };
-                drawMvOrientation();
-            } catch (_) {}
-        }
-
-        function buildVolumeCanvas(volShape, data, vmin, vmax) {
-            const dpr = window.devicePixelRatio || 1;
-            const cssSize = 120;
-            const pxSize = Math.round(cssSize * dpr);
-            const oc = document.createElement('canvas');
-            oc.width = pxSize; oc.height = pxSize;
-            const octx = oc.getContext('2d');
-            const imgData = octx.createImageData(pxSize, pxSize);
-            const pixels = imgData.data;
-            const pxDpr = Math.max(1, Math.round(dpr));
-
-            const d0 = shape[mvDims[0]] || 1, d1 = shape[mvDims[1]] || 1, d2 = shape[mvDims[2]] || 1;
-            const maxDim = Math.max(d0, d1, d2);
-            const W = d2 / maxDim, H = d0 / maxDim, D = d1 / maxDim;
-            const A = Math.PI / 6;
-            const cosA = Math.cos(A), sinA = Math.sin(A);
-            const sc = cssSize * 0.38, cx = cssSize * 0.5, cy = cssSize * 0.54;
-            const iso2 = (x, y, z) => ({
-                sx: cx + (x - z) * cosA * sc,
-                sy: cy + ((x + z) * sinA - y) * sc
-            });
-
-            const [n0, n1, n2] = volShape;
-            const range = (vmax - vmin) || 1;
-            const isDarkVol = !document.documentElement.classList.contains('light') &&
-                              !document.documentElement.classList.contains('solarized');
-
-            // Pass 1: accumulate per-pixel norm sum + voxel count
-            const sumNorm  = new Float32Array(cssSize * cssSize);
-            const sumCount = new Uint16Array(cssSize * cssSize);
-            for (let i0 = 0; i0 < n0; i0++) {
-                const vy = (i0 / Math.max(1, n0 - 1)) * H;
-                for (let i1 = 0; i1 < n1; i1++) {
-                    const vz = (i1 / Math.max(1, n1 - 1)) * D;
-                    for (let i2 = 0; i2 < n2; i2++) {
-                        const val = data[i0 * n1 * n2 + i1 * n2 + i2];
-                        if (isNaN(val) || val === 0) continue;
-                        const vx = (i2 / Math.max(1, n2 - 1)) * W;
-                        const { sx, sy } = iso2(vx, vy, vz);
-                        const px = Math.round(sx), py = Math.round(sy);
-                        if (px < 0 || px >= cssSize || py < 0 || py >= cssSize) continue;
-                        const norm = Math.max(0, Math.min(1, (val - vmin) / range));
-                        const off = py * cssSize + px;
-                        sumNorm[off] += norm;
-                        sumCount[off]++;
-                    }
-                }
-            }
-
-            // Pass 2: Beer-Lambert alpha from count, average norm for brightness
-            const kappa = 0.12; // extinction per voxel — 32 solid voxels → ~98% opaque
-            for (let py = 0; py < cssSize; py++) {
-                for (let px = 0; px < cssSize; px++) {
-                    const off = py * cssSize + px;
-                    if (sumCount[off] === 0) continue;
-                    const avgNorm  = sumNorm[off] / sumCount[off];
-                    const alpha    = Math.round((1 - Math.exp(-sumCount[off] * kappa)) * 240);
-                    const bright   = isDarkVol ? Math.round(avgNorm * 200 + 30) : Math.round(220 - avgNorm * 180);
-                    for (let dy = 0; dy < pxDpr; dy++) {
-                    for (let dx = 0; dx < pxDpr; dx++) {
-                        const ox = px * pxDpr + dx, oy = py * pxDpr + dy;
-                        if (ox >= pxSize || oy >= pxSize) continue;
-                        const pixOff = (oy * pxSize + ox) * 4;
-                        pixels[pixOff] = pixels[pixOff+1] = pixels[pixOff+2] = bright;
-                        pixels[pixOff+3] = alpha;
-                    }}
-                }
-            }
-            octx.putImageData(imgData, 0, 0);
-            return oc;
-        }
 
         function drawMvOrientation() {
             const cv = document.getElementById('mv-orientation');
@@ -3026,11 +2929,6 @@
                 sx: cx + (x - z) * cosA * scale,
                 sy: cy + ((x + z) * sinA - y) * scale
             });
-
-            // --- Volume render: composite pre-built offscreen canvas ---
-            if (mvVolumeData && mvVolumeData.canvas && mvVolumeData.dims.join(',') === mvDims.slice(0,3).join(',')) {
-                ctx.drawImage(mvVolumeData.canvas, 0, 0, cssSize, cssSize);
-            }
 
             // 8 corners: (x ∈ {0,W}, y ∈ {0,H}, z ∈ {0,D})
             const corners = [];
