@@ -36,8 +36,8 @@ DISPLAY
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✗ (requires dialog input)
   B               compare picker (dialog)   ✗ (requires dialog input)
-  R               registration overlay      ✓ 24 (compare mode + R)
-  [ / ]           registration blend        ✓ 24
+  R               registration overlay      ✓ 24, 37 (compare mode + R)
+  [ / ]           registration blend        ✓ 24, 37
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
   L               log scale                 ✓ 18
@@ -62,6 +62,19 @@ VIEW MODES (colorbar visible in all)
   qmri 3-panel                              ✓ 12
   qmri 5-panel                              ✓ 10-11
   compare 2-array                           ✓ 13-14
+
+MEDICAL IMAGE SIZES (canvas fill / sizing check)
+  3D volume 192×192×96                      ✓ 29 (default + scrolled)
+  3D medical multiview                      ✓ 30
+  4D medical qmri 5-panel                   ✓ 31
+
+STABILITY (keys must not cause UI element jumps)
+  h/l — cursor dim switch                   ✓ 32 (bounding box check)
+  j/k — slice navigate                      ✓ 33 (bounding box check)
+  Z — zen mode toggle                       ✓ 34 (before/after)
+  b — border toggle                         ✓ 35 (before/after)
+  +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
+  registration arrays (phantom)             ✓ 37 (shifted ellipse, reg overlay)
 
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
@@ -120,13 +133,19 @@ def _shot(page, name, wait=600):
 
 
 def _goto(page, base, sid, wait=1200):
+    # Clear saved viewer state so compare-mode history doesn't auto-restore
+    try:
+        page.evaluate("() => sessionStorage.clear()")
+    except Exception:
+        pass
     page.goto(f"{base}/?sid={sid}")
     page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
     page.wait_for_timeout(wait)
 
 
-def _goto_compare(page, base, sid_a, sid_b, wait=2000):
-    page.goto(f"{base}/?sid_a={sid_a}&sid_b={sid_b}")
+def _goto_compare(page, base, sid_a, sid_b, wait=1500):
+    page.goto(f"{base}/?sid={sid_a}&compare_sid={sid_b}&compare_sids={sid_b}")
+    page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
     page.wait_for_timeout(wait)
 
 
@@ -137,6 +156,25 @@ def _focus(page):
 def _press(page, key, wait=400):
     page.keyboard.press(key)
     page.wait_for_timeout(wait)
+
+
+STABLE_SELS = ["#canvas-wrap", "#slim-cb-wrap", "#info"]
+
+
+def _check_no_jump(page, key, shot_name, selectors=STABLE_SELS, wait=400):
+    """Press key, take screenshot, and warn if any selector's bounding box moved."""
+    before = {s: page.locator(s).bounding_box() for s in selectors}
+    page.keyboard.press(key)
+    page.wait_for_timeout(wait)
+    after = {s: page.locator(s).bounding_box() for s in selectors}
+    _shot(page, shot_name, wait=0)
+    for s in selectors:
+        b, a = before[s], after[s]
+        if b and a:
+            dx = abs(b["x"] - a["x"])
+            dy = abs(b["y"] - a["y"])
+            if dx > 2 or dy > 2:
+                print(f"  JUMP WARNING: {s} moved {dx:.0f}px/{dy:.0f}px after {key}")
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +190,24 @@ def run_smoke(page, base, client, tmp):
     arr4d   = rng.standard_normal((5, 20, 32, 32)).astype(np.float32)   # dim 0 = 5 for qmri
     arr4d_z = rng.standard_normal((4, 8, 32, 32)).astype(np.float32)    # 4D for mosaic (z key)
     arrC    = (rng.standard_normal((20, 32, 32)) + 1j * rng.standard_normal((20, 32, 32))).astype(np.complex64)
+    # Medical image sizes: 192×192×96 volume (~14 MB) and 5-echo 4D (~8 MB)
+    arr_med3d = rng.standard_normal((96, 192, 192)).astype(np.float32)
+    arr_med4d = rng.standard_normal((5, 48, 96, 96)).astype(np.float32)
+    # Registration phantom: bright ellipse, version B shifted 8px right + 5px down
+    Y, X = np.mgrid[-64:64, -64:64].astype(np.float32)
+    arr_reg_a = np.exp(-(X**2 / 800 + Y**2 / 1800))
+    arr_reg_b = np.exp(-((X - 8)**2 / 800 + (Y - 5)**2 / 1800)) * 0.85
 
-    sid2d   = _load(client, arr2d,   "arr2d",   tmp)
-    sid3d   = _load(client, arr3d,   "arr3d",   tmp)
-    sid4d   = _load(client, arr4d,   "arr4d",   tmp)
-    sid4d_z = _load(client, arr4d_z, "arr4d_z", tmp)
-    sidC    = _load(client, arrC,    "arrC",     tmp)
-    sid2d_b = _load(client, arr2d * 0.5 + 0.25, "arr2d_b", tmp)
+    sid2d      = _load(client, arr2d,   "arr2d",   tmp)
+    sid3d      = _load(client, arr3d,   "arr3d",   tmp)
+    sid4d      = _load(client, arr4d,   "arr4d",   tmp)
+    sid4d_z    = _load(client, arr4d_z, "arr4d_z", tmp)
+    sidC       = _load(client, arrC,    "arrC",     tmp)
+    sid2d_b    = _load(client, arr2d * 0.5 + 0.25, "arr2d_b", tmp)
+    sid_med3d  = _load(client, arr_med3d, "med3d", tmp)
+    sid_med4d  = _load(client, arr_med4d, "med4d", tmp)
+    sid_reg_a  = _load(client, arr_reg_a, "reg_a", tmp)
+    sid_reg_b  = _load(client, arr_reg_b, "reg_b", tmp)
     arr3d_qmri3 = rng.standard_normal((3, 20, 32, 32)).astype(np.float32)
     sid_qmri3 = _load(client, arr3d_qmri3, "qmri3", tmp)
 
@@ -322,6 +371,68 @@ def run_smoke(page, base, client, tmp):
     _press(page, "?", wait=400)
     _shot(page, "28_help_overlay")
     _press(page, "?")
+
+    # ── 29-31: medical image sizes ────────────────────────────────────────────
+    # 192×192×96 volume: check default canvas fill and sizing
+    _goto(page, base, sid_med3d, wait=1500)
+    _shot(page, "29a_med3d_default")
+    _focus(page)
+    for _ in range(8): _press(page, "ArrowRight", wait=80)
+    _shot(page, "29b_med3d_scrolled")
+
+    _press(page, "v", wait=1200)
+    _shot(page, "30_med3d_multiview")
+    _press(page, "v", wait=400)
+
+    _goto(page, base, sid_med4d, wait=1800)
+    _focus(page)
+    _press(page, "q", wait=3000)
+    _shot(page, "31_med4d_qmri_5panel")
+    _press(page, "q", wait=400)
+
+    # ── 32-36: stability — keys must not cause UI element jumps ───────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+
+    # 32: h/l — move cursor to dim (info label changes, layout stays)
+    _shot(page, "32a_stab_before_h")
+    _check_no_jump(page, "h", "32b_stab_after_h")
+    _check_no_jump(page, "l", "32c_stab_after_l")
+
+    # 33: j/k — slice navigate (canvas updates, layout stays)
+    _check_no_jump(page, "j", "33a_stab_after_j")
+    _check_no_jump(page, "k", "33b_stab_after_k")
+
+    # 34: Z — zen mode toggle (chrome disappears/reappears, canvas must not jump)
+    _shot(page, "34a_stab_zen_before")
+    _press(page, "Shift+Z", wait=300)
+    _shot(page, "34b_stab_zen_on")
+    _press(page, "Shift+Z", wait=300)
+    _shot(page, "34c_stab_zen_off")
+
+    # 35: b — border toggle (no layout jump)
+    _shot(page, "35a_stab_border_before")
+    _check_no_jump(page, "b", "35b_stab_border_on")
+    _check_no_jump(page, "b", "35c_stab_border_off")
+
+    # 36: +/- — zoom (canvas resizes; colorbar must stay attached below)
+    _shot(page, "36a_stab_zoom_before")
+    _press(page, "+"); _press(page, "+")
+    _shot(page, "36b_stab_zoom_in")
+    _press(page, "-"); _press(page, "-"); _press(page, "-")
+    _shot(page, "36c_stab_zoom_out")
+    _press(page, "0")
+    _shot(page, "36d_stab_zoom_reset")
+
+    # ── 37: registration overlay with structured phantom arrays ───────────────
+    _goto_compare(page, base, sid_reg_a, sid_reg_b)
+    _focus(page)
+    _shot(page, "37a_reg_before_overlay")
+    _press(page, "Shift+R")
+    _shot(page, "37b_reg_overlay_on")
+    _press(page, "]"); _press(page, "]")
+    _shot(page, "37c_reg_blend_increased")
+    _press(page, "Shift+R")  # exit reg mode
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

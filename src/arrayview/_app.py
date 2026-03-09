@@ -868,15 +868,18 @@ def _run_preload(
 # ---------------------------------------------------------------------------
 # Shell WebSocket for Webview Tab Management
 # ---------------------------------------------------------------------------
-async def _notify_shells(sid, name):
+async def _notify_shells(sid, name, url=None):
     """Push a new-tab message to all connected webview shell windows."""
     for _ in range(200):  # Wait up to 2 s for window to connect
         if SHELL_SOCKETS:
             break
         await asyncio.sleep(0.01)
+    msg = {"action": "new_tab", "sid": sid, "name": name}
+    if url:
+        msg["url"] = url
     for ws in SHELL_SOCKETS.copy():
         try:
-            await ws.send_json({"action": "new_tab", "sid": sid, "name": name})
+            await ws.send_json(msg)
         except Exception:
             pass
 
@@ -1730,7 +1733,14 @@ async def load_file(request: Request):
     session = Session(data, filepath=filepath, name=name)
     SESSIONS[session.sid] = session
     if notify:
-        await _notify_shells(session.sid, name)
+        tab_url = None
+        if body.get("compare_sids"):
+            tab_url = (
+                f"/?sid={session.sid}"
+                f"&compare_sid={body['compare_sid']}"
+                f"&compare_sids={body['compare_sids']}"
+            )
+        await _notify_shells(session.sid, name, url=tab_url)
     return {"sid": session.sid, "name": name}
 
 
@@ -3090,16 +3100,16 @@ def arrayview():
                 if compare_sid:
                     compare_sids.append(compare_sid)
 
-            notify_webview = (
-                use_webview and overlay_sid is None and not compare_sids
-            )  # webview inject skipped when overlay/compare used
-            body = json.dumps(
-                {
-                    "filepath": base_file,
-                    "name": name,
-                    "notify": notify_webview,
-                }
-            ).encode()
+            notify_webview = use_webview and overlay_sid is None
+            body_dict = {
+                "filepath": base_file,
+                "name": name,
+                "notify": notify_webview,
+            }
+            if notify_webview and compare_sids:
+                body_dict["compare_sid"] = compare_sids[0]
+                body_dict["compare_sids"] = ",".join(compare_sids)
+            body = json.dumps(body_dict).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{args.port}/load",
                 data=body,
@@ -3142,16 +3152,11 @@ def arrayview():
         if compare_sids:
             qs += f"&compare_sid={compare_sids[0]}"
             qs += f"&compare_sids={','.join(compare_sids)}"
-        if use_webview and overlay_sid is None and not compare_sids:
-            # Tab was injected into existing webview window
+        if notify_webview:
+            # Tab was injected into existing webview window (with or without compare)
             print(f"Injected into existing window (port {args.port})")
         else:
             url = f"http://localhost:{args.port}/{qs}"
-            if use_webview and compare_sids:
-                print(
-                    "[ArrayView] Compare mode: opening browser (webview tab injection does not carry compare_sid)",
-                    flush=True,
-                )
             print(f"Open {url} in your browser")
             _open_browser(url, blocking=True)
         return
@@ -3222,8 +3227,14 @@ def arrayview():
         qs += f"&compare_sid={compare_sids[0]}"
         qs += f"&compare_sids={','.join(compare_sids)}"
 
-    if use_webview and overlay_sid is None and not compare_sids:
-        url_shell = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+    if use_webview and overlay_sid is None:
+        init_qs = f"init_sid={sid}&init_name={encoded_name}"
+        if compare_sids:
+            init_qs += (
+                f"&init_compare_sid={compare_sids[0]}"
+                f"&init_compare_sids={','.join(compare_sids)}"
+            )
+        url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
         if not _open_webview_cli(url_shell, 1200, 800):
             print("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/{qs}"
@@ -3233,11 +3244,6 @@ def arrayview():
         if use_webview and overlay_sid:
             print(
                 "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
-                flush=True,
-            )
-        if use_webview and compare_sids:
-            print(
-                "[ArrayView] Compare mode: opening browser (webview tab injection not supported with compare)",
                 flush=True,
             )
         url = f"http://localhost:{args.port}/{qs}"
