@@ -4,6 +4,7 @@ import io
 import json
 import os
 import queue as _queue
+import re
 import socket
 import sys
 import time
@@ -12,6 +13,7 @@ import subprocess
 import uuid
 import urllib.parse
 import urllib.request
+import zipfile
 from collections import OrderedDict
 from importlib.resources import files as _pkg_files
 
@@ -1552,21 +1554,24 @@ async def load_file(request: Request):
 @app.get("/")
 def get_ui(sid: str = None):
     """Viewer page."""
-    if not sid:
-        # VS Code's onAutoForward opens the root URL without a session ID.
-        # Redirect to the most recently created session if one exists.
+    # VS Code Simple Browser internally calls asExternalUri() which strips query
+    # parameters, so ?sid= is often lost before the page loads.  Embed the SID
+    # directly in the HTML so the viewer JS can find it regardless of the URL.
+    if not sid or sid not in SESSIONS:
         if SESSIONS:
             latest_sid = list(SESSIONS.keys())[-1]
-            return RedirectResponse(url=f"/?sid={latest_sid}")
-        return HTMLResponse(
-            content="<html><body style='background:#111;color:#ccc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>No session ID provided.</body></html>"
-        )
+            query_val = json.dumps(f"?sid={latest_sid}")
+        else:
+            query_val = "null"   # viewer will show "Session not found or expired"
+    else:
+        query_val = "null"       # valid SID is already in the URL; use window.location.search
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))
+        .replace("__ARRAYVIEW_QUERY__", query_val)
     )
     return HTMLResponse(content=html)
 
@@ -1630,6 +1635,15 @@ def _is_vscode_remote() -> bool:
     return False
 
 
+def _in_vscode_tunnel() -> bool:
+    """True when running inside a VS Code tunnel or SSH remote session."""
+    if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
+        return True
+    if os.environ.get("VSCODE_INJECTION") or os.environ.get("VSCODE_AGENT_FOLDER"):
+        return True
+    return False
+
+
 def _can_native_window() -> bool:
     """True if a pywebview native window can be opened.
 
@@ -1670,7 +1684,9 @@ def _find_code_cli() -> str | None:
     import shutil
 
     # In a VS Code remote/tunnel, prefer the server's remote-cli helper.
-    if os.environ.get("VSCODE_IPC_HOOK_CLI"):
+    # uv run and similar launchers may strip VSCODE_IPC_HOOK_CLI from the
+    # current process, so also consult the recovered ancestor-process value.
+    if os.environ.get("VSCODE_IPC_HOOK_CLI") or _find_vscode_ipc_hook():
         # The tunnel helper is typically at one of:
         #   ~/.vscode-server/bin/<commit>/bin/remote-cli/code
         #   ~/.vscode-server/cli/servers/.../server/bin/remote-cli/code
@@ -1773,38 +1789,23 @@ def _find_vscode_ipc_hook() -> str | None:
             pass
         return ""
 
-    dbg = f"[ArrayView] _find_vscode_ipc_hook: pid={os.getpid()}"
     # Own environment first
     val = os.environ.get("VSCODE_IPC_HOOK_CLI", "")
-    dbg += f" own_env={val!r}"
-    if val:
-        exists = os.path.exists(val)
-        dbg += f" exists={exists}"
-        if exists:
-            print(dbg + " → found in own env", flush=True)
-            _VSCODE_IPC_HOOK_CACHE = val
-            return val
-    else:
-        dbg += " TERM_PROGRAM=" + repr(os.environ.get("TERM_PROGRAM", ""))
+    if val and os.path.exists(val):
+        _VSCODE_IPC_HOOK_CACHE = val
+        return val
 
     # Walk up to 12 ancestor processes
     pid = os.getpid()
-    for i in range(12):
+    for _ in range(12):
         pid = _ppid(pid)
         if pid <= 1:
-            dbg += f" [stop at pid={pid}]"
             break
         val = _ipc_from_pid(pid)
-        dbg += f" pid{i + 1}={pid}:ipc={val!r}"
-        if val:
-            exists = os.path.exists(val)
-            dbg += f"(exists={exists})"
-            if exists:
-                print(dbg + " → found in ancestor", flush=True)
-                _VSCODE_IPC_HOOK_CACHE = val
-                return val
+        if val and os.path.exists(val):
+            _VSCODE_IPC_HOOK_CACHE = val
+            return val
 
-    print(dbg + " → NOT FOUND", flush=True)
     _VSCODE_IPC_HOOK_CACHE = None
     return None
 
@@ -1832,8 +1833,24 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.4.0"  # must match vscode-extension/package.json
-_VSCODE_SIGNAL_FILENAME = "open-request-v0400.json"
+_VSCODE_EXT_VERSION = "0.9.6"  # must match vscode-extension/package.json
+_VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
+_VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
+_VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
+_VSCODE_SIGNAL_MAX_AGE_MS = 15_000
+
+
+def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
+    """Return the bundled opener extension version recorded inside the VSIX."""
+    try:
+        with zipfile.ZipFile(vsix_path) as zf:
+            with zf.open("extension/package.json") as f:
+                data = json.load(f)
+        version = data.get("version")
+        return version if isinstance(version, str) else None
+    except Exception as exc:
+        print(f"[ArrayView] could not inspect VSIX version at {vsix_path}: {exc}", flush=True)
+        return None
 
 
 def _patch_vscode_extension_metadata(version: str) -> None:
@@ -1851,17 +1868,11 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             with open(package_json) as f:
                 data = json.load(f)
             metadata = data.get("__metadata")
-            if (
-                isinstance(metadata, dict)
-                and metadata.get("targetPlatform") == "undefined"
-            ):
+            if isinstance(metadata, dict) and metadata.get("targetPlatform") == "undefined":
                 del metadata["targetPlatform"]
                 with open(package_json, "w") as f:
                     json.dump(data, f, indent=8)
                     f.write("\n")
-                print(
-                    f"[ArrayView] patched targetPlatform in {package_json}", flush=True
-                )
         except Exception as exc:
             print(
                 f"[ArrayView] could not patch extension metadata at {package_json}: {exc}",
@@ -1869,20 +1880,21 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             )
 
 
+
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
-    Force-installs the current VSIX into the running extension host (hot-install).
+    The extension bridges local VS Code terminals to ``simpleBrowser.show(...)``
+    and, in remote/tunnel sessions, can actively invoke VS Code's forwarded-port
+    commands to promote the port to public preview.
+
+    Force-installs the current VSIX into the running UI extension host.
     Hot-installing immediately activates the new version alongside any older
-    version that may still be running. The extension and Python code also use a
+    version that may still be running. The extension and Python code use a
     versioned signal filename so stale instances won't consume new requests.
 
     We do NOT uninstall first: an explicit uninstall causes VS Code to mark the
     extension and skip hot-activation on reinstall (see log.txt attempt 11).
-
-    Remote/tunnel sessions deliberately avoid this path because smooth scrolling
-    is better preserved by using the original websocket viewer in a real browser
-    via VS Code port forwarding rather than the extension-host proxy viewer.
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
@@ -1890,7 +1902,6 @@ def _ensure_vscode_extension() -> bool:
 
     code = _find_code_cli()
     if not code:
-        print("[ArrayView] ext install: no 'code' CLI found", flush=True)
         return False
 
     env = dict(os.environ)
@@ -1898,13 +1909,17 @@ def _ensure_vscode_extension() -> bool:
     if ipc and "VSCODE_IPC_HOOK_CLI" not in env:
         env["VSCODE_IPC_HOOK_CLI"] = ipc
 
-    print(f"[ArrayView] ext install: code={code!r}", flush=True)
-
     vsix_path = str(_pkg_files(__package__).joinpath("arrayview-opener.vsix"))
     if not os.path.isfile(vsix_path):
-        print(f"[ArrayView] ext vsix not found at {vsix_path}", flush=True)
         return False
-    print(f"[ArrayView] ext installing from {vsix_path} ...", flush=True)
+    bundled_version = _bundled_vscode_vsix_version(vsix_path)
+    if bundled_version != _VSCODE_EXT_VERSION:
+        print(
+            f"[ArrayView] extension version mismatch: bundled={bundled_version!r} "
+            f"expected={_VSCODE_EXT_VERSION!r} — rebuild arrayview-opener.vsix",
+            flush=True,
+        )
+        return False
     try:
         r = subprocess.run(
             [code, "--install-extension", vsix_path, "--force"],
@@ -1914,10 +1929,6 @@ def _ensure_vscode_extension() -> bool:
             env=env,
         )
         combined = (r.stdout or "") + (r.stderr or "")
-        print(
-            f"[ArrayView] ext install rc={r.returncode} out={combined.strip()!r}",
-            flush=True,
-        )
         install_failed = (
             "Cannot install" in combined
             or "Failed Installing Extensions" in combined
@@ -1929,58 +1940,94 @@ def _ensure_vscode_extension() -> bool:
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
             return True
+        print(f"[ArrayView] extension install failed: {combined.strip()!r}", flush=True)
     except Exception as exc:
-        print(f"[ArrayView] ext install exception: {exc}", flush=True)
+        print(f"[ArrayView] extension install error: {exc}", flush=True)
     return False
 
 
 def _configure_vscode_port_preview(port: int) -> bool:
-    """Write port settings to .vscode/settings.json for the arrayview server.
+    """Write VS Code port settings for the arrayview server.
 
-    Remote/tunnel: marks the port as public and asks VS Code to open the port
-    in Simple Browser automatically when it is detected.
+    In VS Code remote/tunnel sessions this writes both Machine and User
+    settings files to maximize the chance VS Code honors them. Workspace-
+    level settings are unreliable for port privacy in tunnel sessions.
 
-    Local: removes stale keys written by older versions of arrayview.
+    In local VS Code terminals we keep the workspace-level attribute so
+    auto-forward/silent remains configured when relevant.
 
     Returns True on success.
     """
-    vscode_dir = os.path.join(os.getcwd(), ".vscode")
-    settings_path = os.path.join(vscode_dir, "settings.json")
-    try:
-        os.makedirs(vscode_dir, exist_ok=True)
-        settings: dict = {}
-        if os.path.exists(settings_path):
-            try:
-                with open(settings_path) as f:
-                    settings = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                settings = {}
+
+    def _strip_json_comments(raw: str) -> str:
+        raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.DOTALL)
+        raw = re.sub(r"(^|\s)//.*$", "", raw, flags=re.MULTILINE)
+        return raw
+
+    def _load_settings(path: str) -> dict:
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path) as f:
+                raw = f.read()
+            cleaned = _strip_json_comments(raw)
+            return json.loads(cleaned) if cleaned.strip() else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _write_settings(path: str) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        settings = _load_settings(path)
         attrs = settings.setdefault("remote.portsAttributes", {})
-        if _is_vscode_remote():
-            attrs[str(port)] = {
-                "protocol": "http",
-                "label": "ArrayView",
-                "onAutoForward": "openPreview",
-                "privacy": "public",
-            }
-            print(
-                f"[ArrayView] port {port}: onAutoForward=openPreview privacy=public → {settings_path}",
-                flush=True,
-            )
-        else:
-            port_attrs = attrs.get(str(port), {})
-            changed = False
-            for key in ("onAutoForward", "privacy"):
-                if key in port_attrs:
-                    del port_attrs[key]
-                    changed = True
-            if changed:
-                print(
-                    f"[ArrayView] removed stale remote keys from port {port} settings",
-                    flush=True,
-                )
-        with open(settings_path, "w") as f:
+        attrs[str(port)] = {
+            "protocol": "http",
+            "label": "ArrayView",
+            "onAutoForward": "silent",
+            "privacy": "public",
+        }
+        with open(path, "w") as f:
             json.dump(settings, f, indent=2)
+            f.write("\n")
+
+    try:
+        in_vscode = _in_vscode_terminal()
+        is_remote = _is_vscode_remote()
+
+        if is_remote:
+            home = os.path.expanduser("~")
+            targets: list[str] = []
+            for root in (
+                os.path.join(home, ".vscode", "cli"),
+                os.path.join(home, ".vscode-server"),
+            ):
+                if os.path.isdir(root):
+                    targets.append(
+                        os.path.join(root, "data", "Machine", "settings.json")
+                    )
+                    targets.append(
+                        os.path.join(root, "data", "User", "settings.json")
+                    )
+            if not targets:
+                # Fallback: write to the most common paths even if root
+                # directories don't exist yet.
+                for root in (
+                    os.path.join(home, ".vscode-server"),
+                    os.path.join(home, ".vscode", "cli"),
+                ):
+                    targets.append(
+                        os.path.join(root, "data", "Machine", "settings.json")
+                    )
+                    targets.append(
+                        os.path.join(root, "data", "User", "settings.json")
+                    )
+
+            for settings_path in targets:
+                _write_settings(settings_path)
+            return True
+
+        if in_vscode:
+            settings_path = os.path.join(os.getcwd(), ".vscode", "settings.json")
+            _write_settings(settings_path)
         return True
     except Exception as exc:
         print(f"[ArrayView] could not write port settings: {exc}", flush=True)
@@ -1988,47 +2035,69 @@ def _configure_vscode_port_preview(port: int) -> bool:
 
 
 def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
-    """Write the URL to ~/.arrayview/open-request.json for the VS Code extension."""
+    """Write the URL to the versioned ArrayView opener signal file."""
+    return _write_vscode_signal(
+        {
+            "action": "open-preview",
+            "url": url,
+            "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+        },
+        delay=delay,
+    )
+
+
+def _schedule_remote_open_retries(url: str, interval: float = 25.0, count: int = 2) -> None:
+    """Re-send the open-preview signal if no viewer WebSocket has connected yet.
+
+    In remote/tunnel sessions the port may be private on first open (user sees
+    auth page). Once the user sets Port Visibility → Public, the next retry
+    re-opens Simple Browser with the now-public URL — no need to re-run arrayview.
+    Retries stop as soon as VIEWER_SOCKETS > 0 (viewer loaded successfully).
+    """
+    def _loop() -> None:
+        for i in range(count):
+            time.sleep(interval)
+            if VIEWER_SOCKETS > 0:
+                return  # viewer connected; port is public and working
+            _open_via_signal_file(url)
+    threading.Thread(target=_loop, daemon=True).start()
+
+
+def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
+    """Write a versioned control payload for the VS Code opener extension."""
     signal_dir = os.path.expanduser("~/.arrayview")
-    signal_file = os.path.join(signal_dir, _VSCODE_SIGNAL_FILENAME)
     try:
         os.makedirs(signal_dir, exist_ok=True)
         if delay > 0:
             time.sleep(delay)
-        with open(signal_file, "w") as f:
-            json.dump({"url": url}, f)
+        data = dict(payload)
+        data.setdefault("sentAtMs", int(time.time() * 1000))
+        data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
+        data.setdefault("requestId", uuid.uuid4().hex)
+        filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
+        # Delete any existing signal files before writing the new one.  If the
+        # extension failed to unlink a previous file (e.g. a crash) and then
+        # restarts (resetting lastHandledRequestId), it would otherwise re-consume
+        # the stale signal and open Simple Browser with an old session ID.
+        for filename in filenames:
+            try:
+                os.unlink(os.path.join(signal_dir, filename))
+            except FileNotFoundError:
+                pass
+        for filename in filenames:
+            signal_file = os.path.join(signal_dir, filename)
+            with open(signal_file, "w") as f:
+                json.dump(data, f)
         return True
     except Exception:
         return False
 
 
 def _print_viewer_location(url: str) -> None:
-    """Print a viewer location hint without offering a broken terminal link remotely."""
-    if _is_vscode_remote():
-        try:
-            parsed = urllib.parse.urlparse(url)
-            port = parsed.port or 8000
-            sid = urllib.parse.parse_qs(parsed.query).get("sid", [None])[0]
-        except Exception:
-            port = 8000
-            sid = None
-        if sid:
-            print(
-                f"[ArrayView] remote viewer ready on port {port} (session {sid})",
-                flush=True,
-            )
-        else:
-            print(f"[ArrayView] remote viewer ready on port {port}", flush=True)
-        print(
-            "[ArrayView] VS Code should auto-open ArrayView in a Simple Browser tab.",
-            flush=True,
-        )
-        print(
-            "[ArrayView] do not cmd-click localhost from the tunnel terminal; let the Ports auto-forward/openPreview path handle it.",
-            flush=True,
-        )
-        return
-    print(f"[ArrayView] {url}", flush=True)
+    """Print a viewer location hint."""
+    if not _is_vscode_remote():
+        print(f"[ArrayView] {url}", flush=True)
+
 
 
 def _open_browser(url: str, blocking: bool = False) -> None:
@@ -2036,14 +2105,15 @@ def _open_browser(url: str, blocking: bool = False) -> None:
 
     Strategy (see log.txt for what was tried and why):
     1. Remote VS Code terminal:
-       a. Configure the port as ``openPreview`` and ``public`` in
+       a. Configure the port as ``silent`` and ``public`` in
           ``remote.portsAttributes``.
-       b. Let VS Code auto-open the forwarded port in a Simple Browser tab.
+       b. Write the signal file; the workspace extension converts the URL via
+          asExternalUri and opens Simple Browser in the local VS Code client.
     2. Local VS Code terminal:
        a. Install the helper extension.
        b. Write the signal file so the extension opens Simple Browser locally.
-    3. Fallback: open/xdg-open with the http URL (system browser).
-    4. Always print the URL.
+     3. Fallback: open/xdg-open with the http URL (system browser).
+     4. Always print the URL.
     """
 
     def _do() -> None:
@@ -2051,26 +2121,29 @@ def _open_browser(url: str, blocking: bool = False) -> None:
         is_remote = _is_vscode_remote()
         opened = False
 
-        print(
-            f"[ArrayView] _open_browser: url={url!r} ipc={ipc!r} is_remote={is_remote}",
-            flush=True,
-        )
-
         try:
             parsed_port = int(url.split(":")[2].split("/")[0].split("?")[0])
         except Exception:
             parsed_port = 8000
 
         if is_remote:
-            _configure_vscode_port_preview(parsed_port)
+            # Remote/tunnel: install extension + write signal file.
+            # The workspace extension resolves the devtunnel URL via asExternalUri
+            # and opens Simple Browser with ?sid= preserved.
+            # Port visibility must be set to Public by the user (Ports tab →
+            # right-click → Port Visibility → Public).
             print(
-                "[ArrayView] remote VS Code session detected: relying on onAutoForward=openPreview.",
+                "[ArrayView] Remote tunnel session — set port visibility to Public in the VS Code Ports tab and re-run ArrayView.",
                 flush=True,
             )
-            print(
-                "[ArrayView] port is forced public so the Simple Browser tab should open without the GitHub auth/postback 403.",
-                flush=True,
-            )
+            ext_ok = _ensure_vscode_extension()
+            if ext_ok:
+                if _VSCODE_EXT_FRESH_INSTALL:
+                    time.sleep(1.5)
+                _open_via_signal_file(url)
+                _schedule_remote_open_retries(url)
+            else:
+                print("[ArrayView] extension install failed — cannot open Simple Browser", flush=True)
             return
 
         if ipc or _in_vscode_terminal():
@@ -2079,12 +2152,8 @@ def _open_browser(url: str, blocking: bool = False) -> None:
             ext_ok = _ensure_vscode_extension()
             if ext_ok:
                 if _VSCODE_EXT_FRESH_INSTALL:
-                    print(
-                        "[ArrayView] waiting for extension to activate...", flush=True
-                    )
                     time.sleep(1.5)
                 _open_via_signal_file(url)
-                print(f"[ArrayView] wrote signal file for {url}", flush=True)
                 opened = True
 
         if not opened and not is_remote:
@@ -2097,9 +2166,7 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                     pass
             elif sys.platform.startswith("linux"):
                 try:
-                    r = subprocess.run(
-                        ["xdg-open", url], capture_output=True, timeout=5
-                    )
+                    r = subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
                     opened = r.returncode == 0
                 except Exception:
                     pass
@@ -2156,6 +2223,20 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
             return True
         time.sleep(0.05)
     return False
+
+
+def _find_server_port(port: int, search_range: int = 20) -> tuple[int, bool]:
+    """Find a usable server port starting from *port*.
+
+    Returns ``(found_port, already_running)`` where ``already_running`` is True
+    if an ArrayView server is already live on ``found_port``.
+    """
+    if _server_alive(port):
+        return (port, True)
+    for candidate in range(port, port + search_range + 1):
+        if not _port_in_use(candidate):
+            return (candidate, False)
+    return (port + search_range, False)
 
 
 async def _serve_background(port: int, stop_when_closed: bool = False):
@@ -2276,6 +2357,8 @@ def view(
             name,
             port,
             window,
+            inline,
+            height,
         )
 
     session = Session(data, name=name)
@@ -2521,7 +2604,9 @@ def _view_julia(
     return _view_subprocess(data, name, port, window)
 
 
-def _view_subprocess(data: np.ndarray, name: str, port: int, window: bool) -> str:
+def _view_subprocess(
+    data: np.ndarray, name: str, port: int, window: bool, inline: bool = False, height: int = 500
+) -> str:
     """Run the viewer in a separate subprocess server.
 
     Used when the calling process may exit shortly after view() returns
@@ -2858,9 +2943,7 @@ def arrayview():
     overlay_sid = uuid.uuid4().hex if args.overlay else None
     encoded_name = urllib.parse.quote(name)
 
-    # Configure .vscode/settings.json: in tunnel mode writes
-    # onAutoForward=openPreview so VS Code auto-opens Simple Browser when it
-    # detects the forwarded port.  Locally cleans up stale remote keys.
+    # Configure VS Code port settings before starting the server.
     if not use_webview:
         _configure_vscode_port_preview(args.port)
 
