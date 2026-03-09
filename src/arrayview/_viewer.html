@@ -279,6 +279,7 @@
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 8px; flex: 1; min-width: 0; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+        .mv-canvas-wrap.bordered { outline: 1px solid var(--border); }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
         #reg-blend-bar-wrap {
@@ -547,7 +548,8 @@
                 <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
-                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices to axis-aligned (3-plane view)</span></div>
+                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices and crosshair to center (3-plane view)</span></div>
+                <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas borders (3-plane view)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
@@ -681,6 +683,7 @@
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
+        let mvBorders = false; // toggled by 'b' key in multiview
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareSidList = compareSidsParam
@@ -2179,6 +2182,11 @@
                 if (!wasMosaic) dim_z = -1;
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
+            } else if (e.key === 'b') {
+                if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
+                mvBorders = !mvBorders;
+                mvViews.forEach(v => { if (v.wrap) v.wrap.classList.toggle('bordered', mvBorders); });
+                showToast(mvBorders ? 'borders: on' : 'borders: off');
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'g') {
