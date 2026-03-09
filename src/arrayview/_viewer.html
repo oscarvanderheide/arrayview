@@ -381,7 +381,7 @@
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
-            <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;image-rendering:pixelated;display:none;background:transparent;"></canvas>
+            <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
             <canvas id="slim-cb"></canvas>
             <div id="slim-cb-vmax"></div>
             <div id="slim-cb-vmin"></div>
@@ -1132,8 +1132,8 @@
                 }
                 const ctx2 = vfieldCanvas.getContext('2d');
                 ctx2.clearRect(0, 0, dispW, dispH);
-                ctx2.strokeStyle = 'rgba(163, 190, 140, 0.88)';
-                ctx2.fillStyle   = 'rgba(163, 190, 140, 0.88)';
+                ctx2.strokeStyle = 'rgba(80, 200, 90, 0.88)';
+                ctx2.fillStyle   = 'rgba(80, 200, 90, 0.88)';
                 ctx2.lineWidth = 1.2;
                 ctx2.lineCap = 'round';
                 for (const [ix, iy, vx, vy] of data.arrows) {
@@ -1555,7 +1555,7 @@
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
                 const track = `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>`;
-                const inner = `t<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
+                const inner = `<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label dim-chip' : 'vfield-t-dim dim-label dim-chip';
                 idxStr += `, <span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
@@ -2116,6 +2116,7 @@
                 setZenMode(!zenMode);
                 saveState();
             } else if (e.key === 'z') {
+                if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
                 if (dim_z >= 0) {
                     current_slice_dim = dim_z;
                     dim_z = -1;
@@ -2378,11 +2379,13 @@
                         });
                 }
             } else if (e.key === 'x') {
+                if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
                 if (shape.length < 3) return;
                 [dim_x, current_slice_dim] = [current_slice_dim, dim_x];
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'y') {
+                if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
                 if (shape.length < 3) return;
                 [dim_y, current_slice_dim] = [current_slice_dim, dim_y];
                 dim_z = -1;
