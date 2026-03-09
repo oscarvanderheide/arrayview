@@ -1129,6 +1129,15 @@ def get_preload_status(sid: str):
         }
 
 
+def _vfield_n_times(session) -> int:
+    """Return number of time frames in the vector field (0 = no vfield, 1 = no time dim)."""
+    if session.vfield is None:
+        return 0
+    vf_ndim = np.asarray(session.vfield).ndim
+    img_ndim = np.asarray(session.data).ndim
+    return int(np.asarray(session.vfield).shape[0]) if vf_ndim == img_ndim + 2 else 1
+
+
 @app.get("/metadata/{sid}")
 def get_metadata(sid: str):
     session = SESSIONS.get(sid)
@@ -1140,6 +1149,7 @@ def get_metadata(sid: str):
             "is_complex": bool(np.iscomplexobj(session.data)),
             "name": session.name,
             "has_vectorfield": session.vfield is not None,
+            "vfield_n_times": _vfield_n_times(session),
         }
     except Exception as e:
         import traceback
@@ -1151,7 +1161,7 @@ def get_metadata(sid: str):
 
 
 @app.get("/vectorfield/{sid}")
-def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str):
+def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int = 0):
     """Return downsampled deformation vector field arrows for the current 2-D view."""
     session = SESSIONS.get(sid)
     if not session or session.vfield is None:
@@ -1159,6 +1169,13 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str):
     try:
         vf = np.array(session.vfield, dtype=np.float32)
         idx_tuple = tuple(int(x) for x in indices.split(","))
+
+        # Strip time dimension if present (shape T, *spatial, 3)
+        n_times = _vfield_n_times(session)
+        if n_times > 1:
+            t = max(0, min(n_times - 1, t_index))
+            vf = vf[t]
+
         ndim_spatial = vf.ndim - 1  # last dim is vector components (size 3)
 
         # Build index: fix non-display dims, leave dim_x / dim_y free

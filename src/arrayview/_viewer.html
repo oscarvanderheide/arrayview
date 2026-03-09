@@ -642,6 +642,9 @@
         let roiDragging = false, roiStart = null, roiEnd = null;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
+        let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
+        let vfieldT = 0;        // current time frame index
+        const VFIELD_T_DIM = -2; // sentinel activeDim value for the vfield time dim
         const vfieldCanvas = document.getElementById('vfield-canvas');
         let _vfieldAbort = null;
 
@@ -1112,7 +1115,7 @@
             vfieldCanvas.style.height = canvas.style.height;
             const imgW = canvas.width, imgH = canvas.height;
             const sx = dispW / imgW, sy = dispH / imgH;
-            const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(',') });
+            const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(','), t_index: vfieldT });
             try {
                 const res = await fetch(`/vectorfield/${sid}?${params}`, { signal });
                 if (!res.ok || signal.aborted) return;
@@ -1473,6 +1476,8 @@
             shape = data.shape;
             isComplex = data.is_complex || false;
             hasVectorfield = data.has_vectorfield || false;
+            vfieldNTimes = data.vfield_n_times || 0;
+            vfieldT = 0;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
             indices = shape.map(s => Math.floor(s / 2));
             dim_x = 0; dim_y = 1;
@@ -1543,6 +1548,14 @@
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
             let text = `[${idxStr}]`;
+            if (vfieldNTimes > 1) {
+                const tActive = activeDim === VFIELD_T_DIM;
+                const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
+                const track = `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>`;
+                const inner = `<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
+                const cls = tActive ? 'active-dim dim-label dim-chip' : 'dim-label dim-chip';
+                text += ` <span class="${cls}" data-dim="${VFIELD_T_DIM}">t ${inner}</span>`;
+            }
             if (_fftActive)
                 text += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (compareActive)
@@ -2182,7 +2195,10 @@
                 showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
-                if (multiViewActive) {
+                if (activeDim === VFIELD_T_DIM) {
+                    vfieldT = Math.max(0, vfieldT - 1);
+                    drawVectorOverlay(); renderInfo(); saveState();
+                } else if (multiViewActive) {
                     indices[activeDim] = Math.max(0, indices[activeDim] - 1);
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
@@ -2203,7 +2219,10 @@
                 }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (multiViewActive) {
+                if (activeDim === VFIELD_T_DIM) {
+                    vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
+                    drawVectorOverlay(); renderInfo(); saveState();
+                } else if (multiViewActive) {
                     indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
@@ -2228,8 +2247,14 @@
                     activeDim = (activeDim - 1 + shape.length) % shape.length;
                     renderInfo();
                 } else {
-                    activeDim = (activeDim - 1 + shape.length) % shape.length;
-                    if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                    if (activeDim === 0 && vfieldNTimes > 1) {
+                        activeDim = VFIELD_T_DIM;
+                    } else if (activeDim === VFIELD_T_DIM) {
+                        activeDim = shape.length - 1;
+                    } else {
+                        activeDim = (activeDim - 1 + shape.length) % shape.length;
+                    }
+                    if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
                     renderInfo();
@@ -2240,8 +2265,14 @@
                     activeDim = (activeDim + 1) % shape.length;
                     renderInfo();
                 } else {
-                    activeDim = (activeDim + 1) % shape.length;
-                    if (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
+                    if (activeDim === shape.length - 1 && vfieldNTimes > 1) {
+                        activeDim = VFIELD_T_DIM;
+                    } else if (activeDim === VFIELD_T_DIM) {
+                        activeDim = 0;
+                    } else {
+                        activeDim = (activeDim + 1) % shape.length;
+                    }
+                    if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
                     renderInfo();
@@ -3220,6 +3251,19 @@
             if (!span) return;
             const d = parseInt(span.dataset.dim);
             activeDim = d;
+            if (d === VFIELD_T_DIM) {
+                const track = e.target.closest('.dim-track');
+                if (track && vfieldNTimes > 1) {
+                    const rect = track.getBoundingClientRect();
+                    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                    vfieldT = Math.round(pct * (vfieldNTimes - 1));
+                    drawVectorOverlay();
+                    saveState();
+                }
+                renderInfo();
+                sink.focus();
+                return;
+            }
             if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; triggerPreload();
             }
@@ -3244,6 +3288,15 @@
         });
         infoEl.addEventListener('mouseleave', () => { hoveredDim = -1; });
         infoEl.addEventListener('wheel', (e) => {
+            if (hoveredDim === VFIELD_T_DIM) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -1 : 1;
+                vfieldT = Math.max(0, Math.min(vfieldNTimes - 1, vfieldT + delta));
+                drawVectorOverlay();
+                renderInfo();
+                saveState();
+                return;
+            }
             if (hoveredDim < 0) return;
             // Only scroll non-display dims (skip x/y/z/q)
             const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || hoveredDim === dim_z);
