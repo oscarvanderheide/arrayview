@@ -3409,25 +3409,26 @@
         function mvScaleAllCanvases() {
             const ready = mvViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
-            // Compute T from the wrapper — panes now shrink to content so we can't
-            // use pane.clientHeight. Use available space minus colorbar and labels.
-            const mvWrap = document.getElementById('multi-view-wrap');
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
-            // Use window dimensions (same centering approach as normal view)
             const uiReserveH = 130 + cbH + labelH;
             const gap = 16;
             const availH = Math.max(50, (window.innerHeight - uiReserveH) * 0.65);
             const availW = Math.max(50, (window.innerWidth - 80 - gap * 2) / 3 * 0.65);
             const T = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
+            // Global scale: largest side across all views fits in T — all canvases use
+            // the same scale factor so a pixel in one view equals a pixel in another.
+            const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
+            const globalScale = T / maxSide;
             for (const v of ready) {
-                const scale = Math.min(T / v.lastW, T / v.lastH);
-                v.canvas.style.width  = Math.round(v.lastW * scale) + 'px';
-                v.canvas.style.height = Math.round(v.lastH * scale) + 'px';
+                const cssW = Math.round(v.lastW * globalScale);
+                const cssH = Math.round(v.lastH * globalScale);
+                v.canvas.style.width  = cssW + 'px';
+                v.canvas.style.height = cssH + 'px';
                 if (v.wrap) {
-                    v.wrap.style.width  = T + 'px';
-                    v.wrap.style.height = T + 'px';
+                    v.wrap.style.width  = cssW + 'px';
+                    v.wrap.style.height = cssH + 'px';
                 }
             }
         }
