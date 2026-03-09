@@ -377,6 +377,7 @@
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <canvas id="viewer" tabindex="0"></canvas>
+            <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;image-rendering:pixelated;display:none;"></canvas>
             <canvas id="slim-cb"></canvas>
             <div id="slim-cb-vmax"></div>
             <div id="slim-cb-vmin"></div>
@@ -640,6 +641,8 @@
         let manualVmin = null, manualVmax = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
+        let hasVectorfield = false;
+        const vfieldCanvas = document.getElementById('vfield-canvas');
 
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
@@ -767,6 +770,10 @@
             const finalScale = baseScale * userZoom;
             canvas.style.width  = Math.round(w * finalScale) + 'px';
             canvas.style.height = Math.round(h * finalScale) + 'px';
+            if (hasVectorfield) {
+                vfieldCanvas.style.width  = canvas.style.width;
+                vfieldCanvas.style.height = canvas.style.height;
+            }
             drawSlimColorbar(cbMarkerFrac);
         }
 
@@ -1076,6 +1083,53 @@
             return new ImageData(out, w, h);
         }
 
+        function _drawArrow(ctx, x1, y1, x2, y2) {
+            const dx = x2 - x1, dy = y2 - y1;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 0.5) return;
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            const headLen = Math.min(len * 0.35, 4);
+            const angle = Math.atan2(dy, dx);
+            ctx.beginPath();
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+            ctx.closePath(); ctx.fill();
+        }
+
+        async function drawVectorOverlay() {
+            if (!hasVectorfield || compareActive || multiViewActive || qmriActive) {
+                vfieldCanvas.style.display = 'none';
+                return;
+            }
+            vfieldCanvas.width = canvas.width;
+            vfieldCanvas.height = canvas.height;
+            vfieldCanvas.style.width = canvas.style.width;
+            vfieldCanvas.style.height = canvas.style.height;
+            vfieldCanvas.style.display = '';
+            const W = canvas.width, H = canvas.height;
+            const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(',') });
+            try {
+                const res = await fetch(`/vectorfield/${sid}?${params}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const ctx2 = vfieldCanvas.getContext('2d');
+                ctx2.clearRect(0, 0, W, H);
+                ctx2.strokeStyle = 'rgba(30, 220, 90, 0.85)';
+                ctx2.fillStyle   = 'rgba(30, 220, 90, 0.85)';
+                ctx2.lineWidth = 1;
+                ctx2.lineCap = 'round';
+                for (const [ix, iy, vx, vy] of data.arrows) {
+                    // Apply same flip transforms as the image
+                    const ax = flip_x ? (W - 1 - ix) : ix;
+                    const ay = flip_y ? (H - 1 - iy) : iy;
+                    const avx = flip_x ? -vx : vx;
+                    const avy = flip_y ? -vy : vy;
+                    _drawArrow(ctx2, ax + 0.5, ay + 0.5, ax + 0.5 + avx * data.scale, ay + 0.5 + avy * data.scale);
+                }
+            } catch (_) { /* ignore */ }
+        }
+
         function applyMvFlips(v, imageData, w, h) {
             const fx = flipDims[v.dimX] || false;
             const fy = flipDims[v.dimY] || false;
@@ -1149,6 +1203,7 @@
                     canvas.height = height;
                     ctx.putImageData(applyFlips(lastImageData, width, height), 0, 0);
                     scaleCanvas(width, height);
+                    drawVectorOverlay();
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
@@ -1264,6 +1319,7 @@
                 canvas.height = frame.height;
                 ctx.putImageData(applyFlips(lastImageData, frame.width, frame.height), 0, 0);
                 scaleCanvas(frame.width, frame.height);
+                drawVectorOverlay();
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = '';
                 drawSlimColorbar(cbMarkerFrac);
@@ -1404,6 +1460,7 @@
             });
             shape = data.shape;
             isComplex = data.is_complex || false;
+            hasVectorfield = data.has_vectorfield || false;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
             indices = shape.map(s => Math.floor(s / 2));
             dim_x = 0; dim_y = 1;

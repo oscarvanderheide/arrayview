@@ -300,6 +300,8 @@ class Session:
         self.mask_otsu = None  # cached Otsu threshold (float)
         self.mask_threshold = 0.0  # active threshold applied to rendering
 
+        self.vfield = None  # Optional deformation vector field: (*spatial_shape, 3)
+
         self.compute_global_stats()
 
     def compute_global_stats(self):
@@ -1137,6 +1139,7 @@ def get_metadata(sid: str):
             "shape": [int(s) for s in session.shape],
             "is_complex": bool(np.iscomplexobj(session.data)),
             "name": session.name,
+            "has_vectorfield": session.vfield is not None,
         }
     except Exception as e:
         import traceback
@@ -1145,6 +1148,81 @@ def get_metadata(sid: str):
         return Response(
             status_code=500, content=str(e).encode(), media_type="text/plain"
         )
+
+
+@app.get("/vectorfield/{sid}")
+def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str):
+    """Return downsampled deformation vector field arrows for the current 2-D view."""
+    session = SESSIONS.get(sid)
+    if not session or session.vfield is None:
+        return Response(status_code=404)
+    try:
+        vf = np.array(session.vfield, dtype=np.float32)
+        idx_tuple = tuple(int(x) for x in indices.split(","))
+        ndim_spatial = vf.ndim - 1  # last dim is vector components (size 3)
+
+        # Build index: fix non-display dims, leave dim_x / dim_y free
+        slices = []
+        for d in range(ndim_spatial):
+            slices.append(slice(None) if d in (dim_x, dim_y) else int(idx_tuple[d]))
+        slices.append(slice(None))  # vector components
+        vf_slice = vf[tuple(slices)]  # shape ≈ (A, B, 3) where A,B are free spatial dims
+
+        # Ensure axis order is (dim_y rows, dim_x cols, 3).
+        # The free axes appear in ascending original-dim order; transpose if dim_x < dim_y.
+        if dim_x < dim_y:
+            vf_slice = vf_slice.transpose(1, 0, 2)
+
+        H, W = vf_slice.shape[:2]
+
+        # Component mapping: component index == original spatial dim index
+        vy_comp = vf_slice[:, :, dim_y]  # displacement along dim_y → vertical arrows
+        vx_comp = vf_slice[:, :, dim_x]  # displacement along dim_x → horizontal arrows
+
+        # Stride: aim for ~20 arrows along the longer side
+        stride = max(1, max(H, W) // 20)
+        half = stride // 2
+        ys = np.arange(half, H, stride)
+        xs = np.arange(half, W, stride)
+        grid_y, grid_x = np.meshgrid(ys, xs, indexing="ij")
+        gy = grid_y.ravel()
+        gx = grid_x.ravel()
+
+        vx_s = vx_comp[gy, gx]
+        vy_s = vy_comp[gy, gx]
+
+        # Scale: stride * 0.75 / p95_magnitude  (image pixels per voxel unit)
+        mags = np.sqrt(vx_s**2 + vy_s**2)
+        nonzero = mags[mags > 0]
+        p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
+        scale = float(stride * 0.75 / max(p95, 1e-9))
+
+        arrows = [
+            [int(gx[i]), int(gy[i]), float(vx_s[i]), float(vy_s[i])]
+            for i in range(len(gx))
+        ]
+        return {"arrows": arrows, "scale": scale, "stride": int(stride)}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response(status_code=500, content=str(e).encode(), media_type="text/plain")
+
+
+@app.post("/attach_vectorfield")
+async def attach_vectorfield(request: Request):
+    """Attach a vector field to an existing session (for the existing-server code path)."""
+    body = await request.json()
+    sid = str(body["sid"])
+    filepath = str(body["filepath"])
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": f"session {sid} not found"}
+    try:
+        vf_data = load_data(filepath)
+        session.vfield = vf_data
+        return {"ok": True}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/pixel/{sid}")
@@ -2721,6 +2799,7 @@ def _serve_daemon(
     overlay_sid: str = None,
     compare_filepath: str = None,
     compare_sid: str = None,
+    vfield_filepath: str = None,
 ) -> None:
     """Background server process. Loads data, serves it, exits when the UI closes.
     cleanup=True: delete filepath after loading (used when it is a temp file).
@@ -2733,6 +2812,13 @@ def _serve_daemon(
             pass
     session = Session(data, filepath=None if cleanup else filepath, name=name)
     session.sid = sid
+    if vfield_filepath:
+        try:
+            vf_data = load_data(vfield_filepath)
+            session.vfield = vf_data
+            print(f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}", flush=True)
+        except Exception as e:
+            print(f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}", flush=True)
     SESSIONS[session.sid] = session
     if overlay_filepath and overlay_sid:
         try:
@@ -2798,6 +2884,15 @@ def arrayview():
         "--compare",
         metavar="FILE",
         help="Deprecated: second array for side-by-side compare mode",
+    )
+    parser.add_argument(
+        "--vectorfield",
+        metavar="FILE",
+        help=(
+            "Deformation vector field to overlay as arrows. "
+            "Must have the same spatial shape as the image plus a trailing dimension of size 3 "
+            "(displacements along each spatial axis)."
+        ),
     )
     args = parser.parse_args()
     if len(args.files) > 6:
@@ -2911,6 +3006,23 @@ def arrayview():
             if "error" in result:
                 print(f"Error from server: {result['error']}")
                 sys.exit(1)
+
+            # Attach vector field to the newly loaded session
+            if args.vectorfield:
+                vf_body = json.dumps({
+                    "sid": result["sid"],
+                    "filepath": os.path.abspath(args.vectorfield),
+                }).encode()
+                vf_req = urllib.request.Request(
+                    f"http://127.0.0.1:{args.port}/attach_vectorfield",
+                    data=vf_body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(vf_req, timeout=5) as resp:
+                    vf_result = json.loads(resp.read())
+                if "error" in vf_result:
+                    print(f"Warning: failed to attach vector field: {vf_result['error']}")
         except Exception as e:
             print(
                 f"Error: port {args.port} is in use by another process. "
@@ -2948,12 +3060,14 @@ def arrayview():
         _configure_vscode_port_preview(args.port)
 
     # Spawn background server — exits automatically when the window/tab is closed
+    vfield_abs = os.path.abspath(args.vectorfield) if args.vectorfield else None
     script = (
         f"from arrayview._app import _serve_daemon;"
         f"_serve_daemon("
         f"{repr(base_file)}, {args.port}, {repr(sid)},"
         f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
         f" overlay_sid={repr(overlay_sid)},"
+        f" vfield_filepath={repr(vfield_abs)},"
         f")"
     )
     subprocess.Popen(
