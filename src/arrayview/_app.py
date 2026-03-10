@@ -2031,7 +2031,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.6"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.7"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -2244,7 +2244,7 @@ def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
     )
 
 
-def _schedule_remote_open_retries(url: str, interval: float = 25.0, count: int = 2) -> None:
+def _schedule_remote_open_retries(url: str, interval: float = 7.0, count: int = 6) -> None:
     """Re-send the open-preview signal if no viewer WebSocket has connected yet.
 
     In remote/tunnel sessions the port may be private on first open (user sees
@@ -2909,6 +2909,27 @@ def _view_subprocess(
     return url_viewer
 
 
+def _serve_empty(port: int) -> None:
+    """Background server process with no sessions. Runs until killed.
+
+    Used for ``arrayview --serve`` (pre-warm) and on remote tunnel sessions so
+    the port stays alive across multiple tab opens/closes without requiring the
+    user to re-run ``--serve`` or re-set port visibility.
+    """
+    threading.Thread(
+        target=lambda: uvicorn.run(
+            app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+        ),
+        daemon=True,
+    ).start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    os._exit(0)
+
+
 def _serve_daemon(
     filepath: str,
     port: int,
@@ -2920,8 +2941,11 @@ def _serve_daemon(
     compare_filepath: str = None,
     compare_sid: str = None,
     vfield_filepath: str = None,
+    persist: bool = False,
 ) -> None:
-    """Background server process. Loads data, serves it, exits when the UI closes.
+    """Background server process. Loads data, serves it.
+    persist=True: never exits (used on remote tunnel so port stays alive).
+    persist=False: exits when the UI closes (default, used locally).
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
     data = load_data(filepath)
@@ -2969,11 +2993,18 @@ def _serve_daemon(
         ),
         daemon=True,
     ).start()
-    _wait_for_viewer_close()
-    print(
-        f"\033[32m[ArrayView] Server stopped. Port {port} is now available.\033[0m",
-        flush=True,
-    )
+    if persist:
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+    else:
+        _wait_for_viewer_close()
+        print(
+            f"\033[32m[ArrayView] Server stopped. Port {port} is now available.\033[0m",
+            flush=True,
+        )
     os._exit(0)
 
 
@@ -2982,7 +3013,7 @@ def arrayview():
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     parser.add_argument(
         "files",
-        nargs="+",
+        nargs="*",
         metavar="FILE",
         help=(
             "Array paths. First path is the base array; optional additional paths "
@@ -2990,6 +3021,15 @@ def arrayview():
         ),
     )
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help=(
+            "Start a persistent server on the given port without loading any data. "
+            "Useful on VS Code remote tunnel: run this first, set the port to Public "
+            "in the Ports tab, then use 'arrayview FILE' freely."
+        ),
+    )
     parser.add_argument(
         "--browser",
         action="store_true",
@@ -3015,12 +3055,43 @@ def arrayview():
         ),
     )
     args = parser.parse_args()
-    if len(args.files) > 6:
+    if not args.serve and not args.files:
+        parser.error("provide at least one FILE, or use --serve to start the server without loading data")
+    if args.files and len(args.files) > 6:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
         )
     if args.compare and len(args.files) > 1:
         parser.error("Use either positional compare files or --compare, not both.")
+
+    # ── --serve: start a persistent empty server and exit ──────────────────
+    if args.serve:
+        if _server_alive(args.port):
+            print(
+                f"[ArrayView] Server already running on port {args.port}. "
+                "Set port to Public in VS Code Ports tab if not done yet, "
+                "then run: arrayview your_file.npy"
+            )
+            return
+        if _port_in_use(args.port):
+            print(
+                f"Error: port {args.port} is in use by another process. "
+                "Use --port to pick another."
+            )
+            sys.exit(1)
+        script = f"from arrayview._app import _serve_empty; _serve_empty({args.port})"
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        if not _wait_for_port(args.port, timeout=15.0):
+            print(f"Error: ArrayView server failed to start on port {args.port}.")
+            sys.exit(1)
+        print(
+            f"\n  \033[1;36m→ ArrayView server started on port {args.port} (PID {proc.pid})\033[0m\n"
+            f"\n  Remote tunnel setup:\n"
+            f"    1. VS Code Ports tab → port {args.port} → right-click → Port Visibility → Public\n"
+            f"    2. Then run: arrayview your_file.npy\n"
+            f"\n  Server stays running until you kill it (kill {proc.pid}).\n"
+        )
+        return
 
     base_file = os.path.abspath(args.files[0])
     compare_files = [os.path.abspath(p) for p in args.files[1:]]
@@ -3174,7 +3245,11 @@ def arrayview():
     if not use_webview:
         _configure_vscode_port_preview(args.port)
 
-    # Spawn background server — exits automatically when the window/tab is closed
+    # Spawn background server.
+    # On remote tunnel: persist=True so the server survives tab closes and the
+    # port stays public across multiple arrayview invocations.
+    # Locally: persist=False so the port is freed when the last tab closes.
+    is_remote = _is_vscode_remote()
     vfield_abs = os.path.abspath(args.vectorfield) if args.vectorfield else None
     script = (
         f"from arrayview._app import _serve_daemon;"
@@ -3183,6 +3258,7 @@ def arrayview():
         f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
         f" overlay_sid={repr(overlay_sid)},"
         f" vfield_filepath={repr(vfield_abs)},"
+        f" persist={is_remote},"
         f")"
     )
     subprocess.Popen(
