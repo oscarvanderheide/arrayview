@@ -3204,6 +3204,11 @@ def arrayview():
         help="Deprecated: use --window browser",
     )
     parser.add_argument(
+        "--kill",
+        action="store_true",
+        help="Kill the ArrayView server running on --port (default 8000) and exit",
+    )
+    parser.add_argument(
         "--overlay",
         metavar="FILE",
         help="Segmentation mask to overlay (binary 0/1 array, same spatial shape)",
@@ -3223,7 +3228,7 @@ def arrayview():
         ),
     )
     args = parser.parse_args()
-    if not args.serve and not args.files:
+    if not args.serve and not args.kill and not args.files:
         parser.error("provide at least one FILE, or use --serve to start the server without loading data")
     if args.files and len(args.files) > 6:
         parser.error(
@@ -3231,6 +3236,44 @@ def arrayview():
         )
     if args.compare and len(args.files) > 1:
         parser.error("Use either positional compare files or --compare, not both.")
+
+    # ── --kill: stop the server on the given port ──────────────────────────
+    if args.kill:
+        import signal as _signal
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
+            )
+            killed = False
+            for line in result.stdout.splitlines():
+                if f":{args.port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    try:
+                        pid = int(parts[-1])
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
+                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
+                        killed = True
+                    except Exception as e:
+                        print(f"[ArrayView] Failed to kill process: {e}")
+            if not killed:
+                print(f"[ArrayView] No process found listening on port {args.port}")
+        else:
+            result = subprocess.run(
+                ["lsof", "-ti", f"tcp:{args.port}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+            )
+            pids = [int(p) for p in result.stdout.strip().split() if p.strip().isdigit()]
+            if not pids:
+                print(f"[ArrayView] No process found listening on port {args.port}")
+            else:
+                for pid in pids:
+                    try:
+                        os.kill(pid, _signal.SIGTERM)
+                        print(f"[ArrayView] Killed process {pid} on port {args.port}")
+                    except ProcessLookupError:
+                        pass
+        return
 
     # ── --serve: start a persistent empty server and exit ──────────────────
     if args.serve:
