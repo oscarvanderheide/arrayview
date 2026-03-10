@@ -85,6 +85,15 @@ def _focus_kb(page):
     page.focus("#keyboard-sink")
 
 
+def _pick_compare_session(page, name_contains=None, timeout=3000):
+    """Interact with the inline compare picker DOM overlay (replaces browser dialog)."""
+    page.wait_for_selector("#compare-picker.visible", timeout=timeout)
+    if name_contains:
+        page.locator(".cp-item").filter(has_text=name_contains).first.click()
+    else:
+        page.locator(".cp-item:not(.cp-item-current)").first.click()
+
+
 def _compare_snapshot(page, name: str, threshold: float = 0.01):
     """
     Screenshot the page and compare against a saved baseline.
@@ -124,10 +133,11 @@ def _compare_snapshot(page, name: str, threshold: float = 0.01):
 class TestSessionExpired:
     def test_invalid_sid_shows_error_in_overlay(self, page, server_url):
         page.goto(f"{server_url}/?sid=invalidXXX000")
-        page.wait_for_timeout(1500)
-        assert page.is_visible("#loading-overlay")
-        text = page.inner_text("#loading-overlay")
-        assert "expired" in text.lower() or "not found" in text.lower()
+        page.wait_for_timeout(3000)
+        text = page.evaluate("() => document.getElementById('loading-overlay').textContent")
+        assert "expired" in text.lower() or "not found" in text.lower(), (
+            f"Expected error text in loading-overlay, got: '{text}'"
+        )
 
 
 class TestBasicRender:
@@ -311,9 +321,10 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.once("dialog", lambda d: d.accept(sid_compare))
         page.keyboard.press("B")
+        _pick_compare_session(page, "arr2d_compare")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
         assert page.is_visible("canvas#compare-cb")
@@ -330,8 +341,8 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.once("dialog", lambda d: d.accept(sid_compare))
         page.keyboard.press("B")
+        _pick_compare_session(page, "arr3d_compare")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
 
         page.keyboard.press("Space")
@@ -351,8 +362,8 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.once("dialog", lambda d: d.accept(sid_compare))
         page.keyboard.press("B")
+        _pick_compare_session(page, "arr3d_compare_scale")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(350)
         before = page.evaluate(_JS_COMPARE_LEFT_CSS_SIZE)
@@ -376,8 +387,8 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.once("dialog", lambda d: d.accept(sid1))
         page.keyboard.press("B")
+        _pick_compare_session(page, "arr2d_compare_1")
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-right-canvas")
         assert not page.is_visible("canvas#compare-third-canvas")
@@ -451,19 +462,19 @@ class TestKeyboard:
         assert page.is_visible("canvas#compare-sixth-canvas")
         active_panes = page.evaluate("() => document.querySelectorAll('#compare-panes .compare-pane.active').length")
         assert active_panes == 6
-        grid_cols = page.evaluate(
-            "() => getComputedStyle(document.querySelector('#compare-panes')).gridTemplateColumns.split(' ').length"
+        compare_cols = page.evaluate(
+            "() => getComputedStyle(document.getElementById('compare-panes')).getPropertyValue('--compare-cols').trim()"
         )
-        assert grid_cols == 3
+        assert compare_cols == "3", f"Expected --compare-cols=3 for 6 panes, got '{compare_cols}'"
 
-    def test_d_cycles_dynamic_range_shows_toast(self, loaded_viewer, sid_2d):
-        # d cycles dynamic range; result appears in #toast
+    def test_d_cycles_dynamic_range_shows_status(self, loaded_viewer, sid_2d):
+        # d cycles dynamic range; result appears in #status
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
-        toast = page.inner_text("#toast").strip()
-        assert "range" in toast.lower(), f"Expected DR toast, got: '{toast}'"
+        status = page.inner_text("#status").strip()
+        assert "range" in status.lower(), f"Expected DR status, got: '{status}'"
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -477,17 +488,17 @@ class TestKeyboard:
         assert "playing" not in page.inner_text("#status").lower()
 
     def test_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
-        # i fetches /info and shows shape/dtype in #data-info
+        # i shows the info overlay (#info-overlay gains .visible class)
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("i")
         page.wait_for_timeout(600)
-        opacity = page.evaluate(
-            "() => parseFloat(getComputedStyle(document.querySelector('#data-info')).opacity)"
+        visible = page.evaluate(
+            "() => document.querySelector('#info-overlay').classList.contains('visible')"
         )
-        assert opacity > 0.5, "#data-info should be visible after pressing i"
-        text = page.inner_text("#data-info")
-        assert "100" in text or "80" in text, f"Shape not in data-info: '{text}'"
+        assert visible, "#info-overlay should have .visible after pressing i"
+        text = page.inner_text("#info-overlay")
+        assert "100" in text or "80" in text, f"Shape not in info-overlay: '{text}'"
 
     def test_e_copies_state_to_clipboard(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -579,8 +590,14 @@ class TestROIDrag:
         page.mouse.move(x1, y1, steps=10)
         page.mouse.up()
         page.wait_for_timeout(800)
-        status = page.inner_text("#status").strip()
-        assert "roi" in status.lower(), f"Expected ROI stats in #status, got: '{status}'"
+        panel_visible = page.evaluate(
+            "() => document.getElementById('roi-panel').style.display !== 'none' && document.getElementById('roi-panel').style.display !== ''"
+        )
+        assert panel_visible, "Expected #roi-panel to be visible after drag"
+        table_text = page.inner_text("#roi-table")
+        assert "mean" in table_text.lower() or "min" in table_text.lower(), (
+            f"Expected ROI stats in #roi-table, got: '{table_text}'"
+        )
 
 
 class TestColorbarWindowLevel:

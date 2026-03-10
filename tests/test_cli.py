@@ -34,7 +34,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch):
     monkeypatch.setattr(appmod, "_server_alive", lambda _: True)
     monkeypatch.setattr(appmod, "_port_in_use", lambda _: False)
     monkeypatch.setattr(appmod, "_can_native_window", lambda: False)
-    monkeypatch.setattr(appmod, "_open_browser", lambda url, blocking=False: opened.setdefault("url", url))
+    monkeypatch.setattr(appmod, "_open_browser", lambda url, blocking=False, force_vscode=False: opened.setdefault("url", url))
 
     def fake_urlopen(req, timeout=5):
         body = json.loads((req.data or b"{}").decode())
@@ -83,7 +83,7 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch):
     monkeypatch.setattr(
         appmod,
         "_open_browser",
-        lambda url, blocking=False: opened.setdefault("url", url),
+        lambda url, blocking=False, force_vscode=False: opened.setdefault("url", url),
     )
 
     def fake_urlopen(req, timeout=5):

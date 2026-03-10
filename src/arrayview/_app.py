@@ -1877,18 +1877,19 @@ def get_ui(sid: str = None):
     # VS Code Simple Browser internally calls asExternalUri() which strips query
     # parameters, so ?sid= is often lost before the page loads.  Embed the SID
     # directly in the HTML so the viewer JS can find it regardless of the URL.
-    if not sid or sid not in SESSIONS:
+    if not sid:
+        # No sid in URL — VS Code Simple Browser strips the query string before
+        # loading the page, so ?sid= is lost.  Inject the latest valid session
+        # server-side so the viewer JS can find it regardless of the URL.
         if SESSIONS:
             latest_sid = list(SESSIONS.keys())[-1]
-            # VS Code Simple Browser strips the query string before loading the page,
-            # so ?sid= is lost. We inject it server-side so the viewer JS can find it.
-            # We also force HTTP transport because VS Code's webview blocks WebSocket
-            # connections to ws://localhost — HTTP fetch() works fine instead.
             query_val = json.dumps(f"?sid={latest_sid}&transport=http")
         else:
             query_val = "null"   # viewer will show "Session not found or expired"
     else:
-        query_val = "null"       # valid SID is already in the URL; use window.location.search
+        # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
+        # and handle errors itself (shows "Session not found or expired" on 404).
+        query_val = "null"
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
