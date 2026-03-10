@@ -227,6 +227,8 @@
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
         #mode-eggs { flex-shrink: 0; min-height: 1.6em; display: flex; align-items: center; justify-content: center; cursor: default; }
+        .mode-badge-complex { transition: opacity 0.9s ease; }
+        .mode-badge-complex.fading { opacity: 0; }
         :root.zen-mode #mode-eggs { display: none; }
         .help-footer kbd {
             display: inline-block;
@@ -747,7 +749,8 @@
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
         let _eggsVisible = true;
-        let _complexEggHidden = false;
+        let _complexEggVisible = false;
+        let _complexFadeTimer = null;
         let pixelHoverPending = false;
         let cbMarkerFrac = null;
         let flip_x = false, flip_y = false;
@@ -1693,13 +1696,13 @@
             if (!_eggsVisible || zenMode || compareActive) { el.innerHTML = ''; return; }
             let html = '';
             if (_fftActive)
-                html += `<span class="mode-badge mode-badge-fft" data-egg="fft" title="Click to exit FFT">FFT</span>`;
+                html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
-                html += `<span class="mode-badge mode-badge-log" data-egg="log" title="Click to disable log scale">LOG</span>`;
-            if (complexModeEverUsed && !_complexEggHidden)
-                html += `<span class="mode-badge mode-badge-complex" data-egg="complex" title="Click to dismiss">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
+                html += `<span class="mode-badge mode-badge-log">LOG</span>`;
+            if (_complexEggVisible)
+                html += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
             if (maskLevel > 0)
-                html += `<span class="mode-badge mode-badge-mask" data-egg="mask" title="Click to remove mask">MASK</span>`;
+                html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
             el.innerHTML = html;
         }
 
@@ -2246,34 +2249,6 @@
                 document.getElementById('info-overlay').classList.remove('visible');
         });
         document.addEventListener('click', () => sink.focus());
-        document.getElementById('mode-eggs').addEventListener('click', (e) => {
-            const egg = e.target.closest('[data-egg]')?.dataset?.egg;
-            if (!egg) return;
-            if (egg === 'complex') {
-                _complexEggHidden = true;
-                renderEggs();
-            } else if (egg === 'log') {
-                logScale = false;
-                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                renderInfo(); renderEggs(); saveState();
-            } else if (egg === 'mask') {
-                maskLevel = 0;
-                fetch(`/mask/${sid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ level: 0, free_dims: [], indices: indices.join(',') }),
-                }).then(() => { updateView(); triggerPreload(); renderEggs(); saveState(); });
-            } else if (egg === 'fft') {
-                fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
-                    .then(r => r.json()).then(d => {
-                        _fftActive = false;
-                        isComplex = d.is_complex || false;
-                        if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
-                        updateView(); triggerPreload(); renderEggs();
-                    });
-            }
-        });
-
         window.addEventListener('focus', () => sink.focus());
 
         canvas.addEventListener('mousemove', (e) => {
@@ -2469,7 +2444,20 @@
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
                 _eggsVisible = true;
-                _complexEggHidden = false;
+                _complexEggVisible = true;
+                clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
+                // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
+                if (complexMode === 0) {
+                    _complexFadeTimer = setTimeout(() => {
+                        const badge = document.querySelector('.mode-badge-complex');
+                        if (badge) badge.classList.add('fading');
+                        _complexFadeTimer = setTimeout(() => {
+                            _complexEggVisible = false;
+                            _complexFadeTimer = null;
+                            renderEggs();
+                        }, 900);
+                    }, 2000);
+                }
                 updateView(); triggerPreload();
                 renderInfo();
                 renderEggs();
