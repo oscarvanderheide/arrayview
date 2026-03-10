@@ -271,11 +271,11 @@
         }
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
-        #mv-panes { display: flex; align-items: flex-start; justify-content: space-evenly; flex: 0 0 auto; gap: 8px; }
+        #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; }
         #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
-        .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 8px; flex: 1; min-width: 0; }
+        .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .mv-canvas-wrap.canvas-bordered { outline: 1px solid var(--border); }
@@ -785,10 +785,15 @@
         function scaleCanvas(w, h) {
             const baseScale = getBaseScale(w, h);
             const finalScale = baseScale * userZoom;
-            canvas.style.width  = Math.round(w * finalScale) + 'px';
-            canvas.style.height = Math.round(h * finalScale) + 'px';
+            const cssW = Math.round(w * finalScale);
+            const cssH = Math.round(h * finalScale);
+            canvas.style.width  = cssW + 'px';
+            canvas.style.height = cssH + 'px';
             if (hasVectorfield) drawVectorOverlay();
             drawSlimColorbar(cbMarkerFrac);
+            const maxW = window.innerWidth - 80;
+            const maxH = window.innerHeight - 120;
+            if (cssW >= maxW || cssH >= maxH) return 'max';
         }
 
         function compareScaleCanvases() {
@@ -2115,11 +2120,14 @@
                 return;
             }
             if (e.key === '+' || e.key === '=') {
+                const prevZoom = userZoom;
                 userZoom = Math.min(userZoom * 1.1, 10.0);
-                if (multiViewActive) mvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else if (qmriActive) qvScaleAllCanvases();
-                else scaleCanvas(canvas.width, canvas.height);
+                let atMax = false;
+                if (multiViewActive)    { atMax = mvScaleAllCanvases() === 'max'; }
+                else if (compareActive) { compareScaleCanvases(); }
+                else if (qmriActive)    { atMax = qvScaleAllCanvases() === 'max'; }
+                else                    { atMax = scaleCanvas(canvas.width, canvas.height) === 'max'; }
+                if (atMax) { userZoom = prevZoom; showStatus('zoom: max'); return; }
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
@@ -2978,17 +2986,25 @@
             for (const v of ready) {
                 minScale = Math.min(minScale, (paneW - 4) / v.lastW, (paneH - 4) / v.lastH);
             }
-            minScale = Math.max(0.01, minScale * userZoom);
+            const absMaxScaleW = (window.innerWidth  - 80 - (cols - 1) * gap) / cols;
+            const absMaxScaleH = (window.innerHeight - uiReserveH - (rows - 1) * gap) / rows;
+            const absMaxScale = Math.min(...ready.map(v =>
+                Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
+            const scaledMin = Math.max(0.01, minScale * userZoom);
+            const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
+            const atMax = scaledMin > absMaxScale + 0.001;
             for (const v of ready) {
-                v.canvas.style.width  = Math.round(v.lastW * minScale) + 'px';
-                v.canvas.style.height = Math.round(v.lastH * minScale) + 'px';
+                v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
+                v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
             }
+            return atMax ? 'max' : null;
         }
 
         function drawQvSlimCb(v) {
             if (!v.cbCanvas) return;
-            const cssW = parseInt(v.canvas.style.width);
-            if (!cssW || cssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
+            const canvasCssW = parseInt(v.canvas.style.width);
+            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
+            const cssW = v.area ? Math.min(canvasCssW, v.area.clientWidth - 4) : canvasCssW;
             if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
@@ -3493,7 +3509,12 @@
             const gap = 16;
             const availH = Math.max(50, (window.innerHeight - uiReserveH) * 0.65);
             const availW = Math.max(50, (window.innerWidth - 80 - gap * 2) / 3 * 0.65);
-            const T = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
+            const absMaxT = Math.min(
+                Math.max(50, window.innerHeight - uiReserveH),
+                Math.max(50, (window.innerWidth - 80 - gap * 2) / 3)
+            );
+            const requestedT = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
+            const T = Math.min(requestedT, absMaxT);
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
             const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
@@ -3507,7 +3528,12 @@
                     v.wrap.style.width  = cssW + 'px';
                     v.wrap.style.height = cssH + 'px';
                 }
+                if (v.pane) {
+                    v.pane.style.width  = T + 'px';
+                    v.pane.style.height = T + 'px';
+                }
             }
+            return requestedT > absMaxT ? 'max' : null;
         }
 
         // Multi-view drag: continue tracking even when mouse leaves the canvas
