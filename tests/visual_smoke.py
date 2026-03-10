@@ -34,7 +34,7 @@ DISPLAY
   c               cycle colormap            ✓ 02-03
   C               custom colormap (dialog)  ✗ (requires dialog input)
   d               cycle dynamic range       ✓ 17
-  D               manual vmin/vmax (dialog) ✗ (requires dialog input)
+  D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
   B               compare picker (dialog)   ✗ (requires dialog input)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
@@ -49,6 +49,7 @@ DISPLAY
 
 INFO & EXPORT
   hover           pixel value + cb marker   ✓ 15
+  H               toggle pixel hover tip    ✓ 43
   i               data info overlay         ✓ 27
   s               save screenshot           ✗ (triggers download dialog)
   g               save GIF                  ✗ (triggers download dialog)
@@ -508,6 +509,33 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(800)
     _shot(page, "42b_fft_active")
     _press(page, "f", wait=400)         # FFT off
+
+    # ── 43: H key — toggle pixel hover tooltip ───────────────────────────────
+    _goto(page, base, sid2d)
+    _focus(page)
+    # Hover over canvas to show tooltip, then toggle off with H
+    canvas = page.locator("canvas").first
+    canvas.hover()
+    page.wait_for_timeout(300)
+    _shot(page, "43a_hover_tooltip_on")
+    _press(page, "H", wait=200)
+    _shot(page, "43b_hover_tooltip_off_status")
+    _press(page, "H", wait=200)
+    _shot(page, "43c_hover_tooltip_back_on")
+
+    # ── 44: D key — manual vmin/vmax via inline prompt ───────────────────────
+    _goto(page, base, sid2d)
+    _focus(page)
+    _press(page, "D", wait=400)         # opens inline prompt for vmin
+    _shot(page, "44a_D_vmin_prompt")
+    page.locator("#inline-prompt-input").fill("0.2")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(400)          # opens inline prompt for vmax
+    _shot(page, "44b_D_vmax_prompt")
+    page.locator("#inline-prompt-input").fill("0.8")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(400)
+    _shot(page, "44c_D_range_locked")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
