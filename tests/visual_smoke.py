@@ -25,7 +25,7 @@ AXES & VIEWS
   y               swap y dim with slice     ✓ 22
   z               mosaic mode (4D+ only)    ✓ 09 (arr_4d + z key)
   v               3-plane multiview         ✓ 08
-  V               3-plane custom dims       ✗ (needs dim picker interaction)
+  V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
   q               qMRI mode                 ✓ 10-12
 
@@ -41,10 +41,10 @@ DISPLAY
   [ / ]           registration blend        ✓ 24, 37
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
-  L               log scale                 ✓ 18, 40a (LOG egg)
-  M               mask threshold            ✗ (visual effect subtle)
-  m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg)
-  f               centred FFT (dialog)      ✗ (requires dialog input)
+  L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs)
+  M               mask threshold            ✓ 40f (MASK egg in #mode-eggs)
+  m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs)
+  f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
   T               cycle theme               ✓ 26
 
 INFO & EXPORT
@@ -78,7 +78,9 @@ STABILITY (keys must not cause UI element jumps)
   registration arrays (phantom)             ✓ 37 (shifted ellipse, reg overlay)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
   compare diff view (X key)                ✓ 39 (A−B, |A−B|, relative)
-  LOG and complex eggs                      ✓ 40 (badges in info bar)
+  LOG, complex, and mask eggs               ✓ 40 (badges in #mode-eggs below canvas)
+  V custom multiview dims                   ✓ 41 (inline prompt)
+  f FFT via inline prompt                   ✓ 42 (inline prompt)
 
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
@@ -462,22 +464,50 @@ def run_smoke(page, base, client, tmp):
     _press(page, "Shift+X", wait=400)  # diff: off
     _shot(page, "39e_diff_off")
 
-    # ── 40: LOG and complex mode eggs ────────────────────────────────────────
+    # ── 40: LOG, complex, and mask eggs in #mode-eggs ────────────────────────
     _goto(page, base, sid3d)
     _focus(page)
-    _press(page, "Shift+L", wait=400)  # LOG on
+    _press(page, "Shift+L", wait=400)  # LOG on → LOG egg
     _shot(page, "40a_log_egg")
     _press(page, "Shift+L", wait=200)  # LOG off
+    _press(page, "Shift+M", wait=600)  # MASK on → MASK egg
+    _shot(page, "40f_mask_egg")
+    _press(page, "Shift+M", wait=400)  # cycle back off (level 0)
+    for _ in range(6): _press(page, "Shift+M", wait=200)
     _goto(page, base, sidC)
     _focus(page)
-    _press(page, "m", wait=400)        # first press: PHA badge appears
-    _shot(page, "40b_complex_egg_pha")
-    _press(page, "m", wait=300)        # REA
-    _shot(page, "40c_complex_egg_rea")
-    _press(page, "m", wait=300)        # IMA
-    _shot(page, "40d_complex_egg_ima")
-    _press(page, "m", wait=300)        # back to magnitude (no badge)
-    _shot(page, "40e_complex_mag_no_egg")
+    _press(page, "m", wait=400)        # first press: MAGNITUDE egg appears
+    _shot(page, "40b_complex_egg_magnitude")
+    _press(page, "m", wait=300)        # PHASE
+    _shot(page, "40c_complex_egg_phase")
+    _press(page, "m", wait=300)        # REAL
+    _shot(page, "40d_complex_egg_real")
+    _press(page, "m", wait=300)        # IMAG
+    _shot(page, "40e_complex_egg_imag")
+    _press(page, "m", wait=300)        # back to magnitude — egg stays (MAGNITUDE)
+    _shot(page, "40g_complex_mag_egg_persists")
+
+    # ── 41: V key — custom multiview dims via inline prompt ──────────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+    _press(page, "Shift+V", wait=600)   # opens inline prompt
+    _shot(page, "41a_custom_mv_prompt")
+    page.locator("#inline-prompt-input").fill("0,1,2")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    _shot(page, "41b_custom_mv_entered")
+    _press(page, "v", wait=400)         # exit multiview
+
+    # ── 42: f key — FFT via inline prompt ────────────────────────────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+    _press(page, "f", wait=600)         # opens inline prompt
+    _shot(page, "42a_fft_prompt")
+    page.locator("#inline-prompt-input").fill("0,1")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    _shot(page, "42b_fft_active")
+    _press(page, "f", wait=400)         # FFT off
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

@@ -21,7 +21,7 @@ import numpy as np
 import nibabel as nib
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 from PIL import Image
 from matplotlib import colormaps as mpl_colormaps
@@ -365,6 +365,18 @@ OVERLAY_COLOR = np.array([255, 80, 80], dtype=np.float32)
 OVERLAY_ALPHA = np.float32(0.45)
 
 app = FastAPI()
+
+
+@app.exception_handler(Exception)
+async def _generic_exception_handler(request: Request, exc: Exception):
+    import traceback
+    print(
+        f"[ArrayView] Unhandled error on {request.url.path}: {exc}\n"
+        + traceback.format_exc(),
+        flush=True,
+    )
+    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
+
 
 # ---------------------------------------------------------------------------
 # HTML Templates (loaded once at import time from package files)
@@ -2545,15 +2557,42 @@ def view(
     port: int = 8123,
     inline: bool | None = None,
     height: int = 500,
-    window: bool | None = None,
+    window: str | bool | None = None,
 ):
     """
     Launch the viewer. Does not block the main Python process.
-    window defaults to False in Jupyter (inline IFrame) and True elsewhere.
-    Each call opens a new viewer window/tab.
-    Returns an IPython IFrame in inline mode, otherwise returns the viewer URL.
+
+    ``window`` controls how the viewer opens:
+      - ``None``       auto: native window outside Jupyter, inline IFrame inside Jupyter
+      - ``True``       native window (falls back to browser if unavailable)
+      - ``False``      no automatic opening; returns URL
+      - ``'native'``   open in a native desktop window
+      - ``'browser'``  open in the system browser
+      - ``'vscode'``   open in VS Code Simple Browser
+      - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
+
+    # Normalise string window modes.
+    _force_browser = False
+    _force_vscode = False
+    if isinstance(window, str):
+        _w = window.lower()
+        if _w == "inline":
+            inline = True
+            window = False
+        elif _w == "native":
+            window = True
+        elif _w == "browser":
+            window = False
+            _force_browser = True
+        elif _w == "vscode":
+            window = False
+            _force_vscode = True
+        else:
+            raise ValueError(
+                f"window must be 'inline', 'native', 'browser', or 'vscode', got {window!r}"
+            )
 
     # Duck-typing: accept PyTorch tensors, JAX arrays, Julia/PythonCall arrays, etc.
     # Zarr and nibabel proxy arrays are already numpy-like and work without conversion.
@@ -2725,7 +2764,7 @@ def view(
         return IFrame(src=url_viewer, width="100%", height=height)
 
     can_native_window = _can_native_window() if window else False
-    if window and can_native_window:
+    if window and can_native_window and not _force_browser and not _force_vscode:
         try:
             if _window_process is not None and _window_process.poll() is None:
                 # Webview already open — inject new tab
@@ -2735,14 +2774,14 @@ def view(
             else:
                 _window_process = _open_webview_with_fallback(url_shell, win_w, win_h)
         except Exception:
-            _open_browser(url_viewer)
+            _open_browser(url_viewer, force_vscode=_force_vscode)
     else:
-        if window and not can_native_window:
+        if window and not can_native_window and not _force_browser and not _force_vscode:
             print(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
             )
-        _open_browser(url_viewer)
+        _open_browser(url_viewer, force_vscode=_force_vscode)
 
     _print_viewer_location(url_viewer)
     return url_viewer
@@ -2988,7 +3027,7 @@ def _view_subprocess(
             print("[ArrayView] Falling back to browser", flush=True)
             _open_browser(url_viewer)
     else:
-        _open_browser(url_viewer)
+        _open_browser(url_viewer, force_vscode=False)
     return url_viewer
 
 
@@ -3084,10 +3123,6 @@ def _serve_daemon(
             pass
     else:
         _wait_for_viewer_close()
-        print(
-            f"\033[32m[ArrayView] Server stopped. Port {port} is now available.\033[0m",
-            flush=True,
-        )
     os._exit(0)
 
 
