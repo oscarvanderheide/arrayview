@@ -97,10 +97,13 @@
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
-        #status { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
                   white-space: nowrap; pointer-events: none; z-index: 5; }
-        #pixel-info { margin-top: 2px; font-size: 15px; color: var(--text); height: 1.4em; line-height: 1.4; flex-shrink: 0; overflow: hidden; }
+        #pixel-info { position: fixed; font-size: 13px; color: var(--text);
+                      white-space: nowrap; pointer-events: none; z-index: 10;
+                      background: var(--surface-2); border: 1px solid var(--border);
+                      padding: 2px 7px; border-radius: 6px; display: none; }
         #preload-status { position: fixed; bottom: 20px; left: 20px;
                           font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
         #array-name {
@@ -111,7 +114,7 @@
         }
         #array-name svg { flex-shrink: 0; }
         :root.zen-mode .axes-indicator { display: none; }
-        :root.zen-mode #pixel-info { visibility: hidden; }
+        :root.zen-mode #pixel-info { display: none !important; }
         #toast {
             position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -229,7 +232,7 @@
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
-        #mode-eggs { flex-shrink: 0; min-height: 1.6em; display: flex; align-items: center; justify-content: center; cursor: default; }
+        #mode-eggs { position: fixed; top: 20px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; cursor: default; }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
         :root.zen-mode #mode-eggs { display: none; }
@@ -655,6 +658,7 @@
                 <div class="help-panel" data-help-panel="info">
                 <div class="help-panel-title">Info &amp; Export</div>
                 <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
+                <div class="help-row"><span class="key">H</span><span class="desc">toggle pixel hover tooltip</span></div>
                 <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
                 <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
@@ -728,6 +732,7 @@
 
         let cbVisible = true;
         let zenMode = false;
+        let _pixelInfoVisible = true;
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
@@ -862,7 +867,7 @@
 
         function uiReserveV() {
             let h = 30; // wrapper padding
-            for (const id of ['array-name', 'info', 'mode-eggs', 'pixel-info']) {
+            for (const id of ['array-name', 'info']) {
                 const el = document.getElementById(id);
                 if (el) {
                     const s = getComputedStyle(el);
@@ -1142,7 +1147,7 @@
                 cbMarkerFrac = null;
                 const pixelEl = document.getElementById('pixel-info');
                 pixelEl.textContent = '';
-                pixelEl.style.visibility = 'hidden';
+                pixelEl.style.display = 'none';
             }
             drawSlimColorbar(cbMarkerFrac);
             if (multiViewActive) drawMvColorbar();
@@ -1842,6 +1847,7 @@
                 customColormap,
                 themeIdx,
                 zenMode,
+                _pixelInfoVisible,
                 dim_x,
                 dim_y,
                 dim_z,
@@ -1899,6 +1905,7 @@
             if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
             else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
             setZenMode(!!s.zenMode, { silent: true });
+            _pixelInfoVisible = s._pixelInfoVisible ?? true;
 
             if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
             if (Number.isInteger(s.dim_y) && s.dim_y >= 0 && s.dim_y < shape.length) dim_y = s.dim_y;
@@ -2265,6 +2272,7 @@
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+            const cx = e.clientX, cy = e.clientY;
             fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
@@ -2274,14 +2282,18 @@
                         const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                         el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
-                        el.style.visibility = 'visible';
+                        if (_pixelInfoVisible) {
+                            el.style.left = (cx + 14) + 'px';
+                            el.style.top = (cy - 20) + 'px';
+                            el.style.display = '';
+                        }
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
                             cbMarkerFrac = (d.value - currentVmin) / range;
                             drawSlimColorbar(cbMarkerFrac);
                         }
                     } else {
-                        el.style.visibility = 'hidden';
+                        el.style.display = 'none';
                         cbMarkerFrac = null;
                         drawSlimColorbar(null);
                     }
@@ -2292,7 +2304,7 @@
                 roiDragging = false;
                 if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
             }
-            document.getElementById('pixel-info').style.visibility = 'hidden';
+            document.getElementById('pixel-info').style.display = 'none';
             cbMarkerFrac = null;
             drawSlimColorbar(null);
         });
@@ -2379,6 +2391,15 @@
                 applyCompareLayout();
                 drawCompareFramesFromCache();
                 showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+                saveState();
+            } else if (e.key === 'H') {
+                _pixelInfoVisible = !_pixelInfoVisible;
+                if (!_pixelInfoVisible) {
+                    document.getElementById('pixel-info').style.display = 'none';
+                    cbMarkerFrac = null;
+                    drawSlimColorbar(null);
+                }
+                showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                 saveState();
             } else if (e.key === 'Z') {
                 setZenMode(!zenMode);
@@ -2498,9 +2519,9 @@
                 showStatus(`range: ${DR_LABELS[dr_idx]}`);
                 saveState();
             } else if (e.key === 'D') {
-                const v1 = window.prompt('vmin:', _cbFmt(currentVmin));
+                const v1 = await showInlinePrompt('vmin:', _cbFmt(currentVmin));
                 if (v1 === null) return;
-                const v2 = window.prompt('vmax:', _cbFmt(currentVmax));
+                const v2 = await showInlinePrompt('vmax:', _cbFmt(currentVmax));
                 if (v2 === null) return;
                 const mn = parseFloat(v1), mx = parseFloat(v2);
                 if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
@@ -3040,6 +3061,7 @@
                     // Cursor feedback: grab when hovering over a crosshair line
                     const hj = mvCrossHairHit(view, px, py);
                     cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
+                    const mvcx = e.clientX, mvcy = e.clientY;
                     if (!mvPixelPending) {
                         const ipx = Math.floor(px), ipy = Math.floor(py);
                         mvPixelPending = true;
@@ -3051,13 +3073,17 @@
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                                     const el = document.getElementById('pixel-info');
                                     el.textContent = `(${ipx}, ${ipy}) = ${fmt(d.value)}`;
-                                    el.style.visibility = 'visible';
+                                    if (_pixelInfoVisible) {
+                                        el.style.left = (mvcx + 14) + 'px';
+                                        el.style.top = (mvcy - 20) + 'px';
+                                        el.style.display = '';
+                                    }
                                 }
                             });
                     }
                 });
                 cv.addEventListener('mouseleave', () => {
-                    if (!mvDraggingView) document.getElementById('pixel-info').style.visibility = 'hidden';
+                    if (!mvDraggingView) document.getElementById('pixel-info').style.display = 'none';
                 });
                 return view;
             });
@@ -3650,6 +3676,9 @@
             });
         }
 
+        // Crosshair colors match the miniview plane colors (red, green, blue).
+        const MV_PLANE_STROKES = ['rgba(255,90,90,0.75)', 'rgba(100,210,130,0.75)', 'rgba(80,170,255,0.75)'];
+
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
@@ -3663,7 +3692,6 @@
                 0, 0
             );
             v.ctx.save();
-            v.ctx.strokeStyle = 'rgba(255, 0, 0, 0.75)';
             let scale = 1;
             try {
                 const rectW = v.canvas.getBoundingClientRect().width;
@@ -3687,6 +3715,7 @@
                     if (len < 1e-10) return;
                     const ext = Math.max(v.lastW, v.lastH) * 2;
                     const dh = lh / len * ext, dv = lv / len * ext;
+                    v.ctx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
                     v.ctx.beginPath();
                     v.ctx.moveTo(chx - dh, chy - dv);
                     v.ctx.lineTo(chx + dh, chy + dv);
@@ -3696,7 +3725,13 @@
                 const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
                 const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
                 const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+                // Vertical line: color of the view whose sliceDir is v.dimX
+                const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
+                v.ctx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
+                // Horizontal line: color of the view whose sliceDir is v.dimY
+                const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
+                v.ctx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
             v.ctx.restore();
