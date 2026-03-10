@@ -75,6 +75,7 @@ STABILITY (keys must not cause UI element jumps)
   b — border toggle                         ✓ 35 (before/after)
   +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
   registration arrays (phantom)             ✓ 37 (shifted ellipse, reg overlay)
+  multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
 
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
@@ -433,6 +434,17 @@ def run_smoke(page, base, client, tmp):
     _press(page, "]"); _press(page, "]")
     _shot(page, "37c_reg_blend_increased")
     _press(page, "Shift+R")  # exit reg mode
+
+    # ── 38: multiview uniform cell sizes + zoom limit ────────────────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+    _press(page, "v", wait=1000)
+    _shot(page, "38a_mv_uniform_default")
+    for _ in range(15):
+        _press(page, "+", wait=80)  # zoom to max
+    _shot(page, "38b_mv_zoom_max")
+    _press(page, "0")  # reset zoom
+    _press(page, "v", wait=400)  # exit multiview
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
