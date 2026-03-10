@@ -1983,6 +1983,9 @@ def _can_native_window() -> bool:
         return False
     if _is_vscode_remote():
         return False
+    # Plain SSH (no VS Code): the display is on the client machine, not here.
+    if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"):
+        return False
     if sys.platform in ("darwin", "win32"):
         return True
     # Linux/BSD: need a display server AND pywebview's GUI bindings
@@ -2481,7 +2484,24 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
                 _open_via_signal_file(url)
                 opened = True
 
-        if not opened and not is_remote and not force_vscode:
+        is_plain_ssh = (
+            not is_remote
+            and not ipc
+            and not _in_vscode_terminal()
+            and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
+        )
+        if is_plain_ssh:
+            try:
+                port_hint = int(url.split(":")[2].split("/")[0].split("?")[0])
+            except Exception:
+                port_hint = parsed_port
+            print(
+                f"[ArrayView] SSH session detected — forward the port to access locally:\n"
+                f"  ssh -L {port_hint}:localhost:{port_hint} <user>@<remote>\n",
+                flush=True,
+            )
+
+        if not opened and not is_remote and not force_vscode and not is_plain_ssh:
             # Local fallback: open in system browser
             if sys.platform == "darwin":
                 try:
