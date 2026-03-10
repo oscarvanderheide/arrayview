@@ -127,6 +127,7 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
     """
     proc = _open_webview(url, win_w, win_h, capture_stderr=True)
     print(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
+    sockets_before = VIEWER_SOCKETS  # capture count so we detect a NEW connection
 
     def _read_stderr():
         try:
@@ -149,10 +150,12 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
                 _open_browser(url)
                 return
 
-        # Phase 2: process is alive — wait up to 8 s for a viewer WebSocket to connect
+        # Phase 2: process is alive — wait up to 8 s for a NEW viewer WebSocket to connect.
+        # We compare against sockets_before so an already-open browser tab doesn't
+        # falsely confirm that the native window launched successfully.
         for _ in range(80):
             time.sleep(0.1)
-            if VIEWER_SOCKETS > 0:
+            if VIEWER_SOCKETS > sockets_before:
                 print("[ArrayView] Native window connected successfully", flush=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(
