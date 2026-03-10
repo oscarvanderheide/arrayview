@@ -119,6 +119,34 @@
             opacity: 0; transition: opacity 0.6s ease;
             pointer-events: none; white-space: nowrap; z-index: 20;
         }
+        #inline-prompt {
+            display: none; position: fixed; inset: 0;
+            background: var(--overlay-bg);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 30; justify-content: center; align-items: center;
+        }
+        #inline-prompt.visible { display: flex; }
+        #inline-prompt-box {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 20px 24px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px; color: var(--text); min-width: 280px; max-width: 480px;
+        }
+        #inline-prompt-msg { margin-bottom: 10px; color: var(--text); line-height: 1.5; }
+        #inline-prompt-input {
+            width: 100%; box-sizing: border-box;
+            background: var(--surface-2); color: var(--text);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 6px 10px; font-size: 13px; font-family: inherit; outline: none;
+            margin-bottom: 12px;
+        }
+        #inline-prompt-input:focus { border-color: var(--active-dim); }
+        #inline-prompt-btns { display: flex; justify-content: flex-end; gap: 8px; }
+        .ip-btn {
+            padding: 5px 16px; border-radius: 6px; font-size: 12px; cursor: pointer;
+            border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+        }
+        .ip-btn-ok { background: var(--active-dim); color: #000; border-color: var(--active-dim); font-weight: 600; }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -166,14 +194,6 @@
             letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px;
             vertical-align: middle; line-height: 1.5; margin-left: 6px;
         }
-        .mode-badge-compare {
-            background: rgba(67, 97, 238, 0.18); color: #7b9ff5;
-            border: 1px solid rgba(67, 97, 238, 0.3);
-        }
-        .mode-badge-reg {
-            background: rgba(180, 142, 173, 0.18); color: #c4a8bf;
-            border: 1px solid rgba(180, 142, 173, 0.3);
-        }
         .mode-badge-fft {
             background: rgba(80, 200, 140, 0.15); color: #6ed4a8;
             border: 1px solid rgba(80, 200, 140, 0.25);
@@ -182,11 +202,15 @@
                               border: 1px solid rgba(230,160,30,0.25); }
         .mode-badge-complex { background: rgba(80,200,200,0.15); color: #6ed4d4;
                               border: 1px solid rgba(80,200,200,0.25); }
-        :root.light .mode-badge-compare { background: rgba(67,97,238,0.1); color: #3a5cc7; border-color: rgba(67,97,238,0.25); }
-        :root.light .mode-badge-reg { background: rgba(140,90,140,0.1); color: #8c5a8c; border-color: rgba(140,90,140,0.25); }
+        .mode-badge-mask    { background: rgba(200,80,80,0.15); color: #e07070;
+                              border: 1px solid rgba(200,80,80,0.25); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
+        :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
+        #mode-eggs { flex-shrink: 0; }
+        #mode-eggs:not(:empty) { margin-top: 4px; }
+        :root.zen-mode #mode-eggs { display: none; }
         .help-footer kbd {
             display: inline-block;
             border: 1px solid var(--border);
@@ -530,9 +554,20 @@
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="status"></div>
+    <div id="mode-eggs"></div>
     <div id="pixel-info"></div>
     <div id="toast"></div>
     <div id="preload-status"></div>
+    <div id="inline-prompt">
+        <div id="inline-prompt-box">
+            <div id="inline-prompt-msg"></div>
+            <input id="inline-prompt-input" type="text" autocomplete="off" spellcheck="false">
+            <div id="inline-prompt-btns">
+                <button class="ip-btn" id="inline-prompt-cancel">Cancel</button>
+                <button class="ip-btn ip-btn-ok" id="inline-prompt-ok">OK</button>
+            </div>
+        </div>
+    </div>
     <div id="help-hint">?</div>
     <canvas id="mv-orientation"></canvas>
     <div id="roi-panel"><table id="roi-table"></table></div>
@@ -794,7 +829,7 @@
 
         function uiReserveV() {
             let h = 30; // wrapper padding
-            for (const id of ['array-name', 'info', 'status', 'pixel-info', 'preload-status']) {
+            for (const id of ['array-name', 'info', 'status', 'mode-eggs', 'pixel-info', 'preload-status']) {
                 const el = document.getElementById(id);
                 if (el) {
                     const s = getComputedStyle(el);
@@ -1063,6 +1098,7 @@
             if (multiViewActive) drawMvColorbar();
             if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
             if (!opts.silent) showStatus(zenMode ? 'zen mode: on' : 'zen mode: off');
+            renderEggs();
         }
         function drawSlimColorbar(markerFrac) {
             const wrap = document.getElementById('slim-cb-wrap');
@@ -1606,6 +1642,23 @@
             return isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
         }
 
+        const COMPLEX_BADGE = ['MAGNITUDE', 'PHASE', 'REAL', 'IMAG'];
+        function renderEggs() {
+            const el = document.getElementById('mode-eggs');
+            if (!el) return;
+            if (zenMode || compareActive) { el.innerHTML = ''; return; }
+            let html = '';
+            if (_fftActive)
+                html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
+            if (logScale)
+                html += `<span class="mode-badge mode-badge-log">LOG</span>`;
+            if (complexModeEverUsed)
+                html += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
+            if (maskLevel > 0)
+                html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
+            el.innerHTML = html;
+        }
+
         function renderInfo() {
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
@@ -1660,20 +1713,8 @@
                 idxStr += `, <span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
             let text = `[${idxStr}]`;
-            if (_fftActive)
-                text += `<span class="mode-badge mode-badge-fft">FFT</span>`;
-            if (compareActive)
-                text += `<span class="mode-badge mode-badge-compare">COMPARE</span>`;
-            if (compareActive && registrationMode)
-                text += `<span class="mode-badge mode-badge-reg">REG</span>`;
-            if (!compareActive && !registrationMode) {
-                if (logScale)
-                    text += `<span class="mode-badge mode-badge-log">LOG</span>`;
-                const COMPLEX_BADGE = ['', 'PHA', 'REA', 'IMA'];
-                if (complexModeEverUsed && complexMode > 0 && COMPLEX_BADGE[complexMode])
-                    text += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode]}</span>`;
-            }
             document.getElementById('info').innerHTML = text;
+            renderEggs();
             const mainAxes = document.getElementById('main-axes-svg');
             mainAxes.style.display = dim_z >= 0 ? 'none' : '';
         }
@@ -1702,6 +1743,36 @@
                     statusFadeTimer = null;
                 }, 800);
             }, duration);
+        }
+
+        function showInlinePrompt(message, defaultValue = '') {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('inline-prompt');
+                const msgEl   = document.getElementById('inline-prompt-msg');
+                const inputEl = document.getElementById('inline-prompt-input');
+                const okBtn   = document.getElementById('inline-prompt-ok');
+                const cancelBtn = document.getElementById('inline-prompt-cancel');
+                msgEl.textContent = message;
+                inputEl.value = defaultValue;
+                overlay.classList.add('visible');
+                inputEl.focus();
+                inputEl.select();
+                function cleanup() {
+                    overlay.classList.remove('visible');
+                    okBtn.onclick = null;
+                    cancelBtn.onclick = null;
+                    inputEl.onkeydown = null;
+                    document.getElementById('keyboard-sink').focus();
+                }
+                function confirm() { const v = inputEl.value; cleanup(); resolve(v); }
+                function cancel()  { cleanup(); resolve(null); }
+                okBtn.onclick = confirm;
+                cancelBtn.onclick = cancel;
+                inputEl.onkeydown = e => {
+                    if (e.key === 'Enter')  { e.preventDefault(); confirm(); }
+                    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                };
+            });
         }
 
         function collectStateSnapshot() {
@@ -2175,7 +2246,7 @@
             drawSlimColorbar(null);
         });
 
-        sink.addEventListener('keydown', (e) => {
+        sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
@@ -2527,7 +2598,7 @@
                             showStatus('FFT: off');
                         });
                 } else {
-                    const axesStr = window.prompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
+                    const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
@@ -2745,9 +2816,9 @@
         }
 
         // --------------- Multi-view (3-plane) ---------------
-        function enterMultiViewPrompt() {
+        async function enterMultiViewPrompt() {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
-            const raw = window.prompt(
+            const raw = await showInlinePrompt(
                 `Spatial dims — enter 3 from 0\u2013${shape.length-1}, comma-separated:`, '0,1,2');
             if (raw === null) return;
             const dims = raw.split(',').map(s => parseInt(s.trim()));
