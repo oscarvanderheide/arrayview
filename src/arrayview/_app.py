@@ -1753,7 +1753,11 @@ def get_ui(sid: str = None):
     if not sid or sid not in SESSIONS:
         if SESSIONS:
             latest_sid = list(SESSIONS.keys())[-1]
-            query_val = json.dumps(f"?sid={latest_sid}")
+            # VS Code Simple Browser strips the query string before loading the page,
+            # so ?sid= is lost. We inject it server-side so the viewer JS can find it.
+            # We also force HTTP transport because VS Code's webview blocks WebSocket
+            # connections to ws://localhost — HTTP fetch() works fine instead.
+            query_val = json.dumps(f"?sid={latest_sid}&transport=http")
         else:
             query_val = "null"   # viewer will show "Session not found or expired"
     else:
@@ -1766,7 +1770,8 @@ def get_ui(sid: str = None):
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
     )
-    return HTMLResponse(content=html)
+    headers = {"Cache-Control": "no-store"}
+    return HTMLResponse(content=html, headers=headers)
 
 
 # ---------------------------------------------------------------------------
