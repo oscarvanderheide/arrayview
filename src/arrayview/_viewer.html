@@ -594,7 +594,7 @@
         const COMPLEX_MODES = __COMPLEX_MODES__;
         const REAL_MODES = __REAL_MODES__;
 
-        const urlParams = new URLSearchParams(window.__ARRAYVIEW_QUERY__ || window.location.search);
+        const urlParams = new URLSearchParams(__ARRAYVIEW_QUERY__ || window.location.search);
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
