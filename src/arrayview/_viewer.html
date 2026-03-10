@@ -147,6 +147,23 @@
             border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
         }
         .ip-btn-ok { background: var(--active-dim); color: #000; border-color: var(--active-dim); font-weight: 600; }
+        #compare-picker { display: none; position: fixed; inset: 0; background: var(--overlay-bg);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 30; justify-content: center; align-items: center; }
+        #compare-picker.visible { display: flex; }
+        #compare-picker-box { background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 16px 20px; min-width: 280px; max-width: 480px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+        #compare-picker-title { font-weight: 600; color: var(--text); margin-bottom: 10px; }
+        #compare-picker-list { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow-y: auto; margin-bottom: 12px; }
+        .cp-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
+            background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
+        .cp-item:hover, .cp-item:focus { border-color: var(--active-dim); outline: none; }
+        .cp-item-name { font-weight: 600; color: var(--text); }
+        .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; }
+        .cp-item-warn { color: var(--active-dim); font-size: 11px; }
+        #compare-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
+            cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -566,6 +583,13 @@
                 <button class="ip-btn" id="inline-prompt-cancel">Cancel</button>
                 <button class="ip-btn ip-btn-ok" id="inline-prompt-ok">OK</button>
             </div>
+        </div>
+    </div>
+    <div id="compare-picker">
+        <div id="compare-picker-box">
+            <div id="compare-picker-title">Compare with…</div>
+            <div id="compare-picker-list"></div>
+            <button id="compare-picker-cancel">Cancel</button>
         </div>
     </div>
     <div id="help-hint">?</div>
@@ -2672,8 +2696,7 @@
                     && baseMeta.shape.length === cmpMeta.shape.length
                     && baseMeta.shape.every((v, i) => Number(v) === Number(cmpMeta.shape[i]));
                 if (!sameShape) {
-                    showStatus(`compare: shape mismatch [${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}]`);
-                    return false;
+                    showStatus(`shape mismatch [${baseMeta.shape.join(',')}] vs [${cmpMeta.shape.join(',')}]`, 4000);
                 }
 
                 if (multiViewActive) exitMultiView();
@@ -2715,35 +2738,49 @@
             return candidates;
         }
 
+        function showComparePicker(candidates) {
+            return new Promise(resolve => {
+                const overlay  = document.getElementById('compare-picker');
+                const listEl   = document.getElementById('compare-picker-list');
+                const cancelBtn = document.getElementById('compare-picker-cancel');
+                listEl.innerHTML = '';
+                candidates.forEach(s => {
+                    const shapeMatch = Array.isArray(s.shape) && Array.isArray(shape)
+                        && s.shape.length === shape.length
+                        && s.shape.every((v, i) => Number(v) === Number(shape[i]));
+                    const item = document.createElement('div');
+                    item.className = 'cp-item';
+                    item.tabIndex = 0;
+                    item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                        + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
+                        + (!shapeMatch ? `<span class="cp-item-warn">shape differs from current</span>` : '');
+                    function pick() { cleanup(); resolve(s); }
+                    item.onclick = pick;
+                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+                    listEl.appendChild(item);
+                });
+                overlay.classList.add('visible');
+                const first = listEl.querySelector('.cp-item');
+                if (first) first.focus();
+                function cleanup() {
+                    overlay.classList.remove('visible');
+                    cancelBtn.onclick = null;
+                    document.getElementById('keyboard-sink').focus();
+                }
+                function cancel() { cleanup(); resolve(null); }
+                cancelBtn.onclick = cancel;
+                overlay.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } };
+            });
+        }
+
         async function enterComparePrompt() {
             const candidates = await getCompareCandidates();
             if (!candidates.length) {
                 showStatus('compare: load a second array first');
                 return;
             }
-            let defaultPick = '1';
-            if (compareSid) {
-                const idx = candidates.findIndex(s => s.sid === compareSid);
-                if (idx >= 0) defaultPick = String(idx + 1);
-            }
-            const options = candidates
-                .map((s, i) => `${i + 1}) ${s.name || '(unnamed)'} [${s.sid.slice(0, 8)}]`)
-                .join('\n');
-            const raw = window.prompt(`Side-by-side compare\nChoose array:\n${options}\n\nEnter number or sid:`, defaultPick);
-            if (raw === null) return;
-            const val = raw.trim();
-            if (!val) return;
-            let chosen = null;
-            const num = Number(val);
-            if (Number.isInteger(num) && num >= 1 && num <= candidates.length) {
-                chosen = candidates[num - 1];
-            } else {
-                chosen = candidates.find(s => s.sid === val || s.sid.startsWith(val));
-            }
-            if (!chosen) {
-                showStatus('compare: invalid selection');
-                return;
-            }
+            const chosen = await showComparePicker(candidates);
+            if (!chosen) return;
             await enterCompareModeBySid(chosen.sid, chosen.name || '');
         }
 
