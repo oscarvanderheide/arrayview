@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import io
 import json
+import math
 import os
 import queue as _queue
 import re
@@ -1268,6 +1269,12 @@ async def attach_vectorfield(request: Request):
         return {"error": str(e)}
 
 
+def _safe_float(v) -> float | None:
+    """Convert to float; return None for NaN/Inf (JSON-safe)."""
+    f = float(v)
+    return f if math.isfinite(f) else None
+
+
 @app.get("/pixel/{sid}")
 def get_pixel(
     sid: str,
@@ -1286,10 +1293,7 @@ def get_pixel(
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
     h, w = data.shape
-    if 0 <= py < h and 0 <= px < w:
-        val = float(data[py, px])
-    else:
-        val = float("nan")
+    val = _safe_float(data[py, px]) if (0 <= py < h and 0 <= px < w) else None
     return {"value": val}
 
 
@@ -1316,12 +1320,13 @@ def get_roi_circle(
     roi = data[mask]
     if roi.size == 0:
         return {"error": "empty selection"}
+    finite = roi[np.isfinite(roi)]
     return {
-        "min": float(roi.min()),
-        "max": float(roi.max()),
-        "mean": float(roi.mean()),
-        "std": float(roi.std()),
-        "n": int(roi.size),
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
     }
 
 
@@ -1351,12 +1356,13 @@ def get_roi(
     roi = data[ya:yb, xa:xb]
     if roi.size == 0:
         return {"error": "empty selection"}
+    finite = roi[np.isfinite(roi)]
     return {
-        "min": float(roi.min()),
-        "max": float(roi.max()),
-        "mean": float(roi.mean()),
-        "std": float(roi.std()),
-        "n": int(roi.size),
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
     }
 
 
