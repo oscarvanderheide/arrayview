@@ -178,9 +178,15 @@
             background: rgba(80, 200, 140, 0.15); color: #6ed4a8;
             border: 1px solid rgba(80, 200, 140, 0.25);
         }
+        .mode-badge-log     { background: rgba(230,160,30,0.15); color: #e8b84b;
+                              border: 1px solid rgba(230,160,30,0.25); }
+        .mode-badge-complex { background: rgba(80,200,200,0.15); color: #6ed4d4;
+                              border: 1px solid rgba(80,200,200,0.25); }
         :root.light .mode-badge-compare { background: rgba(67,97,238,0.1); color: #3a5cc7; border-color: rgba(67,97,238,0.25); }
         :root.light .mode-badge-reg { background: rgba(140,90,140,0.1); color: #8c5a8c; border-color: rgba(140,90,140,0.25); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
+        :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
+        :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         .help-footer kbd {
             display: inline-block;
             border: 1px solid var(--border);
@@ -311,6 +317,9 @@
         }
         .compare-pane { min-width: 0; min-height: 0; display: none; flex-direction: column; align-items: center; }
         .compare-pane.active { display: flex; }
+        .compare-pane.compare-primary { order: 0; }
+        .compare-diff { order: 1; }
+        .compare-pane.compare-secondary { order: 2; }
         #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { order: 2; }
         #compare-view-wrap.registration-mode .compare-pane.compare-secondary { order: 3; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
@@ -414,6 +423,12 @@
                                 <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
                             </svg>
                         </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-diff" id="compare-diff-pane" style="display:none">
+                    <div id="compare-diff-title" class="compare-title">A − B</div>
+                    <div class="compare-canvas-area">
+                        <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
                     </div>
                 </div>
                 <div class="compare-pane compare-secondary">
@@ -642,6 +657,7 @@
         }
         let isComplex = false;
         let complexMode = 0;
+        let complexModeEverUsed = false;
 
         let customColormap = null, customGradientStops = null;
 
@@ -702,6 +718,7 @@
         const compareNameBySid = {};
         let compareRendering = false;
         let comparePending = false;
+        let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|
         let compareFrames = [];
         let compareDisplaySids = [];
         let compareOverflowNotified = false;
@@ -729,7 +746,7 @@
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const compareWrap = document.getElementById('compare-view-wrap');
-        const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane'));
+        const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane:not(.compare-diff)'));
         const compareCanvases = [
             document.getElementById('compare-left-canvas'),
             document.getElementById('compare-right-canvas'),
@@ -775,10 +792,22 @@
 
         // const MAX_CANVAS_FIT_PX = 600;
 
+        function uiReserveV() {
+            let h = 30; // wrapper padding
+            for (const id of ['array-name', 'info', 'status', 'pixel-info', 'preload-status']) {
+                const el = document.getElementById(id);
+                if (el) {
+                    const s = getComputedStyle(el);
+                    h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
+                }
+            }
+            return Math.max(130, h);
+        }
+
         function getBaseScale(w, h) {
             // viewer-row wraps content; use window dimensions with a comfortable cap
             const maxW = Math.max(100, window.innerWidth - 80);
-            const maxH = Math.max(100, window.innerHeight - 120);
+            const maxH = Math.max(100, window.innerHeight - uiReserveV());
             return Math.min(maxW / w, maxH / h) * 0.65;
         }
 
@@ -792,7 +821,7 @@
             if (hasVectorfield) drawVectorOverlay();
             drawSlimColorbar(cbMarkerFrac);
             const maxW = window.innerWidth - 80;
-            const maxH = window.innerHeight - 120;
+            const maxH = window.innerHeight - uiReserveV();
             if (cssW >= maxW || cssH >= maxH) return 'max';
         }
 
@@ -812,13 +841,15 @@
                 : compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
-            const cols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-            const rows = Math.max(1, Math.ceil(paneCount / cols));
+            const baseCols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+            // When diff mode is active with 2 data panes there are 3 visible columns
+            const cols = (diffMode > 0 && paneCount === 2) ? 3 : baseCols;
+            const rows = Math.max(1, Math.ceil(paneCount / baseCols));
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
             const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
             // Use window dimensions (same approach as normal view)
-            const uiReserveH = 130 + 40; // status/info + compare colorbar
+            const uiReserveH = uiReserveV() + 40; // status/info + compare colorbar
             const totalW = Math.max(100, window.innerWidth - 80) * 0.65;
             const totalH = Math.max(100, window.innerHeight - uiReserveH) * 0.65;
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
@@ -833,6 +864,14 @@
                 const scale = Math.max(0.01, base * fitSlack * userZoom);
                 cv.style.width = Math.round(frame.width * scale) + 'px';
                 cv.style.height = Math.round(frame.height * scale) + 'px';
+            }
+            // Keep diff canvas sized to match the first compare canvas
+            if (diffMode > 0 && compareCanvases[0] && compareCanvases[0].style.width) {
+                const diffCanvas = document.getElementById('compare-diff-canvas');
+                if (diffCanvas) {
+                    diffCanvas.style.width = compareCanvases[0].style.width;
+                    diffCanvas.style.height = compareCanvases[0].style.height;
+                }
             }
             drawSlimColorbar(cbMarkerFrac);
         }
@@ -1430,6 +1469,7 @@
                 drawCompareFramesFromCache();
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = 'none';
+                if (diffMode > 0) fetchAndDrawDiff();
             } catch (e) {
                 setStatus(`Compare render failed: ${e.message || e}`);
             } finally {
@@ -1443,6 +1483,39 @@
                     playNext();
                 }
             }
+        }
+
+        async function fetchAndDrawDiff() {
+            if (!diffMode || !compareActive || compareDisplaySids.length < 2) return;
+            const [sid_a, sid_b] = compareDisplaySids;
+            const params = new URLSearchParams({
+                dim_x: String(dim_x),
+                dim_y: String(dim_y),
+                indices: indices.join(','),
+                dr: String(dr_idx),
+                complex_mode: String(complexMode),
+                log_scale: String(logScale),
+                diff_mode: String(diffMode),
+            });
+            try {
+                const resp = await fetch(`/diff/${sid_a}/${sid_b}?${params}`);
+                if (!resp.ok) return;
+                const blob = await resp.blob();
+                const bmp = await createImageBitmap(blob);
+                const diffCanvas = document.getElementById('compare-diff-canvas');
+                diffCanvas.width = bmp.width;
+                diffCanvas.height = bmp.height;
+                diffCanvas.getContext('2d').drawImage(bmp, 0, 0);
+                // Size the diff canvas to match the first compare canvas
+                const refCanvas = compareCanvases[0];
+                if (refCanvas && refCanvas.style.width) {
+                    diffCanvas.style.width = refCanvas.style.width;
+                    diffCanvas.style.height = refCanvas.style.height;
+                }
+                const titles = ['', 'A − B', '|A − B|', '|A − B| / |A|'];
+                const titleEl = document.getElementById('compare-diff-title');
+                if (titleEl) titleEl.textContent = titles[diffMode];
+            } catch (e) { /* silently ignore transient errors */ }
         }
 
         function triggerPreload() {
@@ -1593,6 +1666,13 @@
                 text += `<span class="mode-badge mode-badge-compare">COMPARE</span>`;
             if (compareActive && registrationMode)
                 text += `<span class="mode-badge mode-badge-reg">REG</span>`;
+            if (!compareActive && !registrationMode) {
+                if (logScale)
+                    text += `<span class="mode-badge mode-badge-log">LOG</span>`;
+                const COMPLEX_BADGE = ['', 'PHA', 'REA', 'IMA'];
+                if (complexModeEverUsed && complexMode > 0 && COMPLEX_BADGE[complexMode])
+                    text += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode]}</span>`;
+            }
             document.getElementById('info').innerHTML = text;
             const mainAxes = document.getElementById('main-axes-svg');
             mainAxes.style.display = dim_z >= 0 ? 'none' : '';
@@ -1631,6 +1711,7 @@
                 indices: [...indices],
                 logScale,
                 complexMode,
+                complexModeEverUsed,
                 flip_x,
                 flip_y,
                 flipDims: {...flipDims},
@@ -1687,6 +1768,7 @@
             }
             logScale = s.logScale ?? false;
             complexMode = s.complexMode ?? 0;
+            complexModeEverUsed = s.complexModeEverUsed ?? false;
             flip_x = s.flip_x ?? false;
             flip_y = s.flip_y ?? false;
             flipDims = s.flipDims ?? {};
@@ -2148,6 +2230,18 @@
                 saveState();
             } else if (e.key === 'B') {
                 toggleCompareMode();
+            } else if (e.key === 'X') {
+                if (!compareActive || compareDisplaySids.length !== 2) {
+                    showToast('diff view: only in 2-pane compare mode');
+                    return;
+                }
+                diffMode = (diffMode + 1) % 4;
+                const diffLabels = ['diff: off', 'diff: A−B', 'diff: |A−B|', 'diff: |A−B|/|A|'];
+                showStatus(diffLabels[diffMode]);
+                const diffPane = document.getElementById('compare-diff-pane');
+                diffPane.style.display = diffMode ? 'flex' : 'none';
+                if (diffMode) fetchAndDrawDiff();
+                return;
             } else if (e.key === 'R') {
                 toggleRegistrationMode();
             } else if (e.key === 'n') {
@@ -2231,8 +2325,10 @@
             } else if (e.key === 'm') {
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
+                complexModeEverUsed = true;
                 updateView(); triggerPreload();
                 showStatus(`mode: ${getModeLabel()}`);
+                renderInfo();
                 saveState();
             } else if (e.key === 'c') {
                 customColormap = null; customGradientStops = null;
@@ -2396,6 +2492,7 @@
                 logScale = !logScale;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showStatus(logScale ? 'log scale: on' : 'log scale: off');
+                renderInfo();
                 saveState();
             } else if (e.key === 'i') {
                 const overlay = document.getElementById('info-overlay');
@@ -2619,6 +2716,8 @@
             compareRendering = false;
             comparePending = false;
             compareOverflowNotified = false;
+            diffMode = 0;
+            document.getElementById('compare-diff-pane').style.display = 'none';
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
             if (!multiViewActive && !qmriActive) {
@@ -2979,7 +3078,7 @@
             const rows = n === 6 ? 2 : 1;
             const gap = 8;
             const labelH = 24; // qv-label height estimate
-            const uiReserveH = 130 + rows * labelH;
+            const uiReserveH = uiReserveV() + rows * labelH;
             const paneW = Math.max(50, (window.innerWidth - 80 - (cols - 1) * gap) / cols * 0.65);
             const paneH = Math.max(50, (window.innerHeight - uiReserveH - (rows - 1) * gap) / rows * 0.65);
             let minScale = Infinity;
@@ -3505,7 +3604,7 @@
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
-            const uiReserveH = 130 + cbH + labelH;
+            const uiReserveH = uiReserveV() + cbH + labelH;
             const gap = 16;
             const availH = Math.max(50, (window.innerHeight - uiReserveH) * 0.65);
             const availW = Math.max(50, (window.innerWidth - 80 - gap * 2) / 3 * 0.65);
