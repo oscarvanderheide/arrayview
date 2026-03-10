@@ -97,9 +97,12 @@
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
-        #status { margin-top: 4px; font-size: 15px; color: var(--muted); flex-shrink: 0; transition: opacity 0.7s ease; }
+        #status { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+                  font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
+                  white-space: nowrap; pointer-events: none; z-index: 5; }
         #pixel-info { margin-top: 2px; font-size: 15px; color: var(--text); height: 1.4em; line-height: 1.4; flex-shrink: 0; overflow: hidden; }
-        #preload-status { margin-top: 2px; font-size: 12px; color: var(--subtle); height: 1.4em; overflow: hidden; flex-shrink: 0; }
+        #preload-status { position: fixed; bottom: 20px; left: 20px;
+                          font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
         #array-name {
             font-size: 11px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
@@ -859,7 +862,7 @@
 
         function uiReserveV() {
             let h = 30; // wrapper padding
-            for (const id of ['array-name', 'info', 'status', 'mode-eggs', 'pixel-info', 'preload-status']) {
+            for (const id of ['array-name', 'info', 'mode-eggs', 'pixel-info']) {
                 const el = document.getElementById(id);
                 if (el) {
                     const s = getComputedStyle(el);
@@ -875,8 +878,8 @@
             const wrapper = document.getElementById('wrapper');
             let contentH = 30; // wrapper top+bottom padding
             for (const child of wrapper.children) {
-                if (child.id === 'keyboard-sink') continue; // position:fixed, zero layout height
                 const s = getComputedStyle(child);
+                if (s.position === 'fixed') continue; // out of flow
                 if (s.display === 'none') continue;
                 contentH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
@@ -1689,7 +1692,7 @@
             return isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
         }
 
-        const COMPLEX_BADGE = ['MAGNITUDE', 'PHASE', 'REAL', 'IMAG'];
+        const MODE_LABEL = { mag: 'MAGNITUDE', phase: 'PHASE', real: 'REAL', imag: 'IMAG' };
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
@@ -1699,8 +1702,10 @@
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
                 html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (_complexEggVisible)
-                html += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
+            if (_complexEggVisible) {
+                const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
+                html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
+            }
             if (maskLevel > 0)
                 html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
             el.innerHTML = html;
