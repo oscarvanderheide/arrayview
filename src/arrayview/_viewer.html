@@ -747,6 +747,7 @@
 
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
+        let _eggsVisible = true;
         let pixelHoverPending = false;
         let cbMarkerFrac = null;
         let flip_x = false, flip_y = false;
@@ -1112,6 +1113,7 @@
         };
         function setZenMode(enabled, opts = {}) {
             zenMode = !!enabled;
+            _eggsVisible = false;
             document.documentElement.classList.toggle('zen-mode', zenMode);
             if (zenMode) {
                 cbHovered = false;
@@ -1672,7 +1674,7 @@
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
-            if (zenMode || compareActive) { el.innerHTML = ''; return; }
+            if (!_eggsVisible || zenMode || compareActive) { el.innerHTML = ''; return; }
             let html = '';
             if (_fftActive)
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
@@ -2228,6 +2230,10 @@
                 document.getElementById('info-overlay').classList.remove('visible');
         });
         document.addEventListener('click', () => sink.focus());
+        document.getElementById('mode-eggs').addEventListener('click', () => {
+            _eggsVisible = false;
+            renderEggs();
+        });
 
         window.addEventListener('focus', () => sink.focus());
 
@@ -2423,9 +2429,10 @@
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
+                _eggsVisible = true;
                 updateView(); triggerPreload();
-                showStatus(`mode: ${getModeLabel()}`);
                 renderInfo();
+                renderEggs();
                 saveState();
             } else if (e.key === 'c') {
                 customColormap = null; customGradientStops = null;
@@ -2587,9 +2594,10 @@
                 });
             } else if (e.key === 'L') {
                 logScale = !logScale;
+                _eggsVisible = true;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showStatus(logScale ? 'log scale: on' : 'log scale: off');
                 renderInfo();
+                renderEggs();
                 saveState();
             } else if (e.key === 'i') {
                 const overlay = document.getElementById('info-overlay');
