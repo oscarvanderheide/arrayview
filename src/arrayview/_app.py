@@ -885,20 +885,29 @@ def _run_preload(
 # ---------------------------------------------------------------------------
 # Shell WebSocket for Webview Tab Management
 # ---------------------------------------------------------------------------
-async def _notify_shells(sid, name, url=None):
-    """Push a new-tab message to all connected webview shell windows."""
-    for _ in range(200):  # Wait up to 2 s for window to connect
-        if SHELL_SOCKETS:
-            break
-        await asyncio.sleep(0.01)
+async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
+    """Push a new-tab message to all connected webview shell windows.
+
+    Returns True if at least one shell received the message.
+    wait=True: poll up to 2 s for a shell to connect (used when a window was just opened).
+    wait=False: send immediately to whatever shells are currently connected.
+    """
+    if wait:
+        for _ in range(200):  # Wait up to 2 s for window to connect
+            if SHELL_SOCKETS:
+                break
+            await asyncio.sleep(0.01)
     msg = {"action": "new_tab", "sid": sid, "name": name}
     if url:
         msg["url"] = url
+    notified = False
     for ws in SHELL_SOCKETS.copy():
         try:
             await ws.send_json(msg)
+            notified = True
         except Exception:
             pass
+    return notified
 
 
 @app.websocket("/ws/shell")
@@ -1847,6 +1856,7 @@ async def load_file(request: Request):
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
     SESSIONS[session.sid] = session
+    notified = False
     if notify:
         tab_url = None
         if body.get("compare_sids"):
@@ -1855,8 +1865,10 @@ async def load_file(request: Request):
                 f"&compare_sid={body['compare_sid']}"
                 f"&compare_sids={body['compare_sids']}"
             )
-        await _notify_shells(session.sid, name, url=tab_url)
-    return {"sid": session.sid, "name": name}
+        # wait=False: the shell window should already be connected for inject-into-existing.
+        # If no shells are connected the native window is gone and the caller must open a new one.
+        notified = await _notify_shells(session.sid, name, url=tab_url, wait=False)
+    return {"sid": session.sid, "name": name, "notified": notified}
 
 
 @app.get("/")
@@ -3385,15 +3397,30 @@ def arrayview():
             sys.exit(1)
 
         sid = result["sid"]
+        encoded_name_inject = urllib.parse.quote(name)
         qs = f"?sid={sid}"
         if overlay_sid:
             qs += f"&overlay_sid={overlay_sid}"
         if compare_sids:
             qs += f"&compare_sid={compare_sids[0]}"
             qs += f"&compare_sids={','.join(compare_sids)}"
-        if notify_webview:
+        if notify_webview and result.get("notified"):
             # Tab was injected into existing webview window (with or without compare)
             print(f"Injected into existing window (port {args.port})")
+        elif notify_webview and not result.get("notified"):
+            # Native window was requested but the shell is gone — open a new native window.
+            init_qs = f"init_sid={sid}&init_name={encoded_name_inject}"
+            if compare_sids:
+                init_qs += (
+                    f"&init_compare_sid={compare_sids[0]}"
+                    f"&init_compare_sids={','.join(compare_sids)}"
+                )
+            url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
+            if not _open_webview_cli(url_shell, 1200, 800):
+                print("[ArrayView] Falling back to browser", flush=True)
+                url = f"http://localhost:{args.port}/{qs}"
+                _print_viewer_location(url)
+                _open_browser(url, blocking=True)
         else:
             url = f"http://localhost:{args.port}/{qs}"
             print(f"Open {url} in your browser")
