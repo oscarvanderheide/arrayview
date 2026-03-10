@@ -19,3 +19,4 @@ tests/snapshots/
 *.ipynb
 logs/
 *.png
+.worktrees/
