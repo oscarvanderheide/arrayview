@@ -94,8 +94,13 @@ async function tryOpenSignalFile() {
         }
 
         log(`simpleBrowser.show(${openUrl})`);
-        await vscode.commands.executeCommand('simpleBrowser.show', openUrl);
-        log('simpleBrowser.show completed');
+        // Race against a 12s timeout so isProcessingSignal is always released
+        // even if the command's promise never resolves (VS Code tunnel bug).
+        await Promise.race([
+            vscode.commands.executeCommand('simpleBrowser.show', openUrl),
+            new Promise(resolve => setTimeout(resolve, 12000)),
+        ]);
+        log('simpleBrowser.show done');
     } catch (error) {
         log(`ERROR: ${error.message}`);
     } finally {
