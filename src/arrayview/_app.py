@@ -1502,6 +1502,89 @@ def get_slice(
     )
 
 
+def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
+    """Extract a slice and normalize to [0, 1] float32 using per-slice display range."""
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    return normalized.astype(np.float32)
+
+
+@app.get("/diff/{sid_a}/{sid_b}")
+def get_diff(
+    sid_a: str,
+    sid_b: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    dr: int = 1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    diff_mode: int = 1,
+):
+    session_a = SESSIONS.get(sid_a)
+    session_b = SESSIONS.get(sid_b)
+    if not session_a or not session_b:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    # Use the shorter index tuple to handle mismatched dimensionalities
+    ndim_a = len(session_a.shape)
+    ndim_b = len(session_b.shape)
+    idx_a = idx_tuple[:ndim_a]
+    idx_b = idx_tuple[:ndim_b]
+    try:
+        a = _render_normalized(session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale)
+        b = _render_normalized(session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale)
+    except Exception:
+        return Response(status_code=422)
+    # Resize b to match a if shapes differ
+    if a.shape != b.shape:
+        try:
+            from PIL import Image as _Image
+            b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
+            b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
+            b = np.array(b_img, dtype=np.float32) / 255.0
+        except Exception:
+            return Response(status_code=422)
+    if diff_mode == 1:
+        raw = a - b
+        vmin, vmax = -1.0, 1.0
+        colormap = "RdBu_r"
+    elif diff_mode == 2:
+        raw = np.abs(a - b)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "viridis"
+    else:  # diff_mode == 3
+        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
+        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "viridis"
+    if vmax > vmin:
+        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(raw)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        },
+    )
+
+
 @app.get("/oblique/{sid}")
 def get_oblique(
     sid: str,
@@ -2298,7 +2381,7 @@ def _print_viewer_location(url: str) -> None:
 
 
 
-def _open_browser(url: str, blocking: bool = False) -> None:
+def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) -> None:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
 
     Strategy (see log.txt for what was tried and why):
@@ -2307,7 +2390,7 @@ def _open_browser(url: str, blocking: bool = False) -> None:
           ``remote.portsAttributes``.
        b. Write the signal file; the workspace extension converts the URL via
           asExternalUri and opens Simple Browser in the local VS Code client.
-    2. Local VS Code terminal:
+    2. Local VS Code terminal (or force_vscode=True):
        a. Install the helper extension.
        b. Write the signal file so the extension opens Simple Browser locally.
      3. Fallback: open/xdg-open with the http URL (system browser).
@@ -2344,8 +2427,8 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                 print("[ArrayView] extension install failed — cannot open Simple Browser", flush=True)
             return
 
-        if ipc or _in_vscode_terminal():
-            # Local VS Code terminal: install extension + signal file.
+        if force_vscode or ipc or _in_vscode_terminal():
+            # Local VS Code terminal (or --window vscode forced): install extension + signal file.
             _configure_vscode_port_preview(parsed_port)
             ext_ok = _ensure_vscode_extension()
             if ext_ok:
@@ -2354,7 +2437,7 @@ def _open_browser(url: str, blocking: bool = False) -> None:
                 _open_via_signal_file(url)
                 opened = True
 
-        if not opened and not is_remote:
+        if not opened and not is_remote and not force_vscode:
             # Local fallback: open in system browser
             if sys.platform == "darwin":
                 try:
@@ -3031,9 +3114,15 @@ def arrayview():
         ),
     )
     parser.add_argument(
+        "--window",
+        choices=["browser", "vscode", "native"],
+        default=None,
+        help="How to open the viewer: browser (system browser), vscode (SimpleBrowser), or native window",
+    )
+    parser.add_argument(
         "--browser",
         action="store_true",
-        help="Open in web browser instead of native window",
+        help="Deprecated: use --window browser",
     )
     parser.add_argument(
         "--overlay",
@@ -3119,7 +3208,14 @@ def arrayview():
         )
         sys.exit(1)
 
-    use_webview = not args.browser and _can_native_window()
+    # Resolve --window / --browser into a single window_mode
+    if args.browser and not args.window:
+        args.window = "browser"
+    window_mode = args.window  # None = auto-detect (current behaviour)
+    if window_mode == "native" and _is_vscode_remote():
+        print("[ArrayView] --window native is not supported on remote tunnel; using vscode instead.")
+        window_mode = "vscode"
+    use_webview = (window_mode == "native") or (window_mode is None and _can_native_window())
 
     if is_arrayview_server:
         # Server already running — register the new array.
@@ -3234,7 +3330,7 @@ def arrayview():
         else:
             url = f"http://localhost:{args.port}/{qs}"
             print(f"Open {url} in your browser")
-            _open_browser(url, blocking=True)
+            _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
         return
 
     sid = uuid.uuid4().hex
@@ -3320,7 +3416,7 @@ def arrayview():
             print("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
-            _open_browser(url, blocking=False)
+            _open_browser(url, blocking=False, force_vscode=(window_mode == "vscode"))
     else:
         if use_webview and overlay_sid:
             print(
@@ -3329,4 +3425,4 @@ def arrayview():
             )
         url = f"http://localhost:{args.port}/{qs}"
         _print_viewer_location(url)
-        _open_browser(url, blocking=True)
+        _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))

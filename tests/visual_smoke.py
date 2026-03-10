@@ -36,13 +36,14 @@ DISPLAY
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✗ (requires dialog input)
   B               compare picker (dialog)   ✗ (requires dialog input)
+  X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
   [ / ]           registration blend        ✓ 24, 37
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
-  L               log scale                 ✓ 18
+  L               log scale                 ✓ 18, 40a (LOG egg)
   M               mask threshold            ✗ (visual effect subtle)
-  m               cycle complex mode        ✓ 25 (complex array + m)
+  m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg)
   f               centred FFT (dialog)      ✗ (requires dialog input)
   T               cycle theme               ✓ 26
 
@@ -76,6 +77,8 @@ STABILITY (keys must not cause UI element jumps)
   +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
   registration arrays (phantom)             ✓ 37 (shifted ellipse, reg overlay)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
+  compare diff view (X key)                ✓ 39 (A−B, |A−B|, relative)
+  LOG and complex eggs                      ✓ 40 (badges in info bar)
 
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
@@ -445,6 +448,36 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "38b_mv_zoom_max")
     _press(page, "0")  # reset zoom
     _press(page, "v", wait=400)  # exit multiview
+
+    # ── 39: compare diff view (X key cycles diff modes) ──────────────────────
+    _goto_compare(page, base, sid2d, sid2d_b)
+    _focus(page)
+    _shot(page, "39a_diff_compare_base")
+    _press(page, "Shift+X", wait=800)  # diff: A−B
+    _shot(page, "39b_diff_AB")
+    _press(page, "Shift+X", wait=800)  # diff: |A−B|
+    _shot(page, "39c_diff_abs")
+    _press(page, "Shift+X", wait=800)  # diff: |A−B|/|A|
+    _shot(page, "39d_diff_rel")
+    _press(page, "Shift+X", wait=400)  # diff: off
+    _shot(page, "39e_diff_off")
+
+    # ── 40: LOG and complex mode eggs ────────────────────────────────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+    _press(page, "Shift+L", wait=400)  # LOG on
+    _shot(page, "40a_log_egg")
+    _press(page, "Shift+L", wait=200)  # LOG off
+    _goto(page, base, sidC)
+    _focus(page)
+    _press(page, "m", wait=400)        # first press: PHA badge appears
+    _shot(page, "40b_complex_egg_pha")
+    _press(page, "m", wait=300)        # REA
+    _shot(page, "40c_complex_egg_rea")
+    _press(page, "m", wait=300)        # IMA
+    _shot(page, "40d_complex_egg_ima")
+    _press(page, "m", wait=300)        # back to magnitude (no badge)
+    _shot(page, "40e_complex_mag_no_egg")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
