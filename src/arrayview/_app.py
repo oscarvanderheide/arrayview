@@ -1727,7 +1727,7 @@ async def load_file(request: Request):
     name = str(body.get("name") or os.path.basename(filepath))
     notify = bool(body.get("notify", False))
     try:
-        data = load_data(filepath)
+        data = await asyncio.to_thread(load_data, filepath)
     except Exception as e:
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
@@ -2828,7 +2828,7 @@ def _view_subprocess(
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read())
             if "error" in result:
                 raise RuntimeError(result["error"])
@@ -3141,7 +3141,7 @@ def arrayview():
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(ov_req, timeout=5) as resp:
+                with urllib.request.urlopen(ov_req, timeout=300) as resp:
                     ov_result = json.loads(resp.read())
                 if "error" in ov_result:
                     print(
@@ -3165,7 +3165,7 @@ def arrayview():
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(cmp_req, timeout=5) as resp:
+                with urllib.request.urlopen(cmp_req, timeout=300) as resp:
                     cmp_result = json.loads(resp.read())
                 if "error" in cmp_result:
                     print(
@@ -3192,7 +3192,7 @@ def arrayview():
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read())
             if "error" in result:
                 print(f"Error from server: {result['error']}")
@@ -3210,7 +3210,7 @@ def arrayview():
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(vf_req, timeout=5) as resp:
+                with urllib.request.urlopen(vf_req, timeout=300) as resp:
                     vf_result = json.loads(resp.read())
                 if "error" in vf_result:
                     print(f"Warning: failed to attach vector field: {vf_result['error']}")
@@ -3287,7 +3287,7 @@ def arrayview():
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(cmp_req, timeout=5) as resp:
+            with urllib.request.urlopen(cmp_req, timeout=300) as resp:
                 cmp_result = json.loads(resp.read())
             if "error" in cmp_result:
                 print(
