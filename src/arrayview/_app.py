@@ -231,6 +231,7 @@ SERVER_LOOP = None
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
+PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 
 # ---------------------------------------------------------------------------
 # Render thread — bypasses concurrent.futures so it is unaffected by
@@ -1157,8 +1158,15 @@ def _vfield_n_times(session) -> int:
 
 
 @app.get("/metadata/{sid}")
-def get_metadata(sid: str):
+async def get_metadata(sid: str):
     session = SESSIONS.get(sid)
+    if not session and sid in PENDING_SESSIONS:
+        # Session is still loading in a background thread — poll until ready (max 120 s).
+        for _ in range(1200):
+            await asyncio.sleep(0.1)
+            session = SESSIONS.get(sid)
+            if session:
+                break
     if not session:
         return Response(status_code=404)
     try:
@@ -3076,51 +3084,63 @@ def _serve_daemon(
     persist=False: exits when the UI closes (default, used locally).
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
-    data = load_data(filepath)
-    if cleanup:
-        try:
-            os.unlink(filepath)
-        except Exception:
-            pass
-    session = Session(data, filepath=None if cleanup else filepath, name=name)
-    session.sid = sid
-    if vfield_filepath:
-        try:
-            vf_data = load_data(vfield_filepath)
-            session.vfield = vf_data
-            print(f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}", flush=True)
-        except Exception as e:
-            print(f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}", flush=True)
-    SESSIONS[session.sid] = session
-    if overlay_filepath and overlay_sid:
-        try:
-            ov_data = load_data(overlay_filepath)
-            ov_session = Session(ov_data, filepath=overlay_filepath, name="overlay")
-            ov_session.sid = overlay_sid
-            SESSIONS[overlay_sid] = ov_session
-        except Exception as e:
-            print(
-                f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
-                flush=True,
-            )
-    if compare_filepath and compare_sid:
-        try:
-            cmp_data = load_data(compare_filepath)
-            cmp_name = os.path.basename(compare_filepath) or "compare"
-            cmp_session = Session(cmp_data, filepath=compare_filepath, name=cmp_name)
-            cmp_session.sid = compare_sid
-            SESSIONS[compare_sid] = cmp_session
-        except Exception as e:
-            print(
-                f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
-                flush=True,
-            )
+    # Register sid as pending so /metadata can poll while data loads.
+    PENDING_SESSIONS.add(sid)
+
+    # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
         target=lambda: uvicorn.run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
     ).start()
+
+    def _load():
+        try:
+            data = load_data(filepath)
+            if cleanup:
+                try:
+                    os.unlink(filepath)
+                except Exception:
+                    pass
+            session = Session(data, filepath=None if cleanup else filepath, name=name)
+            session.sid = sid
+            if vfield_filepath:
+                try:
+                    vf_data = load_data(vfield_filepath)
+                    session.vfield = vf_data
+                    print(f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}", flush=True)
+                except Exception as e:
+                    print(f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}", flush=True)
+            SESSIONS[session.sid] = session
+            if overlay_filepath and overlay_sid:
+                try:
+                    ov_data = load_data(overlay_filepath)
+                    ov_session = Session(ov_data, filepath=overlay_filepath, name="overlay")
+                    ov_session.sid = overlay_sid
+                    SESSIONS[overlay_sid] = ov_session
+                except Exception as e:
+                    print(
+                        f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
+                        flush=True,
+                    )
+            if compare_filepath and compare_sid:
+                try:
+                    cmp_data = load_data(compare_filepath)
+                    cmp_name = os.path.basename(compare_filepath) or "compare"
+                    cmp_session = Session(cmp_data, filepath=compare_filepath, name=cmp_name)
+                    cmp_session.sid = compare_sid
+                    SESSIONS[compare_sid] = cmp_session
+                except Exception as e:
+                    print(
+                        f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
+                        flush=True,
+                    )
+        finally:
+            PENDING_SESSIONS.discard(sid)
+
+    threading.Thread(target=_load, daemon=True).start()
+
     if persist:
         try:
             while True:
