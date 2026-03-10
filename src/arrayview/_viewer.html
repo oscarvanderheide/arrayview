@@ -47,7 +47,7 @@
         #wrapper {
             background: var(--bg); color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
             padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
         }
         #info {
@@ -97,7 +97,7 @@
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
-        #status { margin-top: 6px; font-size: 15px; color: var(--muted); min-height: 1.2em; flex-shrink: 0; transition: opacity 0.7s ease; }
+        #status { margin-top: 4px; font-size: 15px; color: var(--muted); flex-shrink: 0; transition: opacity 0.7s ease; }
         #pixel-info { margin-top: 2px; font-size: 15px; color: var(--text); height: 1.4em; line-height: 1.4; flex-shrink: 0; overflow: hidden; }
         #preload-status { margin-top: 2px; font-size: 12px; color: var(--subtle); height: 1.4em; overflow: hidden; flex-shrink: 0; }
         #array-name {
@@ -226,8 +226,7 @@
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
-        #mode-eggs { flex-shrink: 0; }
-        #mode-eggs:not(:empty) { margin-top: 4px; }
+        #mode-eggs { flex-shrink: 0; min-height: 1.6em; display: flex; align-items: center; justify-content: center; cursor: default; }
         :root.zen-mode #mode-eggs { display: none; }
         .help-footer kbd {
             display: inline-block;
@@ -572,9 +571,9 @@
     </div>
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
-    <div id="status"></div>
     <div id="mode-eggs"></div>
     <div id="pixel-info"></div>
+    <div id="status"></div>
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="inline-prompt">
@@ -870,7 +869,7 @@
             // viewer-row wraps content; use window dimensions with a comfortable cap
             const maxW = Math.max(100, window.innerWidth - 80);
             const maxH = Math.max(100, window.innerHeight - uiReserveV());
-            return Math.min(maxW / w, maxH / h) * 0.65;
+            return Math.min(maxW / w, maxH / h) * 0.80;
         }
 
         function scaleCanvas(w, h) {
