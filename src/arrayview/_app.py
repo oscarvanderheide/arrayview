@@ -1814,7 +1814,10 @@ def ping():
 @app.get("/sessions")
 def get_sessions():
     """Returns list of active sessions (used by shell to populate tabs on load)."""
-    return [{"sid": s.sid, "name": s.name} for s in SESSIONS.values()]
+    return [
+        {"sid": s.sid, "name": s.name, "shape": [int(x) for x in s.shape]}
+        for s in SESSIONS.values()
+    ]
 
 
 @app.post("/load")
