@@ -162,6 +162,7 @@
         .cp-item-name { font-weight: 600; color: var(--text); }
         .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; }
         .cp-item-warn { color: var(--active-dim); font-size: 11px; }
+        .cp-item-current { opacity: 0.4; cursor: default; pointer-events: none; }
         #compare-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
             cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         #help-overlay, #info-overlay {
@@ -2739,7 +2740,7 @@
             return candidates;
         }
 
-        function showComparePicker(candidates) {
+        function showComparePicker(candidates, currentSession = null) {
             return new Promise(resolve => {
                 const overlay  = document.getElementById('compare-picker');
                 const listEl   = document.getElementById('compare-picker-list');
@@ -2760,27 +2761,56 @@
                     item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
                     listEl.appendChild(item);
                 });
+                // Show current session at bottom, grayed out, not selectable
+                if (currentSession) {
+                    const cur = document.createElement('div');
+                    cur.className = 'cp-item cp-item-current';
+                    cur.innerHTML = `<span class="cp-item-name">${currentSession.name || '(unnamed)'}</span>`
+                        + `<span class="cp-item-shape">[${Array.isArray(currentSession.shape) ? currentSession.shape.join(', ') : '?'}]</span>`
+                        + `<span class="cp-item-warn">current</span>`;
+                    listEl.appendChild(cur);
+                }
                 overlay.classList.add('visible');
-                const first = listEl.querySelector('.cp-item');
+                const selectables = () => [...listEl.querySelectorAll('.cp-item:not(.cp-item-current)')];
+                const first = selectables()[0];
                 if (first) first.focus();
                 function cleanup() {
                     overlay.classList.remove('visible');
                     cancelBtn.onclick = null;
+                    overlay.onkeydown = null;
                     document.getElementById('keyboard-sink').focus();
                 }
                 function cancel() { cleanup(); resolve(null); }
                 cancelBtn.onclick = cancel;
-                overlay.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } };
+                overlay.onkeydown = e => {
+                    if (e.key === 'Escape') { e.preventDefault(); cancel(); return; }
+                    const items = selectables();
+                    const idx = items.indexOf(document.activeElement);
+                    if (e.key === 'j' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        items[(idx + 1) % items.length]?.focus();
+                    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        items[(idx - 1 + items.length) % items.length]?.focus();
+                    }
+                };
             });
         }
 
         async function enterComparePrompt() {
-            const candidates = await getCompareCandidates();
+            const res = await fetch('/sessions');
+            if (!res.ok) { showStatus('compare: could not query sessions'); return; }
+            const sessions = await res.json();
+            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
+            for (const s of candidates) {
+                if (s.name) compareNameBySid[s.sid] = s.name;
+            }
             if (!candidates.length) {
                 showStatus('compare: load a second array first');
                 return;
             }
-            const chosen = await showComparePicker(candidates);
+            const currentSession = sessions.find(s => s.sid === sid) || null;
+            const chosen = await showComparePicker(candidates, currentSession);
             if (!chosen) return;
             await enterCompareModeBySid(chosen.sid, chosen.name || '');
         }
