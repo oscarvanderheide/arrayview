@@ -47,7 +47,7 @@
         #wrapper {
             background: var(--bg); color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
             padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
         }
         #info {
@@ -747,6 +747,7 @@
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
         let _eggsVisible = true;
+        let _complexEggHidden = false;
         let pixelHoverPending = false;
         let cbMarkerFrac = null;
         let flip_x = false, flip_y = false;
@@ -865,6 +866,20 @@
             return Math.max(130, h);
         }
 
+        function fixWrapperAlignment() {
+            // Switch between centered (small canvas) and top-aligned (large canvas).
+            // We compute the total content height from children to avoid feedback loops.
+            const wrapper = document.getElementById('wrapper');
+            let contentH = 30; // wrapper top+bottom padding
+            for (const child of wrapper.children) {
+                if (child.id === 'keyboard-sink') continue; // position:fixed, zero layout height
+                const s = getComputedStyle(child);
+                if (s.display === 'none') continue;
+                contentH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
+            }
+            wrapper.style.justifyContent = contentH > window.innerHeight ? 'flex-start' : '';
+        }
+
         function getBaseScale(w, h) {
             // viewer-row wraps content; use window dimensions with a comfortable cap
             const maxW = Math.max(100, window.innerWidth - 80);
@@ -883,6 +898,7 @@
             drawSlimColorbar(cbMarkerFrac);
             const maxW = window.innerWidth - 80;
             const maxH = window.innerHeight - uiReserveV();
+            fixWrapperAlignment();
             if (cssW >= maxW || cssH >= maxH) return 'max';
         }
 
@@ -935,6 +951,7 @@
                 }
             }
             drawSlimColorbar(cbMarkerFrac);
+            fixWrapperAlignment();
         }
 
         function compareLuma(imgData, i) {
@@ -1676,13 +1693,13 @@
             if (!_eggsVisible || zenMode || compareActive) { el.innerHTML = ''; return; }
             let html = '';
             if (_fftActive)
-                html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
+                html += `<span class="mode-badge mode-badge-fft" data-egg="fft" title="Click to exit FFT">FFT</span>`;
             if (logScale)
-                html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (complexModeEverUsed)
-                html += `<span class="mode-badge mode-badge-complex">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
+                html += `<span class="mode-badge mode-badge-log" data-egg="log" title="Click to disable log scale">LOG</span>`;
+            if (complexModeEverUsed && !_complexEggHidden)
+                html += `<span class="mode-badge mode-badge-complex" data-egg="complex" title="Click to dismiss">${COMPLEX_BADGE[complexMode] || 'MAGNITUDE'}</span>`;
             if (maskLevel > 0)
-                html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
+                html += `<span class="mode-badge mode-badge-mask" data-egg="mask" title="Click to remove mask">MASK</span>`;
             el.innerHTML = html;
         }
 
@@ -2229,9 +2246,32 @@
                 document.getElementById('info-overlay').classList.remove('visible');
         });
         document.addEventListener('click', () => sink.focus());
-        document.getElementById('mode-eggs').addEventListener('click', () => {
-            _eggsVisible = false;
-            renderEggs();
+        document.getElementById('mode-eggs').addEventListener('click', (e) => {
+            const egg = e.target.closest('[data-egg]')?.dataset?.egg;
+            if (!egg) return;
+            if (egg === 'complex') {
+                _complexEggHidden = true;
+                renderEggs();
+            } else if (egg === 'log') {
+                logScale = false;
+                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                renderInfo(); renderEggs(); saveState();
+            } else if (egg === 'mask') {
+                maskLevel = 0;
+                fetch(`/mask/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ level: 0, free_dims: [], indices: indices.join(',') }),
+                }).then(() => { updateView(); triggerPreload(); renderEggs(); saveState(); });
+            } else if (egg === 'fft') {
+                fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+                    .then(r => r.json()).then(d => {
+                        _fftActive = false;
+                        isComplex = d.is_complex || false;
+                        if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
+                        updateView(); triggerPreload(); renderEggs();
+                    });
+            }
         });
 
         window.addEventListener('focus', () => sink.focus());
@@ -2429,6 +2469,7 @@
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
                 _eggsVisible = true;
+                _complexEggHidden = false;
                 updateView(); triggerPreload();
                 renderInfo();
                 renderEggs();
@@ -2564,6 +2605,7 @@
                 }
             } else if (e.key === 'M') {
                 maskLevel = (maskLevel + 1) % MASK_LEVELS;
+                _eggsVisible = true;
                 // Determine free dims based on current view mode
                 let freeDims;
                 if (multiViewActive) {
@@ -2588,8 +2630,7 @@
                 }).then(r => r.json()).then(d => {
                     if (d.error) { showStatus('mask error: ' + d.error); return; }
                     updateView(); triggerPreload();
-                    if (maskLevel === 0) showStatus('mask: off');
-                    else showStatus(`mask: ${d.multiplier?.toFixed(2)}× Otsu (thr=${d.threshold?.toFixed(3)})`);
+                    renderEggs();
                 });
             } else if (e.key === 'L') {
                 logScale = !logScale;
@@ -2628,7 +2669,7 @@
                             isComplex = d.is_complex || false;
                             if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
                             updateView(); triggerPreload();
-                            showStatus('FFT: off');
+                            renderEggs();
                         });
                 } else {
                     const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
@@ -2637,10 +2678,11 @@
                         .then(r => r.json()).then(d => {
                             if (d.error) { showStatus('FFT error: ' + d.error); return; }
                             _fftActive = true;
+                            _eggsVisible = true;
                             isComplex = d.is_complex || false;
                             complexMode = 0;
                             updateView(); triggerPreload();
-                            showStatus(`FFT: [${d.axes.join(',')}]`);
+                            renderEggs();
                         });
                 }
             } else if (e.key === 'x') {
@@ -2882,10 +2924,6 @@
             if (compareActive) {
                 exitCompareMode();
                 return;
-            }
-            if (compareSid) {
-                const ok = await enterCompareModeBySid(compareSid, compareName);
-                if (ok) return;
             }
             await enterComparePrompt();
         }
@@ -3242,6 +3280,7 @@
                 v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
             }
+            fixWrapperAlignment();
             return atMax ? 'max' : null;
         }
 
@@ -3778,6 +3817,7 @@
                     v.pane.style.height = T + 'px';
                 }
             }
+            fixWrapperAlignment();
             return requestedT > absMaxT ? 'max' : null;
         }
 
