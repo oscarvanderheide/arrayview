@@ -539,8 +539,8 @@ def _compute_otsu_threshold(data) -> float:
     w_b = np.cumsum(hist) / total
     w_f = 1.0 - w_b
     mu_cum = np.cumsum(hist * centers)
-    mu_b = np.where(w_b > 0, mu_cum / (w_b * total), 0.0)
-    mu_f = np.where(w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / w_f, 0.0)
+    mu_b = np.where(w_b > 0, mu_cum / np.maximum(w_b * total, 1e-10), 0.0)
+    mu_f = np.where(w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / np.maximum(w_f, 1e-10), 0.0)
     sigma_b_sq = w_b * w_f * (mu_b - mu_f) ** 2
     return float(centers[int(np.argmax(sigma_b_sq))])
 
