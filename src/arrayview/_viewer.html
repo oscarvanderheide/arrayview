@@ -1802,12 +1802,12 @@
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-size">/${shape[i]}</span>`;
                     return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
-                                  : `<span class="dim-label" ${d}>${inner}</span>`;
+                                  : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y' + `<span class="dim-size">/${shape[i]}</span>`;
                     return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
-                                  : `<span class="dim-label" ${d}>${inner}</span>`;
+                                  : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
                     const inner = `z<span class="dim-size">/${shape[i]}</span>`;
@@ -2765,13 +2765,17 @@
             } else if (e.key === 'x') {
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; }
                 if (shape.length < 3) return;
-                [dim_x, current_slice_dim] = [current_slice_dim, dim_x];
+                if (activeDim === dim_x) { /* already x */ }
+                else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
+                else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'y') {
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; }
                 if (shape.length < 3) return;
-                [dim_y, current_slice_dim] = [current_slice_dim, dim_y];
+                if (activeDim === dim_y) { /* already y */ }
+                else if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
+                else { [dim_y, current_slice_dim] = [current_slice_dim, dim_y]; }
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
