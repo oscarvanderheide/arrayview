@@ -394,8 +394,8 @@
             color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto;
         }
         #qmri-view-wrap { display: none; width: 100%; }
-        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 4px; }
-        .qv-row { display: flex; flex-direction: row; gap: 4px; justify-content: center; align-items: flex-start; }
+        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
+        .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-start; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
         .qv-label { font-size: 14px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
@@ -3426,20 +3426,24 @@
             // n≤4 → single row; n=5 → [3,2]; n=6 → [3,3]
             const cols = (n === 5 || n === 6) ? 3 : n;
             const rows = (n === 5 || n === 6) ? 2 : 1;
-            const gap = 4;
-            const labelH = 24; // qv-label height estimate
-            const uiReserveH = uiReserveV() + rows * labelH;
-            const paneW = Math.max(50, (window.innerWidth - 80 - (cols - 1) * gap) / cols * 0.65);
-            const paneH = Math.max(50, (window.innerHeight - uiReserveH - (rows - 1) * gap) / rows * 0.65);
-            let minScale = Infinity;
-            for (const v of ready) {
-                minScale = Math.min(minScale, (paneW - 4) / v.lastW, (paneH - 4) / v.lastH);
-            }
-            const absMaxScaleW = (window.innerWidth  - 80 - (cols - 1) * gap) / cols;
-            const absMaxScaleH = (window.innerHeight - uiReserveH - (rows - 1) * gap) / rows;
+            const colGap = 24;  // matches .qv-row gap
+            const rowGap = 14;  // matches #qmri-view-wrap gap
+            const sidePad = 80; // 40px each side from wrap padding
+            const labelH = 24;  // qv-label above each canvas
+            // Reserve: colorbar strip (8px) + margin-top (2px) + label row (18px) + padding (2px) = 30px
+            const cbH = 30;
+            const bottomPad = 24; // breathing room below last colorbar
+            const totalH = window.innerHeight - uiReserveV()
+                         - rows * (labelH + cbH)
+                         - (rows - 1) * rowGap
+                         - bottomPad;
+            const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
+            const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const scaledMin = Math.max(0.01, minScale * userZoom);
+            // Default zoom: 65 % of cap so there's a visible zoom-in range
+            const defaultScale = absMaxScale * 0.65;
+            const scaledMin = Math.max(0.01, defaultScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
             const atMax = scaledMin > absMaxScale + 0.001;
             for (const v of ready) {
