@@ -2736,7 +2736,7 @@ def view(
 
     session = Session(data, name=name)
     SESSIONS[session.sid] = session
-    win_w, win_h = 1200, 800
+    win_w, win_h = 1400, 900
 
     # Start (or restart) the background server if it isn't responding or is stale.
     server_pid = _server_pid(port)
@@ -3076,7 +3076,7 @@ def _view_subprocess(
 
     can_native = _can_native_window()
     if window and can_native:
-        if not _open_webview_cli(url_shell, 1200, 800):
+        if not _open_webview_cli(url_shell, 1400, 900):
             print("[ArrayView] Falling back to browser", flush=True)
             _open_browser(url_viewer)
     else:
@@ -3570,7 +3570,7 @@ def arrayview():
                 f"&init_compare_sids={','.join(compare_sids)}"
             )
         url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
-        if not _open_webview_cli(url_shell, 1200, 800):
+        if not _open_webview_cli(url_shell, 1400, 900):
             print("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
