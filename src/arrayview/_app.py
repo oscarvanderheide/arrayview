@@ -632,10 +632,19 @@ def apply_colormap_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    # Exactly-zero or masked raw values → transparent so the canvas background shows through
-    abs_raw = np.abs(raw)
+    # Values at or below cmin → transparent so the canvas background shows through.
+    # If a mask threshold is set, use that instead of the display minimum.
     mask_thr = getattr(session, "mask_threshold", 0.0)
-    transparent = (abs_raw == 0) if mask_thr <= 0 else (abs_raw < mask_thr)
+    if mask_thr > 0:
+        abs_raw = np.abs(raw)
+        transparent = abs_raw < mask_thr
+    elif vmin > 0 and vmax > vmin:
+        # User has a explicit positive cmin: hide everything below it.
+        transparent = data < vmin
+    else:
+        # vmin == 0 or flat array: keep legacy behaviour — make exact zeros
+        # transparent so sparse arrays / masks show through to the background.
+        transparent = data == np.float32(0)
     if transparent.any():
         rgba = rgba.copy()
         rgba[transparent, 3] = 0
