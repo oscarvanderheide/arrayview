@@ -920,7 +920,14 @@
             const baseScale = getBaseScale(w, h);
             // Cap the scale: canvas must never exceed available space, so colorbar+eggs
             // always have room regardless of how far the user has zoomed in.
-            const capScale   = Math.min(maxW / w, maxH / h);
+            const capScale = Math.min(maxW / w, maxH / h);
+            const atMax = baseScale * userZoom >= capScale;
+            if (atMax) {
+                // Snap userZoom to the exact value that hits the cap so that any
+                // subsequent re-render (L, colormap change, etc.) produces the same
+                // canvas size instead of regressing to the pre-cap zoom level.
+                userZoom = capScale / baseScale;
+            }
             const finalScale = Math.min(baseScale * userZoom, capScale);
             const cssW = Math.round(w * finalScale);
             const cssH = Math.round(h * finalScale);
@@ -932,8 +939,7 @@
             fixWrapperAlignment();
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
-            // At max when the uncapped scale would have exceeded available space
-            if (baseScale * userZoom >= capScale) return 'max';
+            if (atMax) return 'max';
         }
 
         function compareScaleCanvases() {
@@ -2424,14 +2430,14 @@
                 return;
             }
             if (e.key === '+' || e.key === '=') {
-                const prevZoom = userZoom;
                 userZoom = Math.min(userZoom * 1.1, 10.0);
                 let atMax = false;
                 if (multiViewActive)    { atMax = mvScaleAllCanvases() === 'max'; }
                 else if (compareActive) { compareScaleCanvases(); }
                 else if (qmriActive)    { atMax = qvScaleAllCanvases() === 'max'; }
                 else                    { atMax = scaleCanvas(canvas.width, canvas.height) === 'max'; }
-                if (atMax) { userZoom = prevZoom; showStatus('zoom: max'); return; }
+                // userZoom is already snapped to exact cap inside scaleCanvas when atMax
+                if (atMax) { showStatus('zoom: max'); return; }
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
