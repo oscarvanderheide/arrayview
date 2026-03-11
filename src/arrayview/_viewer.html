@@ -70,7 +70,7 @@
             pointer-events: none; color: rgba(190,190,190,0.75);
         }
         :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
-        #slim-cb-wrap { width: 100%; text-align: center; padding-top: 6px; padding-bottom: 2px; }
+        #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; pointer-events: none; }
         #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: default; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
         #mv-cb { border: none; }
@@ -1173,8 +1173,16 @@
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
-            const cssW = parseInt(canvas.style.width);
+            const canvasRect = canvas.getBoundingClientRect();
+            const rawW = parseInt(canvas.style.width) || Math.round(canvasRect.width);
+            const cssW = Math.min(rawW, window.innerWidth - 40);
             if (!cssW || cssW < 10) return;
+            const cbTop = Math.min(canvasRect.bottom + 4, window.innerHeight - 38);
+            if (wrap) {
+                wrap.style.top  = cbTop + 'px';
+                wrap.style.left = ((window.innerWidth - cssW) / 2) + 'px';
+                wrap.style.width = cssW + 'px';
+            }
             const stripH = 8;
             const dpr = window.devicePixelRatio || 1;
             slimCbCanvas.width = Math.round(cssW * dpr);
