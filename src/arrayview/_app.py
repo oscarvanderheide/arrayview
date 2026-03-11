@@ -1834,11 +1834,54 @@ def ping():
     }
 
 
+_SUPPORTED_EXTS = frozenset(
+    [".npy", ".npz", ".nii", ".nii.gz", ".zarr", ".zarr.zip", ".pt", ".pth", ".h5", ".hdf5", ".tif", ".tiff", ".mat"]
+)
+
+
+def _peek_file_shape(fpath: str, ext: str):
+    """Try to return shape quickly without loading the full array. Returns None on failure."""
+    try:
+        if ext == ".npy":
+            arr = np.load(fpath, mmap_mode="r", allow_pickle=False)
+            return list(arr.shape)
+        if ext in (".nii", ".nii.gz"):
+            return list(nib.load(fpath).shape)
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/listfiles")
+def list_files(directory: str = ""):
+    """List supported array files in a directory (default: server CWD) with quick shape preview."""
+    target = os.path.abspath(directory) if directory else os.getcwd()
+    results = []
+    try:
+        for fname in sorted(os.listdir(target)):
+            fpath = os.path.join(target, fname)
+            if not os.path.isfile(fpath):
+                continue
+            name_lower = fname.lower()
+            ext = ".nii.gz" if name_lower.endswith(".nii.gz") else os.path.splitext(name_lower)[1]
+            if ext not in _SUPPORTED_EXTS:
+                continue
+            try:
+                file_size = os.path.getsize(fpath)
+            except OSError:
+                continue
+            shape = _peek_file_shape(fpath, ext)
+            results.append({"name": fname, "path": fpath, "size": file_size, "shape": shape})
+    except Exception as e:
+        return {"error": str(e)}
+    return results
+
+
 @app.get("/sessions")
 def get_sessions():
     """Returns list of active sessions (used by shell to populate tabs on load)."""
     return [
-        {"sid": s.sid, "name": s.name, "shape": [int(x) for x in s.shape]}
+        {"sid": s.sid, "name": s.name, "shape": [int(x) for x in s.shape], "filepath": s.filepath}
         for s in SESSIONS.values()
     ]
 
