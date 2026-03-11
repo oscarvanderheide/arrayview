@@ -162,19 +162,21 @@
             z-index: 30; justify-content: center; align-items: center; }
         #compare-picker.visible { display: flex; }
         #compare-picker-box { background: var(--surface); border: 1px solid var(--border);
-            border-radius: var(--radius-lg); padding: 16px 20px; min-width: 280px; max-width: 480px;
+            border-radius: var(--radius-lg); padding: 16px 20px; min-width: 560px; max-width: 800px; width: 70vw;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
         #compare-picker-title { font-weight: 600; color: var(--text); margin-bottom: 10px; }
-        #compare-picker-list { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow-y: auto; margin-bottom: 12px; }
-        .cp-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
+        #compare-picker-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; margin-bottom: 12px; align-items: start; }
+        .cp-col { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+        .cp-col-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; }
+        .cp-col-empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+        .cp-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
             background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
         .cp-item:hover, .cp-item:focus { border-color: var(--active-dim); outline: none; }
-        .cp-item-name { font-weight: 600; color: var(--text); }
+        .cp-item-dim { opacity: 0.4; cursor: default; pointer-events: none; }
+        .cp-item-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; }
         .cp-item-warn { color: var(--active-dim); font-size: 11px; }
-        .cp-item-current { opacity: 0.4; cursor: default; pointer-events: none; }
-        .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 2px; margin-top: 4px; border-top: 1px solid var(--border); }
-        .cp-section-header:first-child { margin-top: 0; border-top: none; }
+        .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
         #compare-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
             cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
@@ -637,7 +639,16 @@
     <div id="compare-picker">
         <div id="compare-picker-box">
             <div id="compare-picker-title">Compare with…</div>
-            <div id="compare-picker-list"></div>
+            <div id="compare-picker-list">
+                <div class="cp-col">
+                    <div class="cp-section-header">Loaded</div>
+                    <div class="cp-col-list" id="cp-col-loaded"></div>
+                </div>
+                <div class="cp-col">
+                    <div class="cp-section-header">Files in directory</div>
+                    <div class="cp-col-list" id="cp-col-files"></div>
+                </div>
+            </div>
             <button id="compare-picker-cancel">Cancel</button>
         </div>
     </div>
@@ -3162,77 +3173,94 @@
 
         function showComparePicker(candidates, fileEntries = [], currentSession = null) {
             return new Promise(resolve => {
-                const overlay  = document.getElementById('compare-picker');
-                const listEl   = document.getElementById('compare-picker-list');
+                const overlay   = document.getElementById('compare-picker');
+                const colLoaded = document.getElementById('cp-col-loaded');
+                const colFiles  = document.getElementById('cp-col-files');
                 const cancelBtn = document.getElementById('compare-picker-cancel');
-                listEl.innerHTML = '';
-                const _addSection = (label) => {
-                    const hdr = document.createElement('div');
-                    hdr.className = 'cp-section-header';
-                    hdr.textContent = label;
-                    listEl.appendChild(hdr);
-                };
-                if (candidates.length) _addSection('Loaded');
-                candidates.forEach(s => {
-                    const shapeMatch = Array.isArray(s.shape) && Array.isArray(shape)
-                        && s.shape.length === shape.length
-                        && s.shape.every((v, i) => Number(v) === Number(shape[i]));
-                    const item = document.createElement('div');
-                    item.className = 'cp-item';
-                    item.tabIndex = 0;
-                    item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                        + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
-                        + (!shapeMatch ? `<span class="cp-item-warn">shape differs from current</span>` : '');
-                    function pick() { cleanup(); resolve({ type: 'session', session: s }); }
-                    item.onclick = pick;
-                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
-                    listEl.appendChild(item);
-                });
-                if (fileEntries.length) _addSection('Files in current directory');
-                fileEntries.forEach(f => {
-                    const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
-                        : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
-                    const item = document.createElement('div');
-                    item.className = 'cp-item';
-                    item.tabIndex = 0;
-                    item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
-                        + `<span class="cp-item-shape">${shapeStr}</span>`;
-                    function pickFile() {
-                        item.classList.add('cp-item-loading');
-                        item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                        fetch('/load', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ filepath: f.path, name: f.name }),
-                        }).then(r => r.json()).then(data => {
-                            if (data.error) {
-                                showToast(`load error: ${data.error}`);
-                                cleanup();
-                                resolve(null);
-                            } else {
-                                cleanup();
-                                resolve({ type: 'loaded', sid: data.sid, name: data.name });
-                            }
-                        }).catch(() => { showToast('load failed'); cleanup(); resolve(null); });
-                    }
-                    item.onclick = pickFile;
-                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
-                    listEl.appendChild(item);
-                });
-                // Show current session at bottom, grayed out, not selectable
-                if (currentSession) {
-                    if (candidates.length || fileEntries.length) _addSection('Current');
-                    const cur = document.createElement('div');
-                    cur.className = 'cp-item cp-item-current';
-                    cur.innerHTML = `<span class="cp-item-name">${currentSession.name || '(unnamed)'}</span>`
-                        + `<span class="cp-item-shape">[${Array.isArray(currentSession.shape) ? currentSession.shape.join(', ') : '?'}]</span>`
-                        + `<span class="cp-item-warn">current</span>`;
-                    listEl.appendChild(cur);
+                colLoaded.innerHTML = '';
+                colFiles.innerHTML  = '';
+
+                const _shapeMatch = (s) => Array.isArray(s.shape) && Array.isArray(shape)
+                    && s.shape.length === shape.length
+                    && s.shape.every((v, i) => Number(v) === Number(shape[i]));
+
+                // Left column – loaded sessions (current excluded by caller)
+                if (candidates.length) {
+                    candidates.forEach(s => {
+                        const matches = _shapeMatch(s);
+                        const item = document.createElement('div');
+                        item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
+                        if (matches) item.tabIndex = 0;
+                        item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                            + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
+                            + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                        if (matches) {
+                            function pick() { cleanup(); resolve({ type: 'session', session: s }); }
+                            item.onclick = pick;
+                            item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+                        }
+                        colLoaded.appendChild(item);
+                    });
+                } else {
+                    const empty = document.createElement('div');
+                    empty.className = 'cp-col-empty';
+                    empty.textContent = 'none loaded';
+                    colLoaded.appendChild(empty);
                 }
+
+                // Right column – CWD files
+                if (fileEntries.length) {
+                    fileEntries.forEach(f => {
+                        const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
+                            : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                        const matches = Array.isArray(f.shape) && Array.isArray(shape)
+                            && f.shape.length === shape.length
+                            && f.shape.every((v, i) => Number(v) === Number(shape[i]));
+                        const item = document.createElement('div');
+                        item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
+                        if (matches) item.tabIndex = 0;
+                        item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
+                            + `<span class="cp-item-shape">${shapeStr}</span>`
+                            + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                        if (matches) {
+                            function pickFile() {
+                                item.classList.add('cp-item-loading');
+                                item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                fetch('/load', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                }).then(r => r.json()).then(data => {
+                                    if (data.error) {
+                                        showToast(`load error: ${data.error}`);
+                                        cleanup();
+                                        resolve(null);
+                                    } else {
+                                        cleanup();
+                                        resolve({ type: 'loaded', sid: data.sid, name: data.name });
+                                    }
+                                }).catch(() => { showToast('load failed'); cleanup(); resolve(null); });
+                            }
+                            item.onclick = pickFile;
+                            item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
+                        }
+                        colFiles.appendChild(item);
+                    });
+                } else {
+                    const empty = document.createElement('div');
+                    empty.className = 'cp-col-empty';
+                    empty.textContent = 'no supported files';
+                    colFiles.appendChild(empty);
+                }
+
                 overlay.classList.add('visible');
-                const selectables = () => [...listEl.querySelectorAll('.cp-item:not(.cp-item-current):not(.cp-item-loading)')];
+                const selectables = () => [
+                    ...colLoaded.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)'),
+                    ...colFiles.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)'),
+                ];
                 const first = selectables()[0];
                 if (first) first.focus();
+
                 function cleanup() {
                     overlay.classList.remove('visible');
                     cancelBtn.onclick = null;
