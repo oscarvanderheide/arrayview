@@ -914,20 +914,26 @@
         }
 
         function scaleCanvas(w, h) {
+            const bottomReserve = 72; // slim colorbar (~31px) + eggs (~22px) + gaps
+            const maxW = Math.max(100, window.innerWidth - 80);
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve);
             const baseScale = getBaseScale(w, h);
-            const finalScale = baseScale * userZoom;
+            // Cap the scale: canvas must never exceed available space, so colorbar+eggs
+            // always have room regardless of how far the user has zoomed in.
+            const capScale   = Math.min(maxW / w, maxH / h);
+            const finalScale = Math.min(baseScale * userZoom, capScale);
             const cssW = Math.round(w * finalScale);
             const cssH = Math.round(h * finalScale);
             canvas.style.width  = cssW + 'px';
             canvas.style.height = cssH + 'px';
             if (hasVectorfield) drawVectorOverlay();
-            drawSlimColorbar(cbMarkerFrac);
-            const maxW = window.innerWidth - 80;
-            // Reserve space below canvas for colorbar (~30 px) + eggs (~26 px) + gap
-            const maxH = window.innerHeight - uiReserveV() - 64;
+            // fixWrapperAlignment must run before drawSlimColorbar so the canvas
+            // is in its final viewport position before we anchor the fixed colorbar.
             fixWrapperAlignment();
-            positionEggs(); // after fixWrapperAlignment so canvas position is final
-            if (cssW >= maxW || cssH >= maxH) return 'max';
+            drawSlimColorbar(cbMarkerFrac);
+            positionEggs();
+            // At max when the uncapped scale would have exceeded available space
+            if (baseScale * userZoom >= capScale) return 'max';
         }
 
         function compareScaleCanvases() {
