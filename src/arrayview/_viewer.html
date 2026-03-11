@@ -70,8 +70,8 @@
             pointer-events: none; color: rgba(190,190,190,0.75);
         }
         :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
-        #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; pointer-events: none; }
-        #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: default; }
+        #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
+        #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -684,6 +684,9 @@
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
+                <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
+                <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
+                <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker: compare with loaded array or local file</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
@@ -905,6 +908,60 @@
         const regBlendCb = document.getElementById('reg-blend-cb');
         const slimCbCanvas = document.getElementById('slim-cb');
         const slimCbLabels = document.getElementById('slim-cb-labels');
+        const slimCbWrap = document.getElementById('slim-cb-wrap');
+
+        // ── Window / Level interaction on colorbar ──────────────────────────
+        // Scroll: zoom window (shrink/expand range symmetrically around center)
+        // Drag:   shift level (pan range left/right)
+        // Dblclick: reset to auto range
+        let _cbDragX = null;
+        function _cbApplyAndRender() {
+            fetch(`/clearcache/${sid}`);
+            updateView();
+            saveState();
+        }
+        slimCbCanvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (multiViewActive || compareActive || qmriActive) return;
+            if (manualVmin === null) return;
+            const win = manualVmax - manualVmin;
+            if (win <= 0) return;
+            const factor = e.deltaY > 0 ? 1.1 : (1 / 1.1);
+            const center = (manualVmin + manualVmax) / 2;
+            const newHalf = (win * factor) / 2;
+            manualVmin = center - newHalf;
+            manualVmax = center + newHalf;
+            drawSlimColorbar(cbMarkerFrac);
+            _cbApplyAndRender();
+        }, { passive: false });
+        slimCbCanvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            _cbDragX = e.clientX;
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (_cbDragX === null) return;
+            if (multiViewActive || compareActive || qmriActive) return;
+            if (manualVmin === null) return;
+            const dx = e.clientX - _cbDragX;
+            _cbDragX = e.clientX;
+            const cbW = parseInt(slimCbCanvas.style.width) || slimCbCanvas.offsetWidth || 200;
+            const win = manualVmax - manualVmin;
+            const shift = -(dx / cbW) * win;
+            manualVmin += shift;
+            manualVmax += shift;
+            drawSlimColorbar(cbMarkerFrac);
+            _cbApplyAndRender();
+        });
+        window.addEventListener('mouseup', () => { _cbDragX = null; });
+        slimCbCanvas.addEventListener('dblclick', () => {
+            if (multiViewActive || compareActive || qmriActive) return;
+            manualVmin = null; manualVmax = null;
+            updateView();
+            showStatus('window/level: reset to auto');
+            saveState();
+        });
+
         const sink = document.getElementById('keyboard-sink');
 
         if (!sid) {
@@ -2148,6 +2205,8 @@
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
                 qmriDim: qmriActive ? qmriDim : null,
+                manualVmin,
+                manualVmax,
             };
         }
 
@@ -2192,6 +2251,10 @@
             if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
             else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
             _pixelInfoVisible = s._pixelInfoVisible ?? false;
+            if (Number.isFinite(s.manualVmin) && Number.isFinite(s.manualVmax) && s.manualVmax > s.manualVmin) {
+                manualVmin = s.manualVmin;
+                manualVmax = s.manualVmax;
+            }
 
             if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
             if (Number.isInteger(s.dim_y) && s.dim_y >= 0 && s.dim_y < shape.length) dim_y = s.dim_y;
