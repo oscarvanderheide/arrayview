@@ -1091,6 +1091,19 @@
             const totalH = Math.max(100, window.innerHeight - uiReserveH) * 0.65;
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
+            // Cap userZoom so panes never exceed the viewport
+            const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - 80)  - (cols - 1) * colGap) / cols - panePadX);
+            const capPaneH = Math.max(40, (Math.max(100, window.innerHeight - uiReserveH) - (rows - 1) * rowGap) / rows - titleReserve - panePadY);
+            let capZoom = 10.0;
+            for (const frame of activeFrames) {
+                if (!frame) continue;
+                const aw = Math.max(40, paneOuterW - panePadX);
+                const ah = Math.max(40, paneOuterH - titleReserve - panePadY);
+                const base = Math.min(aw / frame.width, ah / frame.height);
+                const maxScale = Math.min(capPaneW / frame.width, capPaneH / frame.height);
+                if (base > 0) capZoom = Math.min(capZoom, maxScale / (base * fitSlack));
+            }
+            if (userZoom > capZoom) userZoom = capZoom;
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
