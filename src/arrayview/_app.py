@@ -265,6 +265,62 @@ def _ensure_render_thread() -> None:
     _RENDER_THREAD.start()
 
 
+# ---------------------------------------------------------------------------
+# Neighbor prefetch thread pool (Phase 3)
+# ---------------------------------------------------------------------------
+_PREFETCH_POOL = None
+_PREFETCH_LOCK = threading.Lock()
+
+
+def _get_prefetch_pool():
+    global _PREFETCH_POOL
+    with _PREFETCH_LOCK:
+        if _PREFETCH_POOL is None or _PREFETCH_POOL._shutdown:
+            import concurrent.futures
+            _PREFETCH_POOL = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="arrayview-prefetch"
+            )
+        return _PREFETCH_POOL
+
+
+def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
+    """Warm raw_cache for the next PREFETCH_NEIGHBORS slices in *direction*.
+
+    Runs in a low-priority background thread so it never blocks WS responses.
+    Skips prefetch when the estimated byte cost exceeds PREFETCH_BUDGET_BYTES.
+    """
+    n = session.shape[slice_dim]
+    slice_bytes = session.shape[dim_y] * session.shape[dim_x] * 4  # float32
+    if slice_bytes * PREFETCH_NEIGHBORS > PREFETCH_BUDGET_BYTES:
+        return  # data too large; skip prefetch to avoid memory pressure
+
+    current = idx_list[slice_dim]
+    targets = []
+    for step in range(1, PREFETCH_NEIGHBORS + 1):
+        nxt = current + direction * step
+        if 0 <= nxt < n:
+            targets.append(nxt)
+
+    if not targets:
+        return
+
+    def _warm():
+        for t in targets:
+            idx = list(idx_list)
+            idx[slice_dim] = t
+            key = (dim_x, dim_y, tuple(idx))
+            if key not in session.raw_cache:
+                try:
+                    extract_slice(session, dim_x, dim_y, idx)
+                except Exception:
+                    pass  # prefetch errors are silent
+
+    try:
+        _get_prefetch_pool().submit(_warm)
+    except RuntimeError:
+        pass  # pool shutting down
+
+
 async def _render(loop: asyncio.AbstractEventLoop, func) -> object:
     """Await *func()* in the render thread without using concurrent.futures."""
     _ensure_render_thread()
@@ -290,9 +346,11 @@ class Session:
         self.rgba_cache = OrderedDict()
         self.mosaic_cache = OrderedDict()
 
-        self.RAW_CACHE_BYTES = 512 * 1024 * 1024  # 512 MB
-        self.RGBA_CACHE_BYTES = 1024 * 1024 * 1024  # 1 GB
-        self.MOSAIC_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
+        # Phase 5: adaptive budgets from module-level computed constants.
+        # These default to a fraction of total RAM; override via env vars.
+        self.RAW_CACHE_BYTES = _RAW_CACHE_BYTES
+        self.RGBA_CACHE_BYTES = _RGBA_CACHE_BYTES
+        self.MOSAIC_CACHE_BYTES = _MOSAIC_CACHE_BYTES
         self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
 
         self.preload_gen = 0
@@ -351,6 +409,146 @@ COLORMAPS = [
 ]
 DR_PERCENTILES = [(0, 100), (1, 99), (5, 95), (10, 90)]
 DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
+
+# ---------------------------------------------------------------------------
+# Zarr chunk presets (Phase 1)
+# ---------------------------------------------------------------------------
+# These presets are designed for interactive slice navigation, where the
+# primary interaction is scrolling along one axis while displaying a 2D plane.
+#
+# Design principle: keep the displayed (XY) dimensions full-size in each chunk
+# so a single chunk fetch satisfies one frame.  Keep the scrolled dimension
+# shallow (depth=1) so loading one slice does not pull in neighbours.
+#
+# Presets by array shape archetype:
+#   3D (Y, X, Z)        → chunks (Y, X, 1)      — one Z-slice per chunk
+#   4D (Y, X, Z, T)     → chunks (Y, X, 1, 2)   — one Z-slice, 2 T-frames
+#   5D (Y, X, Z, T, C)  → chunks (Y, X, 1, 1, C) — full channel, one ZT
+#
+# For very large XY planes (> ~1024 px) you may tile XY as well, e.g.
+#   chunks (512, 512, 1) for a (2048, 2048, 300) volume.
+# Use ZARR_LARGE_XY_TILE (pixels) as the threshold.
+#
+# Target uncompressed chunk byte size: 1–8 MB (up to ~16 MB on fast NVMe).
+# At float32 that means:
+#   256×256  → 0.26 MB per slice — fine, no XY tiling needed
+#   512×512  → 1.0 MB per slice — within target
+#   1024×1024→ 4.0 MB per slice — within target, upper end
+#   2048×2048→ 16 MB per slice  — at limit; consider 1024×1024 XY tiling
+#
+# Compression default: no compressor ("raw") for local NVMe workloads where
+# decompression latency exceeds I/O savings.  Users on remote/compressed FS
+# should use blosc with lz4 (fast) or zstd (better ratio).
+ZARR_LARGE_XY_TILE = 1024   # pixels — threshold for tiling XY dimension
+ZARR_T_DEPTH = 2            # T-frames per chunk for 4D+ arrays
+
+# ---------------------------------------------------------------------------
+# Neighbor prefetch (Phase 3)
+# ---------------------------------------------------------------------------
+# After rendering a frame the backend eagerly warms the raw_cache for the
+# next N slices in the scroll direction.  Only runs when the estimated I/O
+# cost is within budget.
+PREFETCH_NEIGHBORS = 3          # slices to prefetch in the scroll direction
+PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024   # 16 MB max prefetch per request
+
+# ---------------------------------------------------------------------------
+# Heavy-operation guardrails (Phase 4)
+# ---------------------------------------------------------------------------
+# Operations that materialize the entire array (FFT) or stack many slices
+# (GIF, grid) are blocked above this threshold.  Users may override via the
+# ARRAYVIEW_HEAVY_OP_LIMIT_MB environment variable.
+_DEFAULT_HEAVY_OP_MB = 500
+HEAVY_OP_LIMIT_BYTES = (
+    int(os.environ.get("ARRAYVIEW_HEAVY_OP_LIMIT_MB", _DEFAULT_HEAVY_OP_MB))
+    * 1024 * 1024
+)
+
+
+def _estimate_array_bytes(session) -> int:
+    """Best-effort estimate of the total uncompressed byte size of session.data.
+
+    Uses session.shape (not data.nbytes) as the authoritative source so that
+    guardrails remain correct even when the underlying data object differs from
+    session.shape (e.g. in tests that patch session.shape independently).
+    """
+    try:
+        itemsize = np.dtype(session.data.dtype).itemsize
+    except Exception:
+        itemsize = 4  # assume float32
+    return int(np.prod(session.shape)) * itemsize
+
+
+# ---------------------------------------------------------------------------
+# Adaptive cache budgets (Phase 5)
+# ---------------------------------------------------------------------------
+# Defaults adapt to available system RAM; override via environment variables.
+# All values in bytes.
+
+def _total_ram_bytes() -> int:
+    """Return total system RAM in bytes, or 8 GB as a conservative fallback."""
+    try:
+        import psutil
+        return psutil.virtual_memory().total
+    except Exception:
+        return 8 * 1024 ** 3  # 8 GB fallback
+
+
+def _cache_budget(env_var: str, fraction: float) -> int:
+    """Return a cache byte budget.
+
+    Priority:
+      1. Environment variable ``env_var`` (in MB, integer).
+      2. ``fraction`` * total_ram, rounded down to the nearest MB.
+    """
+    env_val = os.environ.get(env_var)
+    if env_val is not None:
+        try:
+            return max(1, int(env_val)) * 1024 * 1024
+        except ValueError:
+            pass  # bad value — fall through to adaptive
+    ram = _total_ram_bytes()
+    return max(64 * 1024 * 1024, int(ram * fraction))
+
+
+# Compute once at import time so Sessions created in the same process share budgets.
+_RAW_CACHE_BYTES   = _cache_budget("ARRAYVIEW_RAW_CACHE_MB",   0.05)   # 5% RAM
+_RGBA_CACHE_BYTES  = _cache_budget("ARRAYVIEW_RGBA_CACHE_MB",  0.10)   # 10% RAM
+_MOSAIC_CACHE_BYTES = _cache_budget("ARRAYVIEW_MOSAIC_CACHE_MB", 0.025) # 2.5% RAM
+
+
+def zarr_chunk_preset(shape: tuple[int, ...]) -> tuple[int, ...]:
+    """Return a recommended Zarr chunk shape for *shape* optimised for
+    interactive slice navigation in arrayview.
+
+    Rules:
+    - 2-D: return shape unchanged (single chunk — data fits in a frame).
+    - 3-D (Y, X, Z): one Z-slice per chunk; tile XY if > ZARR_LARGE_XY_TILE.
+    - 4-D (Y, X, Z, T): one Z-slice, ZARR_T_DEPTH T-frames; same XY rule.
+    - 5-D+: one slice along every non-XY dimension; full-size along C (last).
+    - 1-D or unknown rank: return None (let Zarr choose).
+    """
+    ndim = len(shape)
+    if ndim < 2:
+        return shape  # zarr default
+
+    # XY tile size
+    cy = min(shape[0], ZARR_LARGE_XY_TILE)
+    cx = min(shape[1], ZARR_LARGE_XY_TILE)
+
+    if ndim == 2:
+        return (cy, cx)
+    elif ndim == 3:
+        return (cy, cx, 1)
+    elif ndim == 4:
+        return (cy, cx, 1, min(ZARR_T_DEPTH, shape[3]))
+    elif ndim == 5:
+        # (Y, X, Z, T, C) — keep full C axis in one chunk
+        return (cy, cx, 1, 1, shape[4])
+    else:
+        # 6-D+: one element per extra axis, full XY
+        extra = tuple(1 for _ in range(ndim - 2))
+        return (cy, cx) + extra
+
 
 LUTS = {
     name: np.concatenate(
@@ -986,6 +1184,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             _vmax_ov = msg.get("vmax_override")
             vmin_override = float(_vmin_ov) if _vmin_ov is not None else None
             vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
+            direction = int(msg.get("direction", 1))  # scroll direction (+1/-1)
+            slice_dim = int(msg.get("slice_dim", -1))
 
             if dim_z >= 0:
                 rgba = await _render(
@@ -1042,6 +1242,13 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
             await ws.send_bytes(header + vminmax + rgba.tobytes())
+
+            # Warm neighbor slices in the background (Phase 3 prefetch)
+            if slice_dim >= 0 and not (dim_z >= 0):
+                _schedule_prefetch(
+                    session, dim_x, dim_y, list(idx_tuple),
+                    slice_dim, direction
+                )
     except WebSocketDisconnect:
         pass  # normal: browser closed the tab/window
     except Exception as _ws_exc:
@@ -1062,6 +1269,38 @@ def clear_cache(sid: str):
         session.mosaic_cache.clear()
         session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     return {"status": "ok"}
+
+
+@app.get("/cache_info/{sid}")
+def cache_info(sid: str):
+    """Phase 5: debug endpoint — returns per-session cache usage and budgets."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    return {
+        "raw_cache": {
+            "entries": len(session.raw_cache),
+            "used_bytes": session._raw_bytes,
+            "budget_bytes": session.RAW_CACHE_BYTES,
+            "used_mb": round(session._raw_bytes / 1e6, 2),
+            "budget_mb": round(session.RAW_CACHE_BYTES / 1e6, 2),
+        },
+        "rgba_cache": {
+            "entries": len(session.rgba_cache),
+            "used_bytes": session._rgba_bytes,
+            "budget_bytes": session.RGBA_CACHE_BYTES,
+            "used_mb": round(session._rgba_bytes / 1e6, 2),
+            "budget_mb": round(session.RGBA_CACHE_BYTES / 1e6, 2),
+        },
+        "mosaic_cache": {
+            "entries": len(session.mosaic_cache),
+            "used_bytes": session._mosaic_bytes,
+            "budget_bytes": session.MOSAIC_CACHE_BYTES,
+            "used_mb": round(session._mosaic_bytes / 1e6, 2),
+            "budget_mb": round(session.MOSAIC_CACHE_BYTES / 1e6, 2),
+        },
+        "heavy_op_limit_mb": round(HEAVY_OP_LIMIT_BYTES / 1e6, 1),
+    }
 
 
 @app.get("/colormap/{name}")
@@ -1456,6 +1695,20 @@ async def toggle_fft(sid: str, request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+    # Phase 4 guardrail: FFT materialises the full array — block for large data
+    est = _estimate_array_bytes(session)
+    if est > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = est // (1024 * 1024)
+        return {
+            "error": (
+                f"FFT blocked: array is ~{est_mb} MB (limit {limit_mb} MB). "
+                "Convert to a smaller sub-volume or increase "
+                "ARRAYVIEW_HEAVY_OP_LIMIT_MB."
+            ),
+            "too_large": True,
+        }
+
     session.fft_original_data = session.data
     full = np.array(session.data)
     session.data = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
@@ -1811,6 +2064,27 @@ def get_grid(
         return Response(status_code=404)
     idx_list = [int(x) for x in indices.split(",")]
     n = session.shape[slice_dim]
+
+    # Phase 4 guardrail: grid stacks all n slices — block for large data
+    try:
+        itemsize = np.dtype(session.data.dtype).itemsize
+    except Exception:
+        itemsize = 4
+    frame_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
+    if frame_bytes * n > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = frame_bytes * n // (1024 * 1024)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    f"Grid blocked: would stack ~{est_mb} MB (limit {limit_mb} MB). "
+                    "Increase ARRAYVIEW_HEAVY_OP_LIMIT_MB to override."
+                ),
+                "too_large": True,
+            },
+        )
+
     frames = []
     for i in range(n):
         idx_list[slice_dim] = i
@@ -1867,6 +2141,27 @@ def get_gif(
         return Response(status_code=404)
     idx_list = [int(x) for x in indices.split(",")]
     n = session.shape[slice_dim]
+
+    # Phase 4 guardrail: GIF stacks all n slices — block for large data
+    try:
+        itemsize = np.dtype(session.data.dtype).itemsize
+    except Exception:
+        itemsize = 4
+    frame_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
+    if frame_bytes * n > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = frame_bytes * n // (1024 * 1024)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    f"GIF blocked: would stack ~{est_mb} MB (limit {limit_mb} MB). "
+                    "Increase ARRAYVIEW_HEAVY_OP_LIMIT_MB to override."
+                ),
+                "too_large": True,
+            },
+        )
+
     frames = []
     for i in range(n):
         idx_list[slice_dim] = i
