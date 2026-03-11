@@ -381,13 +381,15 @@
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
             padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
         }
-        .compare-canvas-wrap { position: relative; display: inline-flex; align-items: flex-start; justify-content: center; }
+        .compare-canvas-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; }
+        .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
+        .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
             max-width: 100%; max-height: 100%;
         }
         #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
-        #compare-view-wrap.active #compare-cb-wrap { display: block; }
+        #compare-view-wrap.active #compare-cb-wrap { display: none; } /* hidden; per-pane colorbars are used instead */
         #compare-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
         #compare-cb-labels {
             display: flex; justify-content: center; gap: 0; font-size: 11px;
@@ -466,6 +468,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-left-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -489,6 +493,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-right-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -506,6 +512,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-third-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -527,6 +535,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-fourth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -544,6 +554,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-fifth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -561,6 +573,8 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
                             <div class="cv-pixel-info" id="compare-sixth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -848,6 +862,23 @@
         ];
         const compareCbCanvas = document.getElementById('compare-cb');
         const compareCbLabels = document.getElementById('compare-cb-labels');
+        // Per-pane colorbar elements (one per compare canvas)
+        const comparePaneCbs = [
+            document.getElementById('compare-left-pane-cb'),
+            document.getElementById('compare-right-pane-cb'),
+            document.getElementById('compare-third-pane-cb'),
+            document.getElementById('compare-fourth-pane-cb'),
+            document.getElementById('compare-fifth-pane-cb'),
+            document.getElementById('compare-sixth-pane-cb'),
+        ];
+        const comparePaneCbLabels = [
+            document.getElementById('compare-left-pane-cb-labels'),
+            document.getElementById('compare-right-pane-cb-labels'),
+            document.getElementById('compare-third-pane-cb-labels'),
+            document.getElementById('compare-fourth-pane-cb-labels'),
+            document.getElementById('compare-fifth-pane-cb-labels'),
+            document.getElementById('compare-sixth-pane-cb-labels'),
+        ];
         const slimCbCanvas = document.getElementById('slim-cb');
         const slimCbLabels = document.getElementById('slim-cb-labels');
         const sink = document.getElementById('keyboard-sink');
@@ -1138,6 +1169,55 @@
             compareCbLabels.innerHTML = `<span>${_cbFmt(currentVmin)}</span><span style="flex:1"></span><span>${_cbFmt(currentVmax)}</span>`;
         }
 
+        function drawComparePaneCb(idx) {
+            const cbCanvas = comparePaneCbs[idx];
+            const cbLabels = comparePaneCbLabels[idx];
+            const cv = compareCanvases[idx];
+            if (!cbCanvas || !cv) return;
+            // Hide if colorbar is off or pane has no data yet
+            const cssW = parseInt(cv.style.width);
+            if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
+                cbCanvas.style.display = 'none';
+                if (cbLabels) cbLabels.style.display = 'none';
+                return;
+            }
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops) return;
+            const stripH = 8;
+            const dpr = window.devicePixelRatio || 1;
+            cbCanvas.width = Math.round(cssW * dpr);
+            cbCanvas.height = Math.round(stripH * dpr);
+            cbCanvas.style.width = cssW + 'px';
+            cbCanvas.style.height = stripH + 'px';
+            cbCanvas.style.display = '';
+            const sCtx = cbCanvas.getContext('2d');
+            sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
+            sCtx.save();
+            sCtx.scale(dpr, dpr);
+            const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
+            const n = stops.length;
+            for (let i = 0; i < n; i++) {
+                const t = n <= 1 ? 0 : i / (n - 1);
+                const rgb = stops[i];
+                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+            }
+            sCtx.fillStyle = grad;
+            sCtx.fillRect(0, 0, cssW, stripH);
+            sCtx.restore();
+            if (cbLabels) {
+                const frame = compareFrames[idx];
+                cbLabels.style.display = '';
+                cbLabels.style.width = cssW + 'px';
+                cbLabels.innerHTML = `<span>${_cbFmt(frame.vmin)}</span><span>${_cbFmt(frame.vmax)}</span>`;
+            }
+        }
+
+        function drawAllComparePaneCbs() {
+            for (let i = 0; i < compareCanvases.length; i++) {
+                drawComparePaneCb(i);
+            }
+        }
+
         window.addEventListener('resize', () => {
             if (multiViewActive) { mvScaleAllCanvases(); return; }
             if (compareActive) { compareScaleCanvases(); positionEggs(); return; }
@@ -1177,13 +1257,17 @@
             drawSlimColorbar(cbMarkerFrac);
             if (multiViewActive) drawMvColorbar();
             if (qmriActive) qmriViews.forEach(v => drawQvSlimCb(v));
+            if (compareActive) drawAllComparePaneCbs();
             if (!opts.silent) showStatus(zenMode ? 'zen mode: on' : 'zen mode: off');
             renderEggs();
         }
         function drawSlimColorbar(markerFrac) {
             const wrap = document.getElementById('slim-cb-wrap');
             if (compareActive) {
-                drawCompareColorbar();
+                // Per-pane colorbars replace the shared one in compare mode
+                drawAllComparePaneCbs();
+                compareCbCanvas.style.display = 'none';
+                compareCbLabels.textContent = '';
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
                 if (wrap) wrap.style.display = 'none';
