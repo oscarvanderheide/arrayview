@@ -2516,7 +2516,7 @@
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView(); triggerPreload();
                 });
-                showStatus(`range: ${DR_LABELS[dr_idx]}`);
+                showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
                 saveState();
             } else if (e.key === 'D') {
                 const v1 = await showInlinePrompt('vmin:', _cbFmt(currentVmin));
@@ -2673,8 +2673,8 @@
             } else if (e.key === 'e') {
                 const reusableUrl = buildReusableUrl();
                 navigator.clipboard.writeText(reusableUrl).then(() => {
-                    showStatus('reusable URL copied');
-                }).catch(() => showStatus('clipboard unavailable'));
+                    showStatus('Reusable URL copied');
+                }).catch(() => showStatus('Clipboard unavailable'));
             } else if (e.key === 'f') {
                 if (_fftActive) {
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
@@ -2700,13 +2700,13 @@
                         });
                 }
             } else if (e.key === 'x') {
-                if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
+                if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; }
                 if (shape.length < 3) return;
                 [dim_x, current_slice_dim] = [current_slice_dim, dim_x];
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'y') {
-                if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
+                if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; }
                 if (shape.length < 3) return;
                 [dim_y, current_slice_dim] = [current_slice_dim, dim_y];
                 dim_z = -1;
