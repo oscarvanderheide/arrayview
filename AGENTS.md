@@ -129,3 +129,13 @@ Then update `_VSCODE_EXT_VERSION` in `src/arrayview/_app.py`.
 ## Source Of Truth
 
 - End-user usage and setup: `README.md`
+
+## Skills
+
+Use these skills when working on the corresponding areas:
+
+- **`viewer-ui-checklist`** — ANY UI change (keyboard shortcuts, layout, new panels). Guarantees `visual_smoke.py` stays in sync.
+- **`modes-consistency`** — ANY visual feature (zoom, eggs, colorbars, canvas events). Guarantees the feature is implemented across ALL six viewing modes: normal, multi-view, compare, diff, registration, qMRI.
+- **`invocation-consistency`** — ANY server, startup, or display-opening change. Guarantees the feature works across all six invocation paths: CLI, Python script, Jupyter, Julia, VS Code tunnel, plain SSH.
+
+Skill files live in `.claude/skills/` and are symlinked from `~/.claude/skills/` for VS Code Copilot discovery.
