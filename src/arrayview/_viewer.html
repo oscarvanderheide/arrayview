@@ -761,6 +761,7 @@
         let _complexFadeTimer = null;
         let pixelHoverPending = false;
         let cbMarkerFrac = null;
+        let _lastMouseX = 0, _lastMouseY = 0;
         let flip_x = false, flip_y = false;
         let flipDims = {}; // per-dimension flip state used in multi-view
         let _fftActive = false;
@@ -2266,13 +2267,19 @@
         canvas.addEventListener('mousemove', (e) => {
             if (zenMode) return;
             if (dim_z >= 0) return;
+            _lastMouseX = e.clientX; _lastMouseY = e.clientY;
+            // Keep tooltip tracking the cursor even while waiting for the next fetch
+            const _piel = document.getElementById('pixel-info');
+            if (_piel.style.display !== 'none' && _pixelInfoVisible) {
+                _piel.style.left = (_lastMouseX + 14) + 'px';
+                _piel.style.top  = (_lastMouseY - 20) + 'px';
+            }
             if (pixelHoverPending) return;
             pixelHoverPending = true;
             setTimeout(() => { pixelHoverPending = false; }, 50);
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            const cx = e.clientX, cy = e.clientY;
             fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
@@ -2283,8 +2290,8 @@
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
                         el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
                         if (_pixelInfoVisible) {
-                            el.style.left = (cx + 14) + 'px';
-                            el.style.top = (cy - 20) + 'px';
+                            el.style.left = (_lastMouseX + 14) + 'px';
+                            el.style.top  = (_lastMouseY - 20) + 'px';
                             el.style.display = '';
                         }
                         const range = currentVmax - currentVmin;
@@ -3061,7 +3068,7 @@
                     // Cursor feedback: grab when hovering over a crosshair line
                     const hj = mvCrossHairHit(view, px, py);
                     cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
-                    const mvcx = e.clientX, mvcy = e.clientY;
+                    _lastMouseX = e.clientX; _lastMouseY = e.clientY;
                     if (!mvPixelPending) {
                         const ipx = Math.floor(px), ipy = Math.floor(py);
                         mvPixelPending = true;
@@ -3074,8 +3081,8 @@
                                     const el = document.getElementById('pixel-info');
                                     el.textContent = `(${ipx}, ${ipy}) = ${fmt(d.value)}`;
                                     if (_pixelInfoVisible) {
-                                        el.style.left = (mvcx + 14) + 'px';
-                                        el.style.top = (mvcy - 20) + 'px';
+                                        el.style.left = (_lastMouseX + 14) + 'px';
+                                        el.style.top  = (_lastMouseY - 20) + 'px';
                                         el.style.display = '';
                                     }
                                 }
