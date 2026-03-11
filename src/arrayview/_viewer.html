@@ -801,6 +801,8 @@
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
         let pendingRequest = false;
+        let wsSlowTimer = null;   // show loading overlay only after threshold
+        const WS_SLOW_THRESHOLD_MS = 80; // ms before spinner appears
 
         let preloadPolling = null;
         let preloadActiveDim = -1;
@@ -1634,6 +1636,8 @@
                 const seq    = headerU32[0];
                 const width  = headerU32[1];
                 const height = headerU32[2];
+                // Phase 3: cancel delayed spinner — frame arrived in time
+                if (wsSlowTimer) { clearTimeout(wsSlowTimer); wsSlowTimer = null; }
                 if (compareActive) {
                     isRendering = false;
                     if (pendingRequest) {
@@ -2453,6 +2457,15 @@
                 vmax_override: manualVmax,
                 overlay_sid,
             }));
+            // Phase 3: delayed loading indicator — show spinner only when
+            // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
+            if (wsSlowTimer) clearTimeout(wsSlowTimer);
+            wsSlowTimer = setTimeout(() => {
+                wsSlowTimer = null;
+                if (isRendering) {
+                    document.getElementById('loading-overlay').style.display = '';
+                }
+            }, WS_SLOW_THRESHOLD_MS);
         }
 
         let playLastFrameTime = 0;
@@ -2532,6 +2545,16 @@
             setStatus('Generating GIF...');
             const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${currentColormap()}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
             const res = await fetch(url);
+            if (!res.ok) {
+                // Phase 4: guardrail error (e.g. array too large)
+                try {
+                    const d = await res.json();
+                    setStatus('GIF error: ' + (d.error || res.statusText));
+                } catch (_) {
+                    setStatus('GIF error: ' + res.statusText);
+                }
+                return;
+            }
             const blob = await res.blob();
             const link = document.createElement('a');
             link.download = `dim${current_slice_dim}.gif`;
