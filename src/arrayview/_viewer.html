@@ -890,17 +890,20 @@
         }
 
         function fixWrapperAlignment() {
-            // Switch between centered (small canvas) and top-aligned (large canvas).
-            // We compute the total content height from children to avoid feedback loops.
+            // Center content in the viewport-minus-bottom-reserve zone so the
+            // fixed-position colorbar + eggs always have room below the canvas.
             const wrapper = document.getElementById('wrapper');
-            let contentH = 30; // wrapper top+bottom padding
+            let childrenH = 0;
             for (const child of wrapper.children) {
                 const s = getComputedStyle(child);
                 if (s.position === 'fixed') continue; // out of flow
                 if (s.display === 'none') continue;
-                contentH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
+                childrenH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
-            wrapper.style.justifyContent = contentH > window.innerHeight ? 'flex-start' : '';
+            const bottomReserve = 72; // colorbar (~31px) + eggs (~22px) + gaps
+            const pt = Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
+            wrapper.style.justifyContent = 'flex-start';
+            wrapper.style.paddingTop = pt + 'px';
         }
 
         function getBaseScale(w, h) {
@@ -919,11 +922,11 @@
             canvas.style.height = cssH + 'px';
             if (hasVectorfield) drawVectorOverlay();
             drawSlimColorbar(cbMarkerFrac);
-            positionEggs();
             const maxW = window.innerWidth - 80;
             // Reserve space below canvas for colorbar (~30 px) + eggs (~26 px) + gap
             const maxH = window.innerHeight - uiReserveV() - 64;
             fixWrapperAlignment();
+            positionEggs(); // after fixWrapperAlignment so canvas position is final
             if (cssW >= maxW || cssH >= maxH) return 'max';
         }
 
@@ -976,8 +979,8 @@
                 }
             }
             drawSlimColorbar(cbMarkerFrac);
-            positionEggs();
             fixWrapperAlignment();
+            positionEggs();
         }
 
         function compareLuma(imgData, i) {
