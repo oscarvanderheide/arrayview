@@ -11,6 +11,8 @@ wheels/
 
 *.npy
 .claude/
+!.claude/skills/
+!.claude/skills/**
 CLAUDE.md
 debug/
 tests/snapshots/
