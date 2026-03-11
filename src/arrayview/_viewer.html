@@ -910,7 +910,8 @@
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
             const maxW = window.innerWidth - 80;
-            const maxH = window.innerHeight - uiReserveV();
+            // Reserve space below canvas for colorbar (~30 px) + eggs (~26 px) + gap
+            const maxH = window.innerHeight - uiReserveV() - 64;
             fixWrapperAlignment();
             if (cssW >= maxW || cssH >= maxH) return 'max';
         }
@@ -965,7 +966,10 @@
             }
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
-            fixWrapperAlignment();(imgData, i) {
+            fixWrapperAlignment();
+        }
+
+        function compareLuma(imgData, i) {
             return (0.299 * imgData[i] + 0.587 * imgData[i + 1] + 0.114 * imgData[i + 2]) / 255;
         }
 
@@ -1728,19 +1732,25 @@
 
         function positionEggs() {
             const el = document.getElementById('mode-eggs');
-            if (!el) return;
-            // Find which canvas is active
-            let ref = compareActive
-                ? (document.getElementById('compare-left-canvas') || canvas)
-                : (multiViewActive ? (document.querySelector('.mv-canvas') || canvas) : canvas);
-            const rect = ref.getBoundingClientRect();
-            // Sit just above the slim colorbar (which is at cbTop = min(rect.bottom+4, innerH-38))
-            const cbTop = Math.min(rect.bottom + 4, window.innerHeight - 38);
-            const eggsBottom = window.innerHeight - cbTop + 4; // space above colorbar
-            el.style.bottom = eggsBottom + 'px';
-            el.style.left   = '50%';
+            if (!el || !el.innerHTML) return;
+            // Place eggs below the colorbar wrap element
+            const wrap = document.getElementById('slim-cb-wrap');
+            let eggsTop;
+            if (wrap && wrap.style.display !== 'none') {
+                eggsTop = wrap.getBoundingClientRect().bottom + 4;
+            } else {
+                // No colorbar: place below canvas
+                let ref = compareActive
+                    ? (document.getElementById('compare-left-canvas') || canvas)
+                    : (multiViewActive ? (document.querySelector('.mv-canvas') || canvas) : canvas);
+                eggsTop = ref.getBoundingClientRect().bottom + 4;
+            }
+            // Clamp so eggs never overflow the window bottom
+            eggsTop = Math.min(eggsTop, window.innerHeight - 26);
+            el.style.top       = eggsTop + 'px';
+            el.style.bottom    = '';
+            el.style.left      = '50%';
             el.style.transform = 'translateX(-50%)';
-            el.style.top    = '';  // clear any residual top
         }
 
         function renderInfo() {
@@ -2318,7 +2328,7 @@
                         if (_pixelInfoVisible) {
                             el.style.left = (_lastMouseX + 14) + 'px';
                             el.style.top  = (_lastMouseY - 20) + 'px';
-                            el.style.display = '';
+                            el.style.display = 'block';
                         }
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
@@ -3110,7 +3120,7 @@
                                     if (_pixelInfoVisible) {
                                         el.style.left = (_lastMouseX + 14) + 'px';
                                         el.style.top  = (_lastMouseY - 20) + 'px';
-                                        el.style.display = '';
+                                        el.style.display = 'block';
                                     }
                                 }
                             });
