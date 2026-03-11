@@ -393,15 +393,12 @@
             display: flex; justify-content: center; gap: 0; font-size: 11px;
             color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto;
         }
-        #qmri-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
-        #qmri-view-wrap.active { display: grid; align-items: stretch; overflow-x: auto; }
-        #qmri-view-wrap.qmri-3 { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
-        #qmri-view-wrap.qmri-4 { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
-        #qmri-view-wrap.qmri-5 { grid-template-columns: repeat(5, minmax(120px, 1fr)); }
-        #qmri-view-wrap.qmri-6 { grid-template-columns: repeat(3, minmax(120px, 1fr)); grid-template-rows: repeat(2, 1fr); }
-        .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; min-height: 0; overflow: hidden; }
+        #qmri-view-wrap { display: none; width: 100%; }
+        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 4px; }
+        .qv-row { display: flex; flex-direction: row; gap: 4px; justify-content: center; align-items: flex-start; }
+        .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
         .qv-label { font-size: 14px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
-        .qv-canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; width: 100%; }
+        .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
@@ -1745,7 +1742,7 @@
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
                 html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (_complexEggVisible) {
+            if (_complexEggVisible && !qmriActive) {
                 const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
                 html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
             }
@@ -1782,8 +1779,14 @@
                     }
                 }
             } else if (qmriActive) {
-                const qwrap = document.getElementById('qmri-view-wrap');
-                eggsTop = qwrap ? qwrap.getBoundingClientRect().bottom + 4 : window.innerHeight - 60;
+                // Find the actual bottom of the lowest canvas row
+                let maxBottom = 0;
+                qmriViews.forEach(v => {
+                    const r = v.canvas.getBoundingClientRect();
+                    if (r.bottom > maxBottom) maxBottom = r.bottom;
+                });
+                // Add 4px gap below the canvas (colorbars are inside qv-canvas-wrap, already above)
+                eggsTop = maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
             } else {
                 // Normal or compare mode: use slim colorbar if visible, else canvas bottom
                 const wrap = document.getElementById('slim-cb-wrap');
@@ -2558,6 +2561,7 @@
             } else if (e.key === 'g') {
                 saveGif();
             } else if (e.key === 'm') {
+                if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; }
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
@@ -3236,86 +3240,97 @@
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${n}`;
-            qmriViews = cmaps.map((cmap, idx) => {
-                const pane = document.createElement('div');
-                pane.className = 'qv-pane';
-                const label = document.createElement('div');
-                label.className = 'qv-label';
-                label.textContent = QMRI_LABELS[cmap] || cmap;
-                const area = document.createElement('div');
-                area.className = 'qv-canvas-area';
-                const cvWrap = document.createElement('div');
-                cvWrap.className = 'qv-canvas-wrap';
-                const cv = document.createElement('canvas');
-                cv.className = 'qv-canvas';
-                const cbCv = document.createElement('canvas');
-                cbCv.className = 'qv-cb';
-                const cbLabels = document.createElement('div');
-                cbLabels.className = 'qv-cb-labels';
-                cvWrap.appendChild(cv);
-                cvWrap.appendChild(cbCv);
-                cvWrap.appendChild(cbLabels);
-                const qvPiEl = document.createElement('div');
-                qvPiEl.className = 'cv-pixel-info';
-                cvWrap.appendChild(qvPiEl);
-                area.appendChild(cvWrap);
-                pane.appendChild(label);
-                pane.appendChild(area);
-                wrap.appendChild(pane);
-                const view = {
-                    colormap: cmap, qmriIdx: idx,
-                    canvas: cv, ctx: cv.getContext('2d'), area,
-                    cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
-                    vmin: 0, vmax: 1,
-                    ws: null, seq: 0, rendering: false, pending: false,
-                    lastW: 0, lastH: 0, lastImageData: null,
-                };
-                cv.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? -1 : 1;
-                    indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
-                    renderInfo();
-                    qmriViews.forEach(v => qvRender(v));
-                    saveState();
-                }, { passive: false });
-                let qvPixelPending = false;
-                cv.addEventListener('mousemove', (e) => {
-                    if (zenMode || !view.lastW || !view.lastH) return;
-                    if (qvPixelPending) return;
-                    qvPixelPending = true;
-                    setTimeout(() => { qvPixelPending = false; }, 60);
-                    const rect = cv.getBoundingClientRect();
-                    const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-                    const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                    // Fetch value for every qmri view at the same pixel position
-                    qmriViews.forEach(v => {
-                        const qIndices = [...indices];
-                        qIndices[qmriDim] = v.qmriIdx;
-                        fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                            .then(r => r.json()).then(d => {
-                                if (d.value !== undefined && isFinite(d.value)) {
-                                    const av = Math.abs(d.value);
-                                    const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                    showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
-                                } else if (v.pixelInfoEl) {
-                                    v.pixelInfoEl.style.display = 'none';
-                                }
-                            });
+            // Group canvases into rows: n≤4 → single row; 5 → [3,2]; 6 → [3,3]
+            const rowSizes = n <= 4 ? [n] : [3, n - 3];
+            qmriViews = [];
+            let cmapIdx = 0;
+            rowSizes.forEach(rowSize => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'qv-row';
+                for (let ri = 0; ri < rowSize; ri++) {
+                    const idx = cmapIdx++;
+                    const cmap = cmaps[idx];
+                    const pane = document.createElement('div');
+                    pane.className = 'qv-pane';
+                    const label = document.createElement('div');
+                    label.className = 'qv-label';
+                    label.textContent = QMRI_LABELS[cmap] || cmap;
+                    const area = document.createElement('div');
+                    area.className = 'qv-canvas-area';
+                    const cvWrap = document.createElement('div');
+                    cvWrap.className = 'qv-canvas-wrap';
+                    const cv = document.createElement('canvas');
+                    cv.className = 'qv-canvas';
+                    const cbCv = document.createElement('canvas');
+                    cbCv.className = 'qv-cb';
+                    const cbLabels = document.createElement('div');
+                    cbLabels.className = 'qv-cb-labels';
+                    cvWrap.appendChild(cv);
+                    cvWrap.appendChild(cbCv);
+                    cvWrap.appendChild(cbLabels);
+                    const qvPiEl = document.createElement('div');
+                    qvPiEl.className = 'cv-pixel-info';
+                    cvWrap.appendChild(qvPiEl);
+                    area.appendChild(cvWrap);
+                    pane.appendChild(label);
+                    pane.appendChild(area);
+                    rowDiv.appendChild(pane);
+                    const view = {
+                        colormap: cmap, qmriIdx: idx,
+                        canvas: cv, ctx: cv.getContext('2d'), area,
+                        cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
+                        vmin: 0, vmax: 1,
+                        ws: null, seq: 0, rendering: false, pending: false,
+                        lastW: 0, lastH: 0, lastImageData: null,
+                    };
+                    cv.addEventListener('wheel', (e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY > 0 ? -1 : 1;
+                        indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
+                        renderInfo();
+                        qmriViews.forEach(v => qvRender(v));
+                        saveState();
+                    }, { passive: false });
+                    let qvPixelPending = false;
+                    cv.addEventListener('mousemove', (e) => {
+                        if (zenMode || !view.lastW || !view.lastH) return;
+                        if (qvPixelPending) return;
+                        qvPixelPending = true;
+                        setTimeout(() => { qvPixelPending = false; }, 60);
+                        const rect = cv.getBoundingClientRect();
+                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                        // Fetch value for every qmri view at the same pixel position
+                        qmriViews.forEach(v => {
+                            const qIndices = [...indices];
+                            qIndices[qmriDim] = v.qmriIdx;
+                            fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                                .then(r => r.json()).then(d => {
+                                    if (d.value !== undefined && isFinite(d.value)) {
+                                        const av = Math.abs(d.value);
+                                        const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
+                                        showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                                    } else if (v.pixelInfoEl) {
+                                        v.pixelInfoEl.style.display = 'none';
+                                    }
+                                });
+                        });
                     });
-                });
-                cv.addEventListener('mouseleave', () => {
-                    qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
-                });
-                if (!httpTransport) {
-                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-                    view.ws.binaryType = 'arraybuffer';
-                    view.ws.onopen = () => qvRender(view);
-                    view.ws.onmessage = (event) => qvOnMessage(view, event);
-                    view.ws.onclose = () => { view.rendering = false; };
-                    view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                    cv.addEventListener('mouseleave', () => {
+                        qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                    });
+                    if (!httpTransport) {
+                        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
+                        view.ws.binaryType = 'arraybuffer';
+                        view.ws.onopen = () => qvRender(view);
+                        view.ws.onmessage = (event) => qvOnMessage(view, event);
+                        view.ws.onclose = () => { view.rendering = false; };
+                        view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                    }
+                    qmriViews.push(view);
                 }
-                return view;
+                wrap.appendChild(rowDiv);
             });
             if (httpTransport) {
                 qmriViews.forEach(v => qvRender(v));
@@ -3351,7 +3366,9 @@
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
-                dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
+                dr: dr_idx, complex_mode: complexMode,
+                // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
+                log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid,
             }));
@@ -3372,7 +3389,8 @@
                     colormap: v.colormap,
                     dr: String(dr_idx),
                     complex_mode: String(complexMode),
-                    log_scale: String(logScale),
+                    // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
+                    log_scale: String(logScale && v.qmriIdx < 2),
                     slice_dim: String(current_slice_dim),
                 });
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
@@ -3405,10 +3423,10 @@
             const ready = qmriViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
             const n = ready.length;
-            // matches CSS: qmri-6 is 3x2, others are n×1
-            const cols = n === 6 ? 3 : n;
-            const rows = n === 6 ? 2 : 1;
-            const gap = 8;
+            // n≤4 → single row; n=5 → [3,2]; n=6 → [3,3]
+            const cols = (n === 5 || n === 6) ? 3 : n;
+            const rows = (n === 5 || n === 6) ? 2 : 1;
+            const gap = 4;
             const labelH = 24; // qv-label height estimate
             const uiReserveH = uiReserveV() + rows * labelH;
             const paneW = Math.max(50, (window.innerWidth - 80 - (cols - 1) * gap) / cols * 0.65);
@@ -3429,6 +3447,12 @@
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
             }
             fixWrapperAlignment();
+            requestAnimationFrame(() => {
+                if (qmriActive) {
+                    qmriViews.forEach(v2 => drawQvSlimCb(v2));
+                    positionEggs();
+                }
+            });
             return atMax ? 'max' : null;
         }
 
@@ -3436,7 +3460,10 @@
             if (!v.cbCanvas) return;
             const canvasCssW = parseInt(v.canvas.style.width);
             if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
-            const cssW = v.area ? Math.min(canvasCssW, v.area.clientWidth - 4) : canvasCssW;
+            // Use canvas CSS width directly — qvScaleAllCanvases already caps the canvas
+            // to fit within the pane, so no clientWidth clamping needed (and clientWidth
+            // may be 0 before browser layout settles on first render).
+            const cssW = canvasCssW;
             if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
