@@ -22,7 +22,7 @@ import numpy as np
 import nibabel as nib
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
 from PIL import Image
 from matplotlib import colormaps as mpl_colormaps
@@ -340,7 +340,15 @@ class Session:
 
 SESSIONS = {}
 
-COLORMAPS = ["gray", "lipari", "navia", "viridis", "plasma", "RdBu_r", "twilight_shifted"]
+COLORMAPS = [
+    "gray",
+    "lipari",
+    "navia",
+    "viridis",
+    "plasma",
+    "RdBu_r",
+    "twilight_shifted",
+]
 DR_PERCENTILES = [(0, 100), (1, 99), (5, 95), (10, 90)]
 DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 
@@ -375,12 +383,15 @@ app = FastAPI()
 @app.exception_handler(Exception)
 async def _generic_exception_handler(request: Request, exc: Exception):
     import traceback
+
     print(
         f"[ArrayView] Unhandled error on {request.url.path}: {exc}\n"
         + traceback.format_exc(),
         flush=True,
     )
-    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
+    return JSONResponse(
+        status_code=500, content={"error": str(exc), "type": type(exc).__name__}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +568,9 @@ def _compute_otsu_threshold(data) -> float:
     w_f = 1.0 - w_b
     mu_cum = np.cumsum(hist * centers)
     mu_b = np.where(w_b > 0, mu_cum / np.maximum(w_b * total, 1e-10), 0.0)
-    mu_f = np.where(w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / np.maximum(w_f, 1e-10), 0.0)
+    mu_f = np.where(
+        w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / np.maximum(w_f, 1e-10), 0.0
+    )
     sigma_b_sq = w_b * w_f * (mu_b - mu_f) ** 2
     return float(centers[int(np.argmax(sigma_b_sq))])
 
@@ -1228,7 +1241,9 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
         for d in range(ndim_spatial):
             slices.append(slice(None) if d in (dim_x, dim_y) else int(idx_tuple[d]))
         slices.append(slice(None))  # vector components
-        vf_slice = vf[tuple(slices)]  # shape ≈ (A, B, 3) where A,B are free spatial dims
+        vf_slice = vf[
+            tuple(slices)
+        ]  # shape ≈ (A, B, 3) where A,B are free spatial dims
 
         # Ensure axis order is (dim_y rows, dim_x cols, 3).
         # The free axes appear in ascending original-dim order; transpose if dim_x < dim_y.
@@ -1265,8 +1280,11 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
         return {"arrows": arrows, "scale": scale, "stride": int(stride)}
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        return Response(status_code=500, content=str(e).encode(), media_type="text/plain")
+        return Response(
+            status_code=500, content=str(e).encode(), media_type="text/plain"
+        )
 
 
 @app.post("/attach_vectorfield")
@@ -1559,6 +1577,45 @@ def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_s
     return normalized.astype(np.float32)
 
 
+def _render_normalized_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale):
+    """Return (float32 normalized mosaic grid [0,1], nan_mask) for all z-slices."""
+    n = session.shape[dim_z]
+    idx_list = list(idx_tuple)
+    frames_raw = [
+        extract_slice(
+            session, dim_x, dim_y,
+            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))]
+        )
+        for i in range(n)
+    ]
+    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
+    if log_scale:
+        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
+    all_data = np.stack(frames)
+    if log_scale:
+        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+        vmin = float(np.percentile(all_data, pct_lo))
+        vmax = float(np.percentile(all_data, pct_hi))
+    else:
+        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
+    rows, cols = mosaic_shape(n)
+    H, W = frames[0].shape
+    GAP = 2
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        r0, c0 = r * (H + GAP), c * (W + GAP)
+        grid[r0:r0 + H, c0:c0 + W] = all_data[k]
+    nan_mask = np.isnan(grid)
+    if vmax > vmin:
+        normalized = np.clip(np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1)
+    else:
+        normalized = np.zeros_like(grid)
+    return normalized.astype(np.float32), nan_mask
+
+
 @app.get("/diff/{sid_a}/{sid_b}")
 def get_diff(
     sid_a: str,
@@ -1566,6 +1623,7 @@ def get_diff(
     dim_x: int,
     dim_y: int,
     indices: str,
+    dim_z: int = -1,
     dr: int = 1,
     complex_mode: int = 0,
     log_scale: bool = False,
@@ -1581,15 +1639,30 @@ def get_diff(
     ndim_b = len(session_b.shape)
     idx_a = idx_tuple[:ndim_a]
     idx_b = idx_tuple[:ndim_b]
+    nan_mask = None
     try:
-        a = _render_normalized(session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale)
-        b = _render_normalized(session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale)
+        if dim_z >= 0:
+            a, nan_mask_a = _render_normalized_mosaic(
+                session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale
+            )
+            b, nan_mask_b = _render_normalized_mosaic(
+                session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale
+            )
+            nan_mask = nan_mask_a | nan_mask_b
+        else:
+            a = _render_normalized(
+                session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale
+            )
+            b = _render_normalized(
+                session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale
+            )
     except Exception:
         return Response(status_code=422)
     # Resize b to match a if shapes differ
     if a.shape != b.shape:
         try:
             from PIL import Image as _Image
+
             b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
             b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
             b = np.array(b_img, dtype=np.float32) / 255.0
@@ -1617,6 +1690,8 @@ def get_diff(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
+    if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
+        rgba[nan_mask] = [22, 22, 22, 255]  # dark separator (matches mosaic_render)
     img = Image.fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
@@ -1634,10 +1709,10 @@ def get_diff(
 @app.get("/oblique/{sid}")
 def get_oblique(
     sid: str,
-    center: str,       # comma-sep floats — full N-dim index (e.g. "32.0,30.0,35.0")
-    basis_h: str,      # 3 floats in mv_dims order, unit vector → horizontal
-    basis_v: str,      # 3 floats in mv_dims order, unit vector → vertical
-    mv_dims: str,      # 3 ints: which array dims are the 3 spatial dims
+    center: str,  # comma-sep floats — full N-dim index (e.g. "32.0,30.0,35.0")
+    basis_h: str,  # 3 floats in mv_dims order, unit vector → horizontal
+    basis_v: str,  # 3 floats in mv_dims order, unit vector → vertical
+    mv_dims: str,  # 3 ints: which array dims are the 3 spatial dims
     size_w: int,
     size_h: int,
     colormap: str = "gray",
@@ -1687,7 +1762,9 @@ def get_oblique(
     else:
         data_f = np.nan_to_num(np.asarray(data, dtype=np.float32))
 
-    sampled = map_coordinates(data_f, coords, order=1, mode="constant", cval=0.0).astype(np.float32)
+    sampled = map_coordinates(
+        data_f, coords, order=1, mode="constant", cval=0.0
+    ).astype(np.float32)
 
     if log_scale:
         sampled = np.log1p(np.abs(sampled)).astype(np.float32)
@@ -1843,7 +1920,21 @@ def ping():
 
 
 _SUPPORTED_EXTS = frozenset(
-    [".npy", ".npz", ".nii", ".nii.gz", ".zarr", ".zarr.zip", ".pt", ".pth", ".h5", ".hdf5", ".tif", ".tiff", ".mat"]
+    [
+        ".npy",
+        ".npz",
+        ".nii",
+        ".nii.gz",
+        ".zarr",
+        ".zarr.zip",
+        ".pt",
+        ".pth",
+        ".h5",
+        ".hdf5",
+        ".tif",
+        ".tiff",
+        ".mat",
+    ]
 )
 
 
@@ -1871,7 +1962,11 @@ def list_files(directory: str = ""):
             if not os.path.isfile(fpath):
                 continue
             name_lower = fname.lower()
-            ext = ".nii.gz" if name_lower.endswith(".nii.gz") else os.path.splitext(name_lower)[1]
+            ext = (
+                ".nii.gz"
+                if name_lower.endswith(".nii.gz")
+                else os.path.splitext(name_lower)[1]
+            )
             if ext not in _SUPPORTED_EXTS:
                 continue
             try:
@@ -1879,7 +1974,9 @@ def list_files(directory: str = ""):
             except OSError:
                 continue
             shape = _peek_file_shape(fpath, ext)
-            results.append({"name": fname, "path": fpath, "size": file_size, "shape": shape})
+            results.append(
+                {"name": fname, "path": fpath, "size": file_size, "shape": shape}
+            )
     except Exception as e:
         return {"error": str(e)}
     return results
@@ -1889,7 +1986,12 @@ def list_files(directory: str = ""):
 def get_sessions():
     """Returns list of active sessions (used by shell to populate tabs on load)."""
     return [
-        {"sid": s.sid, "name": s.name, "shape": [int(x) for x in s.shape], "filepath": s.filepath}
+        {
+            "sid": s.sid,
+            "name": s.name,
+            "shape": [int(x) for x in s.shape],
+            "filepath": s.filepath,
+        }
         for s in SESSIONS.values()
     ]
 
@@ -1936,7 +2038,7 @@ def get_ui(sid: str = None):
             latest_sid = list(SESSIONS.keys())[-1]
             query_val = json.dumps(f"?sid={latest_sid}&transport=http")
         else:
-            query_val = "null"   # viewer will show "Session not found or expired"
+            query_val = "null"  # viewer will show "Session not found or expired"
     else:
         # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
         # and handle errors itself (shows "Session not found or expired" on 404).
@@ -2229,7 +2331,10 @@ def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
         version = data.get("version")
         return version if isinstance(version, str) else None
     except Exception as exc:
-        print(f"[ArrayView] could not inspect VSIX version at {vsix_path}: {exc}", flush=True)
+        print(
+            f"[ArrayView] could not inspect VSIX version at {vsix_path}: {exc}",
+            flush=True,
+        )
         return None
 
 
@@ -2248,7 +2353,10 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             with open(package_json) as f:
                 data = json.load(f)
             metadata = data.get("__metadata")
-            if isinstance(metadata, dict) and metadata.get("targetPlatform") == "undefined":
+            if (
+                isinstance(metadata, dict)
+                and metadata.get("targetPlatform") == "undefined"
+            ):
                 del metadata["targetPlatform"]
                 with open(package_json, "w") as f:
                     json.dump(data, f, indent=8)
@@ -2258,7 +2366,6 @@ def _patch_vscode_extension_metadata(version: str) -> None:
                 f"[ArrayView] could not patch extension metadata at {package_json}: {exc}",
                 flush=True,
             )
-
 
 
 def _ensure_vscode_extension() -> bool:
@@ -2384,9 +2491,7 @@ def _configure_vscode_port_preview(port: int) -> bool:
                     targets.append(
                         os.path.join(root, "data", "Machine", "settings.json")
                     )
-                    targets.append(
-                        os.path.join(root, "data", "User", "settings.json")
-                    )
+                    targets.append(os.path.join(root, "data", "User", "settings.json"))
             if not targets:
                 # Fallback: write to the most common paths even if root
                 # directories don't exist yet.
@@ -2397,9 +2502,7 @@ def _configure_vscode_port_preview(port: int) -> bool:
                     targets.append(
                         os.path.join(root, "data", "Machine", "settings.json")
                     )
-                    targets.append(
-                        os.path.join(root, "data", "User", "settings.json")
-                    )
+                    targets.append(os.path.join(root, "data", "User", "settings.json"))
 
             for settings_path in targets:
                 _write_settings(settings_path)
@@ -2426,7 +2529,9 @@ def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
     )
 
 
-def _schedule_remote_open_retries(url: str, interval: float = 7.0, count: int = 6) -> None:
+def _schedule_remote_open_retries(
+    url: str, interval: float = 7.0, count: int = 6
+) -> None:
     """Re-send the open-preview signal if no viewer WebSocket has connected yet.
 
     In remote/tunnel sessions the port may be private on first open (user sees
@@ -2434,12 +2539,14 @@ def _schedule_remote_open_retries(url: str, interval: float = 7.0, count: int = 
     re-opens Simple Browser with the now-public URL — no need to re-run arrayview.
     Retries stop as soon as VIEWER_SOCKETS > 0 (viewer loaded successfully).
     """
+
     def _loop() -> None:
         for i in range(count):
             time.sleep(interval)
             if VIEWER_SOCKETS > 0:
                 return  # viewer connected; port is public and working
             _open_via_signal_file(url)
+
     threading.Thread(target=_loop, daemon=True).start()
 
 
@@ -2477,7 +2584,6 @@ def _print_viewer_location(url: str) -> None:
     """Print a viewer location hint."""
     if not _is_vscode_remote():
         print(f"[ArrayView] {url}", flush=True)
-
 
 
 def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) -> None:
@@ -2523,7 +2629,10 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
                 _open_via_signal_file(url)
                 _schedule_remote_open_retries(url)
             else:
-                print("[ArrayView] extension install failed — cannot open Simple Browser", flush=True)
+                print(
+                    "[ArrayView] extension install failed — cannot open Simple Browser",
+                    flush=True,
+                )
             return
 
         if force_vscode or ipc or _in_vscode_terminal():
@@ -2563,7 +2672,9 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
                     pass
             elif sys.platform.startswith("linux"):
                 try:
-                    r = subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
+                    r = subprocess.run(
+                        ["xdg-open", url], capture_output=True, timeout=5
+                    )
                     opened = r.returncode == 0
                 except Exception:
                     pass
@@ -2880,7 +2991,12 @@ def view(
         except Exception:
             _open_browser(url_viewer, force_vscode=_force_vscode)
     else:
-        if window and not can_native_window and not _force_browser and not _force_vscode:
+        if (
+            window
+            and not can_native_window
+            and not _force_browser
+            and not _force_vscode
+        ):
             print(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
@@ -3029,7 +3145,12 @@ def _view_julia(
 
 
 def _view_subprocess(
-    data: np.ndarray, name: str, port: int, window: bool, inline: bool = False, height: int = 500
+    data: np.ndarray,
+    name: str,
+    port: int,
+    window: bool,
+    inline: bool = False,
+    height: int = 500,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -3199,14 +3320,22 @@ def _serve_daemon(
                 try:
                     vf_data = load_data(vfield_filepath)
                     session.vfield = vf_data
-                    print(f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}", flush=True)
+                    print(
+                        f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}",
+                        flush=True,
+                    )
                 except Exception as e:
-                    print(f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}", flush=True)
+                    print(
+                        f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
+                        flush=True,
+                    )
             SESSIONS[session.sid] = session
             if overlay_filepath and overlay_sid:
                 try:
                     ov_data = load_data(overlay_filepath)
-                    ov_session = Session(ov_data, filepath=overlay_filepath, name="overlay")
+                    ov_session = Session(
+                        ov_data, filepath=overlay_filepath, name="overlay"
+                    )
                     ov_session.sid = overlay_sid
                     SESSIONS[overlay_sid] = ov_session
                 except Exception as e:
@@ -3218,7 +3347,9 @@ def _serve_daemon(
                 try:
                     cmp_data = load_data(compare_filepath)
                     cmp_name = os.path.basename(compare_filepath) or "compare"
-                    cmp_session = Session(cmp_data, filepath=compare_filepath, name=cmp_name)
+                    cmp_session = Session(
+                        cmp_data, filepath=compare_filepath, name=cmp_name
+                    )
                     cmp_session.sid = compare_sid
                     SESSIONS[compare_sid] = cmp_session
                 except Exception as e:
@@ -3301,7 +3432,9 @@ def arrayview():
     )
     args = parser.parse_args()
     if not args.serve and not args.kill and not args.files:
-        parser.error("provide at least one FILE, or use --serve to start the server without loading data")
+        parser.error(
+            "provide at least one FILE, or use --serve to start the server without loading data"
+        )
     if args.files and len(args.files) > 6:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
@@ -3312,6 +3445,7 @@ def arrayview():
     # ── --kill: stop the server on the given port ──────────────────────────
     if args.kill:
         import signal as _signal
+
         if sys.platform == "win32":
             result = subprocess.run(
                 ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
@@ -3335,7 +3469,9 @@ def arrayview():
                 capture_output=True,
                 text=True,
             )
-            pids = [int(p) for p in result.stdout.strip().split() if p.strip().isdigit()]
+            pids = [
+                int(p) for p in result.stdout.strip().split() if p.strip().isdigit()
+            ]
             if not pids:
                 print(f"[ArrayView] No process found listening on port {args.port}")
             else:
@@ -3407,9 +3543,13 @@ def arrayview():
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
     if window_mode == "native" and _is_vscode_remote():
-        print("[ArrayView] --window native is not supported on remote tunnel; using vscode instead.")
+        print(
+            "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
+        )
         window_mode = "vscode"
-    use_webview = (window_mode == "native") or (window_mode is None and _can_native_window())
+    use_webview = (window_mode == "native") or (
+        window_mode is None and _can_native_window()
+    )
 
     if is_arrayview_server:
         # Server already running — register the new array.
@@ -3490,10 +3630,12 @@ def arrayview():
 
             # Attach vector field to the newly loaded session
             if args.vectorfield:
-                vf_body = json.dumps({
-                    "sid": result["sid"],
-                    "filepath": os.path.abspath(args.vectorfield),
-                }).encode()
+                vf_body = json.dumps(
+                    {
+                        "sid": result["sid"],
+                        "filepath": os.path.abspath(args.vectorfield),
+                    }
+                ).encode()
                 vf_req = urllib.request.Request(
                     f"http://127.0.0.1:{args.port}/attach_vectorfield",
                     data=vf_body,
@@ -3503,7 +3645,9 @@ def arrayview():
                 with urllib.request.urlopen(vf_req, timeout=300) as resp:
                     vf_result = json.loads(resp.read())
                 if "error" in vf_result:
-                    print(f"Warning: failed to attach vector field: {vf_result['error']}")
+                    print(
+                        f"Warning: failed to attach vector field: {vf_result['error']}"
+                    )
         except Exception as e:
             print(
                 f"Error: port {args.port} is in use by another process. "
