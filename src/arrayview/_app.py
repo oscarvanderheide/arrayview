@@ -1232,14 +1232,13 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
         vy_comp = vf_slice[:, :, dim_y]  # displacement along dim_y → vertical arrows
         vx_comp = vf_slice[:, :, dim_x]  # displacement along dim_x → horizontal arrows
 
-        # Stride: aim for ~20 arrows along the longer side
+        # Uniform random sampling with a fixed seed derived from (H, W) so that
+        # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
         stride = max(1, max(H, W) // 20)
-        half = stride // 2
-        ys = np.arange(half, H, stride)
-        xs = np.arange(half, W, stride)
-        grid_y, grid_x = np.meshgrid(ys, xs, indexing="ij")
-        gy = grid_y.ravel()
-        gx = grid_x.ravel()
+        n_arrows = max(1, (H // stride) * (W // stride))
+        rng = np.random.default_rng(int(H) * 10007 + int(W))
+        gy = rng.integers(0, H, n_arrows).astype(int)
+        gx = rng.integers(0, W, n_arrows).astype(int)
 
         vx_s = vx_comp[gy, gx]
         vy_s = vy_comp[gy, gx]
