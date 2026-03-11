@@ -964,10 +964,8 @@
                 }
             }
             drawSlimColorbar(cbMarkerFrac);
-            fixWrapperAlignment();
-        }
-
-        function compareLuma(imgData, i) {
+            positionEggs();
+            fixWrapperAlignment();(imgData, i) {
             return (0.299 * imgData[i] + 0.587 * imgData[i + 1] + 0.114 * imgData[i + 2]) / 255;
         }
 
@@ -2818,7 +2816,7 @@
                 applyCompareLayout();
                 renderInfo();
                 updateView();
-                requestAnimationFrame(() => compareScaleCanvases());
+                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
                 showStatus(`compare: ${compareName}`);
                 return true;
             } catch (e) {
@@ -2961,6 +2959,7 @@
                 document.getElementById('canvas-wrap').style.display = '';
             }
             drawSlimColorbar(cbMarkerFrac);
+            renderEggs();
             updateView();
             showStatus('compare: off');
         }
