@@ -345,21 +345,18 @@
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
         #reg-blend-bar-wrap {
-            display: none; width: 80%; max-width: 180px; margin: 6px auto 0;
-            flex-direction: column; align-items: stretch; gap: 3px;
+            display: none; flex-direction: column; align-items: stretch; width: 100%;
         }
         #compare-view-wrap.registration-mode #reg-blend-bar-wrap { display: flex; }
-        #reg-blend-track {
-            height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
-        }
-        #reg-blend-fill {
-            height: 100%; border-radius: 2px;
-            background: linear-gradient(to right, rgba(67,97,238,0.7), rgba(180,142,173,0.7));
-            transition: width 0.1s ease;
+        #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb,
+        #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb-labels { display: none !important; }
+        #reg-blend-cb {
+            display: block; height: 8px; width: 100%; border-radius: 3px; border: none;
+            margin-top: 4px; pointer-events: none;
         }
         #reg-blend-labels {
             display: flex; justify-content: space-between;
-            font-size: 10px; color: var(--muted); letter-spacing: 0.04em;
+            font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%;
         }
         #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #compare-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
@@ -488,7 +485,11 @@
                 <div class="compare-pane compare-diff" id="compare-diff-pane" style="display:none">
                     <div id="compare-diff-title" class="compare-title">A − B</div>
                     <div class="compare-canvas-area">
-                        <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                        <div class="compare-canvas-wrap">
+                            <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                            <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
+                            <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="compare-pane compare-secondary">
@@ -517,6 +518,10 @@
                             <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
                             <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
+                            <div id="reg-blend-bar-wrap">
+                                <canvas id="reg-blend-cb"></canvas>
+                                <div id="reg-blend-labels"><span>fixed</span><span>moving</span></div>
+                            </div>
                             <div class="cv-pixel-info" id="compare-third-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -527,10 +532,6 @@
                                 <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
                             </svg>
                         </div>
-                    </div>
-                    <div id="reg-blend-bar-wrap">
-                        <div id="reg-blend-track"><div id="reg-blend-fill"></div></div>
-                        <div id="reg-blend-labels"><span>fixed</span><span>moving</span></div>
                     </div>
                 </div>
                 <div class="compare-pane compare-quaternary">
@@ -818,6 +819,7 @@
         let compareRendering = false;
         let comparePending = false;
         let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|
+        let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let compareFrames = [];
         let compareDisplaySids = [];
         let compareOverflowNotified = false;
@@ -882,6 +884,11 @@
             document.getElementById('compare-fifth-pane-cb-labels'),
             document.getElementById('compare-sixth-pane-cb-labels'),
         ];
+        // Diff pane colorbar
+        const diffPaneCb = document.getElementById('compare-diff-pane-cb');
+        const diffPaneCbLabels = document.getElementById('compare-diff-pane-cb-labels');
+        // Registration blend bar canvas
+        const regBlendCb = document.getElementById('reg-blend-cb');
         const slimCbCanvas = document.getElementById('slim-cb');
         const slimCbLabels = document.getElementById('slim-cb-labels');
         const sink = document.getElementById('keyboard-sink');
@@ -1021,6 +1028,8 @@
                     diffCanvas.style.height = compareCanvases[0].style.height;
                 }
             }
+            drawAllComparePaneCbs();
+            if (registrationMode) drawRegBlendCb();
             drawSlimColorbar(cbMarkerFrac);
             fixWrapperAlignment();
             positionEggs();
@@ -1078,8 +1087,7 @@
                 labels[0] = `${compareBaseName || 'fixed'} fixed`;
                 labels[1] = `${compareName || 'moving'} moving`;
                 labels[2] = `overlay (${movingPct}% moving)`;
-                const blendFill = document.getElementById('reg-blend-fill');
-                if (blendFill) blendFill.style.width = `${movingPct}%`;
+                drawRegBlendCb();
             }
             compareTitles.forEach((el, idx) => {
                 el.textContent = labels[idx] || '';
@@ -1173,6 +1181,15 @@
         }
 
         function drawComparePaneCb(idx) {
+            // In registration mode, the tertiary pane (idx=2) shows the reg blend bar, not data colorbar
+            if (registrationMode && idx === 2) {
+                const cbCanvas = comparePaneCbs[idx];
+                const cbLabels = comparePaneCbLabels[idx];
+                if (cbCanvas) cbCanvas.style.display = 'none';
+                if (cbLabels) cbLabels.style.display = 'none';
+                drawRegBlendCb();
+                return;
+            }
             const cbCanvas = comparePaneCbs[idx];
             const cbLabels = comparePaneCbLabels[idx];
             const cv = compareCanvases[idx];
@@ -1215,9 +1232,74 @@
             }
         }
 
+        function drawRegBlendCb() {
+            if (!regBlendCb) return;
+            const cv = compareCanvases[2]; // compare-third-canvas
+            if (!cv) return;
+            const cssW = parseInt(cv.style.width);
+            if (!cssW || cssW < 10) { regBlendCb.style.display = 'none'; return; }
+            const stripH = 8;
+            const dpr = window.devicePixelRatio || 1;
+            regBlendCb.width = Math.round(cssW * dpr);
+            regBlendCb.height = Math.round(stripH * dpr);
+            regBlendCb.style.width = cssW + 'px';
+            regBlendCb.style.height = stripH + 'px';
+            regBlendCb.style.display = 'block';
+            const ctx2 = regBlendCb.getContext('2d');
+            ctx2.save(); ctx2.scale(dpr, dpr);
+            const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
+            grad.addColorStop(0, 'rgba(67,97,238,0.85)');
+            grad.addColorStop(1, 'rgba(180,142,173,0.85)');
+            ctx2.fillStyle = grad;
+            ctx2.fillRect(0, 0, cssW, stripH);
+            ctx2.restore();
+        }
+
+        function drawDiffPaneCb(vmin, vmax) {
+            if (!diffPaneCb) return;
+            const diffCanvas = document.getElementById('compare-diff-canvas');
+            if (!diffCanvas) return;
+            const cssW = parseInt(diffCanvas.style.width);
+            if (!colorbarVisible() || !cssW || cssW < 10) {
+                diffPaneCb.style.display = 'none';
+                if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
+                return;
+            }
+            const colormap = diffMode === 1 ? 'RdBu_r' : 'viridis';
+            const stops = COLORMAP_GRADIENT_STOPS[colormap];
+            if (!stops) return;
+            const stripH = 8;
+            const dpr = window.devicePixelRatio || 1;
+            diffPaneCb.width = Math.round(cssW * dpr);
+            diffPaneCb.height = Math.round(stripH * dpr);
+            diffPaneCb.style.width = cssW + 'px';
+            diffPaneCb.style.height = stripH + 'px';
+            diffPaneCb.style.display = 'block';
+            const ctx2 = diffPaneCb.getContext('2d');
+            ctx2.save(); ctx2.scale(dpr, dpr);
+            const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
+            const n = stops.length;
+            for (let i = 0; i < n; i++) {
+                const t = n <= 1 ? 0 : i / (n - 1);
+                const rgb = stops[i];
+                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+            }
+            ctx2.fillStyle = grad; ctx2.fillRect(0, 0, cssW, stripH);
+            ctx2.restore();
+            if (diffPaneCbLabels) {
+                diffPaneCbLabels.style.display = 'flex';
+                diffPaneCbLabels.style.width = cssW + 'px';
+                diffPaneCbLabels.innerHTML = `<span>${_cbFmt(vmin)}</span><span>${_cbFmt(vmax)}</span>`;
+            }
+        }
+
         function drawAllComparePaneCbs() {
             for (let i = 0; i < compareCanvases.length; i++) {
                 drawComparePaneCb(i);
+            }
+            if (diffMode > 0) {
+                // Redraw diff colorbar if visible (using cached values from last fetchAndDrawDiff call)
+                if (typeof _lastDiffVmin !== 'undefined') drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
             }
         }
 
@@ -1713,6 +1795,8 @@
             try {
                 const resp = await fetch(`/diff/${sid_a}/${sid_b}?${params}`);
                 if (!resp.ok) return;
+                const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
+                const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
                 const blob = await resp.blob();
                 const bmp = await createImageBitmap(blob);
                 const diffCanvas = document.getElementById('compare-diff-canvas');
@@ -1728,6 +1812,9 @@
                 const titles = ['', 'A − B', '|A − B|', '|A − B| / |A|'];
                 const titleEl = document.getElementById('compare-diff-title');
                 if (titleEl) titleEl.textContent = titles[diffMode];
+                _lastDiffVmin = isNaN(hdrVmin) ? 0 : hdrVmin;
+                _lastDiffVmax = isNaN(hdrVmax) ? 1 : hdrVmax;
+                drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
             } catch (e) { /* silently ignore transient errors */ }
         }
 
