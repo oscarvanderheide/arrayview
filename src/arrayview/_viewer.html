@@ -1787,16 +1787,28 @@
                 });
                 // Add 4px gap below the canvas (colorbars are inside qv-canvas-wrap, already above)
                 eggsTop = maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
+            } else if (compareActive) {
+                // Use the bottommost edge of all active compare canvas-wraps.
+                // Per-pane colorbars live inside canvas-wrap, so this naturally
+                // tracks the real visual bottom after they're added.
+                let maxBottom = 0;
+                compareCanvases.forEach(cv => {
+                    if (!cv) return;
+                    const pane = cv.closest('.compare-pane');
+                    if (pane && pane.classList.contains('active')) {
+                        const wrap = cv.closest('.compare-canvas-wrap') || cv;
+                        const r = wrap.getBoundingClientRect();
+                        if (r.bottom > maxBottom) maxBottom = r.bottom;
+                    }
+                });
+                eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
             } else {
-                // Normal or compare mode: use slim colorbar if visible, else canvas bottom
+                // Normal mode: use slim colorbar if visible, else canvas bottom
                 const wrap = document.getElementById('slim-cb-wrap');
                 if (wrap && wrap.style.display !== 'none') {
                     eggsTop = wrap.getBoundingClientRect().bottom + 4;
                 } else {
-                    const ref = compareActive
-                        ? (document.getElementById('compare-left-canvas') || canvas)
-                        : canvas;
-                    eggsTop = ref.getBoundingClientRect().bottom + 4;
+                    eggsTop = canvas.getBoundingClientRect().bottom + 4;
                 }
             }
             // Clamp so eggs never overflow the window bottom
