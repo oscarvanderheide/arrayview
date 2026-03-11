@@ -1243,7 +1243,7 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
 
         # Uniform random sampling with a fixed seed derived from (H, W) so that
         # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
-        stride = max(1, max(H, W) // 20)
+        stride = max(1, max(H, W) // 32)
         n_arrows = max(1, (H // stride) * (W // stride))
         rng = np.random.default_rng(int(H) * 10007 + int(W))
         gy = rng.integers(0, H, n_arrows).astype(int)
