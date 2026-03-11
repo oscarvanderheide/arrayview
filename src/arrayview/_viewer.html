@@ -174,6 +174,9 @@
         .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; }
         .cp-item-warn { color: var(--active-dim); font-size: 11px; }
         .cp-item-current { opacity: 0.4; cursor: default; pointer-events: none; }
+        .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 2px; margin-top: 4px; border-top: 1px solid var(--border); }
+        .cp-section-header:first-child { margin-top: 0; border-top: none; }
+        .cp-item-loading { opacity: 0.6; pointer-events: none; }
         #compare-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
             cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         #help-overlay, #info-overlay {
@@ -666,7 +669,7 @@
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
-                <div class="help-row"><span class="key">B</span><span class="desc">toggle compare picker (single-array launch)</span></div>
+                <div class="help-row"><span class="key">P</span><span class="desc">open picker: compare with loaded array or local file</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -2557,7 +2560,7 @@
                 else scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: fit`);
                 saveState();
-            } else if (e.key === 'B') {
+            } else if (e.key === 'P') {
                 toggleCompareMode();
             } else if (e.key === 'X') {
                 if (!compareActive || compareDisplaySids.length !== 2) {
@@ -2999,12 +3002,19 @@
             return candidates;
         }
 
-        function showComparePicker(candidates, currentSession = null) {
+        function showComparePicker(candidates, fileEntries = [], currentSession = null) {
             return new Promise(resolve => {
                 const overlay  = document.getElementById('compare-picker');
                 const listEl   = document.getElementById('compare-picker-list');
                 const cancelBtn = document.getElementById('compare-picker-cancel');
                 listEl.innerHTML = '';
+                const _addSection = (label) => {
+                    const hdr = document.createElement('div');
+                    hdr.className = 'cp-section-header';
+                    hdr.textContent = label;
+                    listEl.appendChild(hdr);
+                };
+                if (candidates.length) _addSection('Loaded');
                 candidates.forEach(s => {
                     const shapeMatch = Array.isArray(s.shape) && Array.isArray(shape)
                         && s.shape.length === shape.length
@@ -3015,13 +3025,45 @@
                     item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
                         + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
                         + (!shapeMatch ? `<span class="cp-item-warn">shape differs from current</span>` : '');
-                    function pick() { cleanup(); resolve(s); }
+                    function pick() { cleanup(); resolve({ type: 'session', session: s }); }
                     item.onclick = pick;
                     item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
                     listEl.appendChild(item);
                 });
+                if (fileEntries.length) _addSection('Files in current directory');
+                fileEntries.forEach(f => {
+                    const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
+                        : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                    const item = document.createElement('div');
+                    item.className = 'cp-item';
+                    item.tabIndex = 0;
+                    item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
+                        + `<span class="cp-item-shape">${shapeStr}</span>`;
+                    function pickFile() {
+                        item.classList.add('cp-item-loading');
+                        item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                        fetch('/load', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ filepath: f.path, name: f.name }),
+                        }).then(r => r.json()).then(data => {
+                            if (data.error) {
+                                showToast(`load error: ${data.error}`);
+                                cleanup();
+                                resolve(null);
+                            } else {
+                                cleanup();
+                                resolve({ type: 'loaded', sid: data.sid, name: data.name });
+                            }
+                        }).catch(() => { showToast('load failed'); cleanup(); resolve(null); });
+                    }
+                    item.onclick = pickFile;
+                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
+                    listEl.appendChild(item);
+                });
                 // Show current session at bottom, grayed out, not selectable
                 if (currentSession) {
+                    if (candidates.length || fileEntries.length) _addSection('Current');
                     const cur = document.createElement('div');
                     cur.className = 'cp-item cp-item-current';
                     cur.innerHTML = `<span class="cp-item-name">${currentSession.name || '(unnamed)'}</span>`
@@ -3030,7 +3072,7 @@
                     listEl.appendChild(cur);
                 }
                 overlay.classList.add('visible');
-                const selectables = () => [...listEl.querySelectorAll('.cp-item:not(.cp-item-current)')];
+                const selectables = () => [...listEl.querySelectorAll('.cp-item:not(.cp-item-current):not(.cp-item-loading)')];
                 const first = selectables()[0];
                 if (first) first.focus();
                 function cleanup() {
@@ -3057,21 +3099,37 @@
         }
 
         async function enterComparePrompt() {
-            const res = await fetch('/sessions');
-            if (!res.ok) { showStatus('compare: could not query sessions'); return; }
-            const sessions = await res.json();
+            const [sessRes, filesRes] = await Promise.all([
+                fetch('/sessions'),
+                fetch('/listfiles').catch(() => null),
+            ]);
+            if (!sessRes.ok) { showStatus('compare: could not query sessions'); return; }
+            const sessions = await sessRes.json();
             const candidates = sessions.filter(s => s.sid && s.sid !== sid);
             for (const s of candidates) {
                 if (s.name) compareNameBySid[s.sid] = s.name;
             }
-            if (!candidates.length) {
-                showStatus('compare: load a second array first');
+            // Files in CWD not already loaded
+            let fileEntries = [];
+            if (filesRes && filesRes.ok) {
+                const allFiles = await filesRes.json();
+                if (Array.isArray(allFiles)) {
+                    const loadedPaths = new Set(sessions.map(s => s.filepath).filter(Boolean));
+                    fileEntries = allFiles.filter(f => !loadedPaths.has(f.path));
+                }
+            }
+            if (!candidates.length && !fileEntries.length) {
+                showStatus('compare: no other arrays loaded and no supported files in current directory');
                 return;
             }
             const currentSession = sessions.find(s => s.sid === sid) || null;
-            const chosen = await showComparePicker(candidates, currentSession);
+            const chosen = await showComparePicker(candidates, fileEntries, currentSession);
             if (!chosen) return;
-            await enterCompareModeBySid(chosen.sid, chosen.name || '');
+            if (chosen.type === 'loaded') {
+                await enterCompareModeBySid(chosen.sid, chosen.name || '');
+            } else {
+                await enterCompareModeBySid(chosen.session.sid, chosen.session.name || '');
+            }
         }
 
         async function cycleCompareTarget(step = 1) {
