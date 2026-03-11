@@ -232,7 +232,7 @@
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
-        #mode-eggs { position: fixed; top: 20px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; cursor: default; }
+        #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
         :root.zen-mode #mode-eggs { display: none; }
@@ -908,6 +908,7 @@
             canvas.style.height = cssH + 'px';
             if (hasVectorfield) drawVectorOverlay();
             drawSlimColorbar(cbMarkerFrac);
+            positionEggs();
             const maxW = window.innerWidth - 80;
             const maxH = window.innerHeight - uiReserveV();
             fixWrapperAlignment();
@@ -1114,7 +1115,7 @@
 
         window.addEventListener('resize', () => {
             if (multiViewActive) { mvScaleAllCanvases(); return; }
-            if (compareActive) { compareScaleCanvases(); return; }
+            if (compareActive) { compareScaleCanvases(); positionEggs(); return; }
             if (qmriActive) { qvScaleAllCanvases(); return; }
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
@@ -1710,7 +1711,7 @@
         function renderEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el) return;
-            if (!_eggsVisible || zenMode || compareActive) { el.innerHTML = ''; return; }
+            if (!_eggsVisible || zenMode) { el.innerHTML = ''; return; }
             let html = '';
             if (_fftActive)
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
@@ -1723,6 +1724,25 @@
             if (maskLevel > 0)
                 html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
             el.innerHTML = html;
+            // Position eggs below the active canvas, just above the slim colorbar
+            if (html) positionEggs();
+        }
+
+        function positionEggs() {
+            const el = document.getElementById('mode-eggs');
+            if (!el) return;
+            // Find which canvas is active
+            let ref = compareActive
+                ? (document.getElementById('compare-left-canvas') || canvas)
+                : (multiViewActive ? (document.querySelector('.mv-canvas') || canvas) : canvas);
+            const rect = ref.getBoundingClientRect();
+            // Sit just above the slim colorbar (which is at cbTop = min(rect.bottom+4, innerH-38))
+            const cbTop = Math.min(rect.bottom + 4, window.innerHeight - 38);
+            const eggsBottom = window.innerHeight - cbTop + 4; // space above colorbar
+            el.style.bottom = eggsBottom + 'px';
+            el.style.left   = '50%';
+            el.style.transform = 'translateX(-50%)';
+            el.style.top    = '';  // clear any residual top
         }
 
         function renderInfo() {
