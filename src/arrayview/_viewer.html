@@ -100,10 +100,14 @@
         #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
                   white-space: nowrap; pointer-events: none; z-index: 5; }
-        #pixel-info { position: fixed; font-size: 13px; color: var(--text);
-                      white-space: nowrap; pointer-events: none; z-index: 10;
-                      background: var(--surface-2); border: 1px solid var(--border);
-                      padding: 2px 7px; border-radius: 6px; display: none; }
+        #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
+        .cv-pixel-info {
+            position: absolute; top: 4px; right: 4px; z-index: 10;
+            font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            color: var(--text); background: var(--surface); border: 1px solid var(--border);
+            padding: 2px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none;
+            display: none;
+        }
         #preload-status { position: fixed; bottom: 20px; left: 20px;
                           font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
         #array-name {
@@ -115,6 +119,7 @@
         #array-name svg { flex-shrink: 0; }
         :root.zen-mode .axes-indicator { display: none; }
         :root.zen-mode #pixel-info { display: none !important; }
+        :root.zen-mode .cv-pixel-info { display: none !important; }
         #toast {
             position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -441,6 +446,7 @@
         <div id="canvas-wrap" style="display:none">
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
+                <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -463,6 +469,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-left-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -485,6 +492,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-right-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -501,6 +509,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-third-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -521,6 +530,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-fourth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -537,6 +547,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-fifth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -553,6 +564,7 @@
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                            <div class="cv-pixel-info" id="compare-sixth-pi"></div>
                             <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                 <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                                 <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -580,7 +592,6 @@
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="mode-eggs"></div>
-    <div id="pixel-info"></div>
     <div id="status"></div>
     <div id="toast"></div>
     <div id="preload-status"></div>
@@ -732,7 +743,7 @@
 
         let cbVisible = true;
         let zenMode = false;
-        let _pixelInfoVisible = true;
+        let _pixelInfoVisible = false;
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
@@ -1149,9 +1160,7 @@
             if (zenMode) {
                 cbHovered = false;
                 cbMarkerFrac = null;
-                const pixelEl = document.getElementById('pixel-info');
-                pixelEl.textContent = '';
-                pixelEl.style.display = 'none';
+                hideAllPixelInfo();
             }
             drawSlimColorbar(cbMarkerFrac);
             if (multiViewActive) drawMvColorbar();
@@ -1733,17 +1742,30 @@
         function positionEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el || !el.innerHTML) return;
-            // Place eggs below the colorbar wrap element
-            const wrap = document.getElementById('slim-cb-wrap');
             let eggsTop;
-            if (wrap && wrap.style.display !== 'none') {
-                eggsTop = wrap.getBoundingClientRect().bottom + 4;
+            if (multiViewActive) {
+                // In multi-view mode, position below the mv colorbar
+                const mvCbWrap = document.getElementById('mv-cb-wrap');
+                if (mvCbWrap && mvCbWrap.style.display !== 'none') {
+                    eggsTop = mvCbWrap.getBoundingClientRect().bottom + 4;
+                } else {
+                    const mvRef = document.querySelector('.mv-canvas');
+                    eggsTop = mvRef ? mvRef.getBoundingClientRect().bottom + 4 : window.innerHeight - 60;
+                }
+            } else if (qmriActive) {
+                const qwrap = document.getElementById('qmri-view-wrap');
+                eggsTop = qwrap ? qwrap.getBoundingClientRect().bottom + 4 : window.innerHeight - 60;
             } else {
-                // No colorbar: place below canvas
-                let ref = compareActive
-                    ? (document.getElementById('compare-left-canvas') || canvas)
-                    : (multiViewActive ? (document.querySelector('.mv-canvas') || canvas) : canvas);
-                eggsTop = ref.getBoundingClientRect().bottom + 4;
+                // Normal or compare mode: use slim colorbar if visible, else canvas bottom
+                const wrap = document.getElementById('slim-cb-wrap');
+                if (wrap && wrap.style.display !== 'none') {
+                    eggsTop = wrap.getBoundingClientRect().bottom + 4;
+                } else {
+                    const ref = compareActive
+                        ? (document.getElementById('compare-left-canvas') || canvas)
+                        : canvas;
+                    eggsTop = ref.getBoundingClientRect().bottom + 4;
+                }
             }
             // Clamp so eggs never overflow the window bottom
             eggsTop = Math.min(eggsTop, window.innerHeight - 26);
@@ -1819,6 +1841,18 @@
             el.style.transition = 'none';
             el.style.opacity = '1';
             el.textContent = msg;
+        }
+
+        function hideAllPixelInfo() {
+            document.querySelectorAll('.cv-pixel-info').forEach(el => {
+                el.textContent = '';
+                el.style.display = 'none';
+            });
+        }
+        function showPixelInfo(el, text) {
+            if (!el || !_pixelInfoVisible || zenMode) return;
+            el.textContent = text;
+            el.style.display = 'block';
         }
 
         function showStatus(msg, duration) {
@@ -1942,7 +1976,7 @@
             if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
             else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
             setZenMode(!!s.zenMode, { silent: true });
-            _pixelInfoVisible = s._pixelInfoVisible ?? true;
+            _pixelInfoVisible = s._pixelInfoVisible ?? false;
 
             if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
             if (Number.isInteger(s.dim_y) && s.dim_y >= 0 && s.dim_y < shape.length) dim_y = s.dim_y;
@@ -2304,12 +2338,6 @@
             if (zenMode) return;
             if (dim_z >= 0) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
-            // Keep tooltip tracking the cursor even while waiting for the next fetch
-            const _piel = document.getElementById('pixel-info');
-            if (_piel.style.display !== 'none' && _pixelInfoVisible) {
-                _piel.style.left = (_lastMouseX + 14) + 'px';
-                _piel.style.top  = (_lastMouseY - 20) + 'px';
-            }
             if (pixelHoverPending) return;
             pixelHoverPending = true;
             setTimeout(() => { pixelHoverPending = false; }, 50);
@@ -2319,24 +2347,19 @@
             fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
-                    const el = document.getElementById('pixel-info');
+                    const piEl = document.getElementById('main-pixel-info');
                     if (d.value !== undefined && isFinite(d.value)) {
                         const av = Math.abs(d.value);
                         const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                        el.textContent = `(${px}, ${py}) = ${fmt(d.value)}`;
-                        if (_pixelInfoVisible) {
-                            el.style.left = (_lastMouseX + 14) + 'px';
-                            el.style.top  = (_lastMouseY - 20) + 'px';
-                            el.style.display = 'block';
-                        }
+                        showPixelInfo(piEl, `(${px},${py}) ${fmt(d.value)}`);
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
                             cbMarkerFrac = (d.value - currentVmin) / range;
                             drawSlimColorbar(cbMarkerFrac);
                         }
                     } else {
-                        el.style.display = 'none';
+                        if (piEl) piEl.style.display = 'none';
                         cbMarkerFrac = null;
                         drawSlimColorbar(null);
                     }
@@ -2347,7 +2370,8 @@
                 roiDragging = false;
                 if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
             }
-            document.getElementById('pixel-info').style.display = 'none';
+            const piEl = document.getElementById('main-pixel-info');
+            if (piEl) piEl.style.display = 'none';
             cbMarkerFrac = null;
             drawSlimColorbar(null);
         });
@@ -2437,11 +2461,7 @@
                 saveState();
             } else if (e.key === 'H') {
                 _pixelInfoVisible = !_pixelInfoVisible;
-                if (!_pixelInfoVisible) {
-                    document.getElementById('pixel-info').style.display = 'none';
-                    cbMarkerFrac = null;
-                    drawSlimColorbar(null);
-                }
+                if (!_pixelInfoVisible) hideAllPixelInfo();
                 showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                 saveState();
             } else if (e.key === 'Z') {
@@ -3053,12 +3073,16 @@
                 const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
                 axSvg.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/><polygon points="26,31 31,34 26,37" fill="currentColor"/><line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/><polygon points="3,13 6,8 9,13" fill="currentColor"/><text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">${_axX}</text><text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">${_axY}</text>`;
                 cvBox.appendChild(axSvg);
+                const piEl = document.createElement('div');
+                piEl.className = 'cv-pixel-info';
+                cvBox.appendChild(piEl);
                 wrap.appendChild(cvBox);
                 inner.appendChild(wrap);
                 pane.appendChild(inner);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label: null,
+                    pixelInfoEl: piEl,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
@@ -3115,19 +3139,13 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                                    const el = document.getElementById('pixel-info');
-                                    el.textContent = `(${ipx}, ${ipy}) = ${fmt(d.value)}`;
-                                    if (_pixelInfoVisible) {
-                                        el.style.left = (_lastMouseX + 14) + 'px';
-                                        el.style.top  = (_lastMouseY - 20) + 'px';
-                                        el.style.display = 'block';
-                                    }
+                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
                                 }
                             });
                     }
                 });
                 cv.addEventListener('mouseleave', () => {
-                    if (!mvDraggingView) document.getElementById('pixel-info').style.display = 'none';
+                    if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                 });
                 return view;
             });
@@ -3201,6 +3219,9 @@
                 cvWrap.appendChild(cv);
                 cvWrap.appendChild(cbCv);
                 cvWrap.appendChild(cbLabels);
+                const qvPiEl = document.createElement('div');
+                qvPiEl.className = 'cv-pixel-info';
+                cvWrap.appendChild(qvPiEl);
                 area.appendChild(cvWrap);
                 pane.appendChild(label);
                 pane.appendChild(area);
@@ -3208,7 +3229,7 @@
                 const view = {
                     colormap: cmap, qmriIdx: idx,
                     canvas: cv, ctx: cv.getContext('2d'), area,
-                    cbCanvas: cbCv, cbLabels,
+                    cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
                     vmin: 0, vmax: 1,
                     ws: null, seq: 0, rendering: false, pending: false,
                     lastW: 0, lastH: 0, lastImageData: null,
@@ -3221,6 +3242,34 @@
                     qmriViews.forEach(v => qvRender(v));
                     saveState();
                 }, { passive: false });
+                let qvPixelPending = false;
+                cv.addEventListener('mousemove', (e) => {
+                    if (zenMode || !view.lastW || !view.lastH) return;
+                    if (qvPixelPending) return;
+                    qvPixelPending = true;
+                    setTimeout(() => { qvPixelPending = false; }, 60);
+                    const rect = cv.getBoundingClientRect();
+                    const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+                    const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                    // Fetch value for every qmri view at the same pixel position
+                    qmriViews.forEach(v => {
+                        const qIndices = [...indices];
+                        qIndices[qmriDim] = v.qmriIdx;
+                        fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                            .then(r => r.json()).then(d => {
+                                if (d.value !== undefined && isFinite(d.value)) {
+                                    const av = Math.abs(d.value);
+                                    const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
+                                    showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                                } else if (v.pixelInfoEl) {
+                                    v.pixelInfoEl.style.display = 'none';
+                                }
+                            });
+                    });
+                });
+                cv.addEventListener('mouseleave', () => {
+                    qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                });
                 if (!httpTransport) {
                     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                     view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
@@ -3853,6 +3902,7 @@
                 labelsEl.style.width = cssW + 'px';
                 labelsEl.innerHTML = `<span style="flex:1;text-align:left">${fmt(v0.vmin)}</span><span style="flex:1;text-align:right">${fmt(v0.vmax)}</span>`;
             }
+            positionEggs();
         }
 
         function mvScaleAllCanvases() {
@@ -3890,6 +3940,7 @@
                 }
             }
             fixWrapperAlignment();
+            positionEggs();
             return requestedT > absMaxT ? 'max' : null;
         }
 
@@ -4035,6 +4086,34 @@
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
         compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
+        let comparePixelPending = false;
+        compareCanvases.forEach((cv, i) => {
+            const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
+            cv.addEventListener('mousemove', (e) => {
+                if (zenMode || !compareActive) return;
+                const cvSid = compareDisplaySids[i];
+                if (!cvSid) return;
+                if (comparePixelPending) return;
+                comparePixelPending = true;
+                setTimeout(() => { comparePixelPending = false; }, 60);
+                const rect = cv.getBoundingClientRect();
+                const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
+                const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
+                fetch(`/pixel/${cvSid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                    .then(r => r.json()).then(d => {
+                        if (d.value !== undefined && isFinite(d.value)) {
+                            const av = Math.abs(d.value);
+                            const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
+                            showPixelInfo(piEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                        } else if (piEl) {
+                            piEl.style.display = 'none';
+                        }
+                    });
+            });
+            cv.addEventListener('mouseleave', () => {
+                if (piEl) piEl.style.display = 'none';
+            });
+        });
 
         function closeSocket() {
             if (ws) {
