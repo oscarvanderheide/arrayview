@@ -1414,12 +1414,14 @@
                     canvas.width  = width;
                     canvas.height = height;
                     ctx.putImageData(applyFlips(lastImageData, width, height), 0, 0);
-                    scaleCanvas(width, height);
-                    drawVectorOverlay();
+                    // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
+                    // sees the real childrenH and computes the correct paddingTop.
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
                     }
+                    scaleCanvas(width, height);
+                    drawVectorOverlay();
                     if (!_reportedFirstFrame) {
                         _reportedFirstFrame = true;
                         reportParent('frame-rendered', {
@@ -1530,10 +1532,10 @@
                 canvas.width = frame.width;
                 canvas.height = frame.height;
                 ctx.putImageData(applyFlips(lastImageData, frame.width, frame.height), 0, 0);
-                scaleCanvas(frame.width, frame.height);
-                drawVectorOverlay();
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = '';
+                scaleCanvas(frame.width, frame.height);
+                drawVectorOverlay();
                 drawSlimColorbar(cbMarkerFrac);
                 if (!_reportedFirstFrame) {
                     _reportedFirstFrame = true;
