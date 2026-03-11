@@ -1744,13 +1744,25 @@
             if (!el || !el.innerHTML) return;
             let eggsTop;
             if (multiViewActive) {
-                // In multi-view mode, position below the mv colorbar
+                // In multi-view mode, position below the mv colorbar.
+                // Guard: if cbWrap has no height yet (layout not ready), fall back to canvas bottoms.
                 const mvCbWrap = document.getElementById('mv-cb-wrap');
-                if (mvCbWrap && mvCbWrap.style.display !== 'none') {
-                    eggsTop = mvCbWrap.getBoundingClientRect().bottom + 4;
+                const cbRect = mvCbWrap ? mvCbWrap.getBoundingClientRect() : null;
+                if (cbRect && cbRect.height > 2) {
+                    eggsTop = cbRect.bottom + 4;
                 } else {
-                    const mvRef = document.querySelector('.mv-canvas');
-                    eggsTop = mvRef ? mvRef.getBoundingClientRect().bottom + 4 : window.innerHeight - 60;
+                    // canvases might be sized already even if colorbar isn't drawn yet
+                    let maxBottom = 0;
+                    document.querySelectorAll('.mv-canvas').forEach(cv => {
+                        const r = cv.getBoundingClientRect();
+                        if (r.bottom > maxBottom) maxBottom = r.bottom;
+                    });
+                    if (maxBottom > 30) {
+                        // estimate colorbar height (canvas 8px + labels ~18px + margin ~10px = ~36px)
+                        eggsTop = maxBottom + 36;
+                    } else {
+                        return; // layout not ready yet — skip, will be called again after first render
+                    }
                 }
             } else if (qmriActive) {
                 const qwrap = document.getElementById('qmri-view-wrap');
@@ -3167,6 +3179,9 @@
                 });
             }
             document.getElementById('mv-orientation').style.display = 'block';
+            // Set activeDim to the first non-spatial (non-mvDims) dimension
+            const _firstNonSpatial = shape.findIndex((_, i) => !dims.includes(i));
+            if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -4022,6 +4037,15 @@
                 renderInfo();
                 sink.focus();
                 return;
+            }
+            // In normal mode, clicking x when y was active (or vice versa) swaps them directly
+            if (!multiViewActive && !qmriActive) {
+                if ((d === dim_x && activeDim === dim_y) || (d === dim_y && activeDim === dim_x)) {
+                    [dim_x, dim_y] = [dim_y, dim_x];
+                    dim_z = -1;
+                    activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
+                    updateView(); triggerPreload(); sink.focus(); return;
+                }
             }
             if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; triggerPreload();
