@@ -380,7 +380,8 @@
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
             padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
         }
-        .compare-canvas-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; }
+        .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
+        .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
         .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
@@ -466,18 +467,20 @@
                     <div id="compare-left-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-left-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
-                            <div class="cv-pixel-info" id="compare-left-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
@@ -485,7 +488,9 @@
                     <div id="compare-diff-title" class="compare-title">A − B</div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
                         </div>
@@ -495,18 +500,20 @@
                     <div id="compare-right-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-right-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
-                            <div class="cv-pixel-info" id="compare-right-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
@@ -514,22 +521,24 @@
                     <div id="compare-third-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-third-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
                             <div id="reg-blend-bar-wrap">
                                 <canvas id="reg-blend-cb"></canvas>
                                 <div id="reg-blend-labels"><span>fixed</span><span>moving</span></div>
                             </div>
-                            <div class="cv-pixel-info" id="compare-third-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
@@ -537,18 +546,20 @@
                     <div id="compare-fourth-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-fourth-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
-                            <div class="cv-pixel-info" id="compare-fourth-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
@@ -556,18 +567,20 @@
                     <div id="compare-fifth-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-fifth-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
-                            <div class="cv-pixel-info" id="compare-fifth-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
@@ -575,18 +588,20 @@
                     <div id="compare-sixth-title" class="compare-title"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
-                            <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                                <div class="cv-pixel-info" id="compare-sixth-pi"></div>
+                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
+                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
+                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
+                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
+                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
+                                </svg>
+                            </div>
                             <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
-                            <div class="cv-pixel-info" id="compare-sixth-pi"></div>
-                            <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                            </svg>
                         </div>
                     </div>
                 </div>
