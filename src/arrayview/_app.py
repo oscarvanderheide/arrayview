@@ -3467,6 +3467,7 @@ def view(
             inline,
             height,
             rgb=rgb,
+            force_vscode=True,
         )
 
     session = Session(data, name=name)
@@ -3716,7 +3717,20 @@ def _view_julia(
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
     """
-    return _view_subprocess(data, name, port, window)
+    # Detect VS Code *now*, in the parent process where TERM_PROGRAM and
+    # VSCODE_IPC_HOOK_CLI are still available.  The subprocess inherits a
+    # stripped environment (Julia/PythonCall, uv run, etc.) so detection
+    # there would fail and Simple Browser would never open.
+    force_vscode = _in_vscode_terminal()
+    return _view_subprocess(
+        data,
+        name,
+        port,
+        window,
+        inline=inline,
+        height=height,
+        force_vscode=force_vscode,
+    )
 
 
 def _view_subprocess(
@@ -3727,6 +3741,7 @@ def _view_subprocess(
     inline: bool = False,
     height: int = 500,
     rgb: bool = False,
+    force_vscode: bool = False,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -3826,9 +3841,9 @@ def _view_subprocess(
     if window and can_native:
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            _open_browser(url_viewer)
+            _open_browser(url_viewer, force_vscode=force_vscode)
     else:
-        _open_browser(url_viewer, force_vscode=False)
+        _open_browser(url_viewer, force_vscode=force_vscode)
     return url_viewer
 
 
