@@ -31,14 +31,53 @@ def _vprint(*args, **kwargs) -> None:
 
 
 import numpy as np
-import nibabel as nib
-import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
-from PIL import Image
-from matplotlib import colormaps as mpl_colormaps
-import qmricolors  # registers lipari, navia colormaps with matplotlib  # noqa: F401
+
+# Heavy imports are deferred to first use to speed up startup.
+# nibabel  → _nib()        (only needed for .nii files)
+# uvicorn  → _uvicorn()    (only needed when starting the server)
+# PIL      → _pil_image()  (only needed for tile/GIF/icon rendering)
+# matplotlib + qmricolors → _init_luts() (deferred LUT construction)
+
+_nib_mod = None
+
+
+def _nib():
+    """Lazy nibabel import."""
+    global _nib_mod
+    if _nib_mod is None:
+        import nibabel
+
+        _nib_mod = nibabel
+    return _nib_mod
+
+
+_uvicorn_mod = None
+
+
+def _uvicorn():
+    """Lazy uvicorn import."""
+    global _uvicorn_mod
+    if _uvicorn_mod is None:
+        import uvicorn
+
+        _uvicorn_mod = uvicorn
+    return _uvicorn_mod
+
+
+_pil_image_mod = None
+
+
+def _pil_image():
+    """Lazy PIL.Image import."""
+    global _pil_image_mod
+    if _pil_image_mod is None:
+        from PIL import Image
+
+        _pil_image_mod = Image
+    return _pil_image_mod
 
 
 # ---------------------------------------------------------------------------
@@ -48,50 +87,19 @@ _ICON_PNG_PATH: str | None = None
 
 
 def _get_icon_png_path() -> str | None:
-    """Generate the ArrayView logo as a 512×512 PNG (with padding) and cache the path."""
+    """Return path to the bundled ArrayView icon PNG, or None if unavailable."""
     global _ICON_PNG_PATH
     if _ICON_PNG_PATH is not None:
-        return _ICON_PNG_PATH
+        return _ICON_PNG_PATH or None
     try:
-        import tempfile
-        from PIL import ImageDraw
-
-        # 512×512 canvas with ~10% transparent padding so the icon sits at the
-        # same visual size as other macOS dock icons.
-        canvas = 512
-        pad = int(canvas * 0.10)  # ~51px transparent margin each side
-        inner = canvas - 2 * pad  # ~410px icon content area
-        S = inner / 16  # scale factor for the 16-unit SVG design
-        img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        # Background with rounded corners
-        d.rounded_rectangle(
-            [pad, pad, pad + inner - 1, pad + inner - 1],
-            radius=int(2.5 * S),
-            fill="#0c0c0c",
-        )
-        # 3×3 grid of coloured squares
-        colors = [
-            "#3a0ca3",
-            "#560bad",
-            "#c77dff",
-            "#4361ee",
-            "#4cc9f0",
-            "#f5c842",
-            "#4895ef",
-            "#80ed99",
-            "#f8961e",
-        ]
-        xs = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
-        ys = [int(pad + 2 * S), int(pad + 6.5 * S), int(pad + 11 * S)]
-        sq = int(3 * S)
-        for row, y in enumerate(ys):
-            for col, x in enumerate(xs):
-                d.rectangle([x, y, x + sq - 1, y + sq - 1], fill=colors[row * 3 + col])
-        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        img.save(tmp.name, "PNG")
-        tmp.close()
-        _ICON_PNG_PATH = tmp.name
+        # Use the pre-rendered icon shipped as package data (avoids PIL at startup).
+        icon_ref = _pkg_files(__package__).joinpath("_icon.png")
+        # importlib.resources may return a Path or a traversable; materialise it.
+        icon_path = str(icon_ref)
+        if os.path.isfile(icon_path):
+            _ICON_PNG_PATH = icon_path
+        else:
+            _ICON_PNG_PATH = ""
     except Exception:
         _ICON_PNG_PATH = ""
     return _ICON_PNG_PATH or None
@@ -587,16 +595,31 @@ def zarr_chunk_preset(shape: tuple[int, ...]) -> tuple[int, ...]:
         return (cy, cx) + extra
 
 
-LUTS = {
-    name: np.concatenate(
-        [
-            (mpl_colormaps[name](np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
-            np.full((256, 1), 255, dtype=np.uint8),
-        ],
-        axis=1,
-    )
-    for name in COLORMAPS
-}
+LUTS: dict = {}
+
+_mpl_colormaps = None
+
+
+def _init_luts():
+    """Build colourmap LUTs on first use (defers matplotlib + qmricolors import)."""
+    global _mpl_colormaps
+    if LUTS:
+        return  # already initialised
+    import qmricolors as _qc  # noqa: F401 — registers lipari, navia
+    from matplotlib import colormaps
+
+    _mpl_colormaps = colormaps
+    for name in COLORMAPS:
+        lut = np.concatenate(
+            [
+                (colormaps[name](np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
+                np.full((256, 1), 255, dtype=np.uint8),
+            ],
+            axis=1,
+        )
+        LUTS[name] = lut
+    for name in COLORMAPS:
+        COLORMAP_GRADIENT_STOPS[name] = _lut_to_gradient_stops(LUTS[name])
 
 
 def _lut_to_gradient_stops(lut, n=32):
@@ -604,9 +627,7 @@ def _lut_to_gradient_stops(lut, n=32):
     return [[int(lut[i, 0]), int(lut[i, 1]), int(lut[i, 2])] for i in indices]
 
 
-COLORMAP_GRADIENT_STOPS = {
-    name: _lut_to_gradient_stops(LUTS[name]) for name in COLORMAPS
-}
+COLORMAP_GRADIENT_STOPS: dict = {}
 COMPLEX_MODES = ["mag", "phase", "real", "imag"]
 REAL_MODES = ["real", "mag"]
 OVERLAY_COLOR = np.array([255, 80, 80], dtype=np.float32)
@@ -653,7 +674,7 @@ def load_data(filepath):
             "Load it manually and pass the array to view()."
         )
     elif filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
-        return nib.load(filepath).dataobj
+        return _nib().load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
         import zarr
 
@@ -841,11 +862,12 @@ def _prepare_display(
 
 def _ensure_lut(name: str) -> bool:
     """Ensure name is in LUTS. Returns True if valid."""
+    _init_luts()
     if name in LUTS:
         return True
     try:
-        cmap = mpl_colormaps[name]
-    except KeyError:
+        cmap = _mpl_colormaps[name]
+    except (KeyError, TypeError):
         return False
     rgba = (cmap(np.arange(256) / 255.0) * 255).astype(np.uint8)
     lut = np.concatenate([rgba[:, :3], np.full((256, 1), 255, dtype=np.uint8)], axis=1)
@@ -2039,7 +2061,7 @@ def get_slice(
                 vmin_override=vmin_override,
                 vmax_override=vmax_override,
             )
-    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
     return Response(
@@ -2185,7 +2207,7 @@ def get_diff(
     rgba = lut[(normalized * 255).astype(np.uint8)]
     if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
         rgba[nan_mask] = [22, 22, 22, 255]  # dark separator (matches mosaic_render)
-    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
     return Response(
@@ -2275,7 +2297,7 @@ def get_oblique(
         normalized = np.zeros_like(sampled)
     rgba = lut[(normalized * 255).astype(np.uint8)]
 
-    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
     return Response(
@@ -2361,10 +2383,11 @@ def get_grid(
     else:
         normalized = np.zeros_like(filled)
 
+    _init_luts()
     lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
     rgba[nan_mask] = [22, 22, 22, 255]
-    img = Image.fromarray(rgba[:, :, :3], mode="RGB")
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
@@ -2423,6 +2446,7 @@ def get_gif(
         vmin = float(np.percentile(all_data, pct_lo))
         vmax = float(np.percentile(all_data, pct_hi))
 
+    _init_luts()
     lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
     gif_frames = []
     for frame in frames:
@@ -2431,7 +2455,7 @@ def get_gif(
         else:
             normalized = np.zeros_like(frame)
         rgba = lut[(normalized * 255).astype(np.uint8)]
-        gif_frames.append(Image.fromarray(rgba[:, :, :3], mode="RGB"))
+        gif_frames.append(_pil_image().fromarray(rgba[:, :, :3], mode="RGB"))
 
     buf = io.BytesIO()
     gif_frames[0].save(
@@ -2488,7 +2512,7 @@ def _peek_file_shape(fpath: str, ext: str):
             arr = np.load(fpath, mmap_mode="r", allow_pickle=False)
             return list(arr.shape)
         if ext in (".nii", ".nii.gz"):
-            return list(nib.load(fpath).shape)
+            return list(_nib().load(fpath).shape)
     except Exception:
         pass
     return None
@@ -2610,6 +2634,7 @@ def get_ui(sid: str = None):
         # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
         # and handle errors itself (shows "Session not found or expired" on 404).
         query_val = "null"
+    _init_luts()
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
         .replace("__DR_LABELS__", str(DR_LABELS))
@@ -3314,6 +3339,12 @@ def _find_server_port(port: int, search_range: int = 20) -> tuple[int, bool]:
     return (port + search_range, False)
 
 
+# Event signalled when the in-process background server is ready to accept
+# connections (set right after sock.listen()).  Used by view() to avoid
+# the slower _wait_for_port() HTTP polling loop.
+_server_ready_event = threading.Event()
+
+
 async def _serve_background(port: int, stop_when_closed: bool = False):
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
@@ -3326,8 +3357,9 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     sock.bind(("127.0.0.1", port))
     sock.listen(128)
     sock.set_inheritable(True)
-    config = uvicorn.Config(app, log_level="error", timeout_keep_alive=30)
-    server = uvicorn.Server(config)
+    _server_ready_event.set()  # port is bound — callers can proceed
+    config = _uvicorn().Config(app, log_level="error", timeout_keep_alive=30)
+    server = _uvicorn().Server(config)
     if stop_when_closed:
         asyncio.create_task(_stop_server_when_viewer_closes(server))
     await server.serve(sockets=[sock])
@@ -3516,6 +3548,7 @@ def view(
                 f"Choose a different port in view(..., port=...)."
             )
         SERVER_LOOP = None  # reset so we wait for the new loop below
+        _server_ready_event.clear()
         _script = _is_script_mode()
         threading.Thread(
             target=lambda: asyncio.run(
@@ -3524,7 +3557,8 @@ def view(
             daemon=not _script,
             name="arrayview-server",
         ).start()
-        if not _wait_for_port(port):
+        # Wait for the socket to be ready (event-based, much faster than HTTP polling).
+        if not _server_ready_event.wait(timeout=10.0):
             if _port_in_use(port) and not _server_alive(port):
                 raise RuntimeError(
                     f"Port {port} is in use by another process (not ArrayView). "
@@ -3855,7 +3889,7 @@ def _serve_empty(port: int) -> None:
     user to re-run ``--serve`` or re-set port visibility.
     """
     threading.Thread(
-        target=lambda: uvicorn.run(
+        target=lambda: _uvicorn().run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
@@ -3892,7 +3926,7 @@ def _serve_daemon(
 
     # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
-        target=lambda: uvicorn.run(
+        target=lambda: _uvicorn().run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
