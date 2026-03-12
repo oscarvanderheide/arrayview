@@ -102,7 +102,7 @@
                   white-space: nowrap; pointer-events: none; z-index: 5; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
-            position: absolute; top: 4px; right: 4px; z-index: 10;
+            position: absolute; z-index: 10;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
             color: var(--text); background: var(--surface); border: 1px solid var(--border);
             padding: 2px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none;
@@ -157,18 +157,27 @@
             border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
         }
         .ip-btn-ok { background: var(--active-dim); color: #000; border-color: var(--active-dim); font-weight: 600; }
-        #compare-picker { display: none; position: fixed; inset: 0; background: var(--overlay-bg);
+        #uni-picker { display: none; position: fixed; inset: 0; background: var(--overlay-bg);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
             z-index: 30; justify-content: center; align-items: center; }
-        #compare-picker.visible { display: flex; }
-        #compare-picker-box { background: var(--surface); border: 1px solid var(--border);
-            border-radius: var(--radius-lg); padding: 16px 20px; min-width: 560px; max-width: 800px; width: 70vw;
+        #uni-picker.visible { display: flex; }
+        #uni-picker-box { background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 16px 20px; min-width: 360px; max-width: 520px; width: 50vw;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
-        #compare-picker-title { font-weight: 600; color: var(--text); margin-bottom: 10px; }
-        #compare-picker-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; margin-bottom: 12px; align-items: start; }
-        .cp-col { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
-        .cp-col-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; }
-        .cp-col-empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+        #uni-picker-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        #uni-picker-mode-pill { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+            padding: 2px 9px; border-radius: 10px; background: var(--active-dim); color: #000; }
+        #uni-picker-tab-hint { font-size: 11px; color: var(--muted); }
+        #uni-picker-search {
+            width: 100%; box-sizing: border-box; margin-bottom: 8px;
+            padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border);
+            background: var(--surface-2); color: var(--text);
+            font-family: inherit; font-size: 13px; outline: none;
+        }
+        #uni-picker-search:focus { border-color: var(--active-dim); }
+        #uni-picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; margin-bottom: 12px; }
+        #uni-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
+            cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         .cp-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
             background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
         .cp-item:hover, .cp-item:focus { border-color: var(--active-dim); outline: none; }
@@ -178,8 +187,6 @@
         .cp-item-warn { color: var(--active-dim); font-size: 11px; }
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
-        #compare-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
-            cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -636,20 +643,15 @@
             </div>
         </div>
     </div>
-    <div id="compare-picker">
-        <div id="compare-picker-box">
-            <div id="compare-picker-title">Compare with…</div>
-            <div id="compare-picker-list">
-                <div class="cp-col">
-                    <div class="cp-section-header">Loaded</div>
-                    <div class="cp-col-list" id="cp-col-loaded"></div>
-                </div>
-                <div class="cp-col">
-                    <div class="cp-section-header">Files in directory</div>
-                    <div class="cp-col-list" id="cp-col-files"></div>
-                </div>
+    <div id="uni-picker">
+        <div id="uni-picker-box">
+            <div id="uni-picker-header">
+                <span id="uni-picker-mode-pill"></span>
+                <span id="uni-picker-tab-hint">tab to switch mode</span>
             </div>
-            <button id="compare-picker-cancel">Cancel</button>
+            <input id="uni-picker-search" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
+            <div id="uni-picker-list"></div>
+            <button id="uni-picker-cancel">Cancel</button>
         </div>
     </div>
     <div id="help-hint">?</div>
@@ -698,7 +700,8 @@
                 <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
-                <div class="help-row"><span class="key">P</span><span class="desc">open picker: compare with loaded array or local file</span></div>
+                <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
+                <div class="help-row"><span class="key">O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -785,6 +788,7 @@
         let customColormap = null, customGradientStops = null;
 
         let cbVisible = true;
+        let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
         let currentVmin = 0, currentVmax = 1;
@@ -1420,7 +1424,7 @@
         }
 
         let cbHovered = false;
-        const colorbarVisible = () => cbVisible;
+        const colorbarVisible = () => cbVisible && !rgbMode;
         const _cbFmt = v => {
             const av = Math.abs(v);
             if (av === 0) return '0';
@@ -1489,7 +1493,7 @@
             sCtx.restore();
             slimCbLabels.style.display = '';
             slimCbLabels.style.width = cssW + 'px';
-            slimCbLabels.innerHTML = `<span>${_cbFmt(currentVmin)}</span><span>${_cbFmt(currentVmax)}</span>`;
+            slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
         }
 
         function showDataInfo(rows) {
@@ -1967,6 +1971,8 @@
             hasVectorfield = data.has_vectorfield || false;
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
+            rgbMode = data.is_rgb || false;
+            if (rgbMode) cbVisible = false;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
             indices = shape.map(s => Math.floor(s / 2));
             dim_x = 0; dim_y = 1;
@@ -1997,6 +2003,8 @@
             if (!el) return;
             if (!_eggsVisible) { el.innerHTML = ''; return; }
             let html = '';
+            if (rgbMode)
+                html += `<span class="mode-badge mode-badge-complex">RGB</span>`;
             if (_fftActive)
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
@@ -2152,10 +2160,27 @@
                 el.style.display = 'none';
             });
         }
-        function showPixelInfo(el, text) {
+        function showPixelInfo(el, text, cx, cy) {
             if (!el || !_pixelInfoVisible) return;
             el.textContent = text;
             el.style.display = 'block';
+            if (cx !== undefined && cy !== undefined) {
+                const par = el.offsetParent;
+                if (par) {
+                    const pr = par.getBoundingClientRect();
+                    const margin = 8;
+                    const elW = el.offsetWidth || 120;
+                    const elH = el.offsetHeight || 22;
+                    let x = cx - pr.left + margin;
+                    let y = cy - pr.top - elH - margin;
+                    // Keep inside parent horizontally
+                    if (x + elW > pr.width) x = cx - pr.left - elW - margin;
+                    if (x < 0) x = margin;
+                    if (y < 0) y = cy - pr.top + margin;
+                    el.style.left = x + 'px';
+                    el.style.top  = y + 'px';
+                }
+            }
         }
 
         function showStatus(msg, duration) {
@@ -2669,6 +2694,7 @@
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+            const _mx = e.clientX, _my = e.clientY;
             fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
@@ -2677,7 +2703,7 @@
                         const av = Math.abs(d.value);
                         const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                        showPixelInfo(piEl, `(${px},${py}) ${fmt(d.value)}`);
+                        showPixelInfo(piEl, `(${px},${py}) ${fmt(d.value)}`, _mx, _my);
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
                             cbMarkerFrac = (d.value - currentVmin) / range;
@@ -2756,6 +2782,8 @@
                 saveState();
             } else if (e.key === 'P') {
                 toggleCompareMode();
+            } else if (e.key === 'O') {
+                showUnifiedPicker('open');
             } else if (e.key === 'X') {
                 if (!compareActive || compareDisplaySids.length !== 2) {
                     showToast('diff view: only in 2-pane compare mode');
@@ -2890,6 +2918,7 @@
                 renderEggs();
                 saveState();
             } else if (e.key === 'c') {
+                if (rgbMode) return;
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
@@ -3197,6 +3226,249 @@
             }
         }
 
+        // ── Unified picker (Open / Compare / Overlay) ──────────────────────
+        // Returns a Promise that resolves to:
+        //   null                        – cancelled
+        //   { type:'navigate', sid }    – Open mode: navigate to sid
+        //   { type:'session', sid, name } – Compare/Overlay: use loaded session
+        //   { type:'loaded',  sid, name } – Compare/Overlay: file was loaded
+        const _UNI_MODES = ['open', 'compare', 'overlay'];
+        const _UNI_LABELS = { open: 'Open', compare: 'Compare', overlay: 'Overlay' };
+
+        async function _fetchPickerData() {
+            let sessions = [], fileEntries = [];
+            try { const r = await fetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
+            try {
+                const r = await fetch('/listfiles');
+                if (r.ok) {
+                    const all = await r.json();
+                    const loaded = new Set(sessions.map(s => s.filepath).filter(Boolean));
+                    fileEntries = all.filter(f => !loaded.has(f.path));
+                }
+            } catch (_) {}
+            return { sessions, fileEntries };
+        }
+
+        function showUnifiedPicker(initialMode) {
+            return new Promise(async resolve => {
+                const { sessions, fileEntries } = await _fetchPickerData();
+                const otherSessions = sessions.filter(s => s.sid !== sid);
+                for (const s of otherSessions) { if (s.name) compareNameBySid[s.sid] = s.name; }
+
+                const overlay    = document.getElementById('uni-picker');
+                const listEl     = document.getElementById('uni-picker-list');
+                const pilEl      = document.getElementById('uni-picker-mode-pill');
+                const cancelBtn  = document.getElementById('uni-picker-cancel');
+                const searchEl   = document.getElementById('uni-picker-search');
+
+                let mode = _UNI_MODES.includes(initialMode) ? initialMode : 'open';
+                let done = false;
+                let _searchTimer = null;
+
+                function cleanup() {
+                    overlay.classList.remove('visible');
+                    cancelBtn.onclick = null;
+                    overlay.onkeydown = null;
+                    searchEl.oninput = null;
+                    if (_searchTimer) { clearTimeout(_searchTimer); _searchTimer = null; }
+                    document.getElementById('keyboard-sink').focus();
+                }
+                function finish(val) {
+                    if (done) return; done = true;
+                    cleanup(); resolve(val);
+                }
+                cancelBtn.onclick = () => finish(null);
+
+                const _shapeMatch = (s) => Array.isArray(s.shape) && Array.isArray(shape)
+                    && s.shape.length === shape.length
+                    && s.shape.every((v, i) => Number(v) === Number(shape[i]));
+
+                function populate(filtSessions, filtFiles) {
+                    filtSessions = filtSessions ?? otherSessions;
+                    filtFiles    = filtFiles    ?? fileEntries;
+                    pilEl.textContent = _UNI_LABELS[mode];
+                    listEl.innerHTML = '';
+
+                    if (mode === 'open') {
+                        // Section: loaded sessions (exclude current)
+                        if (filtSessions.length) {
+                            const hdr = document.createElement('div');
+                            hdr.className = 'cp-section-header'; hdr.textContent = 'Loaded';
+                            listEl.appendChild(hdr);
+                            filtSessions.forEach(s => {
+                                const item = document.createElement('div');
+                                item.className = 'cp-item'; item.tabIndex = 0;
+                                item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                                    + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`;
+                                function pick() { finish({ type: 'navigate', sid: s.sid }); window.location.href = '/?sid=' + s.sid; }
+                                item.onclick = pick;
+                                item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+                                listEl.appendChild(item);
+                            });
+                        }
+                        // Section: CWD files
+                        if (filtFiles.length) {
+                            const hdr = document.createElement('div');
+                            hdr.className = 'cp-section-header'; hdr.textContent = 'Files in directory';
+                            listEl.appendChild(hdr);
+                            filtFiles.forEach(f => {
+                                const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
+                                    : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                                const item = document.createElement('div');
+                                item.className = 'cp-item'; item.tabIndex = 0;
+                                item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
+                                    + `<span class="cp-item-shape">${shapeStr}</span>`;
+                                function pickFile() {
+                                    item.classList.add('cp-item-loading');
+                                    item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                    }).then(r => r.json()).then(data => {
+                                        if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
+                                        else { finish({ type: 'navigate', sid: data.sid }); window.location.href = '/?sid=' + data.sid; }
+                                    }).catch(() => { showToast('load failed'); finish(null); });
+                                }
+                                item.onclick = pickFile;
+                                item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
+                                listEl.appendChild(item);
+                            });
+                        }
+                        if (!filtSessions.length && !filtFiles.length) {
+                            const msg = document.createElement('div');
+                            msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
+                            msg.textContent = searchEl.value
+                                ? 'No matches'
+                                : 'No arrays loaded and no supported files in current directory';
+                            listEl.appendChild(msg);
+                        }
+                    } else {
+                        // Compare or Overlay mode — shape-matched items are clickable
+                        if (!filtSessions.length && !filtFiles.length) {
+                            const msg = document.createElement('div');
+                            msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
+                            msg.textContent = searchEl.value
+                                ? 'No matches'
+                                : 'No other arrays loaded and no supported files in current directory';
+                            listEl.appendChild(msg);
+                        }
+                        if (filtSessions.length) {
+                            const hdr = document.createElement('div');
+                            hdr.className = 'cp-section-header'; hdr.textContent = 'Loaded';
+                            listEl.appendChild(hdr);
+                            filtSessions.forEach(s => {
+                                const matches = _shapeMatch(s);
+                                const item = document.createElement('div');
+                                item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
+                                if (matches) item.tabIndex = 0;
+                                item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                                    + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
+                                    + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                                if (matches) {
+                                    function pick() { finish({ type: 'session', sid: s.sid, name: s.name || '' }); }
+                                    item.onclick = pick;
+                                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+                                }
+                                listEl.appendChild(item);
+                            });
+                        }
+                        if (filtFiles.length) {
+                            const hdr = document.createElement('div');
+                            hdr.className = 'cp-section-header'; hdr.textContent = 'Files in directory';
+                            listEl.appendChild(hdr);
+                            filtFiles.forEach(f => {
+                                const fMatches = Array.isArray(f.shape) && Array.isArray(shape)
+                                    && f.shape.length === shape.length
+                                    && f.shape.every((v, i) => Number(v) === Number(shape[i]));
+                                const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
+                                    : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                                const item = document.createElement('div');
+                                item.className = 'cp-item' + (fMatches ? '' : ' cp-item-dim');
+                                if (fMatches) item.tabIndex = 0;
+                                item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
+                                    + `<span class="cp-item-shape">${shapeStr}</span>`
+                                    + (!fMatches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                                if (fMatches) {
+                                    function pickFile() {
+                                        item.classList.add('cp-item-loading');
+                                        item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                        fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                        }).then(r => r.json()).then(data => {
+                                            if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
+                                            else { finish({ type: 'loaded', sid: data.sid, name: data.name || f.name }); }
+                                        }).catch(() => { showToast('load failed'); finish(null); });
+                                    }
+                                    item.onclick = pickFile;
+                                    item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
+                                }
+                                listEl.appendChild(item);
+                            });
+                        }
+                    }
+                }
+
+                // ── Search / fzf wiring ─────────────────────────────────────
+                searchEl.oninput = () => {
+                    if (_searchTimer) clearTimeout(_searchTimer);
+                    _searchTimer = setTimeout(async () => {
+                        _searchTimer = null;
+                        const q = searchEl.value.trim();
+                        // Filter sessions client-side
+                        const filtSessions = q
+                            ? otherSessions.filter(s => (s.name || '').toLowerCase().includes(q.toLowerCase()))
+                            : otherSessions;
+                        // Filter files via fzf backend (falls back to substring match server-side)
+                        let filtFiles = fileEntries;
+                        if (q) {
+                            try {
+                                const r = await fetch('/fzf?q=' + encodeURIComponent(q));
+                                if (r.ok) {
+                                    const names = await r.json(); // array of filename strings
+                                    const nameSet = new Set(names);
+                                    filtFiles = fileEntries.filter(f => nameSet.has(f.name));
+                                }
+                            } catch (_) {
+                                filtFiles = fileEntries.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
+                            }
+                        }
+                        populate(filtSessions, filtFiles);
+                    }, 150);
+                };
+
+                overlay.classList.add('visible');
+                searchEl.value = '';
+                searchEl.focus();
+                populate();
+
+                overlay.onkeydown = e => {
+                    const inSearch = document.activeElement === searchEl;
+                    if (e.key === 'Escape') { e.preventDefault(); finish(null); return; }
+                    if (e.key === 'q' && !inSearch) { e.preventDefault(); finish(null); return; }
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        searchEl.value = '';
+                        const i = _UNI_MODES.indexOf(mode);
+                        mode = _UNI_MODES[(i + 1) % _UNI_MODES.length];
+                        populate();
+                        searchEl.focus();
+                        return;
+                    }
+                    if (inSearch) return; // let search input handle arrow keys etc.
+                    const items = [...listEl.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)')];
+                    const idx = items.indexOf(document.activeElement);
+                    if (e.key === 'ArrowDown' || e.key === 'j') {
+                        e.preventDefault();
+                        if (idx < items.length - 1) items[idx + 1].focus();
+                        else if (idx === -1 && items.length) items[0].focus();
+                    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+                        e.preventDefault();
+                        if (idx > 0) items[idx - 1].focus();
+                        else if (idx === 0) searchEl.focus();
+                    }
+                };
+            });
+        }
+
         async function getCompareCandidates() {
             const res = await fetch('/sessions');
             if (!res.ok) { showStatus('compare: could not query sessions'); return []; }
@@ -3208,151 +3480,12 @@
             return candidates;
         }
 
-        function showComparePicker(candidates, fileEntries = [], currentSession = null) {
-            return new Promise(resolve => {
-                const overlay   = document.getElementById('compare-picker');
-                const colLoaded = document.getElementById('cp-col-loaded');
-                const colFiles  = document.getElementById('cp-col-files');
-                const cancelBtn = document.getElementById('compare-picker-cancel');
-                colLoaded.innerHTML = '';
-                colFiles.innerHTML  = '';
-
-                const _shapeMatch = (s) => Array.isArray(s.shape) && Array.isArray(shape)
-                    && s.shape.length === shape.length
-                    && s.shape.every((v, i) => Number(v) === Number(shape[i]));
-
-                // Left column – loaded sessions (current excluded by caller)
-                if (candidates.length) {
-                    candidates.forEach(s => {
-                        const matches = _shapeMatch(s);
-                        const item = document.createElement('div');
-                        item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
-                        if (matches) item.tabIndex = 0;
-                        item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                            + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
-                            + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
-                        if (matches) {
-                            function pick() { cleanup(); resolve({ type: 'session', session: s }); }
-                            item.onclick = pick;
-                            item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
-                        }
-                        colLoaded.appendChild(item);
-                    });
-                } else {
-                    const empty = document.createElement('div');
-                    empty.className = 'cp-col-empty';
-                    empty.textContent = 'none loaded';
-                    colLoaded.appendChild(empty);
-                }
-
-                // Right column – CWD files
-                if (fileEntries.length) {
-                    fileEntries.forEach(f => {
-                        const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
-                            : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
-                        const matches = Array.isArray(f.shape) && Array.isArray(shape)
-                            && f.shape.length === shape.length
-                            && f.shape.every((v, i) => Number(v) === Number(shape[i]));
-                        const item = document.createElement('div');
-                        item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
-                        if (matches) item.tabIndex = 0;
-                        item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
-                            + `<span class="cp-item-shape">${shapeStr}</span>`
-                            + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
-                        if (matches) {
-                            function pickFile() {
-                                item.classList.add('cp-item-loading');
-                                item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                fetch('/load', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                }).then(r => r.json()).then(data => {
-                                    if (data.error) {
-                                        showToast(`load error: ${data.error}`);
-                                        cleanup();
-                                        resolve(null);
-                                    } else {
-                                        cleanup();
-                                        resolve({ type: 'loaded', sid: data.sid, name: data.name });
-                                    }
-                                }).catch(() => { showToast('load failed'); cleanup(); resolve(null); });
-                            }
-                            item.onclick = pickFile;
-                            item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } };
-                        }
-                        colFiles.appendChild(item);
-                    });
-                } else {
-                    const empty = document.createElement('div');
-                    empty.className = 'cp-col-empty';
-                    empty.textContent = 'no supported files';
-                    colFiles.appendChild(empty);
-                }
-
-                overlay.classList.add('visible');
-                const selectables = () => [
-                    ...colLoaded.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)'),
-                    ...colFiles.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)'),
-                ];
-                const first = selectables()[0];
-                if (first) first.focus();
-
-                function cleanup() {
-                    overlay.classList.remove('visible');
-                    cancelBtn.onclick = null;
-                    overlay.onkeydown = null;
-                    document.getElementById('keyboard-sink').focus();
-                }
-                function cancel() { cleanup(); resolve(null); }
-                cancelBtn.onclick = cancel;
-                overlay.onkeydown = e => {
-                    if (e.key === 'Escape') { e.preventDefault(); cancel(); return; }
-                    const items = selectables();
-                    const idx = items.indexOf(document.activeElement);
-                    if (e.key === 'j' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        items[(idx + 1) % items.length]?.focus();
-                    } else if (e.key === 'k' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        items[(idx - 1 + items.length) % items.length]?.focus();
-                    }
-                };
-            });
-        }
-
         async function enterComparePrompt() {
-            const [sessRes, filesRes] = await Promise.all([
-                fetch('/sessions'),
-                fetch('/listfiles').catch(() => null),
-            ]);
-            if (!sessRes.ok) { showStatus('compare: could not query sessions'); return; }
-            const sessions = await sessRes.json();
-            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
-            for (const s of candidates) {
-                if (s.name) compareNameBySid[s.sid] = s.name;
-            }
-            // Files in CWD not already loaded
-            let fileEntries = [];
-            if (filesRes && filesRes.ok) {
-                const allFiles = await filesRes.json();
-                if (Array.isArray(allFiles)) {
-                    const loadedPaths = new Set(sessions.map(s => s.filepath).filter(Boolean));
-                    fileEntries = allFiles.filter(f => !loadedPaths.has(f.path));
-                }
-            }
-            if (!candidates.length && !fileEntries.length) {
-                showStatus('compare: no other arrays loaded and no supported files in current directory');
-                return;
-            }
-            const currentSession = sessions.find(s => s.sid === sid) || null;
-            const chosen = await showComparePicker(candidates, fileEntries, currentSession);
+            const chosen = await showUnifiedPicker('compare');
             if (!chosen) return;
-            if (chosen.type === 'loaded') {
-                await enterCompareModeBySid(chosen.sid, chosen.name || '');
-            } else {
-                await enterCompareModeBySid(chosen.session.sid, chosen.session.name || '');
-            }
+            const chosenSid  = chosen.sid;
+            const chosenName = chosen.name || '';
+            await enterCompareModeBySid(chosenSid, chosenName);
         }
 
         async function cycleCompareTarget(step = 1) {
@@ -3553,6 +3686,7 @@
                     _lastMouseX = e.clientX; _lastMouseY = e.clientY;
                     if (!mvPixelPending) {
                         const ipx = Math.floor(px), ipy = Math.floor(py);
+                        const _mx = e.clientX, _my = e.clientY;
                         mvPixelPending = true;
                         setTimeout(() => { mvPixelPending = false; }, 50);
                         fetch(`/pixel/${sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
@@ -3560,7 +3694,7 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
                                 }
                             });
                     }
@@ -3684,6 +3818,7 @@
                         const rect = cv.getBoundingClientRect();
                         const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
                         const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                        const _mx = e.clientX, _my = e.clientY;
                         // Fetch value for every qmri view at the same pixel position
                         qmriViews.forEach(v => {
                             const qIndices = [...indices];
@@ -3693,7 +3828,7 @@
                                     if (d.value !== undefined && isFinite(d.value)) {
                                         const av = Math.abs(d.value);
                                         const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                        showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                                        showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
                                     } else if (v.pixelInfoEl) {
                                         v.pixelInfoEl.style.display = 'none';
                                     }
@@ -4559,12 +4694,13 @@
                 const rect = cv.getBoundingClientRect();
                 const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
                 const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
+                const _mx = e.clientX, _my = e.clientY;
                 fetch(`/pixel/${cvSid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
                     .then(r => r.json()).then(d => {
                         if (d.value !== undefined && isFinite(d.value)) {
                             const av = Math.abs(d.value);
                             const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                            showPixelInfo(piEl, `(${ipx},${ipy}) ${fmt(d.value)}`);
+                            showPixelInfo(piEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
                         } else if (piEl) {
                             piEl.style.display = 'none';
                         }

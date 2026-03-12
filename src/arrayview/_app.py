@@ -277,6 +277,7 @@ def _get_prefetch_pool():
     with _PREFETCH_LOCK:
         if _PREFETCH_POOL is None or _PREFETCH_POOL._shutdown:
             import concurrent.futures
+
             _PREFETCH_POOL = concurrent.futures.ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="arrayview-prefetch"
             )
@@ -341,6 +342,9 @@ class Session:
         self.global_stats = {}
         self.fft_original_data = None
         self.fft_axes = None
+
+        self.rgb_axis = None  # set by _setup_rgb(); axis index in actual shape
+        self.spatial_shape = data.shape  # shape without rgb_axis (set by _setup_rgb)
 
         self.raw_cache = OrderedDict()
         self.rgba_cache = OrderedDict()
@@ -439,8 +443,8 @@ DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 # Compression default: no compressor ("raw") for local NVMe workloads where
 # decompression latency exceeds I/O savings.  Users on remote/compressed FS
 # should use blosc with lz4 (fast) or zstd (better ratio).
-ZARR_LARGE_XY_TILE = 1024   # pixels — threshold for tiling XY dimension
-ZARR_T_DEPTH = 2            # T-frames per chunk for 4D+ arrays
+ZARR_LARGE_XY_TILE = 1024  # pixels — threshold for tiling XY dimension
+ZARR_T_DEPTH = 2  # T-frames per chunk for 4D+ arrays
 
 # ---------------------------------------------------------------------------
 # Neighbor prefetch (Phase 3)
@@ -448,8 +452,8 @@ ZARR_T_DEPTH = 2            # T-frames per chunk for 4D+ arrays
 # After rendering a frame the backend eagerly warms the raw_cache for the
 # next N slices in the scroll direction.  Only runs when the estimated I/O
 # cost is within budget.
-PREFETCH_NEIGHBORS = 3          # slices to prefetch in the scroll direction
-PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024   # 16 MB max prefetch per request
+PREFETCH_NEIGHBORS = 3  # slices to prefetch in the scroll direction
+PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024  # 16 MB max prefetch per request
 
 # ---------------------------------------------------------------------------
 # Heavy-operation guardrails (Phase 4)
@@ -460,7 +464,8 @@ PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024   # 16 MB max prefetch per request
 _DEFAULT_HEAVY_OP_MB = 500
 HEAVY_OP_LIMIT_BYTES = (
     int(os.environ.get("ARRAYVIEW_HEAVY_OP_LIMIT_MB", _DEFAULT_HEAVY_OP_MB))
-    * 1024 * 1024
+    * 1024
+    * 1024
 )
 
 
@@ -484,13 +489,15 @@ def _estimate_array_bytes(session) -> int:
 # Defaults adapt to available system RAM; override via environment variables.
 # All values in bytes.
 
+
 def _total_ram_bytes() -> int:
     """Return total system RAM in bytes, or 8 GB as a conservative fallback."""
     try:
         import psutil
+
         return psutil.virtual_memory().total
     except Exception:
-        return 8 * 1024 ** 3  # 8 GB fallback
+        return 8 * 1024**3  # 8 GB fallback
 
 
 def _cache_budget(env_var: str, fraction: float) -> int:
@@ -511,9 +518,9 @@ def _cache_budget(env_var: str, fraction: float) -> int:
 
 
 # Compute once at import time so Sessions created in the same process share budgets.
-_RAW_CACHE_BYTES   = _cache_budget("ARRAYVIEW_RAW_CACHE_MB",   0.05)   # 5% RAM
-_RGBA_CACHE_BYTES  = _cache_budget("ARRAYVIEW_RGBA_CACHE_MB",  0.10)   # 10% RAM
-_MOSAIC_CACHE_BYTES = _cache_budget("ARRAYVIEW_MOSAIC_CACHE_MB", 0.025) # 2.5% RAM
+_RAW_CACHE_BYTES = _cache_budget("ARRAYVIEW_RAW_CACHE_MB", 0.05)  # 5% RAM
+_RGBA_CACHE_BYTES = _cache_budget("ARRAYVIEW_RGBA_CACHE_MB", 0.10)  # 10% RAM
+_MOSAIC_CACHE_BYTES = _cache_budget("ARRAYVIEW_MOSAIC_CACHE_MB", 0.025)  # 2.5% RAM
 
 
 def zarr_chunk_preset(shape: tuple[int, ...]) -> tuple[int, ...]:
@@ -862,6 +869,116 @@ def apply_colormap_rgba(
     return rgba
 
 
+def _detect_rgb_axis(shape: tuple) -> int:
+    """Return the axis index for the RGB/RGBA channel dimension.
+
+    Checks if the first or last dimension has size 3 or 4.
+    Prefers the last dimension if both qualify (channels-last is most common).
+    Raises ValueError if no suitable dimension is found.
+    """
+    if len(shape) < 2:
+        raise ValueError(
+            f"Array must have at least 2 dimensions for RGB mode, got shape {shape}"
+        )
+    last = shape[-1]
+    first = shape[0]
+    if last in (3, 4):
+        return len(shape) - 1
+    if first in (3, 4):
+        return 0
+    raise ValueError(
+        f"RGB mode requires the first or last dimension to have size 3 or 4 "
+        f"(for RGB or RGBA). Got shape {shape} — first={first}, last={last}."
+    )
+
+
+def _setup_rgb(session) -> None:
+    """Detect and store the RGB channel axis on a session.
+
+    Sets session.rgb_axis (int) and session.spatial_shape (tuple without rgb_axis).
+    Raises ValueError if the array shape is not compatible with RGB mode.
+    """
+    axis = _detect_rgb_axis(session.shape)
+    session.rgb_axis = axis
+    session.spatial_shape = tuple(s for i, s in enumerate(session.shape) if i != axis)
+
+
+def render_rgb_rgba(session, dim_x: int, dim_y: int, idx_list: list) -> np.ndarray:
+    """Render an RGB/RGBA session slice to a H×W×4 uint8 RGBA array.
+
+    dim_x, dim_y, and idx_list are in *spatial* coordinates — i.e. they index
+    into session.spatial_shape, with the rgb_axis dimension excluded.
+    Returns an (H, W, 4) uint8 numpy array ready for the wire protocol.
+    """
+    rgb_axis = session.rgb_axis
+    ndim_actual = len(session.shape)
+
+    # Cache lookup — key uses spatial coordinates only (no colormap/dr).
+    cache_key = ("rgb", dim_x, dim_y, tuple(idx_list))
+    if cache_key in session.rgba_cache:
+        session.rgba_cache.move_to_end(cache_key)
+        return session.rgba_cache[cache_key]
+
+    # Map spatial dim indices to actual array dim indices.
+    if rgb_axis == 0:
+        actual_dim_x = dim_x + 1
+        actual_dim_y = dim_y + 1
+    else:
+        # rgb_axis is last; spatial dims are the same as actual dims before it.
+        actual_dim_x = dim_x
+        actual_dim_y = dim_y
+
+    # Build slicer over the actual array dimensions.
+    # For each actual dim: rgb_axis → slice(None), dim_x/dim_y → slice(None),
+    # everything else → the corresponding spatial index.
+    slicer: list = []
+    spatial_i = 0
+    for actual_i in range(ndim_actual):
+        if actual_i == rgb_axis:
+            slicer.append(slice(None))  # keep all channels; NOT a spatial dim
+        else:
+            if actual_i in (actual_dim_x, actual_dim_y):
+                slicer.append(slice(None))  # keep this spatial display dim
+            else:
+                slicer.append(int(idx_list[spatial_i]))  # fix this spatial dim
+            spatial_i += 1
+
+    arr = np.array(session.data[tuple(slicer)])  # (free_dim_0, free_dim_1, free_dim_2)
+
+    # The three free dims in the result appear in the order of their actual indices.
+    free_actual = sorted([actual_dim_x, actual_dim_y, rgb_axis])
+    pos_dx = free_actual.index(actual_dim_x)
+    pos_dy = free_actual.index(actual_dim_y)
+    pos_rgb = free_actual.index(rgb_axis)
+
+    # Rearrange to (rows=dy, cols=dx, channels).
+    arr = arr.transpose(pos_dy, pos_dx, pos_rgb)  # (H, W, C)
+    arr = np.nan_to_num(arr)
+
+    # Convert to uint8.
+    if arr.dtype.kind == "f":
+        if arr.max() > 1.5:  # assume [0, 255] float range
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+        else:  # assume [0, 1] float range
+            arr = np.clip(arr * 255.0, 0, 255).astype(np.uint8)
+    elif arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+    h, w, c = arr.shape
+    rgba = np.empty((h, w, 4), dtype=np.uint8)
+    rgba[:, :, :3] = arr[:, :, :3]
+    rgba[:, :, 3] = arr[:, :, 3] if c == 4 else np.uint8(255)
+
+    # Cache result.
+    session.rgba_cache[cache_key] = rgba
+    session._rgba_bytes += rgba.nbytes
+    while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
+        _, v = session.rgba_cache.popitem(last=False)
+        session._rgba_bytes -= v.nbytes
+
+    return rgba
+
+
 def render_rgba(
     session,
     dim_x,
@@ -1187,7 +1304,15 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             direction = int(msg.get("direction", 1))  # scroll direction (+1/-1)
             slice_dim = int(msg.get("slice_dim", -1))
 
-            if dim_z >= 0:
+            if session.rgb_axis is not None:
+                # RGB/RGBA mode — render directly from channel data; skip colormap.
+                rgba = await _render(
+                    loop,
+                    lambda: render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple)),
+                )
+                h, w = rgba.shape[:2]
+                vmin, vmax = 0.0, 255.0
+            elif dim_z >= 0:
                 rgba = await _render(
                     loop,
                     lambda: render_mosaic(
@@ -1201,6 +1326,17 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                         complex_mode,
                         log_scale,
                     ),
+                )
+                h, w = rgba.shape[:2]
+                raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                _, vmin, vmax = _prepare_display(
+                    session,
+                    raw,
+                    complex_mode,
+                    dr,
+                    log_scale,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
                 )
             else:
                 rgba = await _render(
@@ -1218,21 +1354,19 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                         vmax_override,
                     ),
                 )
+                h, w = rgba.shape[:2]
+                raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                _, vmin, vmax = _prepare_display(
+                    session,
+                    raw,
+                    complex_mode,
+                    dr,
+                    log_scale,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
 
-            h, w = rgba.shape[:2]
-            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-            _, vmin, vmax = _prepare_display(
-                session,
-                raw,
-                complex_mode,
-                dr,
-                log_scale,
-                vmin_override=vmin_override,
-                vmax_override=vmax_override,
-            )
-
-            # Overlay compositing (segmentation masks)
-            if dim_z < 0:
+                # Overlay compositing (segmentation masks)
                 overlay_sid = msg.get("overlay_sid")
                 mask = _extract_overlay_mask(
                     overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=(h, w)
@@ -1246,8 +1380,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             # Warm neighbor slices in the background (Phase 3 prefetch)
             if slice_dim >= 0 and not (dim_z >= 0):
                 _schedule_prefetch(
-                    session, dim_x, dim_y, list(idx_tuple),
-                    slice_dim, direction
+                    session, dim_x, dim_y, list(idx_tuple), slice_dim, direction
                 )
     except WebSocketDisconnect:
         pass  # normal: browser closed the tab/window
@@ -1442,11 +1575,19 @@ async def get_metadata(sid: str):
         return Response(status_code=404)
     try:
         return {
-            "shape": [int(s) for s in session.shape],
+            "shape": [
+                int(s)
+                for s in (
+                    session.spatial_shape
+                    if session.rgb_axis is not None
+                    else session.shape
+                )
+            ],
             "is_complex": bool(np.iscomplexobj(session.data)),
             "name": session.name,
             "has_vectorfield": session.vfield is not None,
             "vfield_n_times": _vfield_n_times(session),
+            "is_rgb": session.rgb_axis is not None,
         }
     except Exception as e:
         import traceback
@@ -1830,14 +1971,18 @@ def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_s
     return normalized.astype(np.float32)
 
 
-def _render_normalized_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale):
+def _render_normalized_mosaic(
+    session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale
+):
     """Return (float32 normalized mosaic grid [0,1], nan_mask) for all z-slices."""
     n = session.shape[dim_z]
     idx_list = list(idx_tuple)
     frames_raw = [
         extract_slice(
-            session, dim_x, dim_y,
-            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))]
+            session,
+            dim_x,
+            dim_y,
+            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
         )
         for i in range(n)
     ]
@@ -1860,10 +2005,12 @@ def _render_normalized_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, dr, compl
     for k in range(n):
         r, c = divmod(k, cols)
         r0, c0 = r * (H + GAP), c * (W + GAP)
-        grid[r0:r0 + H, c0:c0 + W] = all_data[k]
+        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
     nan_mask = np.isnan(grid)
     if vmax > vmin:
-        normalized = np.clip(np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1)
+        normalized = np.clip(
+            np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1
+        )
     else:
         normalized = np.zeros_like(grid)
     return normalized.astype(np.float32), nan_mask
@@ -2277,6 +2424,54 @@ def list_files(directory: str = ""):
     return results
 
 
+@app.get("/fzf")
+def fzf_filter(q: str = "", directory: str = ""):
+    """Filter supported files in a directory using fzf --filter, or substring match as fallback."""
+    import shutil
+    import subprocess
+
+    target = os.path.abspath(directory) if directory else os.getcwd()
+    # Collect all supported file names
+    try:
+        names = sorted(
+            f
+            for f in os.listdir(target)
+            if os.path.isfile(os.path.join(target, f))
+            and (
+                (
+                    ".nii.gz"
+                    if f.lower().endswith(".nii.gz")
+                    else os.path.splitext(f.lower())[1]
+                )
+                in _SUPPORTED_EXTS
+            )
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+    if not q:
+        return names
+
+    # Try fzf --filter
+    if shutil.which("fzf"):
+        try:
+            result = subprocess.run(
+                ["fzf", "--filter", q],
+                input="\n".join(names),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            filtered = [l for l in result.stdout.splitlines() if l]
+            return filtered
+        except Exception:
+            pass  # fall through to substring
+
+    # Fallback: case-insensitive substring
+    q_lower = q.lower()
+    return [n for n in names if q_lower in n.lower()]
+
+
 @app.get("/sessions")
 def get_sessions():
     """Returns list of active sessions (used by shell to populate tabs on load)."""
@@ -2303,6 +2498,11 @@ async def load_file(request: Request):
     except Exception as e:
         return {"error": str(e)}
     session = Session(data, filepath=filepath, name=name)
+    if body.get("rgb"):
+        try:
+            _setup_rgb(session)
+        except ValueError as e:
+            return {"error": str(e)}
     SESSIONS[session.sid] = session
     notified = False
     if notify:
@@ -3068,6 +3268,7 @@ def view(
     inline: bool | None = None,
     height: int = 500,
     window: str | bool | None = None,
+    rgb: bool = False,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -3080,6 +3281,10 @@ def view(
       - ``'browser'``  open in the system browser
       - ``'vscode'``   open in VS Code Simple Browser
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
+
+    ``rgb`` — treat the array as RGB/RGBA. The first or last dimension must
+    have size 3 (RGB) or 4 (RGBA). When True, the colorbar is hidden and each
+    slice is composited directly from the colour channels.
     """
     global _jupyter_server_port, _window_process, SERVER_LOOP  # _window_process is a Popen instance
 
@@ -3189,9 +3394,12 @@ def view(
             window,
             inline,
             height,
+            rgb=rgb,
         )
 
     session = Session(data, name=name)
+    if rgb:
+        _setup_rgb(session)
     SESSIONS[session.sid] = session
     win_w, win_h = 1400, 900
 
@@ -3446,6 +3654,7 @@ def _view_subprocess(
     window: bool,
     inline: bool = False,
     height: int = 500,
+    rgb: bool = False,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -3463,7 +3672,7 @@ def _view_subprocess(
     if _server_alive(port):
         # Existing subprocess server — register the new array via /load.
         try:
-            body = json.dumps({"filepath": tmp_path, "name": name}).encode()
+            body = json.dumps({"filepath": tmp_path, "name": name, "rgb": rgb}).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/load",
                 data=body,
@@ -3500,7 +3709,7 @@ def _view_subprocess(
         script = (
             f"from arrayview._app import _serve_daemon;"
             f"_serve_daemon({repr(tmp_path)}, {port}, {repr(sid)}, "
-            f"name={repr(name)}, cleanup=True)"
+            f"name={repr(name)}, cleanup=True, rgb={rgb})"
         )
         subprocess.Popen(
             [sys.executable, "-c", script],
@@ -3584,6 +3793,7 @@ def _serve_daemon(
     compare_sid: str = None,
     vfield_filepath: str = None,
     persist: bool = False,
+    rgb: bool = False,
 ) -> None:
     """Background server process. Loads data, serves it.
     persist=True: never exits (used on remote tunnel so port stays alive).
@@ -3611,6 +3821,8 @@ def _serve_daemon(
                     pass
             session = Session(data, filepath=None if cleanup else filepath, name=name)
             session.sid = sid
+            if rgb:
+                _setup_rgb(session)
             if vfield_filepath:
                 try:
                     vf_data = load_data(vfield_filepath)
@@ -3666,6 +3878,179 @@ def _serve_daemon(
     else:
         _wait_for_viewer_close()
     os._exit(0)
+
+
+def _make_demo_array() -> "np.ndarray":
+    """Return a (128, 128, 8, 24) float32 demo array.
+
+    Dims: 128×128 canvas, 8 walk-cycle frames, 24 time-of-day states
+    (sinusoidal day → night → day transition).
+    Returned transposed to (128, 128, 8, 24) with spatial axes corrected
+    for arrayview's default dim-0=x, dim-1=y rendering.
+    """
+    import numpy as np
+
+    H, W, FRAMES, STATES = 128, 128, 8, 24
+    # Build in (row, col) / numpy image convention; transpose at the end.
+    arr = np.zeros((H, W, FRAMES, STATES), dtype=np.float32)
+
+    # ── day / night master palettes ───────────────────────────────────────────
+    DAY = dict(
+        sky=0.82,
+        gnd=0.48,
+        horizon=0.38,
+        cat=0.22,
+        eye=0.80,
+        orb=1.00,
+        nose=0.42,
+        whisker=0.30,
+    )
+    NIGHT = dict(
+        sky=0.05,
+        gnd=0.20,
+        horizon=0.13,
+        cat=0.36,
+        eye=0.95,
+        orb=0.87,
+        nose=0.55,
+        whisker=0.45,
+    )
+
+    # ── star field (fixed positions, per-star twinkle phase) ──────────────────
+    rng = np.random.default_rng(42)
+    n_stars = 48
+    star_rows = rng.integers(4, 82, n_stars)
+    star_cols = rng.integers(0, W, n_stars)
+    star_phases = rng.uniform(0, 2 * np.pi, n_stars)
+
+    def _circle(cx, cy, r):
+        """Filled-circle pixel list in (row, col) order, clipped to canvas."""
+        pts = []
+        for dr in range(-r, r + 1):
+            for dc in range(-r, r + 1):
+                if dr * dr + dc * dc <= r * r:
+                    pts.append((cy + dr, cx + dc))
+        return [(row, col) for row, col in pts if 0 <= row < H and 0 <= col < W]
+
+    # Scene geometry (designed at 128×128)
+    sky_rows = 88  # rows 0..87 = sky
+    orb_cx, orb_cy = 104, 16  # sun/moon: col=104, row=16
+    orb_r = 12
+    bite_cx, bite_cy, bite_r = 112, 12, 11  # crescent bite offset
+
+    # Cat geometry
+    body_r = (52, 88, 40, 80)  # row_lo, row_hi, col_lo, col_hi
+    head_r = (36, 56, 64, 92)
+    ear_r = (28, 40, 68, 76)
+    eye_r = (40, 46, 88, 94)
+    nose_r = (48, 54, 92, 98)
+    # Tail: waves left from the body (cols 16..39, centered on row 68)
+    tail_base_row = 68
+    tail_amplitude = 8
+    tail_thickness = 3  # half-thickness in pixels
+    # Legs
+    leg_phases = [0, np.pi, np.pi, 0]
+    leg_cols_lo = [44, 56, 64, 76]  # left col of each leg (width 8)
+    leg_row_base = 88
+    leg_height = 18
+    leg_swing = 7
+
+    # Pre-compute orb and bite pixel lists (static across frames/states)
+    orb_pixels = _circle(orb_cx, orb_cy, orb_r)
+    bite_pixels = _circle(bite_cx, bite_cy, bite_r)
+
+    for f in range(FRAMES):
+        t = f / FRAMES  # animation phase 0 … <1
+
+        for si in range(STATES):
+            # Sinusoidal blend: 0 = full day, 1 = full night, back to 0
+            blend = 0.5 * (1.0 - np.cos(2.0 * np.pi * si / STATES))
+            p = {k: DAY[k] + (NIGHT[k] - DAY[k]) * blend for k in DAY}
+
+            v = arr[:, :, f, si]
+
+            # ── background ──────────────────────────────────────────────────
+            v[:sky_rows, :] = p["sky"]
+            v[sky_rows:, :] = p["gnd"]
+            v[sky_rows, :] = p["horizon"]
+
+            # ── orb (sun fades into moon as blend → 1) ──────────────────────
+            for row, col in orb_pixels:
+                v[row, col] = p["orb"]
+            if blend > 0.02:
+                # crescent bite: blend between sky and orb
+                for row, col in bite_pixels:
+                    v[row, col] = p["sky"] * blend + p["orb"] * (1.0 - blend)
+                # twinkling stars (fade in with blend)
+                for i in range(n_stars):
+                    br = blend * (
+                        0.50 + 0.38 * np.sin(2.0 * np.pi * t + star_phases[i])
+                    )
+                    sr, sc = int(star_rows[i]), int(star_cols[i])
+                    v[sr, sc] = float(br)
+                    # tiny cross for brighter stars
+                    if br > 0.55 * blend:
+                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nr, nc = sr + dr, sc + dc
+                            if 0 <= nr < sky_rows and 0 <= nc < W:
+                                v[nr, nc] = max(v[nr, nc], float(br) * 0.5)
+
+            # ── cat ─────────────────────────────────────────────────────────
+            cat_v = p["cat"]
+
+            # tail: smooth sinusoidal wave extending left from body
+            for tc in range(16, 40):
+                phase_along = (tc - 16) / 23.0
+                tr = tail_base_row + int(
+                    round(
+                        tail_amplitude
+                        * np.sin(2.0 * np.pi * phase_along + 2.0 * np.pi * t)
+                    )
+                )
+                for dr in range(-tail_thickness, tail_thickness + 1):
+                    if 0 <= tr + dr < H:
+                        v[tr + dr, tc] = cat_v
+            # rounded tail tip
+            tip_r_row = tail_base_row + int(
+                round(tail_amplitude * np.sin(2.0 * np.pi * t))
+            )
+            for dr in range(-tail_thickness - 1, tail_thickness + 2):
+                if 0 <= tip_r_row + dr < H:
+                    v[tip_r_row + dr, 16] = cat_v
+
+            # body, head, ear
+            rl, rh, cl, ch = body_r
+            v[rl:rh, cl:ch] = cat_v
+            rl, rh, cl, ch = head_r
+            v[rl:rh, cl:ch] = cat_v
+            rl, rh, cl, ch = ear_r
+            v[rl:rh, cl:ch] = cat_v
+
+            # eye — slightly brighter than sky, contrasts with cat fur
+            rl, rh, cl, ch = eye_r
+            v[rl:rh, cl:ch] = p["eye"]
+
+            # nose
+            rl, rh, cl, ch = nose_r
+            v[rl:rh, cl:ch] = p["nose"]
+
+            # whiskers (two thin lines extending right from muzzle)
+            whisker_v = p["whisker"]
+            for wc in range(98, 122):
+                v[43, wc] = whisker_v
+                v[53, wc] = whisker_v
+
+            # legs (4 legs, front and back pairs alternate)
+            for lc_lo, lph in zip(leg_cols_lo, leg_phases):
+                swing = int(round(leg_swing * np.sin(2.0 * np.pi * t + lph)))
+                height = leg_height + swing
+                for lr in range(leg_row_base, leg_row_base + max(height, 4)):
+                    if 0 <= lr < H:
+                        v[lr, lc_lo : lc_lo + 8] = cat_v
+
+    # arrayview renders dim-0 as the horizontal axis; transpose spatial dims
+    # so the cat faces right as designed.
+    return arr.transpose(1, 0, 2, 3)
 
 
 def arrayview():
@@ -3725,11 +4110,29 @@ def arrayview():
             "(displacements along each spatial axis)."
         ),
     )
+    parser.add_argument(
+        "--rgb",
+        action="store_true",
+        help=(
+            "Interpret the array as an RGB or RGBA image. "
+            "The first or last dimension must have size 3 or 4."
+        ),
+    )
     args = parser.parse_args()
     if not args.serve and not args.kill and not args.files:
-        parser.error(
-            "provide at least one FILE, or use --serve to start the server without loading data"
-        )
+        # No files given: launch the animated pixel-art demo
+        import tempfile as _tempfile
+        import numpy as _np_demo
+
+        _demo_arr = _make_demo_array()
+        _fd, _tmp_path = _tempfile.mkstemp(suffix=".npy")
+        import os as _os_demo
+
+        _os_demo.close(_fd)
+        _np_demo.save(_tmp_path, _demo_arr)
+        args.files = [_tmp_path]
+        args._demo_name = "welcome"
+        args._demo_cleanup = True
     if args.files and len(args.files) > 6:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
@@ -3823,7 +4226,7 @@ def arrayview():
         print(f"Error loading data: {e}")
         sys.exit(1)
 
-    name = os.path.basename(base_file)
+    name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
     is_arrayview_server = _server_alive(args.port)
     if _port_in_use(args.port) and not is_arrayview_server:
@@ -3906,6 +4309,7 @@ def arrayview():
                 "filepath": base_file,
                 "name": name,
                 "notify": notify_webview,
+                "rgb": args.rgb,
             }
             if notify_webview and compare_sids:
                 body_dict["compare_sid"] = compare_sids[0]
@@ -3995,14 +4399,19 @@ def arrayview():
     # Locally: persist=False so the port is freed when the last tab closes.
     is_remote = _is_vscode_remote()
     vfield_abs = os.path.abspath(args.vectorfield) if args.vectorfield else None
+    demo_name = getattr(args, "_demo_name", None)
+    demo_cleanup = getattr(args, "_demo_cleanup", False)
     script = (
         f"from arrayview._app import _serve_daemon;"
         f"_serve_daemon("
         f"{repr(base_file)}, {args.port}, {repr(sid)},"
+        f" name={repr(demo_name)},"
+        f" cleanup={demo_cleanup},"
         f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
         f" overlay_sid={repr(overlay_sid)},"
         f" vfield_filepath={repr(vfield_abs)},"
         f" persist={is_remote},"
+        f" rgb={args.rgb},"
         f")"
     )
     subprocess.Popen(

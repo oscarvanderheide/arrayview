@@ -35,7 +35,10 @@ DISPLAY
   C               custom colormap (dialog)  ✗ (requires dialog input)
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
-  B               compare picker (dialog)   ✗ (requires dialog input)
+   B               compare picker (dialog)   ✗ (requires dialog interaction)
+   P               unified picker – compare  ✓ 45 (uni-picker opens in compare mode)
+   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode)
+   (search box)    fzf filter in picker      ✓ 45e (type query, list filters)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
   [ / ]           registration blend        ✓ 24, 37
@@ -48,7 +51,7 @@ DISPLAY
   T               cycle theme               ✓ 26
 
 INFO & EXPORT
-  hover           pixel value + cb marker   ✓ 15
+  hover           pixel value + cb marker   ✓ 15, 43 (tooltip follows cursor; H enables first)
   H               toggle pixel hover tip    ✓ 43
   i               data info overlay         ✓ 27
   s               save screenshot           ✗ (triggers download dialog)
@@ -107,8 +110,10 @@ OUT_DIR.mkdir(exist_ok=True)
 # Server
 # ---------------------------------------------------------------------------
 
+
 def _start_server():
     from arrayview._app import app
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         port = s.getsockname()[1]
@@ -188,33 +193,40 @@ def _check_no_jump(page, key, shot_name, selectors=STABLE_SELS, wait=400):
 # Scenarios
 # ---------------------------------------------------------------------------
 
+
 def run_smoke(page, base, client, tmp):
     rng = np.random.default_rng(42)
 
     # Arrays
-    arr2d   = np.linspace(0, 1, 100 * 80, dtype=np.float32).reshape(100, 80)
-    arr3d   = rng.standard_normal((20, 64, 64)).astype(np.float32)
-    arr4d   = rng.standard_normal((5, 20, 32, 32)).astype(np.float32)   # dim 0 = 5 for qmri
-    arr4d_z = rng.standard_normal((4, 8, 32, 32)).astype(np.float32)    # 4D for mosaic (z key)
-    arrC    = (rng.standard_normal((20, 32, 32)) + 1j * rng.standard_normal((20, 32, 32))).astype(np.complex64)
+    arr2d = np.linspace(0, 1, 100 * 80, dtype=np.float32).reshape(100, 80)
+    arr3d = rng.standard_normal((20, 64, 64)).astype(np.float32)
+    arr4d = rng.standard_normal((5, 20, 32, 32)).astype(
+        np.float32
+    )  # dim 0 = 5 for qmri
+    arr4d_z = rng.standard_normal((4, 8, 32, 32)).astype(
+        np.float32
+    )  # 4D for mosaic (z key)
+    arrC = (
+        rng.standard_normal((20, 32, 32)) + 1j * rng.standard_normal((20, 32, 32))
+    ).astype(np.complex64)
     # Medical image sizes: 192×192×96 volume (~14 MB) and 5-echo 4D (~8 MB)
     arr_med3d = rng.standard_normal((96, 192, 192)).astype(np.float32)
     arr_med4d = rng.standard_normal((5, 48, 96, 96)).astype(np.float32)
     # Registration phantom: bright ellipse, version B shifted 8px right + 5px down
     Y, X = np.mgrid[-64:64, -64:64].astype(np.float32)
     arr_reg_a = np.exp(-(X**2 / 800 + Y**2 / 1800))
-    arr_reg_b = np.exp(-((X - 8)**2 / 800 + (Y - 5)**2 / 1800)) * 0.85
+    arr_reg_b = np.exp(-((X - 8) ** 2 / 800 + (Y - 5) ** 2 / 1800)) * 0.85
 
-    sid2d      = _load(client, arr2d,   "arr2d",   tmp)
-    sid3d      = _load(client, arr3d,   "arr3d",   tmp)
-    sid4d      = _load(client, arr4d,   "arr4d",   tmp)
-    sid4d_z    = _load(client, arr4d_z, "arr4d_z", tmp)
-    sidC       = _load(client, arrC,    "arrC",     tmp)
-    sid2d_b    = _load(client, arr2d * 0.5 + 0.25, "arr2d_b", tmp)
-    sid_med3d  = _load(client, arr_med3d, "med3d", tmp)
-    sid_med4d  = _load(client, arr_med4d, "med4d", tmp)
-    sid_reg_a  = _load(client, arr_reg_a, "reg_a", tmp)
-    sid_reg_b  = _load(client, arr_reg_b, "reg_b", tmp)
+    sid2d = _load(client, arr2d, "arr2d", tmp)
+    sid3d = _load(client, arr3d, "arr3d", tmp)
+    sid4d = _load(client, arr4d, "arr4d", tmp)
+    sid4d_z = _load(client, arr4d_z, "arr4d_z", tmp)
+    sidC = _load(client, arrC, "arrC", tmp)
+    sid2d_b = _load(client, arr2d * 0.5 + 0.25, "arr2d_b", tmp)
+    sid_med3d = _load(client, arr_med3d, "med3d", tmp)
+    sid_med4d = _load(client, arr_med4d, "med4d", tmp)
+    sid_reg_a = _load(client, arr_reg_a, "reg_a", tmp)
+    sid_reg_b = _load(client, arr_reg_b, "reg_b", tmp)
     arr3d_qmri3 = rng.standard_normal((3, 20, 32, 32)).astype(np.float32)
     sid_qmri3 = _load(client, arr3d_qmri3, "qmri3", tmp)
 
@@ -226,15 +238,20 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _press(page, "c")
     _shot(page, "02_2d_colormap_lipari")
-    _press(page, "c"); _press(page, "c")
+    _press(page, "c")
+    _press(page, "c")
     _shot(page, "03_2d_colormap_viridis")
     # reset
-    for _ in range(4): _press(page, "c", wait=100)
+    for _ in range(4):
+        _press(page, "c", wait=100)
 
     # ── 04-05: zoom (+ / - / 0) ──────────────────────────────────────────────
-    _press(page, "+"); _press(page, "+")
+    _press(page, "+")
+    _press(page, "+")
     _shot(page, "04_zoom_in")
-    _press(page, "-"); _press(page, "-"); _press(page, "-")
+    _press(page, "-")
+    _press(page, "-")
+    _press(page, "-")
     _shot(page, "05_zoom_out")
     _press(page, "0")
 
@@ -246,7 +263,8 @@ def run_smoke(page, base, client, tmp):
     _press(page, "Shift+Z")  # off
 
     # ── 07: 3D scrolled (j/k arrows) ────────────────────────────────────────
-    for _ in range(5): _press(page, "ArrowRight", wait=100)
+    for _ in range(5):
+        _press(page, "ArrowRight", wait=100)
     _shot(page, "07_3d_scrolled")
 
     # ── 08: multiview (v) ────────────────────────────────────────────────────
@@ -266,7 +284,8 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _press(page, "q", wait=2500)  # all 5 panels need time
     _shot(page, "10_qmri_5panel_initial", wait=0)
-    for _ in range(3): _press(page, "ArrowRight", wait=300)
+    for _ in range(3):
+        _press(page, "ArrowRight", wait=300)
     _shot(page, "11_qmri_5panel_scrolled")
     _press(page, "q", wait=400)  # exit
 
@@ -300,7 +319,9 @@ def run_smoke(page, base, client, tmp):
     # ── 17: dynamic range (d) ────────────────────────────────────────────────
     _press(page, "d")
     _shot(page, "17_dynamic_range_1pct")
-    _press(page, "d"); _press(page, "d"); _press(page, "d")  # back to 0-100
+    _press(page, "d")
+    _press(page, "d")
+    _press(page, "d")  # back to 0-100
 
     # ── 18: log scale (L = capital) ──────────────────────────────────────────
     _goto(page, base, sid2d)
@@ -334,7 +355,9 @@ def run_smoke(page, base, client, tmp):
     # move crosshair to off-center position
     mv_canvas = page.locator(".mv-canvas").first
     mv_box = mv_canvas.bounding_box()
-    page.mouse.click(mv_box["x"] + mv_box["width"] * 0.3, mv_box["y"] + mv_box["height"] * 0.3)
+    page.mouse.click(
+        mv_box["x"] + mv_box["width"] * 0.3, mv_box["y"] + mv_box["height"] * 0.3
+    )
     page.wait_for_timeout(300)
     _shot(page, "23a_multiview_crosshair_moved")
     _press(page, "o")
@@ -346,7 +369,8 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _press(page, "Shift+R")
     _shot(page, "24a_registration_overlay")
-    _press(page, "]"); _press(page, "]")
+    _press(page, "]")
+    _press(page, "]")
     _shot(page, "24b_registration_blend_increased")
     _press(page, "Shift+R")  # exit reg mode
 
@@ -356,7 +380,8 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "25a_complex_mag")
     _press(page, "m")
     _shot(page, "25b_complex_phase")
-    _press(page, "m"); _press(page, "m")  # back to mag
+    _press(page, "m")
+    _press(page, "m")  # back to mag
 
     # ── 26: theme cycling (T = capital) ──────────────────────────────────────
     _goto(page, base, sid2d)
@@ -384,7 +409,8 @@ def run_smoke(page, base, client, tmp):
     _goto(page, base, sid_med3d, wait=1500)
     _shot(page, "29a_med3d_default")
     _focus(page)
-    for _ in range(8): _press(page, "ArrowRight", wait=80)
+    for _ in range(8):
+        _press(page, "ArrowRight", wait=80)
     _shot(page, "29b_med3d_scrolled")
 
     _press(page, "v", wait=1200)
@@ -424,9 +450,12 @@ def run_smoke(page, base, client, tmp):
 
     # 36: +/- — zoom (canvas resizes; colorbar must stay attached below)
     _shot(page, "36a_stab_zoom_before")
-    _press(page, "+"); _press(page, "+")
+    _press(page, "+")
+    _press(page, "+")
     _shot(page, "36b_stab_zoom_in")
-    _press(page, "-"); _press(page, "-"); _press(page, "-")
+    _press(page, "-")
+    _press(page, "-")
+    _press(page, "-")
     _shot(page, "36c_stab_zoom_out")
     _press(page, "0")
     _shot(page, "36d_stab_zoom_reset")
@@ -437,7 +466,8 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "37a_reg_before_overlay")
     _press(page, "Shift+R")
     _shot(page, "37b_reg_overlay_on")
-    _press(page, "]"); _press(page, "]")
+    _press(page, "]")
+    _press(page, "]")
     _shot(page, "37c_reg_blend_increased")
     _press(page, "Shift+R")  # exit reg mode
 
@@ -474,68 +504,122 @@ def run_smoke(page, base, client, tmp):
     _press(page, "Shift+M", wait=600)  # MASK on → MASK egg
     _shot(page, "40f_mask_egg")
     _press(page, "Shift+M", wait=400)  # cycle back off (level 0)
-    for _ in range(6): _press(page, "Shift+M", wait=200)
+    for _ in range(6):
+        _press(page, "Shift+M", wait=200)
     _goto(page, base, sidC)
     _focus(page)
-    _press(page, "m", wait=400)        # first press: MAGNITUDE egg appears
+    _press(page, "m", wait=400)  # first press: MAGNITUDE egg appears
     _shot(page, "40b_complex_egg_magnitude")
-    _press(page, "m", wait=300)        # PHASE
+    _press(page, "m", wait=300)  # PHASE
     _shot(page, "40c_complex_egg_phase")
-    _press(page, "m", wait=300)        # REAL
+    _press(page, "m", wait=300)  # REAL
     _shot(page, "40d_complex_egg_real")
-    _press(page, "m", wait=300)        # IMAG
+    _press(page, "m", wait=300)  # IMAG
     _shot(page, "40e_complex_egg_imag")
-    _press(page, "m", wait=300)        # back to magnitude — egg stays (MAGNITUDE)
+    _press(page, "m", wait=300)  # back to magnitude — egg stays (MAGNITUDE)
     _shot(page, "40g_complex_mag_egg_persists")
 
     # ── 41: V key — custom multiview dims via inline prompt ──────────────────
     _goto(page, base, sid3d)
     _focus(page)
-    _press(page, "Shift+V", wait=600)   # opens inline prompt
+    _press(page, "Shift+V", wait=600)  # opens inline prompt
     _shot(page, "41a_custom_mv_prompt")
     page.locator("#inline-prompt-input").fill("0,1,2")
     page.keyboard.press("Enter")
     page.wait_for_timeout(800)
     _shot(page, "41b_custom_mv_entered")
-    _press(page, "v", wait=400)         # exit multiview
+    _press(page, "v", wait=400)  # exit multiview
 
     # ── 42: f key — FFT via inline prompt ────────────────────────────────────
     _goto(page, base, sid3d)
     _focus(page)
-    _press(page, "f", wait=600)         # opens inline prompt
+    _press(page, "f", wait=600)  # opens inline prompt
     _shot(page, "42a_fft_prompt")
     page.locator("#inline-prompt-input").fill("0,1")
     page.keyboard.press("Enter")
     page.wait_for_timeout(800)
     _shot(page, "42b_fft_active")
-    _press(page, "f", wait=400)         # FFT off
+    _press(page, "f", wait=400)  # FFT off
 
     # ── 43: H key — toggle pixel hover tooltip ───────────────────────────────
     _goto(page, base, sid2d)
     _focus(page)
-    # Hover over canvas to show tooltip, then toggle off with H
+    # H enables pixel hover info; then move over canvas to trigger it
+    _press(page, "H", wait=200)  # enable hover info
     canvas = page.locator("canvas").first
-    canvas.hover()
-    page.wait_for_timeout(300)
+    box = canvas.bounding_box()
+    if box:
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(600)  # wait for async pixel fetch + position
     _shot(page, "43a_hover_tooltip_on")
-    _press(page, "H", wait=200)
+    _press(page, "H", wait=200)  # disable
     _shot(page, "43b_hover_tooltip_off_status")
-    _press(page, "H", wait=200)
+    _press(page, "H", wait=200)  # re-enable
     _shot(page, "43c_hover_tooltip_back_on")
 
     # ── 44: D key — manual vmin/vmax via inline prompt ───────────────────────
     _goto(page, base, sid2d)
     _focus(page)
-    _press(page, "D", wait=400)         # opens inline prompt for vmin
+    _press(page, "D", wait=400)  # opens inline prompt for vmin
     _shot(page, "44a_D_vmin_prompt")
     page.locator("#inline-prompt-input").fill("0.2")
     page.keyboard.press("Enter")
-    page.wait_for_timeout(400)          # opens inline prompt for vmax
+    page.wait_for_timeout(400)  # opens inline prompt for vmax
     _shot(page, "44b_D_vmax_prompt")
     page.locator("#inline-prompt-input").fill("0.8")
     page.keyboard.press("Enter")
     page.wait_for_timeout(400)
     _shot(page, "44c_D_range_locked")
+
+    # ── 45: unified picker — O and P keys open #uni-picker ───────────────────
+    # Cycle: open → compare → overlay → open…
+    # P opens in Compare mode. Tab: compare→overlay, Tab: overlay→open
+    _goto(page, base, sid2d)
+    _focus(page)
+    _press(page, "P", wait=800)  # opens in Compare mode
+    _shot(page, "45a_uni_picker_compare_mode")
+    page.keyboard.press("Tab")  # compare → overlay
+    page.wait_for_timeout(300)
+    _shot(page, "45b_uni_picker_overlay_mode")
+    page.keyboard.press("Tab")  # overlay → open
+    page.wait_for_timeout(300)
+    _shot(page, "45c_uni_picker_open_mode")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    _press(page, "O", wait=800)  # opens directly in Open mode
+    _shot(page, "45d_uni_picker_open_direct")
+    page.keyboard.press("q")
+    page.wait_for_timeout(200)
+    _press(page, "O", wait=800)  # opens in Open mode
+    _shot(page, "45d_uni_picker_open_direct")
+    page.keyboard.press("q")
+    page.wait_for_timeout(200)
+
+    # 45e: search / fzf filter — type in search box, verify filtered list
+    _press(page, "O", wait=800)  # open picker
+    search_input = page.locator("#uni-picker-search")
+    search_input.type("test", delay=50)  # type a query; fzf/substring filter runs
+    page.wait_for_timeout(400)
+    _shot(page, "45e_uni_picker_search_filtered")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+
+    # 46: RGB image viewing — HxWx3 array loaded with rgb=True
+    # Colorbar should be hidden; RGB badge visible in mode-eggs.
+    rgb_arr = np.zeros((128, 128, 3), dtype=np.float32)
+    rgb_arr[:64, :, 0] = 200  # red top half
+    rgb_arr[64:, :, 1] = 150  # green bottom half
+    rgb_arr[:, 64:, 2] = 100  # blue right half
+    rgb_path = Path(tmp) / "rgb_test.npy"
+    np.save(rgb_path, rgb_arr)
+    r = client.post(
+        "/load", json={"filepath": str(rgb_path), "name": "rgb_test", "rgb": True}
+    )
+    r.raise_for_status()
+    rgb_sid = r.json()["sid"]
+    _goto(page, base, rgb_sid, wait=1200)
+    _focus(page)
+    _shot(page, "46_rgb_basic")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
@@ -543,6 +627,7 @@ def run_smoke(page, base, client, tmp):
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main():
     base, srv = _start_server()
