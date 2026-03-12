@@ -88,6 +88,7 @@ STABILITY (keys must not cause UI element jumps)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
   compare diff view (X key)                ✓ 39 (A−B, |A−B|, relative)
   LOG, complex, and mask eggs               ✓ 40 (badges in #mode-eggs below canvas)
+  RGB egg spacing below canvas              ✓ 46 (eggs top > canvas bottom + 30px)
   V custom multiview dims                   ✓ 41 (inline prompt)
   f FFT via inline prompt                   ✓ 42 (inline prompt)
 
@@ -642,6 +643,19 @@ def run_smoke(page, base, client, tmp):
     _goto(page, base, rgb_sid, wait=1200)
     _focus(page)
     _shot(page, "46_rgb_basic")
+    # Verify RGB egg badge is at least 30px below the canvas bottom (spacing fix)
+    eggs_rect = page.evaluate(
+        "() => { const e = document.getElementById('mode-eggs'); return e ? e.getBoundingClientRect() : null; }"
+    )
+    canvas_rect = page.evaluate(
+        "() => { const c = document.getElementById('viewer'); return c ? c.getBoundingClientRect() : null; }"
+    )
+    if eggs_rect and canvas_rect:
+        gap = eggs_rect["top"] - canvas_rect["bottom"]
+        if gap < 30:
+            print(
+                f"  WARNING: RGB eggs gap too small ({gap:.0f}px < 30px) — eggs may overlap canvas"
+            )
 
     # ── 47: logo animation ────────────────────────────────────────────────────
     # The logo SVG should have .av-logo-loading while the overlay is shown,

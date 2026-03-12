@@ -2084,12 +2084,14 @@
                 });
                 eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
             } else {
-                // Normal mode: use slim colorbar if visible, else canvas bottom
+                // Normal mode: use slim colorbar if visible, else canvas bottom.
+                // When the colorbar is hidden (e.g. RGB mode) add the same ~36px
+                // gap that the colorbar would occupy so eggs aren't flush with the canvas.
                 const wrap = document.getElementById('slim-cb-wrap');
                 if (wrap && wrap.style.display !== 'none') {
                     eggsTop = wrap.getBoundingClientRect().bottom + 4;
                 } else {
-                    eggsTop = canvas.getBoundingClientRect().bottom + 4;
+                    eggsTop = canvas.getBoundingClientRect().bottom + 36;
                 }
             }
             // Clamp so eggs never overflow the window bottom
