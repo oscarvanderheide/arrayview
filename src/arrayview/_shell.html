@@ -118,6 +118,9 @@
 
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
+        // Mark this window as the native shell so embedded viewer iframes
+        // can distinguish themselves from Jupyter embeds and enable the picker.
+        window.__arrayviewShell = true;
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
             if (msg.action === 'new_tab') {
