@@ -38,7 +38,7 @@ DISPLAY
    B               compare picker (dialog)   ✗ (requires dialog interaction)
    P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed; enabled in native shell iframe)
    O               unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
-   (search box)    substring filter          ✓ 45e (type query, list filters client-side)
+   (search box)    substring filter          ✓ 45e (type query, list filters client-side; box top-anchored, no jump)
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
@@ -611,6 +611,16 @@ def run_smoke(page, base, client, tmp):
     search_input.type("test", delay=50)  # type a query; fzf/substring filter runs
     page.wait_for_timeout(400)
     _shot(page, "45e_uni_picker_search_filtered")
+    # Verify picker box is top-anchored (not vertically centered) so filtering
+    # doesn't cause vertical jumps. Box top should be well above mid-viewport.
+    box_top = page.evaluate(
+        "() => document.getElementById('uni-picker-box').getBoundingClientRect().top"
+    )
+    vh = page.evaluate("() => window.innerHeight")
+    if box_top > vh * 0.5:
+        print(
+            f"  WARNING: #uni-picker-box top={box_top:.0f}px looks vertically centered (vh={vh}); expected top-anchored"
+        )
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
 
