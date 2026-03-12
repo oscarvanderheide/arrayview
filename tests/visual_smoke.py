@@ -96,6 +96,9 @@ STABILITY (keys must not cause UI element jumps)
   V custom multiview dims                   ✓ 41 (inline prompt)
   f FFT via inline prompt                   ✓ 42 (inline prompt)
 
+PERFORMANCE
+  compute_global_stats ndim≥4 2D sampling  ✓ test_api.py (samples 2D slices, not 3D volumes)
+
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
 ═══════════════════════════════════════════════════════════════════
