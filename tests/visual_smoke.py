@@ -63,6 +63,7 @@ INFO & EXPORT
 LOADING ANIMATION
   logo spins while loading-overlay visible  ✓ 47 (js eval checks .av-logo-loading)
   logo stops after canvas visible           ✓ 47
+  ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
 
 VIEW MODES (colorbar visible in all)
   single 2d                                 ✓ 01
@@ -662,12 +663,20 @@ def run_smoke(page, base, client, tmp):
     # and should NOT have it once the canvas is visible.
     # We verify the post-load state (class absent) and trust the MutationObserver
     # logic; capturing a screenshot confirms the logo is visible and stable.
+    # Also verify the ping-pong loading bar (#loading-track) is absent from the DOM.
     _goto(page, base, sid2d)
     logo_has_class = page.evaluate(
         "() => document.getElementById('av-logo-svg').classList.contains('av-logo-loading')"
     )
     if logo_has_class:
         print("  WARNING: av-logo-loading class still present after canvas loaded")
+    loading_track_present = page.evaluate(
+        "() => !!document.getElementById('loading-track')"
+    )
+    if loading_track_present:
+        print(
+            "  WARNING: #loading-track (ping-pong bar) still present in DOM — should have been removed"
+        )
     _shot(page, "47_logo_after_load")
 
     # ── 48: demo array — RGB plasma ───────────────────────────────────────────
