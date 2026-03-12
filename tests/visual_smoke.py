@@ -638,6 +638,28 @@ def run_smoke(page, base, client, tmp):
         print("  WARNING: av-logo-loading class still present after canvas loaded")
     _shot(page, "47_logo_after_load")
 
+    # ── 48: demo array — RGB plasma ───────────────────────────────────────────
+    # Verify the welcome demo renders as an RGB plasma animation (128×128×32×3).
+    # The demo is loaded with rgb=True so the colorbar should be hidden and
+    # the RGB egg badge should appear in #mode-eggs.
+    from arrayview._app import _make_demo_array
+
+    demo_arr = _make_demo_array()
+    demo_path = Path(tmp) / "demo_plasma.npy"
+    np.save(demo_path, demo_arr)
+    r = client.post(
+        "/load", json={"filepath": str(demo_path), "name": "welcome", "rgb": True}
+    )
+    r.raise_for_status()
+    demo_sid = r.json()["sid"]
+    _goto(page, base, demo_sid, wait=1200)
+    _focus(page)
+    _shot(page, "48_demo_plasma_rgb")
+    # RGB egg should be visible; colorbar should be absent/hidden
+    eggs_text = page.locator("#mode-eggs").inner_text()
+    if "RGB" not in eggs_text:
+        print("  WARNING: RGB egg not visible in demo plasma scenario")
+
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
 

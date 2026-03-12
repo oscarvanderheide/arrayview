@@ -1175,11 +1175,14 @@ def _run_preload(
     complex_mode=0,
     log_scale=False,
 ):
-    n = session.shape[slice_dim]
-    H = session.shape[dim_y]
-    W = session.shape[dim_x]
+    # In RGB mode, the frontend sends indices for spatial_shape (rgb axis excluded).
+    # Use spatial_shape for dimension size lookups to stay in sync.
+    shape = session.spatial_shape if session.rgb_axis is not None else session.shape
+    n = shape[slice_dim]
+    H = shape[dim_y]
+    W = shape[dim_x]
     if dim_z >= 0:
-        nz = session.shape[dim_z]
+        nz = shape[dim_z]
         mrows, mcols = mosaic_shape(nz)
         size_bytes = n * (mrows * H) * (mcols * W) * 4
     else:
@@ -1211,9 +1214,19 @@ def _run_preload(
                 log_scale,
             )
         else:
-            render_rgba(
-                session, dim_x, dim_y, tuple(idx), colormap, dr, complex_mode, log_scale
-            )
+            if session.rgb_axis is not None:
+                render_rgb_rgba(session, dim_x, dim_y, list(idx))
+            else:
+                render_rgba(
+                    session,
+                    dim_x,
+                    dim_y,
+                    tuple(idx),
+                    colormap,
+                    dr,
+                    complex_mode,
+                    log_scale,
+                )
         with session.preload_lock:
             session.preload_done = i + 1
         time.sleep(0.005)
@@ -3921,176 +3934,43 @@ def _serve_daemon(
 
 
 def _make_demo_array() -> "np.ndarray":
-    """Return a (128, 128, 8, 24) float32 demo array.
+    """Return a (128, 128, 32, 3) float32 RGB plasma animation.
 
-    Dims: 128×128 canvas, 8 walk-cycle frames, 24 time-of-day states
-    (sinusoidal day → night → day transition).
-    Returned transposed to (128, 128, 8, 24) with spatial axes corrected
-    for arrayview's default dim-0=x, dim-1=y rendering.
+    Dims: 128×128 canvas, 32 animation frames, 3 colour channels (RGB).
+    Each frame is a smooth plasma / interference pattern built from
+    overlapping sine waves — colourful and visually rich at every zoom level.
+    Values are in [0, 255] so the array is ready for direct RGB viewing.
     """
     import numpy as np
 
-    H, W, FRAMES, STATES = 128, 128, 8, 24
-    # Build in (row, col) / numpy image convention; transpose at the end.
-    arr = np.zeros((H, W, FRAMES, STATES), dtype=np.float32)
+    H, W, T = 128, 128, 32
+    arr = np.zeros((H, W, T, 3), dtype=np.float32)
 
-    # ── day / night master palettes ───────────────────────────────────────────
-    DAY = dict(
-        sky=0.82,
-        gnd=0.48,
-        horizon=0.38,
-        cat=0.22,
-        eye=0.80,
-        orb=1.00,
-        nose=0.42,
-        whisker=0.30,
-    )
-    NIGHT = dict(
-        sky=0.05,
-        gnd=0.20,
-        horizon=0.13,
-        cat=0.36,
-        eye=0.95,
-        orb=0.87,
-        nose=0.55,
-        whisker=0.45,
-    )
+    # Spatial grids (normalised to [0, 1])
+    xs = np.linspace(0.0, 1.0, W, dtype=np.float32)
+    ys = np.linspace(0.0, 1.0, H, dtype=np.float32)
+    X, Y = np.meshgrid(xs, ys)  # shape (H, W)
 
-    # ── star field (fixed positions, per-star twinkle phase) ──────────────────
-    rng = np.random.default_rng(42)
-    n_stars = 48
-    star_rows = rng.integers(4, 82, n_stars)
-    star_cols = rng.integers(0, W, n_stars)
-    star_phases = rng.uniform(0, 2 * np.pi, n_stars)
+    for ti in range(T):
+        ph = 2.0 * np.pi * ti / T  # animation phase
 
-    def _circle(cx, cy, r):
-        """Filled-circle pixel list in (row, col) order, clipped to canvas."""
-        pts = []
-        for dr in range(-r, r + 1):
-            for dc in range(-r, r + 1):
-                if dr * dr + dc * dc <= r * r:
-                    pts.append((cy + dr, cx + dc))
-        return [(row, col) for row, col in pts if 0 <= row < H and 0 <= col < W]
+        # Three overlapping plasma waves with distinct spatial frequencies
+        p0 = np.sin(6.0 * np.pi * X + ph) + np.sin(6.0 * np.pi * Y + ph * 0.7)
+        p1 = np.sin(9.0 * np.pi * (X + Y) + ph * 1.3) + np.sin(
+            np.pi * (np.sqrt((X - 0.5) ** 2 + (Y - 0.5) ** 2) * 12.0 - ph)
+        )
+        p2 = np.sin(7.0 * np.pi * X * Y + ph * 0.5)
 
-    # Scene geometry (designed at 128×128)
-    sky_rows = 88  # rows 0..87 = sky
-    orb_cx, orb_cy = 104, 16  # sun/moon: col=104, row=16
-    orb_r = 12
-    bite_cx, bite_cy, bite_r = 112, 12, 11  # crescent bite offset
+        # Each channel driven by a different mix → distinct hue cycling
+        r = 0.5 + 0.5 * np.sin(p0 * 1.0 + ph * 0.0)
+        g = 0.5 + 0.5 * np.sin(p1 * 1.0 + ph * 0.33)
+        b = 0.5 + 0.5 * np.sin(p2 * 1.0 + ph * 0.67)
 
-    # Cat geometry
-    body_r = (52, 88, 40, 80)  # row_lo, row_hi, col_lo, col_hi
-    head_r = (36, 56, 64, 92)
-    ear_r = (28, 40, 68, 76)
-    eye_r = (40, 46, 88, 94)
-    nose_r = (48, 54, 92, 98)
-    # Tail: waves left from the body (cols 16..39, centered on row 68)
-    tail_base_row = 68
-    tail_amplitude = 8
-    tail_thickness = 3  # half-thickness in pixels
-    # Legs
-    leg_phases = [0, np.pi, np.pi, 0]
-    leg_cols_lo = [44, 56, 64, 76]  # left col of each leg (width 8)
-    leg_row_base = 88
-    leg_height = 18
-    leg_swing = 7
+        arr[:, :, ti, 0] = (r * 255.0).astype(np.float32)
+        arr[:, :, ti, 1] = (g * 255.0).astype(np.float32)
+        arr[:, :, ti, 2] = (b * 255.0).astype(np.float32)
 
-    # Pre-compute orb and bite pixel lists (static across frames/states)
-    orb_pixels = _circle(orb_cx, orb_cy, orb_r)
-    bite_pixels = _circle(bite_cx, bite_cy, bite_r)
-
-    for f in range(FRAMES):
-        t = f / FRAMES  # animation phase 0 … <1
-
-        for si in range(STATES):
-            # Sinusoidal blend: 0 = full day, 1 = full night, back to 0
-            blend = 0.5 * (1.0 - np.cos(2.0 * np.pi * si / STATES))
-            p = {k: DAY[k] + (NIGHT[k] - DAY[k]) * blend for k in DAY}
-
-            v = arr[:, :, f, si]
-
-            # ── background ──────────────────────────────────────────────────
-            v[:sky_rows, :] = p["sky"]
-            v[sky_rows:, :] = p["gnd"]
-            v[sky_rows, :] = p["horizon"]
-
-            # ── orb (sun fades into moon as blend → 1) ──────────────────────
-            for row, col in orb_pixels:
-                v[row, col] = p["orb"]
-            if blend > 0.02:
-                # crescent bite: blend between sky and orb
-                for row, col in bite_pixels:
-                    v[row, col] = p["sky"] * blend + p["orb"] * (1.0 - blend)
-                # twinkling stars (fade in with blend)
-                for i in range(n_stars):
-                    br = blend * (
-                        0.50 + 0.38 * np.sin(2.0 * np.pi * t + star_phases[i])
-                    )
-                    sr, sc = int(star_rows[i]), int(star_cols[i])
-                    v[sr, sc] = float(br)
-                    # tiny cross for brighter stars
-                    if br > 0.55 * blend:
-                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                            nr, nc = sr + dr, sc + dc
-                            if 0 <= nr < sky_rows and 0 <= nc < W:
-                                v[nr, nc] = max(v[nr, nc], float(br) * 0.5)
-
-            # ── cat ─────────────────────────────────────────────────────────
-            cat_v = p["cat"]
-
-            # tail: smooth sinusoidal wave extending left from body
-            for tc in range(16, 40):
-                phase_along = (tc - 16) / 23.0
-                tr = tail_base_row + int(
-                    round(
-                        tail_amplitude
-                        * np.sin(2.0 * np.pi * phase_along + 2.0 * np.pi * t)
-                    )
-                )
-                for dr in range(-tail_thickness, tail_thickness + 1):
-                    if 0 <= tr + dr < H:
-                        v[tr + dr, tc] = cat_v
-            # rounded tail tip
-            tip_r_row = tail_base_row + int(
-                round(tail_amplitude * np.sin(2.0 * np.pi * t))
-            )
-            for dr in range(-tail_thickness - 1, tail_thickness + 2):
-                if 0 <= tip_r_row + dr < H:
-                    v[tip_r_row + dr, 16] = cat_v
-
-            # body, head, ear
-            rl, rh, cl, ch = body_r
-            v[rl:rh, cl:ch] = cat_v
-            rl, rh, cl, ch = head_r
-            v[rl:rh, cl:ch] = cat_v
-            rl, rh, cl, ch = ear_r
-            v[rl:rh, cl:ch] = cat_v
-
-            # eye — slightly brighter than sky, contrasts with cat fur
-            rl, rh, cl, ch = eye_r
-            v[rl:rh, cl:ch] = p["eye"]
-
-            # nose
-            rl, rh, cl, ch = nose_r
-            v[rl:rh, cl:ch] = p["nose"]
-
-            # whiskers (two thin lines extending right from muzzle)
-            whisker_v = p["whisker"]
-            for wc in range(98, 122):
-                v[43, wc] = whisker_v
-                v[53, wc] = whisker_v
-
-            # legs (4 legs, front and back pairs alternate)
-            for lc_lo, lph in zip(leg_cols_lo, leg_phases):
-                swing = int(round(leg_swing * np.sin(2.0 * np.pi * t + lph)))
-                height = leg_height + swing
-                for lr in range(leg_row_base, leg_row_base + max(height, 4)):
-                    if 0 <= lr < H:
-                        v[lr, lc_lo : lc_lo + 8] = cat_v
-
-    # arrayview renders dim-0 as the horizontal axis; transpose spatial dims
-    # so the cat faces right as designed.
-    return arr.transpose(1, 0, 2, 3)
+    return arr
 
 
 def arrayview():
@@ -4173,6 +4053,7 @@ def arrayview():
         args.files = [_tmp_path]
         args._demo_name = "welcome"
         args._demo_cleanup = True
+        args.rgb = True
     if args.files and len(args.files) > 6:
         parser.error(
             "At most six FILE arguments are supported; concat arrays first for larger compare sets."
