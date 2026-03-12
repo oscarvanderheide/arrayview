@@ -424,18 +424,7 @@
         .q-dim { color: var(--q-dim-color); font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            gap: 12px; width: 100%; height: 100%;
-        }
-        #loading-track {
-            width: 120px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden;
-        }
-        #loading-fill {
-            height: 100%; width: 35%; background: var(--muted); border-radius: 1px;
-            animation: av-loading 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes av-loading {
-            0%   { transform: translateX(-150%); }
-            100% { transform: translateX(430%); }
+            width: 100%; height: 100%;
         }
     </style>
 </head>
@@ -630,7 +619,6 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay">
-            <div id="loading-track"><div id="loading-fill"></div></div>
             <div id="loading-label" style="font-size:11px;color:var(--muted);font-family:monospace">Loading...</div>
         </div>
     </div>
