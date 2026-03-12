@@ -36,9 +36,10 @@ DISPLAY
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
-   P               unified picker – compare  ✓ 45 (uni-picker opens in compare mode)
+   P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode)
    O               unified picker – open     ✓ 45 (uni-picker cycles to open mode)
-   (search box)    fzf filter in picker      ✓ 45e (type query, list filters)
+   (search box)    fzf filter in picker      ✓ 45e (type query, list filters; subdirs included)
+   (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
   [ / ]           registration blend        ✓ 24, 37
@@ -605,6 +606,23 @@ def run_smoke(page, base, client, tmp):
     search_input.type("test", delay=50)  # type a query; fzf/substring filter runs
     page.wait_for_timeout(400)
     _shot(page, "45e_uni_picker_search_filtered")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+
+    # 45f: ArrowDown from search box moves focus to first list item
+    _press(page, "O", wait=800)  # open picker in Open mode
+    search_input = page.locator("#uni-picker-search")
+    search_input.click()
+    page.wait_for_timeout(200)
+    page.keyboard.press("ArrowDown")  # should move focus to first .cp-item
+    page.wait_for_timeout(300)
+    _shot(page, "45f_uni_picker_arrowdown_from_search")
+    # Verify that focus moved away from search into the list
+    focused_is_search = page.evaluate(
+        "() => document.activeElement === document.querySelector('#uni-picker-search')"
+    )
+    if focused_is_search:
+        print("  WARNING: ArrowDown from search did not move focus to list item")
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
 
