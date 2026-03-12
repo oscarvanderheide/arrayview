@@ -2682,8 +2682,14 @@
             if (e.target === document.getElementById('info-overlay'))
                 document.getElementById('info-overlay').classList.remove('visible');
         });
-        document.addEventListener('click', () => sink.focus());
-        window.addEventListener('focus', () => sink.focus());
+        document.addEventListener('click', () => {
+            if (document.getElementById('uni-picker').classList.contains('visible')) return;
+            sink.focus();
+        });
+        window.addEventListener('focus', () => {
+            if (document.getElementById('uni-picker').classList.contains('visible')) return;
+            sink.focus();
+        });
 
         canvas.addEventListener('mousemove', (e) => {
             if (dim_z >= 0) return;
