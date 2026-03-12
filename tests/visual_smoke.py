@@ -65,6 +65,7 @@ LOADING ANIMATION
   logo spins while loading-overlay visible  ✓ 47 (js eval checks .av-logo-loading)
   logo stops after canvas visible           ✓ 47
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
+  loading text absent                       ✓ 47 (#loading-label not in DOM)
 
 VIEW MODES (colorbar visible in all)
   single 2d                                 ✓ 01
@@ -660,11 +661,8 @@ def run_smoke(page, base, client, tmp):
             )
 
     # ── 47: logo animation ────────────────────────────────────────────────────
-    # The logo SVG should have .av-logo-loading while the overlay is shown,
-    # and should NOT have it once the canvas is visible.
-    # We verify the post-load state (class absent) and trust the MutationObserver
-    # logic; capturing a screenshot confirms the logo is visible and stable.
-    # Also verify the ping-pong loading bar (#loading-track) is absent from the DOM.
+    # Verify the logo animates while loading and stops after canvas is visible.
+    # Also verify #loading-track (ping-pong bar) and #loading-label (text) are gone.
     _goto(page, base, sid2d)
     logo_has_class = page.evaluate(
         "() => document.getElementById('av-logo-svg').classList.contains('av-logo-loading')"
@@ -677,6 +675,13 @@ def run_smoke(page, base, client, tmp):
     if loading_track_present:
         print(
             "  WARNING: #loading-track (ping-pong bar) still present in DOM — should have been removed"
+        )
+    loading_label_present = page.evaluate(
+        "() => !!document.getElementById('loading-label')"
+    )
+    if loading_label_present:
+        print(
+            "  WARNING: #loading-label (Loading... text) still present in DOM — should have been removed"
         )
     _shot(page, "47_logo_after_load")
 
