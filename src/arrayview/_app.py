@@ -2448,58 +2448,25 @@ def _peek_file_shape(fpath: str, ext: str):
 
 @app.get("/listfiles")
 def list_files(directory: str = ""):
-    """List supported array files in a directory (default: server CWD) with quick shape preview."""
+    """List supported array files recursively (depth ≤ 4, max 300 files).
+
+    Returns entries sorted by relative path; files directly in the target
+    directory use just the filename as ``name``, nested files use a relative
+    path (e.g. ``subdir/scan.npy``).  Hidden directories (name starts with
+    ``.``) are skipped.
+    """
     target = os.path.abspath(directory) if directory else os.getcwd()
+    MAX_FILES = 300
+    MAX_DEPTH = 4
     results = []
     try:
-        for fname in sorted(os.listdir(target)):
-            fpath = os.path.join(target, fname)
-            if not os.path.isfile(fpath):
-                continue
-            name_lower = fname.lower()
-            ext = (
-                ".nii.gz"
-                if name_lower.endswith(".nii.gz")
-                else os.path.splitext(name_lower)[1]
-            )
-            if ext not in _SUPPORTED_EXTS:
-                continue
-            try:
-                file_size = os.path.getsize(fpath)
-            except OSError:
-                continue
-            shape = _peek_file_shape(fpath, ext)
-            results.append(
-                {"name": fname, "path": fpath, "size": file_size, "shape": shape}
-            )
-    except Exception as e:
-        return {"error": str(e)}
-    return results
-
-
-@app.get("/fzf")
-def fzf_filter(q: str = "", directory: str = ""):
-    """Filter supported files using fzf --filter (or substring fallback).
-
-    When a query is given: searches CWD and all subdirectories recursively,
-    returning full file entries [{name, path, size, shape}] where `name` is
-    a path relative to the CWD (e.g. "subdir/scan.npy" for nested files).
-
-    When no query: returns an empty list (the frontend uses /listfiles instead).
-    """
-    import shutil
-    import subprocess
-
-    target = os.path.abspath(directory) if directory else os.getcwd()
-
-    if not q:
-        return []
-
-    # Walk CWD recursively, skipping hidden directories
-    entries = []
-    try:
         for root, dirs, files in os.walk(target):
+            rel_root = os.path.relpath(root, target)
+            depth = 0 if rel_root == "." else rel_root.count(os.sep) + 1
+            # Prune hidden dirs and stop recursing beyond MAX_DEPTH
             dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            if depth >= MAX_DEPTH:
+                dirs.clear()
             for fname in sorted(files):
                 name_lower = fname.lower()
                 ext = (
@@ -2510,48 +2477,23 @@ def fzf_filter(q: str = "", directory: str = ""):
                 if ext not in _SUPPORTED_EXTS:
                     continue
                 fpath = os.path.join(root, fname)
-                rel = os.path.relpath(fpath, target)  # e.g. "subdir/scan.npy"
+                rel = os.path.relpath(fpath, target)
+                name = fname if root == target else rel
                 try:
-                    size = os.path.getsize(fpath)
+                    file_size = os.path.getsize(fpath)
                 except OSError:
                     continue
-                entries.append({"name": rel, "path": fpath, "size": size, "ext": ext})
+                shape = _peek_file_shape(fpath, ext)
+                results.append(
+                    {"name": name, "path": fpath, "size": file_size, "shape": shape}
+                )
+                if len(results) >= MAX_FILES:
+                    break
+            if len(results) >= MAX_FILES:
+                break
     except Exception as e:
         return {"error": str(e)}
-
-    if not entries:
-        return []
-
-    # Filter via fzf on the relative name, fallback to substring
-    names = [e["name"] for e in entries]
-    if shutil.which("fzf"):
-        try:
-            result = subprocess.run(
-                ["fzf", "--filter", q],
-                input="\n".join(names),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            matched = set(l for l in result.stdout.splitlines() if l)
-            entries = [e for e in entries if e["name"] in matched]
-        except Exception:
-            q_lower = q.lower()
-            entries = [e for e in entries if q_lower in e["name"].lower()]
-    else:
-        q_lower = q.lower()
-        entries = [e for e in entries if q_lower in e["name"].lower()]
-
-    # Peek shapes for matched entries (limit to 50 to stay fast)
-    for e in entries[:50]:
-        e["shape"] = _peek_file_shape(e["path"], e["ext"])
-    for e in entries[50:]:
-        e["shape"] = None
-    # Remove internal ext field before returning
-    for e in entries:
-        del e["ext"]
-
-    return entries
+    return results
 
 
 @app.get("/sessions")
