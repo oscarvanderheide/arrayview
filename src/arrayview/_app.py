@@ -4144,15 +4144,8 @@ def arrayview():
     if args.compare:
         compare_files.append(os.path.abspath(args.compare))
 
-    try:
-        data = load_data(base_file)
-        try:
-            size_str = f" ({data.nbytes // 1024**2} MB)"
-        except AttributeError:
-            size_str = ""
-        print(f"Loaded {base_file} with shape {data.shape}{size_str}")
-    except Exception as e:
-        print(f"Error loading data: {e}")
+    if not os.path.isfile(base_file):
+        print(f"Error: file not found: {base_file}")
         sys.exit(1)
 
     name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
