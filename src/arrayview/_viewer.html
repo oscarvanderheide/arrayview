@@ -117,8 +117,35 @@
             display: flex; align-items: center; justify-content: center; gap: 7px;
         }
         #array-name svg { flex-shrink: 0; }
-        @keyframes av-logo-spin { to { transform: rotate(360deg); } }
-        .av-logo-loading { animation: av-logo-spin 1s linear infinite; transform-origin: center; }
+        @keyframes av-logo-walk-r {
+            0%    { transform: translate(0px,    0px); }
+            12.5% { transform: translate(4.5px,  0px); animation-timing-function: steps(1, end); }
+            100%  { transform: translate(0px,    0px); }
+        }
+        @keyframes av-logo-walk-d {
+            0%    { transform: translate(0px, 0px);    }
+            12.5% { transform: translate(0px, 4.5px);  animation-timing-function: steps(1, end); }
+            100%  { transform: translate(0px, 0px);    }
+        }
+        @keyframes av-logo-walk-l {
+            0%    { transform: translate(0px,    0px); }
+            12.5% { transform: translate(-4.5px, 0px); animation-timing-function: steps(1, end); }
+            100%  { transform: translate(0px,    0px); }
+        }
+        @keyframes av-logo-walk-u {
+            0%    { transform: translate(0px,  0px);   }
+            12.5% { transform: translate(0px, -4.5px); animation-timing-function: steps(1, end); }
+            100%  { transform: translate(0px,  0px);   }
+        }
+        /* Sequential clockwise walk: b0→b1→b2→b5→b8→b7→b6→b3, center (b4) fixed */
+        .av-logo-loading #logo-b0 { animation: av-logo-walk-r 1.6s  0.0s ease-in-out infinite; }
+        .av-logo-loading #logo-b1 { animation: av-logo-walk-r 1.6s -0.2s ease-in-out infinite; }
+        .av-logo-loading #logo-b2 { animation: av-logo-walk-d 1.6s -0.4s ease-in-out infinite; }
+        .av-logo-loading #logo-b5 { animation: av-logo-walk-d 1.6s -0.6s ease-in-out infinite; }
+        .av-logo-loading #logo-b8 { animation: av-logo-walk-l 1.6s -0.8s ease-in-out infinite; }
+        .av-logo-loading #logo-b7 { animation: av-logo-walk-l 1.6s -1.0s ease-in-out infinite; }
+        .av-logo-loading #logo-b6 { animation: av-logo-walk-u 1.6s -1.2s ease-in-out infinite; }
+        .av-logo-loading #logo-b3 { animation: av-logo-walk-u 1.6s -1.4s ease-in-out infinite; }
         #compare-view-wrap.focus-diff .compare-pane:not(.compare-diff) { display: none !important; }
         #compare-view-wrap.focus-reg .compare-pane:not(.compare-tertiary) { display: none !important; }
         #inline-prompt {
@@ -423,15 +450,15 @@
     <div id="array-name">
         <svg id="av-logo-svg" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
             <rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>
-            <rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/>
-            <rect x="6.5" y="2" width="3" height="3" fill="#560bad"/>
-            <rect x="11" y="2" width="3" height="3" fill="#c77dff"/>
-            <rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/>
-            <rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/>
-            <rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/>
-            <rect x="2" y="11" width="3" height="3" fill="#4895ef"/>
-            <rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/>
-            <rect x="11" y="11" width="3" height="3" fill="#f8961e"/>
+            <rect id="logo-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/>
+            <rect id="logo-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/>
+            <rect id="logo-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/>
+            <rect id="logo-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/>
+            <rect id="logo-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/>
+            <rect id="logo-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/>
+            <rect id="logo-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/>
+            <rect id="logo-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/>
+            <rect id="logo-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/>
         </svg>
         <span id="array-name-text"></span>
     </div>
