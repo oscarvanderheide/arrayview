@@ -168,7 +168,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
         #uni-picker-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         #uni-picker-mode-pill { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-            padding: 2px 9px; border-radius: 10px; background: var(--active-dim); color: #000; }
+            padding: 2px 9px; border-radius: 10px; background: var(--picker-accent, var(--active-dim)); color: #fff; }
         #uni-picker-tab-hint { font-size: 11px; color: var(--muted); }
         #uni-picker-search {
             width: 100%; box-sizing: border-box; margin-bottom: 8px;
@@ -176,17 +176,18 @@
             background: var(--surface-2); color: var(--text);
             font-family: inherit; font-size: 13px; outline: none;
         }
-        #uni-picker-search:focus { border-color: var(--active-dim); }
+        #uni-picker-search:focus { border-color: var(--picker-accent, var(--active-dim)); }
         #uni-picker-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; margin-bottom: 12px; }
         #uni-picker-cancel { float: right; padding: 4px 14px; border-radius: 6px; font-size: 12px;
             cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
-        .cp-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
-            background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
-        .cp-item:hover, .cp-item:focus { border-color: var(--active-dim); outline: none; }
+        .cp-item { padding: 6px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
+            background: var(--surface-2); display: flex; flex-direction: row; align-items: center; gap: 8px; }
+        .cp-item:hover, .cp-item:focus { border-color: var(--picker-accent, var(--active-dim)); outline: none; }
         .cp-item-dim { opacity: 0.4; cursor: default; pointer-events: none; }
-        .cp-item-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; }
-        .cp-item-warn { color: var(--active-dim); font-size: 11px; }
+        .cp-item-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+        .cp-item-right { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+        .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; }
+        .cp-item-warn { color: var(--picker-accent, var(--active-dim)); font-size: 11px; white-space: nowrap; }
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
         #help-overlay, #info-overlay {
@@ -3294,7 +3295,8 @@
         //   { type:'session', sid, name } – Compare/Overlay: use loaded session
         //   { type:'loaded',  sid, name } – Compare/Overlay: file was loaded
         const _UNI_MODES = ['open', 'compare', 'overlay'];
-        const _UNI_LABELS = { open: 'Open', compare: 'Compare', overlay: 'Overlay' };
+        const _UNI_LABELS = { open: 'Open', compare: 'Side-by-side', overlay: 'Overlay' };
+        const _UNI_COLORS = { open: '#4cc9f0', compare: '#4ade80', overlay: '#c77dff' };
 
         async function _fetchPickerData() {
             let sessions = [], fileEntries = [];
@@ -3348,7 +3350,9 @@
                     filtSessions = filtSessions ?? otherSessions;
                     filtFiles    = filtFiles    ?? fileEntries;
                     pilEl.textContent = _UNI_LABELS[mode];
+                    overlay.style.setProperty('--picker-accent', _UNI_COLORS[mode]);
                     listEl.innerHTML = '';
+                    const inSearch = !!searchEl.value.trim();
 
                     if (mode === 'open') {
                         // Section: loaded sessions (exclude current)
@@ -3357,20 +3361,22 @@
                             hdr.className = 'cp-section-header'; hdr.textContent = 'Loaded';
                             listEl.appendChild(hdr);
                             filtSessions.forEach(s => {
+                                const shapeStr = Array.isArray(s.shape) ? `[${s.shape.join(', ')}]` : '?';
                                 const item = document.createElement('div');
                                 item.className = 'cp-item'; item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                                    + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`;
+                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
                                 function pick() { finish({ type: 'navigate', sid: s.sid }); window.location.href = '/?sid=' + s.sid; }
                                 item.onclick = pick;
                                 item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
                                 listEl.appendChild(item);
                             });
                         }
-                        // Section: CWD files
+                        // Section: files
                         if (filtFiles.length) {
                             const hdr = document.createElement('div');
-                            hdr.className = 'cp-section-header'; hdr.textContent = 'Files in directory';
+                            hdr.className = 'cp-section-header';
+                            hdr.textContent = inSearch ? 'Files (including subdirectories)' : 'Files in directory';
                             listEl.appendChild(hdr);
                             filtFiles.forEach(f => {
                                 const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
@@ -3378,10 +3384,10 @@
                                 const item = document.createElement('div');
                                 item.className = 'cp-item'; item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
-                                    + `<span class="cp-item-shape">${shapeStr}</span>`;
+                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
                                 function pickFile() {
                                     item.classList.add('cp-item-loading');
-                                    item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                    item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
                                     fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
                                     }).then(r => r.json()).then(data => {
@@ -3397,17 +3403,17 @@
                         if (!filtSessions.length && !filtFiles.length) {
                             const msg = document.createElement('div');
                             msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
-                            msg.textContent = searchEl.value
+                            msg.textContent = inSearch
                                 ? 'No matches'
                                 : 'No arrays loaded and no supported files in current directory';
                             listEl.appendChild(msg);
                         }
                     } else {
-                        // Compare or Overlay mode — shape-matched items are clickable
+                        // Side-by-side or Overlay mode — shape-matched items are clickable
                         if (!filtSessions.length && !filtFiles.length) {
                             const msg = document.createElement('div');
                             msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
-                            msg.textContent = searchEl.value
+                            msg.textContent = inSearch
                                 ? 'No matches'
                                 : 'No other arrays loaded and no supported files in current directory';
                             listEl.appendChild(msg);
@@ -3418,12 +3424,14 @@
                             listEl.appendChild(hdr);
                             filtSessions.forEach(s => {
                                 const matches = _shapeMatch(s);
+                                const shapeStr = Array.isArray(s.shape) ? `[${s.shape.join(', ')}]` : '?';
                                 const item = document.createElement('div');
                                 item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
                                 if (matches) item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                                    + `<span class="cp-item-shape">[${Array.isArray(s.shape) ? s.shape.join(', ') : '?'}]</span>`
-                                    + (!matches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span>`
+                                    + (!matches ? `<span class="cp-item-warn">incompatible shape</span>` : '')
+                                    + `</span>`;
                                 if (matches) {
                                     function pick() { finish({ type: 'session', sid: s.sid, name: s.name || '' }); }
                                     item.onclick = pick;
@@ -3434,7 +3442,8 @@
                         }
                         if (filtFiles.length) {
                             const hdr = document.createElement('div');
-                            hdr.className = 'cp-section-header'; hdr.textContent = 'Files in directory';
+                            hdr.className = 'cp-section-header';
+                            hdr.textContent = inSearch ? 'Files (including subdirectories)' : 'Files in directory';
                             listEl.appendChild(hdr);
                             filtFiles.forEach(f => {
                                 const fMatches = Array.isArray(f.shape) && Array.isArray(shape)
@@ -3446,12 +3455,13 @@
                                 item.className = 'cp-item' + (fMatches ? '' : ' cp-item-dim');
                                 if (fMatches) item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
-                                    + `<span class="cp-item-shape">${shapeStr}</span>`
-                                    + (!fMatches ? `<span class="cp-item-warn">shape differs</span>` : '');
+                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span>`
+                                    + (!fMatches ? `<span class="cp-item-warn">incompatible shape</span>` : '')
+                                    + `</span>`;
                                 if (fMatches) {
                                     function pickFile() {
                                         item.classList.add('cp-item-loading');
-                                        item.innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                        item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
                                         fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ filepath: f.path, name: f.name }),
                                         }).then(r => r.json()).then(data => {
@@ -3478,15 +3488,16 @@
                         const filtSessions = q
                             ? otherSessions.filter(s => (s.name || '').toLowerCase().includes(q.toLowerCase()))
                             : otherSessions;
-                        // Filter files via fzf backend (falls back to substring match server-side)
+                        // Filter files: when query given, /fzf searches CWD + subdirs and returns full entries
                         let filtFiles = fileEntries;
                         if (q) {
                             try {
                                 const r = await fetch('/fzf?q=' + encodeURIComponent(q));
                                 if (r.ok) {
-                                    const names = await r.json(); // array of filename strings
-                                    const nameSet = new Set(names);
-                                    filtFiles = fileEntries.filter(f => nameSet.has(f.name));
+                                    const entries = await r.json();
+                                    // Exclude already-loaded files
+                                    const loadedPaths = new Set(sessions.map(s => s.filepath).filter(Boolean));
+                                    filtFiles = entries.filter(f => !loadedPaths.has(f.path));
                                 }
                             } catch (_) {
                                 filtFiles = fileEntries.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
@@ -3497,6 +3508,7 @@
                 };
 
                 overlay.classList.add('visible');
+                overlay.style.setProperty('--picker-accent', _UNI_COLORS[mode]);
                 searchEl.value = '';
                 searchEl.focus();
                 populate();
@@ -3514,17 +3526,19 @@
                         searchEl.focus();
                         return;
                     }
-                    if (inSearch) return; // let search input handle arrow keys etc.
                     const items = [...listEl.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)')];
                     const idx = items.indexOf(document.activeElement);
-                    if (e.key === 'ArrowDown' || e.key === 'j') {
+                    if (e.key === 'ArrowDown' || (e.key === 'j' && !inSearch)) {
                         e.preventDefault();
                         if (idx < items.length - 1) items[idx + 1].focus();
                         else if (idx === -1 && items.length) items[0].focus();
-                    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+                    } else if (e.key === 'ArrowUp' || (e.key === 'k' && !inSearch)) {
                         e.preventDefault();
                         if (idx > 0) items[idx - 1].focus();
                         else if (idx === 0) searchEl.focus();
+                        else if (inSearch) { /* already in search, nothing to do */ }
+                    } else if (inSearch) {
+                        return; // let other keys pass through to the input
                     }
                 };
             });

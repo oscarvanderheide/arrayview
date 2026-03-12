@@ -2479,33 +2479,51 @@ def list_files(directory: str = ""):
 
 @app.get("/fzf")
 def fzf_filter(q: str = "", directory: str = ""):
-    """Filter supported files in a directory using fzf --filter, or substring match as fallback."""
+    """Filter supported files using fzf --filter (or substring fallback).
+
+    When a query is given: searches CWD and all subdirectories recursively,
+    returning full file entries [{name, path, size, shape}] where `name` is
+    a path relative to the CWD (e.g. "subdir/scan.npy" for nested files).
+
+    When no query: returns an empty list (the frontend uses /listfiles instead).
+    """
     import shutil
     import subprocess
 
     target = os.path.abspath(directory) if directory else os.getcwd()
-    # Collect all supported file names
+
+    if not q:
+        return []
+
+    # Walk CWD recursively, skipping hidden directories
+    entries = []
     try:
-        names = sorted(
-            f
-            for f in os.listdir(target)
-            if os.path.isfile(os.path.join(target, f))
-            and (
-                (
+        for root, dirs, files in os.walk(target):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            for fname in sorted(files):
+                name_lower = fname.lower()
+                ext = (
                     ".nii.gz"
-                    if f.lower().endswith(".nii.gz")
-                    else os.path.splitext(f.lower())[1]
+                    if name_lower.endswith(".nii.gz")
+                    else os.path.splitext(name_lower)[1]
                 )
-                in _SUPPORTED_EXTS
-            )
-        )
+                if ext not in _SUPPORTED_EXTS:
+                    continue
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, target)  # e.g. "subdir/scan.npy"
+                try:
+                    size = os.path.getsize(fpath)
+                except OSError:
+                    continue
+                entries.append({"name": rel, "path": fpath, "size": size, "ext": ext})
     except Exception as e:
         return {"error": str(e)}
 
-    if not q:
-        return names
+    if not entries:
+        return []
 
-    # Try fzf --filter
+    # Filter via fzf on the relative name, fallback to substring
+    names = [e["name"] for e in entries]
     if shutil.which("fzf"):
         try:
             result = subprocess.run(
@@ -2515,14 +2533,25 @@ def fzf_filter(q: str = "", directory: str = ""):
                 text=True,
                 timeout=5,
             )
-            filtered = [l for l in result.stdout.splitlines() if l]
-            return filtered
+            matched = set(l for l in result.stdout.splitlines() if l)
+            entries = [e for e in entries if e["name"] in matched]
         except Exception:
-            pass  # fall through to substring
+            q_lower = q.lower()
+            entries = [e for e in entries if q_lower in e["name"].lower()]
+    else:
+        q_lower = q.lower()
+        entries = [e for e in entries if q_lower in e["name"].lower()]
 
-    # Fallback: case-insensitive substring
-    q_lower = q.lower()
-    return [n for n in names if q_lower in n.lower()]
+    # Peek shapes for matched entries (limit to 50 to stay fast)
+    for e in entries[:50]:
+        e["shape"] = _peek_file_shape(e["path"], e["ext"])
+    for e in entries[50:]:
+        e["shape"] = None
+    # Remove internal ext field before returning
+    for e in entries:
+        del e["ext"]
+
+    return entries
 
 
 @app.get("/sessions")
