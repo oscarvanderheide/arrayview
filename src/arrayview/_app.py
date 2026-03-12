@@ -1867,6 +1867,46 @@ async def toggle_fft(sid: str, request: Request):
     }
 
 
+@app.post("/set_rgb/{sid}")
+async def set_rgb_endpoint(sid: str, request: Request):
+    """Toggle RGB rendering for a session.
+
+    Body: {"axis": int | null}
+    - axis=null  → disable RGB mode (restore full shape)
+    - axis=int   → treat that dimension as the RGB/RGBA channel axis
+                   (must have size 3 or 4)
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "session not found"}
+    body = await request.json()
+    axis = body.get("axis")
+    if axis is None:
+        session.rgb_axis = None
+        session.spatial_shape = session.data.shape
+    else:
+        axis = int(axis)
+        if not (0 <= axis < len(session.data.shape)):
+            return {
+                "error": f"axis {axis} out of range for shape {list(session.data.shape)}"
+            }
+        if session.data.shape[axis] not in (3, 4):
+            return {
+                "error": f"dim {axis} has size {session.data.shape[axis]}, need 3 or 4 for RGB/RGBA"
+            }
+        session.rgb_axis = axis
+        session.spatial_shape = tuple(
+            s for i, s in enumerate(session.data.shape) if i != axis
+        )
+    session.rgba_cache.clear()
+    session._rgba_bytes = 0
+    return {
+        "ok": True,
+        "is_rgb": session.rgb_axis is not None,
+        "spatial_shape": list(session.spatial_shape),
+    }
+
+
 @app.get("/slice/{sid}")
 def get_slice(
     sid: str,
