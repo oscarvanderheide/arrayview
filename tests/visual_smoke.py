@@ -36,8 +36,8 @@ DISPLAY
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
-   P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed)
-   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed)
+   P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed; enabled in native shell iframe)
+   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
    (search box)    substring filter          ✓ 45e (type query, list filters client-side)
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
@@ -45,9 +45,9 @@ DISPLAY
   [ / ]           registration blend        ✓ 24, 37
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
-  L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs)
-  M               mask threshold            ✓ 40f (MASK egg in #mode-eggs)
-  m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs)
+   L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs); no-op in RGB mode (toast shown)
+   M               mask threshold            ✓ 40f (MASK egg in #mode-eggs)
+   m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
   f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
   T               cycle theme               ✓ 26
 

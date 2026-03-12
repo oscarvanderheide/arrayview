@@ -744,7 +744,12 @@
         const REAL_MODES = __REAL_MODES__;
 
         const urlParams = new URLSearchParams(__ARRAYVIEW_QUERY__ || window.location.search);
-        const isInlineEmbed = window.parent !== window;
+        // isInlineEmbed: true when embedded in Jupyter (cross-origin parent) but NOT
+        // when embedded in the native pywebview shell (same-origin, __arrayviewShell=true).
+        const isInlineEmbed = (() => {
+            if (window.parent === window) return false;
+            try { return !window.parent.__arrayviewShell; } catch(e) { return true; }
+        })();
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
@@ -2961,6 +2966,7 @@
                 saveGif();
             } else if (e.key === 'm') {
                 if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; }
+                if (rgbMode) { showStatus('complex mode: not available for RGB'); return; }
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
@@ -3144,6 +3150,7 @@
                     renderEggs();
                 });
             } else if (e.key === 'L') {
+                if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
                 logScale = !logScale;
                 _eggsVisible = true;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
