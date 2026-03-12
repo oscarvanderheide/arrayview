@@ -59,6 +59,7 @@ INFO & EXPORT
   g               save GIF                  ✗ (triggers download dialog)
   e               copy URL                  ✗ (clipboard, no visual change)
   ?               help overlay              ✓ 28
+  toast routing   diff/border toasts → #status (bottom-left)  ✓ 49
 
 LOADING ANIMATION
   logo spins while loading-overlay visible  ✓ 47 (js eval checks .av-logo-loading)
@@ -700,6 +701,26 @@ def run_smoke(page, base, client, tmp):
     eggs_text = page.locator("#mode-eggs").inner_text()
     if "RGB" not in eggs_text:
         print("  WARNING: RGB egg not visible in demo plasma scenario")
+
+    # ── 49: toast routing — showToast() messages appear in #status (bottom-left) ──
+    # Press X in normal mode (no compare) — triggers "diff view: only in 2-pane
+    # compare mode", previously shown in the top-center #toast div.
+    # After the fix, the message must appear in #status (bottom-left fading toast)
+    # and the #toast element must not exist in the DOM.
+    _goto(page, base, sid2d)
+    _focus(page)
+    toast_present = page.evaluate("() => !!document.getElementById('toast')")
+    if toast_present:
+        print(
+            "  WARNING: #toast element still present in DOM — should have been removed"
+        )
+    _press(page, "X", wait=400)
+    status_text = page.locator("#status").inner_text()
+    _shot(page, "49_toast_in_status")
+    if not status_text.strip():
+        print(
+            "  WARNING: #status is empty after X in normal mode — toast may not route correctly"
+        )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
