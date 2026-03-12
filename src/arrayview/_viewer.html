@@ -187,7 +187,8 @@
         .cp-item-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
         .cp-item-right { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
         .cp-item-shape { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; }
-        .cp-item-warn { color: var(--picker-accent, var(--active-dim)); font-size: 11px; white-space: nowrap; }
+        .cp-item-warn { color: var(--muted); font-size: 11px; white-space: nowrap; }
+        .cp-item-incompat { color: #c87575; font-size: 11px; white-space: nowrap; font-weight: 500; }
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
         #help-overlay, #info-overlay {
@@ -743,6 +744,7 @@
         const REAL_MODES = __REAL_MODES__;
 
         const urlParams = new URLSearchParams(__ARRAYVIEW_QUERY__ || window.location.search);
+        const isInlineEmbed = window.parent !== window;
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         const transport = urlParams.get('transport') || 'ws';
@@ -2841,8 +2843,10 @@
                 showStatus(`zoom: fit`);
                 saveState();
             } else if (e.key === 'P') {
+                if (isInlineEmbed) return;
                 toggleCompareMode();
             } else if (e.key === 'O') {
+                if (isInlineEmbed) return;
                 showUnifiedPicker('open');
             } else if (e.key === 'X') {
                 if (!compareActive || compareDisplaySids.length !== 2) {
@@ -3296,7 +3300,7 @@
         //   { type:'loaded',  sid, name } – Compare/Overlay: file was loaded
         const _UNI_MODES = ['open', 'compare', 'overlay'];
         const _UNI_LABELS = { open: 'Open', compare: 'Side-by-side', overlay: 'Overlay' };
-        const _UNI_COLORS = { open: '#4cc9f0', compare: '#4ade80', overlay: '#c77dff' };
+        const _UNI_COLORS = { open: 'var(--active-dim)', compare: '#4ade80', overlay: '#c77dff' };
 
         async function _fetchPickerData() {
             let sessions = [], fileEntries = [];
@@ -3376,7 +3380,7 @@
                         if (filtFiles.length) {
                             const hdr = document.createElement('div');
                             hdr.className = 'cp-section-header';
-                            hdr.textContent = inSearch ? 'Files (including subdirectories)' : 'Files in directory';
+                            hdr.textContent = 'Files';
                             listEl.appendChild(hdr);
                             filtFiles.forEach(f => {
                                 const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
@@ -3405,7 +3409,7 @@
                             msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
                             msg.textContent = inSearch
                                 ? 'No matches'
-                                : 'No arrays loaded and no supported files in current directory';
+                                : 'No arrays loaded and no supported files found';
                             listEl.appendChild(msg);
                         }
                     } else {
@@ -3415,7 +3419,7 @@
                             msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
                             msg.textContent = inSearch
                                 ? 'No matches'
-                                : 'No other arrays loaded and no supported files in current directory';
+                                : 'No other arrays loaded and no supported files found';
                             listEl.appendChild(msg);
                         }
                         if (filtSessions.length) {
@@ -3429,9 +3433,9 @@
                                 item.className = 'cp-item' + (matches ? '' : ' cp-item-dim');
                                 if (matches) item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span>`
-                                    + (!matches ? `<span class="cp-item-warn">incompatible shape</span>` : '')
-                                    + `</span>`;
+                                    + `<span class="cp-item-right">`
+                                    + (!matches ? `<span class="cp-item-incompat">Incompatible Shape</span>` : '')
+                                    + `<span class="cp-item-shape">${shapeStr}</span></span>`;
                                 if (matches) {
                                     function pick() { finish({ type: 'session', sid: s.sid, name: s.name || '' }); }
                                     item.onclick = pick;
@@ -3443,7 +3447,7 @@
                         if (filtFiles.length) {
                             const hdr = document.createElement('div');
                             hdr.className = 'cp-section-header';
-                            hdr.textContent = inSearch ? 'Files (including subdirectories)' : 'Files in directory';
+                            hdr.textContent = 'Files';
                             listEl.appendChild(hdr);
                             filtFiles.forEach(f => {
                                 const fMatches = Array.isArray(f.shape) && Array.isArray(shape)
@@ -3455,9 +3459,9 @@
                                 item.className = 'cp-item' + (fMatches ? '' : ' cp-item-dim');
                                 if (fMatches) item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${f.name}</span>`
-                                    + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span>`
-                                    + (!fMatches ? `<span class="cp-item-warn">incompatible shape</span>` : '')
-                                    + `</span>`;
+                                    + `<span class="cp-item-right">`
+                                    + (!fMatches ? `<span class="cp-item-incompat">Incompatible Shape</span>` : '')
+                                    + `<span class="cp-item-shape">${shapeStr}</span></span>`;
                                 if (fMatches) {
                                     function pickFile() {
                                         item.classList.add('cp-item-loading');
@@ -3478,33 +3482,20 @@
                     }
                 }
 
-                // ── Search / fzf wiring ─────────────────────────────────────
+                // ── Search wiring (client-side substring) ──────────────────
                 searchEl.oninput = () => {
                     if (_searchTimer) clearTimeout(_searchTimer);
-                    _searchTimer = setTimeout(async () => {
+                    _searchTimer = setTimeout(() => {
                         _searchTimer = null;
-                        const q = searchEl.value.trim();
-                        // Filter sessions client-side
+                        const q = searchEl.value.trim().toLowerCase();
                         const filtSessions = q
-                            ? otherSessions.filter(s => (s.name || '').toLowerCase().includes(q.toLowerCase()))
+                            ? otherSessions.filter(s => (s.name || '').toLowerCase().includes(q))
                             : otherSessions;
-                        // Filter files: when query given, /fzf searches CWD + subdirs and returns full entries
-                        let filtFiles = fileEntries;
-                        if (q) {
-                            try {
-                                const r = await fetch('/fzf?q=' + encodeURIComponent(q));
-                                if (r.ok) {
-                                    const entries = await r.json();
-                                    // Exclude already-loaded files
-                                    const loadedPaths = new Set(sessions.map(s => s.filepath).filter(Boolean));
-                                    filtFiles = entries.filter(f => !loadedPaths.has(f.path));
-                                }
-                            } catch (_) {
-                                filtFiles = fileEntries.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
-                            }
-                        }
+                        const filtFiles = q
+                            ? fileEntries.filter(f => f.name.toLowerCase().includes(q))
+                            : fileEntries;
                         populate(filtSessions, filtFiles);
-                    }, 150);
+                    }, 100);
                 };
 
                 overlay.classList.add('visible');

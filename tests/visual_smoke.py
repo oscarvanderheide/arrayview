@@ -36,9 +36,9 @@ DISPLAY
   d               cycle dynamic range       ✓ 17
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
-   P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode)
-   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode)
-   (search box)    fzf filter in picker      ✓ 45e (type query, list filters; subdirs included)
+   P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed)
+   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed)
+   (search box)    substring filter          ✓ 45e (type query, list filters client-side)
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
