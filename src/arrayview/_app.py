@@ -18,6 +18,18 @@ import zipfile
 from collections import OrderedDict
 from importlib.resources import files as _pkg_files
 
+# ---------------------------------------------------------------------------
+# Verbose flag — set to True by --verbose CLI flag; suppresses debug prints.
+# ---------------------------------------------------------------------------
+_verbose = False
+
+
+def _vprint(*args, **kwargs) -> None:
+    """Print only when verbose mode is active."""
+    if _verbose:
+        print(*args, **kwargs)
+
+
 import numpy as np
 import nibabel as nib
 import uvicorn
@@ -127,7 +139,7 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
     Used from view() (Python API) where the host process stays alive.
     """
     proc = _open_webview(url, win_w, win_h, capture_stderr=True)
-    print(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
+    _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
     sockets_before = VIEWER_SOCKETS  # capture count so we detect a NEW connection
 
     def _read_stderr():
@@ -142,12 +154,12 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
             time.sleep(0.1)
             if proc.poll() is not None:
                 stderr_out = _read_stderr()
-                print(
+                _vprint(
                     f"[ArrayView] Native window exited immediately (code {proc.returncode}), opening in browser",
                     flush=True,
                 )
                 if stderr_out:
-                    print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+                    _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
                 _open_browser(url)
                 return
 
@@ -157,7 +169,7 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
         for _ in range(80):
             time.sleep(0.1)
             if VIEWER_SOCKETS > sockets_before:
-                print("[ArrayView] Native window connected successfully", flush=True)
+                _vprint("[ArrayView] Native window connected successfully", flush=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(
                         [
@@ -172,17 +184,17 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
                 return
             if proc.poll() is not None:
                 stderr_out = _read_stderr()
-                print(
+                _vprint(
                     f"[ArrayView] Native window exited (code {proc.returncode}), opening in browser",
                     flush=True,
                 )
                 if stderr_out:
-                    print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+                    _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
                 _open_browser(url)
                 return
 
         # Phase 3: alive but no UI connection after 10 s — zombie (e.g. non-framework Python on macOS)
-        print(
+        _vprint(
             "[ArrayView] Native window did not connect; falling back to browser",
             flush=True,
         )
@@ -204,7 +216,7 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
     The CLI process must not exit while the daemon-thread watchdog is still pending,
     so the wait is done synchronously here.
     """
-    print("[ArrayView] Launching native window (PyWebView)...", flush=True)
+    _vprint("[ArrayView] Launching native window (PyWebView)...", flush=True)
     proc = _open_webview(url, win_w, win_h, capture_stderr=True)
     for _ in range(20):
         time.sleep(0.1)
@@ -214,14 +226,14 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
                 stderr_out = proc.stderr.read().decode(errors="replace").strip()
             except Exception:
                 pass
-            print(
+            _vprint(
                 f"[ArrayView] Native window exited immediately (code {proc.returncode})",
                 flush=True,
             )
             if stderr_out:
-                print(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
+                _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
             return False
-    print("[ArrayView] Native window started successfully", flush=True)
+    _vprint("[ArrayView] Native window started successfully", flush=True)
     return True
 
 
@@ -589,7 +601,7 @@ app = FastAPI()
 async def _generic_exception_handler(request: Request, exc: Exception):
     import traceback
 
-    print(
+    _vprint(
         f"[ArrayView] Unhandled error on {request.url.path}: {exc}\n"
         + traceback.format_exc(),
         flush=True,
@@ -1400,7 +1412,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
     except Exception as _ws_exc:
         import traceback
 
-        print(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
+        _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
         traceback.print_exc()
     finally:
         VIEWER_SOCKETS = max(0, VIEWER_SOCKETS - 1)
@@ -2868,7 +2880,7 @@ def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
         version = data.get("version")
         return version if isinstance(version, str) else None
     except Exception as exc:
-        print(
+        _vprint(
             f"[ArrayView] could not inspect VSIX version at {vsix_path}: {exc}",
             flush=True,
         )
@@ -2899,7 +2911,7 @@ def _patch_vscode_extension_metadata(version: str) -> None:
                     json.dump(data, f, indent=8)
                     f.write("\n")
         except Exception as exc:
-            print(
+            _vprint(
                 f"[ArrayView] could not patch extension metadata at {package_json}: {exc}",
                 flush=True,
             )
@@ -2938,7 +2950,7 @@ def _ensure_vscode_extension() -> bool:
         return False
     bundled_version = _bundled_vscode_vsix_version(vsix_path)
     if bundled_version != _VSCODE_EXT_VERSION:
-        print(
+        _vprint(
             f"[ArrayView] extension version mismatch: bundled={bundled_version!r} "
             f"expected={_VSCODE_EXT_VERSION!r} — rebuild arrayview-opener.vsix",
             flush=True,
@@ -3050,7 +3062,7 @@ def _configure_vscode_port_preview(port: int) -> bool:
             _write_settings(settings_path)
         return True
     except Exception as exc:
-        print(f"[ArrayView] could not write port settings: {exc}", flush=True)
+        _vprint(f"[ArrayView] could not write port settings: {exc}", flush=True)
         return False
 
 
@@ -3451,7 +3463,7 @@ def view(
     if server_pid is not None and server_pid != our_pid:
         # A stale ArrayView server (different process) is on this port — sessions
         # stored in our process won't be visible to it.  Kill it so we can bind.
-        print(
+        _vprint(
             f"[ArrayView] Stale server (pid {server_pid}) on port {port}, terminating it...",
             flush=True,
         )
@@ -3542,7 +3554,7 @@ def view(
             and not _force_browser
             and not _force_vscode
         ):
-            print(
+            _vprint(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
             )
@@ -3596,7 +3608,7 @@ async def _stop_server_when_viewer_closes(
         else:
             sys.stderr.write("\r" + " " * 60 + "\r")
             sys.stderr.flush()
-            print("[ArrayView] Server stopped.", flush=True)
+            _vprint("[ArrayView] Server stopped.", flush=True)
             server.should_exit = True
             return
 
@@ -3732,7 +3744,7 @@ def _view_subprocess(
                 pass
             sid = result["sid"]
         except Exception as e:
-            print(
+            _vprint(
                 f"[ArrayView] Failed to register with existing server: {e}", flush=True
             )
             try:
@@ -3795,7 +3807,7 @@ def _view_subprocess(
     can_native = _can_native_window()
     if window and can_native:
         if not _open_webview_cli(url_shell, 1400, 900):
-            print("[ArrayView] Falling back to browser", flush=True)
+            _vprint("[ArrayView] Falling back to browser", flush=True)
             _open_browser(url_viewer)
     else:
         _open_browser(url_viewer, force_vscode=False)
@@ -3869,12 +3881,12 @@ def _serve_daemon(
                 try:
                     vf_data = load_data(vfield_filepath)
                     session.vfield = vf_data
-                    print(
+                    _vprint(
                         f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}",
                         flush=True,
                     )
                 except Exception as e:
-                    print(
+                    _vprint(
                         f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
                         flush=True,
                     )
@@ -3888,7 +3900,7 @@ def _serve_daemon(
                     ov_session.sid = overlay_sid
                     SESSIONS[overlay_sid] = ov_session
                 except Exception as e:
-                    print(
+                    _vprint(
                         f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
                         flush=True,
                     )
@@ -3902,7 +3914,7 @@ def _serve_daemon(
                     cmp_session.sid = compare_sid
                     SESSIONS[compare_sid] = cmp_session
                 except Exception as e:
-                    print(
+                    _vprint(
                         f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                         flush=True,
                     )
@@ -4027,7 +4039,14 @@ def arrayview():
             "The first or last dimension must have size 3 or 4."
         ),
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output (internal status messages)",
+    )
     args = parser.parse_args()
+    global _verbose
+    _verbose = args.verbose
     if not args.serve and not args.kill and not args.files:
         # No files given: launch the animated pixel-art demo
         import tempfile as _tempfile
@@ -4151,7 +4170,7 @@ def arrayview():
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
     if window_mode == "native" and _is_vscode_remote():
-        print(
+        _vprint(
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
         window_mode = "vscode"
@@ -4274,7 +4293,7 @@ def arrayview():
             qs += f"&compare_sids={','.join(compare_sids)}"
         if notify_webview and result.get("notified"):
             # Tab was injected into existing webview window (with or without compare)
-            print(f"Injected into existing window (port {args.port})")
+            _vprint(f"Injected into existing window (port {args.port})")
         elif notify_webview and not result.get("notified"):
             # Native window was requested but the shell is gone — open a new native window.
             init_qs = f"init_sid={sid}&init_name={encoded_name_inject}"
@@ -4285,13 +4304,12 @@ def arrayview():
                 )
             url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
             if not _open_webview_cli(url_shell, 1200, 800):
-                print("[ArrayView] Falling back to browser", flush=True)
+                _vprint("[ArrayView] Falling back to browser", flush=True)
                 url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
                 _open_browser(url, blocking=True)
         else:
             url = f"http://localhost:{args.port}/{qs}"
-            print(f"Open {url} in your browser")
             _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
         return
 
@@ -4380,13 +4398,13 @@ def arrayview():
             )
         url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
         if not _open_webview_cli(url_shell, 1400, 900):
-            print("[ArrayView] Falling back to browser", flush=True)
+            _vprint("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
             _open_browser(url, blocking=False, force_vscode=(window_mode == "vscode"))
     else:
         if use_webview and overlay_sid:
-            print(
+            _vprint(
                 "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
                 flush=True,
             )
