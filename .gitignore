@@ -21,4 +21,5 @@ tests/snapshots/
 *.ipynb
 logs/
 *.png
+!src/arrayview/_icon.png
 .worktrees/
