@@ -62,7 +62,8 @@ INFO & EXPORT
   toast routing   diff/border toasts → #status (bottom-left)  ✓ 49
 
 LOADING ANIMATION
-  logo spins while loading-overlay visible  ✓ 47 (js eval checks .av-logo-loading)
+  logo walk-anim while loading-overlay vis  ✓ 47 (js eval checks .av-logo-loading)
+  logo-b0..b8 IDs present for walk anim    ✓ 47 (js eval checks rect IDs)
   logo stops after canvas visible           ✓ 47
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
   loading text absent                       ✓ 47 (#loading-label not in DOM)
@@ -663,12 +664,20 @@ def run_smoke(page, base, client, tmp):
     # ── 47: logo animation ────────────────────────────────────────────────────
     # Verify the logo animates while loading and stops after canvas is visible.
     # Also verify #loading-track (ping-pong bar) and #loading-label (text) are gone.
+    # Verify SVG rect IDs (logo-b0..b8) required for sequential walk animation.
     _goto(page, base, sid2d)
     logo_has_class = page.evaluate(
         "() => document.getElementById('av-logo-svg').classList.contains('av-logo-loading')"
     )
     if logo_has_class:
         print("  WARNING: av-logo-loading class still present after canvas loaded")
+    missing_rects = page.evaluate(
+        "() => Array.from({length:9},(_,i)=>`logo-b${i}`).filter(id=>!document.getElementById(id))"
+    )
+    if missing_rects:
+        print(
+            f"  WARNING: SVG logo rect IDs missing (walk animation broken): {missing_rects}"
+        )
     loading_track_present = page.evaluate(
         "() => !!document.getElementById('loading-track')"
     )
