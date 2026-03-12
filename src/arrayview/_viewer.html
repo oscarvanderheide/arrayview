@@ -2749,6 +2749,7 @@
 
         canvas.addEventListener('mousemove', (e) => {
             if (dim_z >= 0) return;
+            if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
             if (pixelHoverPending) return;
             pixelHoverPending = true;

@@ -1716,6 +1716,8 @@ def get_pixel(
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"value": None}
 
     idx_tuple = tuple(int(x) for x in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
@@ -1739,6 +1741,8 @@ def get_roi_circle(
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -1773,6 +1777,8 @@ def get_roi(
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -1973,32 +1979,36 @@ def get_slice(
         else:
             vmin, vmax = _compute_vmin_vmax(session, np.stack(frames), dr, complex_mode)
     else:
-        rgba = render_rgba(
-            session,
-            dim_x,
-            dim_y,
-            idx_tuple,
-            colormap,
-            dr,
-            complex_mode,
-            log_scale,
-            vmin_override,
-            vmax_override,
-        )
-        mask = _extract_overlay_mask(
-            overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
-        )
-        rgba = _composite_overlay_mask(rgba, mask)
-        raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-        _, vmin, vmax = _prepare_display(
-            session,
-            raw,
-            complex_mode,
-            dr,
-            log_scale,
-            vmin_override=vmin_override,
-            vmax_override=vmax_override,
-        )
+        if session.rgb_axis is not None:
+            rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))
+            vmin, vmax = 0.0, 255.0
+        else:
+            rgba = render_rgba(
+                session,
+                dim_x,
+                dim_y,
+                idx_tuple,
+                colormap,
+                dr,
+                complex_mode,
+                log_scale,
+                vmin_override,
+                vmax_override,
+            )
+            mask = _extract_overlay_mask(
+                overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
+            )
+            rgba = _composite_overlay_mask(rgba, mask)
+            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+            _, vmin, vmax = _prepare_display(
+                session,
+                raw,
+                complex_mode,
+                dr,
+                log_scale,
+                vmin_override=vmin_override,
+                vmax_override=vmax_override,
+            )
     img = Image.fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
@@ -2262,6 +2272,10 @@ def get_grid(
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return JSONResponse(
+            status_code=400, content={"error": "not supported for RGB sessions"}
+        )
     idx_list = [int(x) for x in indices.split(",")]
     n = session.shape[slice_dim]
 
@@ -2339,6 +2353,10 @@ def get_gif(
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return JSONResponse(
+            status_code=400, content={"error": "not supported for RGB sessions"}
+        )
     idx_list = [int(x) for x in indices.split(",")]
     n = session.shape[slice_dim]
 
