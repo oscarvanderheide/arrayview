@@ -21,6 +21,9 @@ from arrayview._platform import (
     _is_vscode_remote,
 )
 
+# Whether the "set port to Public" message has been printed this session.
+_remote_message_shown = False
+
 
 # ---------------------------------------------------------------------------
 # VS Code .app bundle detection (macOS)
@@ -374,27 +377,35 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
         try:
             parsed_port = int(url.split(":")[2].split("/")[0].split("?")[0])
         except Exception:
-            parsed_port = 8000
+            parsed_port = 8123
 
         if is_remote:
             # Remote/tunnel: install extension + write signal file.
             # The workspace extension resolves the devtunnel URL via asExternalUri
             # and opens Simple Browser with ?sid= preserved.
-            # Port visibility must be set to Public by the user (Ports tab →
-            # right-click → Port Visibility → Public).
-            print(
-                "[ArrayView] Remote tunnel session — set port visibility to Public in the VS Code Ports tab and re-run ArrayView.",
-                flush=True,
-            )
-            ext_ok = _ensure_vscode_extension()
-            if ext_ok:
-                if _VSCODE_EXT_FRESH_INSTALL:
-                    time.sleep(1.5)
-                _open_via_signal_file(url)
-                _schedule_remote_open_retries(url)
-            else:
+            # Port visibility must be Public (user sets it manually in Ports tab,
+            # or it was pre-configured by `arrayview --serve`).
+            # NOTE: Do NOT call _configure_vscode_port_preview() here — writing
+            # settings files at open-time can disrupt active port forwarding.
+            # The --serve path and CLI new-server path handle it at setup time.
+            global _remote_message_shown
+            if not _remote_message_shown:
+                _remote_message_shown = True
                 print(
-                    "[ArrayView] extension install failed — cannot open Simple Browser",
+                    "[ArrayView] Remote tunnel session — ensure port is Public in VS Code Ports tab.",
+                    flush=True,
+                )
+            ext_ok = _ensure_vscode_extension()
+            if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
+                time.sleep(1.5)
+            # Always write the signal file: the extension may already be
+            # installed from a prior session even if _ensure failed (e.g.
+            # `code` CLI not in PATH, Julia stripped env, etc.).
+            _open_via_signal_file(url)
+            _schedule_remote_open_retries(url)
+            if not ext_ok:
+                _vprint(
+                    "[ArrayView] extension install could not be verified — signal file written anyway",
                     flush=True,
                 )
             return
@@ -403,11 +414,12 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
             _configure_vscode_port_preview(parsed_port)
             ext_ok = _ensure_vscode_extension()
-            if ext_ok:
-                if _VSCODE_EXT_FRESH_INSTALL:
-                    time.sleep(1.5)
-                _open_via_signal_file(url)
-                opened = True
+            if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
+                time.sleep(1.5)
+            # Always write the signal file: the extension may already be
+            # installed even if _ensure failed (e.g. `code` CLI not found).
+            _open_via_signal_file(url)
+            opened = True
 
         is_plain_ssh = (
             not is_remote

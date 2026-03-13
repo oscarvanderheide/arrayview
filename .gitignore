@@ -23,3 +23,5 @@ logs/
 *.png
 !src/arrayview/_icon.png
 .worktrees/
+
+benchmarks/data

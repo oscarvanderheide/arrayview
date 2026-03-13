@@ -501,10 +501,14 @@ def view(
 
     if server_pid is None:
         if _port_in_use(port) and not _server_alive(port):
-            raise RuntimeError(
-                f"Port {port} is already in use by another process. "
-                f"Choose a different port in view(..., port=...)."
-            )
+            # Port busy by another process — auto-scan for a free one.
+            port, _already = _find_server_port(port + 1)
+            if _port_in_use(port) and not _server_alive(port):
+                raise RuntimeError(
+                    f"Port {port} is already in use by another process. "
+                    f"Choose a different port in view(..., port=...)."
+                )
+            _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
         _script = _is_script_mode()
@@ -768,10 +772,14 @@ def _view_subprocess(
             raise
     else:
         if _port_in_use(port):
-            raise RuntimeError(
-                f"Port {port} is already in use by another process. "
-                f"Choose a different port in view(..., port=...)."
-            )
+            # Port busy by another process — auto-scan for a free one.
+            port, _already = _find_server_port(port + 1)
+            if _port_in_use(port):
+                raise RuntimeError(
+                    f"Port {port} is already in use by another process. "
+                    f"Choose a different port in view(..., port=...)."
+                )
+            _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
         sid = uuid.uuid4().hex
         # Spawn a self-contained server subprocess (same as CLI path).
         script = (
@@ -822,9 +830,11 @@ def _view_subprocess(
     if window and can_native:
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            _open_browser(url_viewer, force_vscode=force_vscode)
+            _open_browser(url_viewer, force_vscode=force_vscode, blocking=force_vscode)
     else:
-        _open_browser(url_viewer, force_vscode=force_vscode)
+        # blocking=True when force_vscode so signal file is written before
+        # returning to Julia (daemon thread would be killed on process exit).
+        _open_browser(url_viewer, force_vscode=force_vscode, blocking=force_vscode)
     return url_viewer
 
 
@@ -1000,7 +1010,7 @@ def arrayview():
             "are preloaded for compare mode (up to 6 total files)."
         ),
     )
-    parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
+    parser.add_argument("--port", type=int, default=8123, help="Port to serve on")
     parser.add_argument(
         "--serve",
         action="store_true",
@@ -1024,7 +1034,7 @@ def arrayview():
     parser.add_argument(
         "--kill",
         action="store_true",
-        help="Kill the ArrayView server running on --port (default 8000) and exit",
+        help="Kill the ArrayView server running on --port (default 8123) and exit",
     )
     parser.add_argument(
         "--overlay",
@@ -1133,11 +1143,18 @@ def arrayview():
             )
             return
         if _port_in_use(args.port):
+            # Port busy by another process — auto-scan for a free one.
+            args.port, _ = _find_server_port(args.port + 1)
+            if _port_in_use(args.port):
+                print(
+                    f"Error: port {args.port} is in use by another process. "
+                    "Use --port to pick another."
+                )
+                sys.exit(1)
             print(
-                f"Error: port {args.port} is in use by another process. "
-                "Use --port to pick another."
+                f"[ArrayView] Default port busy, using port {args.port}",
+                flush=True,
             )
-            sys.exit(1)
         script = (
             f"from arrayview._launcher import _serve_empty; _serve_empty({args.port})"
         )
@@ -1145,10 +1162,14 @@ def arrayview():
         if not _wait_for_port(args.port, timeout=15.0):
             print(f"Error: ArrayView server failed to start on port {args.port}.")
             sys.exit(1)
+        # Write VS Code port settings so the port is auto-forwarded as Public
+        # in remote tunnel sessions (saves the user a manual Ports-tab step).
+        _configure_vscode_port_preview(args.port)
         print(
             f"\n  \033[1;36m\u2192 ArrayView server started on port {args.port} (PID {proc.pid})\033[0m\n"
             f"\n  Remote tunnel setup:\n"
             f"    1. VS Code Ports tab \u2192 port {args.port} \u2192 right-click \u2192 Port Visibility \u2192 Public\n"
+            f"       (if VS Code did not set it automatically)\n"
             f"    2. Then run: arrayview your_file.npy\n"
             f"\n  Server stays running until you kill it (kill {proc.pid}).\n"
         )
@@ -1167,11 +1188,19 @@ def arrayview():
 
     is_arrayview_server = _server_alive(args.port)
     if _port_in_use(args.port) and not is_arrayview_server:
+        # Port busy by another process — auto-scan for a free one.
+        args.port, is_arrayview_server_new = _find_server_port(args.port + 1)
+        is_arrayview_server = is_arrayview_server_new
+        if _port_in_use(args.port) and not is_arrayview_server:
+            print(
+                f"Error: port {args.port} is in use by another process. "
+                "Use --port to pick another."
+            )
+            sys.exit(1)
         print(
-            f"Error: port {args.port} is in use by another process. "
-            "Use --port to pick another."
+            f"[ArrayView] Default port busy, using port {args.port}",
+            flush=True,
         )
-        sys.exit(1)
 
     # Resolve --window / --browser into a single window_mode
     if args.browser and not args.window:
