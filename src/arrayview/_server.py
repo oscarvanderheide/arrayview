@@ -1,0 +1,1439 @@
+"""FastAPI application, REST/WebSocket routes, and HTML templates.
+
+This module was extracted from _app.py during the modular refactor.
+"""
+
+import asyncio
+import io
+import json
+import math
+import os
+import threading
+
+import numpy as np
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.websockets import WebSocketDisconnect
+from importlib.resources import files as _pkg_files
+
+# ---------------------------------------------------------------------------
+# Imports from sibling modules
+# ---------------------------------------------------------------------------
+from arrayview._session import (
+    _vprint,
+    VIEWER_SOCKETS,
+    SHELL_SOCKETS,
+    PENDING_SESSIONS,
+    _ensure_render_thread,
+    _render,
+    _schedule_prefetch,
+    Session,
+    SESSIONS,
+    COLORMAPS,
+    DR_PERCENTILES,
+    DR_LABELS,
+    HEAVY_OP_LIMIT_BYTES,
+    _estimate_array_bytes,
+)
+import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
+
+from arrayview._render import (
+    LUTS,
+    COLORMAP_GRADIENT_STOPS,
+    COMPLEX_MODES,
+    REAL_MODES,
+    mosaic_shape,
+    _compute_vmin_vmax,
+    extract_slice,
+    apply_complex_mode,
+    _compute_otsu_threshold,
+    _prepare_display,
+    _init_luts,
+    _ensure_lut,
+    apply_colormap_rgba,
+    _setup_rgb,
+    render_rgb_rgba,
+    render_rgba,
+    _extract_overlay_mask,
+    _composite_overlay_mask,
+    render_mosaic,
+    _run_preload,
+)
+
+from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
+
+# ---------------------------------------------------------------------------
+# Lazy PIL import (only needed for JPEG/PNG/GIF encoding in routes)
+# ---------------------------------------------------------------------------
+_pil_image_mod = None
+
+
+def _pil_image():
+    """Lazy PIL.Image import."""
+    global _pil_image_mod
+    if _pil_image_mod is None:
+        from PIL import Image
+
+        _pil_image_mod = Image
+    return _pil_image_mod
+
+
+# ---------------------------------------------------------------------------
+# FastAPI application
+# ---------------------------------------------------------------------------
+app = FastAPI()
+
+
+@app.exception_handler(Exception)
+async def _generic_exception_handler(request: Request, exc: Exception):
+    import traceback
+
+    _vprint(
+        f"[ArrayView] Unhandled error on {request.url.path}: {exc}\n"
+        + traceback.format_exc(),
+        flush=True,
+    )
+    return JSONResponse(
+        status_code=500, content={"error": str(exc), "type": type(exc).__name__}
+    )
+
+
+# ---------------------------------------------------------------------------
+# HTML Templates (loaded once at import time from package files)
+# ---------------------------------------------------------------------------
+_SHELL_HTML: str = (
+    _pkg_files("arrayview").joinpath("_shell.html").read_text(encoding="utf-8")
+)
+_VIEWER_HTML_TEMPLATE: str = (
+    _pkg_files("arrayview").joinpath("_viewer.html").read_text(encoding="utf-8")
+)
+
+
+# ---------------------------------------------------------------------------
+# Shell WebSocket for Webview Tab Management
+# ---------------------------------------------------------------------------
+async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
+    """Push a new-tab message to all connected webview shell windows.
+
+    Returns True if at least one shell received the message.
+    wait=True: poll up to 2 s for a shell to connect (used when a window was just opened).
+    wait=False: send immediately to whatever shells are currently connected.
+    """
+    if wait:
+        for _ in range(200):  # Wait up to 2 s for window to connect
+            if SHELL_SOCKETS:
+                break
+            await asyncio.sleep(0.01)
+    msg = {"action": "new_tab", "sid": sid, "name": name}
+    if url:
+        msg["url"] = url
+    notified = False
+    for ws in SHELL_SOCKETS.copy():
+        try:
+            await ws.send_json(msg)
+            notified = True
+        except Exception:
+            pass
+    return notified
+
+
+@app.websocket("/ws/shell")
+async def shell_websocket(ws: WebSocket):
+    await ws.accept()
+    SHELL_SOCKETS.append(ws)
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("action") == "close":
+                sid = msg.get("sid")
+                if sid in SESSIONS:
+                    SESSIONS[sid].raw_cache.clear()
+                    SESSIONS[sid].rgba_cache.clear()
+                    SESSIONS[sid].mosaic_cache.clear()
+                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[
+                        sid
+                    ]._mosaic_bytes = 0
+                    SESSIONS[sid].data = None
+                    del SESSIONS[sid]
+    except Exception:
+        pass
+    finally:
+        if ws in SHELL_SOCKETS:
+            SHELL_SOCKETS.remove(ws)
+
+
+@app.websocket("/ws/{sid}")
+async def websocket_endpoint(ws: WebSocket, sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        await ws.close()
+        return
+
+    await ws.accept()
+    _session_mod.VIEWER_SOCKETS += 1
+    loop = asyncio.get_running_loop()
+
+    try:
+        while True:
+            msg = await ws.receive_json()
+            seq = int(msg.get("seq", 0))
+
+            dim_x = int(msg["dim_x"])
+            dim_y = int(msg["dim_y"])
+            idx_tuple = tuple(int(x) for x in msg["indices"])
+            colormap = str(msg.get("colormap", "gray"))
+            dr = int(msg.get("dr", 1))
+            dim_z = int(msg.get("dim_z", -1))
+            complex_mode = int(msg.get("complex_mode", 0))
+            log_scale = bool(msg.get("log_scale", False))
+            _vmin_ov = msg.get("vmin_override")
+            _vmax_ov = msg.get("vmax_override")
+            vmin_override = float(_vmin_ov) if _vmin_ov is not None else None
+            vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
+            direction = int(msg.get("direction", 1))  # scroll direction (+1/-1)
+            slice_dim = int(msg.get("slice_dim", -1))
+
+            if session.rgb_axis is not None:
+                # RGB/RGBA mode — render directly from channel data; skip colormap.
+                rgba = await _render(
+                    loop,
+                    lambda: render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple)),
+                )
+                h, w = rgba.shape[:2]
+                vmin, vmax = 0.0, 255.0
+            elif dim_z >= 0:
+                rgba = await _render(
+                    loop,
+                    lambda: render_mosaic(
+                        session,
+                        dim_x,
+                        dim_y,
+                        dim_z,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                    ),
+                )
+                h, w = rgba.shape[:2]
+                raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                _, vmin, vmax = _prepare_display(
+                    session,
+                    raw,
+                    complex_mode,
+                    dr,
+                    log_scale,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
+            else:
+                rgba = await _render(
+                    loop,
+                    lambda: render_rgba(
+                        session,
+                        dim_x,
+                        dim_y,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
+                    ),
+                )
+                h, w = rgba.shape[:2]
+                raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                _, vmin, vmax = _prepare_display(
+                    session,
+                    raw,
+                    complex_mode,
+                    dr,
+                    log_scale,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
+
+                # Overlay compositing (segmentation masks)
+                overlay_sid = msg.get("overlay_sid")
+                mask = _extract_overlay_mask(
+                    overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=(h, w)
+                )
+                rgba = _composite_overlay_mask(rgba, mask)
+
+            header = np.array([seq, w, h], dtype=np.uint32).tobytes()
+            vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
+            await ws.send_bytes(header + vminmax + rgba.tobytes())
+
+            # Warm neighbor slices in the background (Phase 3 prefetch)
+            if slice_dim >= 0 and not (dim_z >= 0):
+                _schedule_prefetch(
+                    session, dim_x, dim_y, list(idx_tuple), slice_dim, direction
+                )
+    except WebSocketDisconnect:
+        pass  # normal: browser closed the tab/window
+    except Exception as _ws_exc:
+        import traceback
+
+        _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
+        traceback.print_exc()
+    finally:
+        _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
+
+
+@app.get("/clearcache/{sid}")
+def clear_cache(sid: str):
+    session = SESSIONS.get(sid)
+    if session:
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    return {"status": "ok"}
+
+
+@app.get("/cache_info/{sid}")
+def cache_info(sid: str):
+    """Phase 5: debug endpoint — returns per-session cache usage and budgets."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    return {
+        "raw_cache": {
+            "entries": len(session.raw_cache),
+            "used_bytes": session._raw_bytes,
+            "budget_bytes": session.RAW_CACHE_BYTES,
+            "used_mb": round(session._raw_bytes / 1e6, 2),
+            "budget_mb": round(session.RAW_CACHE_BYTES / 1e6, 2),
+        },
+        "rgba_cache": {
+            "entries": len(session.rgba_cache),
+            "used_bytes": session._rgba_bytes,
+            "budget_bytes": session.RGBA_CACHE_BYTES,
+            "used_mb": round(session._rgba_bytes / 1e6, 2),
+            "budget_mb": round(session.RGBA_CACHE_BYTES / 1e6, 2),
+        },
+        "mosaic_cache": {
+            "entries": len(session.mosaic_cache),
+            "used_bytes": session._mosaic_bytes,
+            "budget_bytes": session.MOSAIC_CACHE_BYTES,
+            "used_mb": round(session._mosaic_bytes / 1e6, 2),
+            "budget_mb": round(session.MOSAIC_CACHE_BYTES / 1e6, 2),
+        },
+        "heavy_op_limit_mb": round(HEAVY_OP_LIMIT_BYTES / 1e6, 1),
+    }
+
+
+@app.get("/colormap/{name}")
+def get_colormap(name: str):
+    """Validate a matplotlib colormap name and return its gradient stops."""
+    if not _ensure_lut(name):
+        return Response(status_code=404)
+    return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
+
+
+# Multipliers applied to the Otsu threshold for each mask level (level 0 = off)
+MASK_MULTIPLIERS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0]
+
+
+@app.post("/mask/{sid}")
+async def set_mask(sid: str, request: Request):
+    """Cycle mask level (0=off, 1–7 = increasing Otsu multiplier).
+
+    Client sends ``free_dims`` (list of dim indices to keep free) and
+    ``indices`` (current full index tuple). Otsu is computed on the
+    sub-volume formed by those free dims.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    body = await request.json()
+    level = int(body.get("level", 0))
+    level = max(0, min(level, len(MASK_MULTIPLIERS) - 1))
+    if level == 0:
+        session.mask_level = 0
+        session.mask_threshold = 0.0
+        session.rgba_cache.clear()
+        session._rgba_bytes = 0
+        return {"level": 0, "threshold": 0.0, "multiplier": 0.0}
+    try:
+        free_dims = set(int(d) for d in body.get("free_dims", [0, 1]))
+        indices = [int(v) for v in str(body.get("indices", "0")).split(",")]
+        loop = asyncio.get_running_loop()
+
+        def _extract_subvol():
+            slicer = tuple(
+                slice(None) if i in free_dims else indices[i]
+                for i in range(len(session.shape))
+            )
+            return session.data[slicer]
+
+        subvol = await loop.run_in_executor(None, _extract_subvol)
+        otsu = await loop.run_in_executor(None, lambda: _compute_otsu_threshold(subvol))
+    except Exception as e:
+        return {"error": str(e)}
+    otsu = float(otsu)
+    multiplier = MASK_MULTIPLIERS[level]
+    threshold = otsu * multiplier
+    session.mask_level = level
+    session.mask_threshold = threshold
+    session.mask_otsu = otsu
+    session.rgba_cache.clear()
+    session._rgba_bytes = 0
+    return {
+        "level": level,
+        "threshold": threshold,
+        "otsu": otsu,
+        "multiplier": multiplier,
+    }
+
+
+@app.post("/preload/{sid}")
+async def start_preload(sid: str, request: Request):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+
+    body = await request.json()
+    dim_x = int(body["dim_x"])
+    dim_y = int(body["dim_y"])
+    idx_list = [int(x) for x in body["indices"]]
+    colormap = str(body.get("colormap", "gray"))
+    dr = int(body.get("dr", 1))
+    slice_dim = int(body["slice_dim"])
+    dim_z = int(body.get("dim_z", -1))
+    complex_mode = int(body.get("complex_mode", 0))
+    log_scale = bool(body.get("log_scale", False))
+
+    session.preload_gen += 1
+    gen = session.preload_gen
+    threading.Thread(
+        target=_run_preload,
+        args=(
+            session,
+            gen,
+            dim_x,
+            dim_y,
+            idx_list,
+            colormap,
+            dr,
+            slice_dim,
+            dim_z,
+            complex_mode,
+            log_scale,
+        ),
+        daemon=True,
+    ).start()
+    return {"status": "started"}
+
+
+@app.get("/preload_status/{sid}")
+def get_preload_status(sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+    with session.preload_lock:
+        return {
+            "done": session.preload_done,
+            "total": session.preload_total,
+            "skipped": session.preload_skipped,
+        }
+
+
+def _vfield_n_times(session) -> int:
+    """Return number of time frames in the vector field (0 = no vfield, 1 = no time dim)."""
+    if session.vfield is None:
+        return 0
+    vf_ndim = np.asarray(session.vfield).ndim
+    img_ndim = np.asarray(session.data).ndim
+    return int(np.asarray(session.vfield).shape[0]) if vf_ndim == img_ndim + 2 else 1
+
+
+@app.get("/metadata/{sid}")
+async def get_metadata(sid: str):
+    session = SESSIONS.get(sid)
+    if not session and sid in PENDING_SESSIONS:
+        # Session is still loading in a background thread — poll until ready (max 120 s).
+        for _ in range(1200):
+            await asyncio.sleep(0.1)
+            session = SESSIONS.get(sid)
+            if session:
+                break
+    if not session:
+        return Response(status_code=404)
+    try:
+        return {
+            "shape": [
+                int(s)
+                for s in (
+                    session.spatial_shape
+                    if session.rgb_axis is not None
+                    else session.shape
+                )
+            ],
+            "is_complex": bool(np.iscomplexobj(session.data)),
+            "name": session.name,
+            "has_vectorfield": session.vfield is not None,
+            "vfield_n_times": _vfield_n_times(session),
+            "is_rgb": session.rgb_axis is not None,
+        }
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        return Response(
+            status_code=500, content=str(e).encode(), media_type="text/plain"
+        )
+
+
+@app.get("/vectorfield/{sid}")
+def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int = 0):
+    """Return downsampled deformation vector field arrows for the current 2-D view."""
+    session = SESSIONS.get(sid)
+    if not session or session.vfield is None:
+        return Response(status_code=404)
+    try:
+        vf = np.array(session.vfield, dtype=np.float32)
+        idx_tuple = tuple(int(x) for x in indices.split(","))
+
+        # Strip time dimension if present (shape T, *spatial, 3)
+        n_times = _vfield_n_times(session)
+        if n_times > 1:
+            t = max(0, min(n_times - 1, t_index))
+            vf = vf[t]
+
+        ndim_spatial = vf.ndim - 1  # last dim is vector components (size 3)
+
+        # Build index: fix non-display dims, leave dim_x / dim_y free
+        slices = []
+        for d in range(ndim_spatial):
+            slices.append(slice(None) if d in (dim_x, dim_y) else int(idx_tuple[d]))
+        slices.append(slice(None))  # vector components
+        vf_slice = vf[
+            tuple(slices)
+        ]  # shape ≈ (A, B, 3) where A,B are free spatial dims
+
+        # Ensure axis order is (dim_y rows, dim_x cols, 3).
+        # The free axes appear in ascending original-dim order; transpose if dim_x < dim_y.
+        if dim_x < dim_y:
+            vf_slice = vf_slice.transpose(1, 0, 2)
+
+        H, W = vf_slice.shape[:2]
+
+        # Component mapping: component index == original spatial dim index
+        vy_comp = vf_slice[:, :, dim_y]  # displacement along dim_y → vertical arrows
+        vx_comp = vf_slice[:, :, dim_x]  # displacement along dim_x → horizontal arrows
+
+        # Uniform random sampling with a fixed seed derived from (H, W) so that
+        # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
+        stride = max(1, max(H, W) // 32)
+        n_arrows = max(1, (H // stride) * (W // stride))
+        rng = np.random.default_rng(int(H) * 10007 + int(W))
+        gy = rng.integers(0, H, n_arrows).astype(int)
+        gx = rng.integers(0, W, n_arrows).astype(int)
+
+        vx_s = vx_comp[gy, gx]
+        vy_s = vy_comp[gy, gx]
+
+        # Scale: stride * 0.75 / p95_magnitude  (image pixels per voxel unit)
+        mags = np.sqrt(vx_s**2 + vy_s**2)
+        nonzero = mags[mags > 0]
+        p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
+        scale = float(stride * 0.75 / max(p95, 1e-9))
+
+        arrows = [
+            [int(gx[i]), int(gy[i]), float(vx_s[i]), float(vy_s[i])]
+            for i in range(len(gx))
+        ]
+        return {"arrows": arrows, "scale": scale, "stride": int(stride)}
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        return Response(
+            status_code=500, content=str(e).encode(), media_type="text/plain"
+        )
+
+
+@app.post("/attach_vectorfield")
+async def attach_vectorfield(request: Request):
+    """Attach a vector field to an existing session (for the existing-server code path)."""
+    body = await request.json()
+    sid = str(body["sid"])
+    filepath = str(body["filepath"])
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": f"session {sid} not found"}
+    try:
+        vf_data = load_data(filepath)
+        session.vfield = vf_data
+        return {"ok": True}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _safe_float(v) -> float | None:
+    """Convert to float; return None for NaN/Inf (JSON-safe)."""
+    f = float(v)
+    return f if math.isfinite(f) else None
+
+
+@app.get("/pixel/{sid}")
+def get_pixel(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    px: int,
+    py: int,
+    complex_mode: int = 0,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"value": None}
+
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    val = _safe_float(data[py, px]) if (0 <= py < h and 0 <= px < w) else None
+    return {"value": val}
+
+
+@app.get("/roi_circle/{sid}")
+def get_roi_circle(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    cx: float,
+    cy: float,
+    r: float,
+    complex_mode: int = 0,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    ys, xs = np.ogrid[:h, :w]
+    mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r**2
+    roi = data[mask]
+    if roi.size == 0:
+        return {"error": "empty selection"}
+    finite = roi[np.isfinite(roi)]
+    return {
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
+    }
+
+
+@app.get("/roi/{sid}")
+def get_roi(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    complex_mode: int = 0,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    xa = max(0, min(x0, x1, w - 1))
+    xb = min(w, max(x0, x1) + 1)
+    ya = max(0, min(y0, y1, h - 1))
+    yb = min(h, max(y0, y1) + 1)
+    roi = data[ya:yb, xa:xb]
+    if roi.size == 0:
+        return {"error": "empty selection"}
+    finite = roi[np.isfinite(roi)]
+    return {
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
+    }
+
+
+@app.get("/info/{sid}")
+def get_info(sid: str):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    try:
+        dtype_str = str(session.data.dtype)
+    except AttributeError:
+        dtype_str = "unknown"
+    info: dict = {
+        "shape": list(session.shape),
+        "dtype": dtype_str,
+        "ndim": len(session.shape),
+        "total_elements": int(np.prod(session.shape)),
+        "is_complex": bool(np.iscomplexobj(session.data)),
+        "filepath": session.filepath,
+    }
+    try:
+        info["size_mb"] = round(session.data.nbytes / 1024**2, 2)
+    except AttributeError:
+        info["size_mb"] = None
+    if session.fft_axes is not None:
+        info["fft_axes"] = list(session.fft_axes)
+    return info
+
+
+@app.post("/fft/{sid}")
+async def toggle_fft(sid: str, request: Request):
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "Invalid session"}
+
+    body = await request.json()
+    axes_str = str(body.get("axes", "")).strip()
+
+    if session.fft_original_data is not None:
+        session.data = session.fft_original_data
+        session.shape = session.data.shape
+        session.fft_original_data = None
+        session.fft_axes = None
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        session.compute_global_stats()
+        return {"status": "restored", "is_complex": bool(np.iscomplexobj(session.data))}
+
+    try:
+        axes = tuple(int(a.strip()) for a in axes_str.split(",") if a.strip())
+        if not axes:
+            raise ValueError("No axes specified")
+    except Exception as e:
+        return {"error": str(e)}
+
+    # Phase 4 guardrail: FFT materialises the full array — block for large data
+    est = _estimate_array_bytes(session)
+    if est > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = est // (1024 * 1024)
+        return {
+            "error": (
+                f"FFT blocked: array is ~{est_mb} MB (limit {limit_mb} MB). "
+                "Convert to a smaller sub-volume or increase "
+                "ARRAYVIEW_HEAVY_OP_LIMIT_MB."
+            ),
+            "too_large": True,
+        }
+
+    session.fft_original_data = session.data
+    full = np.array(session.data)
+    session.data = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
+    session.shape = session.data.shape
+    session.fft_axes = axes
+    session.raw_cache.clear()
+    session.rgba_cache.clear()
+    session.mosaic_cache.clear()
+    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    session.compute_global_stats()
+    return {
+        "status": "fft_applied",
+        "axes": list(axes),
+        "is_complex": bool(np.iscomplexobj(session.data)),
+    }
+
+
+@app.post("/set_rgb/{sid}")
+async def set_rgb_endpoint(sid: str, request: Request):
+    """Toggle RGB rendering for a session.
+
+    Body: {"axis": int | null}
+    - axis=null  → disable RGB mode (restore full shape)
+    - axis=int   → treat that dimension as the RGB/RGBA channel axis
+                   (must have size 3 or 4)
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return {"error": "session not found"}
+    body = await request.json()
+    axis = body.get("axis")
+    if axis is None:
+        session.rgb_axis = None
+        session.spatial_shape = session.data.shape
+    else:
+        axis = int(axis)
+        if not (0 <= axis < len(session.data.shape)):
+            return {
+                "error": f"axis {axis} out of range for shape {list(session.data.shape)}"
+            }
+        if session.data.shape[axis] not in (3, 4):
+            return {
+                "error": f"dim {axis} has size {session.data.shape[axis]}, need 3 or 4 for RGB/RGBA"
+            }
+        session.rgb_axis = axis
+        session.spatial_shape = tuple(
+            s for i, s in enumerate(session.data.shape) if i != axis
+        )
+    session.rgba_cache.clear()
+    session._rgba_bytes = 0
+    return {
+        "ok": True,
+        "is_rgb": session.rgb_axis is not None,
+        "spatial_shape": list(session.spatial_shape),
+    }
+
+
+@app.get("/slice/{sid}")
+def get_slice(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    colormap: str = "gray",
+    dr: int = 1,
+    slice_dim: int = -1,
+    dim_z: int = -1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    vmin_override: float | None = None,
+    vmax_override: float | None = None,
+    overlay_sid: str | None = None,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    if dim_z >= 0:
+        rgba = render_mosaic(
+            session,
+            dim_x,
+            dim_y,
+            dim_z,
+            idx_tuple,
+            colormap,
+            dr,
+            complex_mode,
+            log_scale,
+        )
+        idx_norm = list(idx_tuple)
+        idx_norm[dim_z] = 0
+        frames_raw = [
+            extract_slice(
+                session,
+                dim_x,
+                dim_y,
+                [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+            )
+            for i in range(session.shape[dim_z])
+        ]
+        frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
+        if log_scale:
+            frames = [np.log1p(np.abs(frame)).astype(np.float32) for frame in frames]
+            pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+            all_data = np.stack(frames)
+            vmin = float(np.percentile(all_data, pct_lo))
+            vmax = float(np.percentile(all_data, pct_hi))
+        else:
+            vmin, vmax = _compute_vmin_vmax(session, np.stack(frames), dr, complex_mode)
+    else:
+        if session.rgb_axis is not None:
+            rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))
+            vmin, vmax = 0.0, 255.0
+        else:
+            rgba = render_rgba(
+                session,
+                dim_x,
+                dim_y,
+                idx_tuple,
+                colormap,
+                dr,
+                complex_mode,
+                log_scale,
+                vmin_override,
+                vmax_override,
+            )
+            mask = _extract_overlay_mask(
+                overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
+            )
+            rgba = _composite_overlay_mask(rgba, mask)
+            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+            _, vmin, vmax = _prepare_display(
+                session,
+                raw,
+                complex_mode,
+                dr,
+                log_scale,
+                vmin_override=vmin_override,
+                vmax_override=vmax_override,
+            )
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "max-age=300",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        },
+    )
+
+
+def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
+    """Extract a slice and normalize to [0, 1] float32 using per-slice display range."""
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    return normalized.astype(np.float32)
+
+
+def _render_normalized_mosaic(
+    session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale
+):
+    """Return (float32 normalized mosaic grid [0,1], nan_mask) for all z-slices."""
+    n = session.shape[dim_z]
+    idx_list = list(idx_tuple)
+    frames_raw = [
+        extract_slice(
+            session,
+            dim_x,
+            dim_y,
+            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
+        )
+        for i in range(n)
+    ]
+    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
+    if log_scale:
+        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
+    all_data = np.stack(frames)
+    if log_scale:
+        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+        vmin = float(np.percentile(all_data, pct_lo))
+        vmax = float(np.percentile(all_data, pct_hi))
+    else:
+        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
+    rows, cols = mosaic_shape(n)
+    H, W = frames[0].shape
+    GAP = 2
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        r0, c0 = r * (H + GAP), c * (W + GAP)
+        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
+    nan_mask = np.isnan(grid)
+    if vmax > vmin:
+        normalized = np.clip(
+            np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1
+        )
+    else:
+        normalized = np.zeros_like(grid)
+    return normalized.astype(np.float32), nan_mask
+
+
+@app.get("/diff/{sid_a}/{sid_b}")
+def get_diff(
+    sid_a: str,
+    sid_b: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    dim_z: int = -1,
+    dr: int = 1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    diff_mode: int = 1,
+):
+    session_a = SESSIONS.get(sid_a)
+    session_b = SESSIONS.get(sid_b)
+    if not session_a or not session_b:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    # Use the shorter index tuple to handle mismatched dimensionalities
+    ndim_a = len(session_a.shape)
+    ndim_b = len(session_b.shape)
+    idx_a = idx_tuple[:ndim_a]
+    idx_b = idx_tuple[:ndim_b]
+    nan_mask = None
+    try:
+        if dim_z >= 0:
+            a, nan_mask_a = _render_normalized_mosaic(
+                session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale
+            )
+            b, nan_mask_b = _render_normalized_mosaic(
+                session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale
+            )
+            nan_mask = nan_mask_a | nan_mask_b
+        else:
+            a = _render_normalized(
+                session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale
+            )
+            b = _render_normalized(
+                session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale
+            )
+    except Exception:
+        return Response(status_code=422)
+    # Resize b to match a if shapes differ
+    if a.shape != b.shape:
+        try:
+            from PIL import Image as _Image
+
+            b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
+            b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
+            b = np.array(b_img, dtype=np.float32) / 255.0
+        except Exception:
+            return Response(status_code=422)
+    if diff_mode == 1:
+        raw = a - b
+        vmin, vmax = -1.0, 1.0
+        colormap = "RdBu_r"
+    elif diff_mode == 2:
+        raw = np.abs(a - b)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "viridis"
+    else:  # diff_mode == 3
+        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
+        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "viridis"
+    if vmax > vmin:
+        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(raw)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
+        rgba[nan_mask] = [22, 22, 22, 255]  # dark separator (matches mosaic_render)
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        },
+    )
+
+
+@app.get("/oblique/{sid}")
+def get_oblique(
+    sid: str,
+    center: str,  # comma-sep floats — full N-dim index (e.g. "32.0,30.0,35.0")
+    basis_h: str,  # 3 floats in mv_dims order, unit vector → horizontal
+    basis_v: str,  # 3 floats in mv_dims order, unit vector → vertical
+    mv_dims: str,  # 3 ints: which array dims are the 3 spatial dims
+    size_w: int,
+    size_h: int,
+    colormap: str = "gray",
+    dr: int = 1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    vmin_override: float | None = None,
+    vmax_override: float | None = None,
+):
+    """Render an oblique (arbitrarily-oriented) slice through a 3-D volume."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    from scipy.ndimage import map_coordinates
+
+    ctr = [float(x) for x in center.split(",")]
+    bh = [float(x) for x in basis_h.split(",")]
+    bv = [float(x) for x in basis_v.split(",")]
+    dims = [int(x) for x in mv_dims.split(",")]
+
+    ndim = len(session.shape)
+    hw, hh = size_w / 2.0, size_h / 2.0
+    s_arr = np.arange(size_w, dtype=np.float64) - hw
+    t_arr = np.arange(size_h, dtype=np.float64) - hh
+    ss, tt = np.meshgrid(s_arr, t_arr)  # (size_h, size_w)
+
+    # Build full N-dim coordinate grids; non-spatial dims use fixed center value
+    coords = np.empty((ndim, size_h, size_w), dtype=np.float64)
+    for ai in range(ndim):
+        if ai in dims:
+            ji = dims.index(ai)
+            coords[ai] = ctr[ai] + ss * bh[ji] + tt * bv[ji]
+        else:
+            coords[ai] = ctr[ai]
+
+    data = session.data
+    if np.iscomplexobj(data):
+        if complex_mode == 1:
+            data_f = np.angle(data).astype(np.float32)
+        elif complex_mode == 2:
+            data_f = data.real.astype(np.float32)
+        elif complex_mode == 3:
+            data_f = data.imag.astype(np.float32)
+        else:
+            data_f = np.abs(data).astype(np.float32)
+    else:
+        data_f = np.nan_to_num(np.asarray(data, dtype=np.float32))
+
+    sampled = map_coordinates(
+        data_f, coords, order=1, mode="constant", cval=0.0
+    ).astype(np.float32)
+
+    if log_scale:
+        sampled = np.log1p(np.abs(sampled)).astype(np.float32)
+
+    if vmin_override is not None and vmax_override is not None:
+        vmin, vmax = float(vmin_override), float(vmax_override)
+    else:
+        vmin, vmax = _compute_vmin_vmax(session, sampled, dr, complex_mode)
+
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    if vmax > vmin:
+        normalized = np.clip((sampled - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(sampled)
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+        },
+    )
+
+
+@app.get("/grid/{sid}")
+def get_grid(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    slice_dim: int,
+    colormap: str = "gray",
+    dr: int = 1,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return JSONResponse(
+            status_code=400, content={"error": "not supported for RGB sessions"}
+        )
+    idx_list = [int(x) for x in indices.split(",")]
+    n = session.shape[slice_dim]
+
+    # Phase 4 guardrail: grid stacks all n slices — block for large data
+    try:
+        itemsize = np.dtype(session.data.dtype).itemsize
+    except Exception:
+        itemsize = 4
+    frame_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
+    if frame_bytes * n > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = frame_bytes * n // (1024 * 1024)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    f"Grid blocked: would stack ~{est_mb} MB (limit {limit_mb} MB). "
+                    "Increase ARRAYVIEW_HEAVY_OP_LIMIT_MB to override."
+                ),
+                "too_large": True,
+            },
+        )
+
+    frames = []
+    for i in range(n):
+        idx_list[slice_dim] = i
+        frames.append(extract_slice(session, dim_x, dim_y, idx_list))
+
+    all_data = np.stack(frames)
+    if dr in session.global_stats:
+        vmin, vmax = session.global_stats[dr]
+    else:
+        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+        vmin = float(np.percentile(all_data, pct_lo))
+        vmax = float(np.percentile(all_data, pct_hi))
+
+    rows, cols = mosaic_shape(n)
+    H, W = frames[0].shape
+    GAP = 2
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        grid[r * (H + GAP) : r * (H + GAP) + H, c * (W + GAP) : c * (W + GAP) + W] = (
+            all_data[k]
+        )
+
+    nan_mask = np.isnan(grid)
+    filled = np.where(nan_mask, vmin, grid)
+    if vmax > vmin:
+        normalized = np.clip((filled - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(filled)
+
+    _init_luts()
+    lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    rgba[nan_mask] = [22, 22, 22, 255]
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
+@app.get("/gif/{sid}")
+def get_gif(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    slice_dim: int,
+    colormap: str = "gray",
+    dr: int = 1,
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return JSONResponse(
+            status_code=400, content={"error": "not supported for RGB sessions"}
+        )
+    idx_list = [int(x) for x in indices.split(",")]
+    n = session.shape[slice_dim]
+
+    # Phase 4 guardrail: GIF stacks all n slices — block for large data
+    try:
+        itemsize = np.dtype(session.data.dtype).itemsize
+    except Exception:
+        itemsize = 4
+    frame_bytes = session.shape[dim_y] * session.shape[dim_x] * itemsize
+    if frame_bytes * n > HEAVY_OP_LIMIT_BYTES:
+        limit_mb = HEAVY_OP_LIMIT_BYTES // (1024 * 1024)
+        est_mb = frame_bytes * n // (1024 * 1024)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": (
+                    f"GIF blocked: would stack ~{est_mb} MB (limit {limit_mb} MB). "
+                    "Increase ARRAYVIEW_HEAVY_OP_LIMIT_MB to override."
+                ),
+                "too_large": True,
+            },
+        )
+
+    frames = []
+    for i in range(n):
+        idx_list[slice_dim] = i
+        frames.append(extract_slice(session, dim_x, dim_y, idx_list))
+
+    all_data = np.stack(frames)
+    if dr in session.global_stats:
+        vmin, vmax = session.global_stats[dr]
+    else:
+        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
+        vmin = float(np.percentile(all_data, pct_lo))
+        vmax = float(np.percentile(all_data, pct_hi))
+
+    _init_luts()
+    lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])
+    gif_frames = []
+    for frame in frames:
+        if vmax > vmin:
+            normalized = np.clip((frame - vmin) / (vmax - vmin), 0, 1)
+        else:
+            normalized = np.zeros_like(frame)
+        rgba = lut[(normalized * 255).astype(np.uint8)]
+        gif_frames.append(_pil_image().fromarray(rgba[:, :, :3], mode="RGB"))
+
+    buf = io.BytesIO()
+    gif_frames[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=gif_frames[1:],
+        loop=0,
+        duration=100,
+    )
+    return Response(content=buf.getvalue(), media_type="image/gif")
+
+
+@app.get("/shell")
+def get_shell():
+    """Tabbed shell UI for native webview windows."""
+    return HTMLResponse(content=_SHELL_HTML)
+
+
+@app.get("/ping")
+def ping():
+    """Health marker so clients can verify this is an ArrayView server."""
+    return {
+        "ok": True,
+        "service": "arrayview",
+        "pid": os.getpid(),
+        "viewer_sockets": _session_mod.VIEWER_SOCKETS,
+    }
+
+
+@app.get("/listfiles")
+def list_files(directory: str = ""):
+    """List supported array files recursively (depth ≤ 4, max 300 files).
+
+    Returns entries sorted by relative path; files directly in the target
+    directory use just the filename as ``name``, nested files use a relative
+    path (e.g. ``subdir/scan.npy``).  Hidden directories (name starts with
+    ``.``) are skipped.
+    """
+    target = os.path.abspath(directory) if directory else os.getcwd()
+    MAX_FILES = 300
+    MAX_DEPTH = 4
+    results = []
+    try:
+        for root, dirs, files in os.walk(target):
+            rel_root = os.path.relpath(root, target)
+            depth = 0 if rel_root == "." else rel_root.count(os.sep) + 1
+            # Prune hidden dirs and stop recursing beyond MAX_DEPTH
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            if depth >= MAX_DEPTH:
+                dirs.clear()
+            for fname in sorted(files):
+                name_lower = fname.lower()
+                ext = (
+                    ".nii.gz"
+                    if name_lower.endswith(".nii.gz")
+                    else os.path.splitext(name_lower)[1]
+                )
+                if ext not in _SUPPORTED_EXTS:
+                    continue
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, target)
+                name = fname if root == target else rel
+                try:
+                    file_size = os.path.getsize(fpath)
+                except OSError:
+                    continue
+                shape = _peek_file_shape(fpath, ext)
+                results.append(
+                    {"name": name, "path": fpath, "size": file_size, "shape": shape}
+                )
+                if len(results) >= MAX_FILES:
+                    break
+            if len(results) >= MAX_FILES:
+                break
+    except Exception as e:
+        return {"error": str(e)}
+    return results
+
+
+@app.get("/sessions")
+def get_sessions():
+    """Returns list of active sessions (used by shell to populate tabs on load)."""
+    return [
+        {
+            "sid": s.sid,
+            "name": s.name,
+            "shape": [int(x) for x in s.shape],
+            "filepath": s.filepath,
+        }
+        for s in SESSIONS.values()
+    ]
+
+
+@app.post("/load")
+async def load_file(request: Request):
+    """Load a file into a new session. Optionally notify webview shells."""
+    body = await request.json()
+    filepath = str(body["filepath"])
+    name = str(body.get("name") or os.path.basename(filepath))
+    notify = bool(body.get("notify", False))
+    try:
+        data = await asyncio.to_thread(load_data, filepath)
+    except Exception as e:
+        return {"error": str(e)}
+    session = Session(data, filepath=filepath, name=name)
+    if body.get("rgb"):
+        try:
+            _setup_rgb(session)
+        except ValueError as e:
+            return {"error": str(e)}
+    SESSIONS[session.sid] = session
+    notified = False
+    if notify:
+        tab_url = None
+        if body.get("compare_sids"):
+            tab_url = (
+                f"/?sid={session.sid}"
+                f"&compare_sid={body['compare_sid']}"
+                f"&compare_sids={body['compare_sids']}"
+            )
+        # wait=False: the shell window should already be connected for inject-into-existing.
+        # If no shells are connected the native window is gone and the caller must open a new one.
+        notified = await _notify_shells(session.sid, name, url=tab_url, wait=False)
+    return {"sid": session.sid, "name": name, "notified": notified}
+
+
+@app.get("/")
+def get_ui(sid: str = None):
+    """Viewer page."""
+    # VS Code Simple Browser internally calls asExternalUri() which strips query
+    # parameters, so ?sid= is often lost before the page loads.  Embed the SID
+    # directly in the HTML so the viewer JS can find it regardless of the URL.
+    if not sid:
+        # No sid in URL — VS Code Simple Browser strips the query string before
+        # loading the page, so ?sid= is lost.  Inject the latest valid session
+        # server-side so the viewer JS can find it regardless of the URL.
+        if SESSIONS:
+            latest_sid = list(SESSIONS.keys())[-1]
+            query_val = json.dumps(f"?sid={latest_sid}&transport=http")
+        else:
+            query_val = "null"  # viewer will show "Session not found or expired"
+    else:
+        # sid is present in the URL (valid or not) — let the JS fetch /metadata/{sid}
+        # and handle errors itself (shows "Session not found or expired" on 404).
+        query_val = "null"
+    _init_luts()
+    html = (
+        _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
+        .replace("__DR_LABELS__", str(DR_LABELS))
+        .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
+        .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
+        .replace("__REAL_MODES__", str(REAL_MODES))
+        .replace("__ARRAYVIEW_QUERY__", query_val)
+    )
+    headers = {"Cache-Control": "no-store"}
+    return HTMLResponse(content=html, headers=headers)
