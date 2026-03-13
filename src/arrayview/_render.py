@@ -51,6 +51,23 @@ REAL_MODES = ["real", "mag"]
 OVERLAY_COLOR = np.array([255, 80, 80], dtype=np.float32)
 OVERLAY_ALPHA = np.float32(0.45)
 
+# Categorical colors for integer segmentation labels (label 1..N → index 0..N-1)
+LABEL_COLORS = np.array(
+    [
+        [255,  80,  80],  # 1  red
+        [ 80, 160, 255],  # 2  blue
+        [ 80, 210,  80],  # 3  green
+        [255, 175,  50],  # 4  orange
+        [185,  80, 255],  # 5  purple
+        [255, 100, 190],  # 6  pink
+        [ 60, 210, 195],  # 7  teal
+        [240, 220,  50],  # 8  yellow
+        [160, 110,  60],  # 9  brown
+        [180, 180, 180],  # 10 gray
+    ],
+    dtype=np.float32,
+)
+
 
 # ---------------------------------------------------------------------------
 # Utility
@@ -387,7 +404,10 @@ def _extract_overlay_mask(
     idx_tuple: tuple[int, ...],
     expected_shape: tuple[int, int],
 ) -> np.ndarray | None:
-    """Return a boolean mask slice for overlay compositing, or None."""
+    """Return the raw overlay slice (float32 H×W) for compositing, or None.
+
+    Caller should inspect the overlay session dtype to decide label vs heatmap mode.
+    """
     if not overlay_sid:
         return None
     ov_session = SESSIONS.get(str(overlay_sid))
@@ -413,35 +433,121 @@ def _extract_overlay_mask(
             continue
         if ov_raw.shape != expected_shape:
             continue
-        mask = np.isfinite(ov_raw) & (ov_raw > 0.5)
-        if mask.any():
-            return mask
+        if np.any(np.isfinite(ov_raw) & (ov_raw != 0)):
+            return ov_raw.astype(np.float32)
     return None
 
 
+def _overlay_is_label_map(overlay_sid: str | None) -> bool:
+    """Return True if the overlay session looks like an integer label map."""
+    if not overlay_sid:
+        return False
+    ov_session = SESSIONS.get(str(overlay_sid))
+    if ov_session is None:
+        return False
+    return np.issubdtype(ov_session.data.dtype, np.integer)
+
+
 def _composite_overlay_mask(
-    rgba: np.ndarray, mask: np.ndarray | None, alpha: float = float(OVERLAY_ALPHA)
+    rgba: np.ndarray,
+    ov_raw: np.ndarray | None,
+    alpha: float = float(OVERLAY_ALPHA),
+    is_label: bool = False,
 ) -> np.ndarray:
-    """Alpha-composite a red segmentation mask on top of an RGBA frame."""
-    if mask is None:
+    """Alpha-composite an overlay on top of an RGBA frame.
+
+    - is_label=True  → treat ov_raw as integer labels (1..N), each label gets a
+                        distinct categorical colour from LABEL_COLORS.
+    - is_label=False → treat ov_raw as a float heatmap in [0,∞); normalise to
+                       [0,1] and map through a desaturated jet-like palette.
+      In both cases pixels where ov_raw == 0 are transparent (no overlay).
+    """
+    if ov_raw is None:
         return rgba
 
     out = rgba.copy()
+    ov_a = np.float32(alpha)
+
+    if is_label:
+        # Label map: each integer value 1..N gets a distinct colour.
+        labels = np.round(ov_raw).astype(np.int32)
+        unique_labels = np.unique(labels)
+        for lbl in unique_labels:
+            if lbl <= 0:
+                continue
+            mask = labels == lbl
+            color = LABEL_COLORS[(lbl - 1) % len(LABEL_COLORS)]
+            _blend_color(out, mask, color, ov_a)
+    else:
+        # Float heatmap: normalise to [0,1], apply a desaturated warm-cool LUT.
+        valid = np.isfinite(ov_raw) & (ov_raw > 0)
+        if not valid.any():
+            return rgba
+        vmax_ov = float(np.max(ov_raw[valid]))
+        if vmax_ov == 0:
+            return rgba
+        norm = np.clip(ov_raw / vmax_ov, 0.0, 1.0)
+        # Desaturated jet: blend blue→cyan→yellow→red with reduced saturation
+        # We apply the colormap only where the overlay is non-zero.
+        ov_colors = _desaturated_jet(norm[valid])
+        mask = valid
+        _blend_pixels(out, mask, ov_colors, ov_a)
+
+    return out
+
+
+def _blend_color(
+    out: np.ndarray, mask: np.ndarray, color: np.ndarray, ov_a: float
+) -> None:
+    """In-place Porter-Duff 'over' blend of a single colour onto out[mask]."""
     base_rgb = out[mask, :3].astype(np.float32) / 255.0
     base_a = out[mask, 3].astype(np.float32) / 255.0
-
-    ov_a = np.float32(alpha)
     out_a = ov_a + base_a * (1.0 - ov_a)
     denom = np.maximum(out_a, 1e-6)
-
-    ov_rgb = OVERLAY_COLOR / 255.0
-    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[
-        :, None
-    ]
-
+    ov_rgb = color / 255.0
+    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[:, None]
     out[mask, :3] = np.clip(out_rgb * 255.0, 0.0, 255.0).astype(np.uint8)
     out[mask, 3] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
-    return out
+
+
+def _blend_pixels(
+    out: np.ndarray, mask: np.ndarray, colors: np.ndarray, ov_a: float
+) -> None:
+    """In-place Porter-Duff 'over' blend of per-pixel colours onto out[mask]."""
+    base_rgb = out[mask, :3].astype(np.float32) / 255.0
+    base_a = out[mask, 3].astype(np.float32) / 255.0
+    out_a = ov_a + base_a * (1.0 - ov_a)
+    denom = np.maximum(out_a, 1e-6)
+    ov_rgb = colors / 255.0
+    out_rgb = (ov_a * ov_rgb + (1.0 - ov_a) * base_a[:, None] * base_rgb) / denom[:, None]
+    out[mask, :3] = np.clip(out_rgb * 255.0, 0.0, 255.0).astype(np.uint8)
+    out[mask, 3] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
+
+
+# Pre-built desaturated-jet LUT (256 × 3, float32, values in [0, 255])
+def _build_desaturated_jet() -> np.ndarray:
+    """Build a 256-entry RGB LUT resembling jet but with ~60% saturation."""
+    t = np.linspace(0.0, 1.0, 256)
+    r = np.clip(1.5 - np.abs(4.0 * t - 3.0), 0.0, 1.0)
+    g = np.clip(1.5 - np.abs(4.0 * t - 2.0), 0.0, 1.0)
+    b = np.clip(1.5 - np.abs(4.0 * t - 1.0), 0.0, 1.0)
+    # Desaturate: lerp toward luminance (60% colour, 40% gray)
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    sat = 0.6
+    r = sat * r + (1.0 - sat) * lum
+    g = sat * g + (1.0 - sat) * lum
+    b = sat * b + (1.0 - sat) * lum
+    lut = np.stack([r, g, b], axis=1) * 255.0
+    return lut.astype(np.float32)
+
+
+_DESATURATED_JET_LUT = _build_desaturated_jet()
+
+
+def _desaturated_jet(t: np.ndarray) -> np.ndarray:
+    """Map t ∈ [0,1] array to RGB colours using the desaturated-jet LUT."""
+    idx = np.clip((t * 255.0).astype(np.int32), 0, 255)
+    return _DESATURATED_JET_LUT[idx]
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +729,8 @@ __all__ = [
     # Overlay
     "_extract_overlay_mask",
     "_composite_overlay_mask",
+    "_overlay_is_label_map",
+    "LABEL_COLORS",
     # Mosaic
     "render_mosaic",
     # Preload

@@ -56,6 +56,7 @@ from arrayview._render import (
     render_rgba,
     _extract_overlay_mask,
     _composite_overlay_mask,
+    _overlay_is_label_map,
     render_mosaic,
     _run_preload,
 )
@@ -257,10 +258,14 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
 
                 # Overlay compositing (segmentation masks)
                 overlay_sid = msg.get("overlay_sid")
-                mask = _extract_overlay_mask(
+                overlay_alpha = float(msg.get("overlay_alpha", 0.45))
+                ov_raw = _extract_overlay_mask(
                     overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=(h, w)
                 )
-                rgba = _composite_overlay_mask(rgba, mask)
+                rgba = _composite_overlay_mask(
+                    rgba, ov_raw, alpha=overlay_alpha,
+                    is_label=_overlay_is_label_map(overlay_sid),
+                )
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
@@ -817,6 +822,7 @@ def get_slice(
     vmin_override: float | None = None,
     vmax_override: float | None = None,
     overlay_sid: str | None = None,
+    overlay_alpha: float = 0.45,
 ):
     session = SESSIONS.get(sid)
     if not session:
@@ -871,10 +877,13 @@ def get_slice(
                 vmin_override,
                 vmax_override,
             )
-            mask = _extract_overlay_mask(
+            ov_raw = _extract_overlay_mask(
                 overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
             )
-            rgba = _composite_overlay_mask(rgba, mask)
+            rgba = _composite_overlay_mask(
+                rgba, ov_raw, alpha=overlay_alpha,
+                is_label=_overlay_is_label_map(overlay_sid),
+            )
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
             _, vmin, vmax = _prepare_display(
                 session,
