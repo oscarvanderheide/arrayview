@@ -68,6 +68,7 @@
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
             pointer-events: none; color: rgba(190,190,190,0.75);
+            opacity: 0; transition: opacity 0.6s ease;
         }
         :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
@@ -89,9 +90,7 @@
         }
         .dim-label:hover { background: rgba(255,255,255,0.09); }
         :root.light .dim-label:hover { background: rgba(0,0,0,0.07); }
-        .dim-chip { display: inline-flex; flex-direction: column; align-items: center;
-                    opacity: 0; transition: opacity 0.5s ease; }
-        #info.dim-chips-visible .dim-chip { opacity: 1; transition: opacity 0.1s ease; }
+        .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
         .dim-text { display: inline-block; min-width: 3ch; text-align: right; }
         .dim-track {
             width: 100%; height: 3px; background: var(--border);
@@ -834,7 +833,7 @@
         let preloadActiveDim = -1;
         let statusFadeTimer = null;
         let dataInfoTimer = null;
-        let dimChipsTimer = null;
+        let axesFlashTimer = null;
 
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
@@ -2185,13 +2184,18 @@
             mainAxes.style.display = dim_z >= 0 ? 'none' : '';
         }
 
-        function flashDimChips() {
-            const infoEl = document.getElementById('info');
-            infoEl.classList.add('dim-chips-visible');
-            if (dimChipsTimer) clearTimeout(dimChipsTimer);
-            dimChipsTimer = setTimeout(() => {
-                infoEl.classList.remove('dim-chips-visible');
-                dimChipsTimer = null;
+        function flashAxesIndicators() {
+            document.querySelectorAll('.axes-indicator').forEach(el => {
+                el.style.transition = 'opacity 0.1s ease';
+                el.style.opacity = '1';
+            });
+            if (axesFlashTimer) clearTimeout(axesFlashTimer);
+            axesFlashTimer = setTimeout(() => {
+                document.querySelectorAll('.axes-indicator').forEach(el => {
+                    el.style.transition = 'opacity 0.6s ease';
+                    el.style.opacity = '0';
+                });
+                axesFlashTimer = null;
             }, 1500);
         }
 
@@ -3133,7 +3137,7 @@
                 e.preventDefault();
                 if (multiViewActive) {
                     activeDim = (activeDim - 1 + shape.length) % shape.length;
-                    flashDimChips();
+                    flashAxesIndicators();
                     renderInfo();
                 } else {
                     if (activeDim === 0 && vfieldNTimes > 1) {
@@ -3146,14 +3150,14 @@
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
-                    flashDimChips();
+                    flashAxesIndicators();
                     renderInfo();
                 }
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 if (multiViewActive) {
                     activeDim = (activeDim + 1) % shape.length;
-                    flashDimChips();
+                    flashAxesIndicators();
                     renderInfo();
                 } else {
                     if (activeDim === shape.length - 1 && vfieldNTimes > 1) {
@@ -3166,7 +3170,7 @@
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
-                    flashDimChips();
+                    flashAxesIndicators();
                     renderInfo();
                 }
             } else if (e.key === 'M') {
