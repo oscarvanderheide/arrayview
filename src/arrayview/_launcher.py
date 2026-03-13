@@ -1325,7 +1325,7 @@ def arrayview():
             _relay_array_to_server(base_file, args.port, name, args.rgb)
             return
         except Exception as _relay_exc:
-            _vprint(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
+            print(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
             # Fall through — not an ArrayView relay server; start our own.
     if _port_in_use(args.port) and not is_arrayview_server:
         if _is_vscode_remote():
