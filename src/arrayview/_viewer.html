@@ -89,7 +89,9 @@
         }
         .dim-label:hover { background: rgba(255,255,255,0.09); }
         :root.light .dim-label:hover { background: rgba(0,0,0,0.07); }
-        .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
+        .dim-chip { display: inline-flex; flex-direction: column; align-items: center;
+                    opacity: 0; transition: opacity 0.5s ease; }
+        #info.dim-chips-visible .dim-chip { opacity: 1; transition: opacity 0.1s ease; }
         .dim-text { display: inline-block; min-width: 3ch; text-align: right; }
         .dim-track {
             width: 100%; height: 3px; background: var(--border);
@@ -146,6 +148,10 @@
         .av-logo-loading #logo-b7 { animation: av-logo-walk-l 1.6s -1.0s ease-in-out infinite; }
         .av-logo-loading #logo-b6 { animation: av-logo-walk-u 1.6s -1.2s ease-in-out infinite; }
         .av-logo-loading #logo-b3 { animation: av-logo-walk-u 1.6s -1.4s ease-in-out infinite; }
+        /* Smooth return to origin when animation stops (avoids snap-back jitter) */
+        #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8 {
+            transition: transform 0.2s ease-out;
+        }
         #compare-view-wrap.focus-diff .compare-pane:not(.compare-diff) { display: none !important; }
         #compare-view-wrap.focus-reg .compare-pane:not(.compare-tertiary) { display: none !important; }
         #inline-prompt {
@@ -682,7 +688,7 @@
                 <div class="help-panel active" data-help-panel="navigation">
                 <div class="help-panel-title">Navigation</div>
                 <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice</span></div>
-                <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim</span></div>
+                <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim (shows dim progress briefly)</span></div>
                 <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index; reverse direction on spatial dims</span></div>
                 <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis direction</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle RGB mode on active dim (size 3 or 4)</span></div>
@@ -713,7 +719,7 @@
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key">O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">decrease / increase registration blend</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode) or registration blend (R in compare)</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus diff/overlay pane (in X or R mode)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
@@ -828,6 +834,7 @@
         let preloadActiveDim = -1;
         let statusFadeTimer = null;
         let dataInfoTimer = null;
+        let dimChipsTimer = null;
 
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
@@ -875,6 +882,7 @@
         let compareRegistrationFrame = null;
         let registrationMode = false;
         let registrationAlpha = 0.5;
+        let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let pendingViewMode = null;
         let pendingMvDims = null;
         let pendingQmriDim = null;
@@ -1772,6 +1780,7 @@
                     params.set('vmax_override', String(manualVmax));
                 }
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
 
                 const frame = await fetchSliceFrame(params);
                 const vmin = frame.vmin;
@@ -1846,7 +1855,10 @@
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
                 const requests = renderSids.map(sidVal => {
                     const reqParams = new URLSearchParams(params.toString());
-                    if (sidVal === sid && overlay_sid) reqParams.set('overlay_sid', overlay_sid);
+                    if (sidVal === sid && overlay_sid) {
+                        reqParams.set('overlay_sid', overlay_sid);
+                        reqParams.set('overlay_alpha', String(overlayAlpha));
+                    }
                     return fetchSliceFrame(reqParams, sidVal);
                 });
                 compareFrames = await Promise.all(requests);
@@ -1980,8 +1992,28 @@
             if (rgbMode) cbVisible = false;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
             indices = shape.map(s => Math.floor(s / 2));
+            // Sane spatial dim defaults: last two dims if they are significantly larger
+            // (e.g. (3,4,120,120) → dim_x=2, dim_y=3), otherwise fallback to first two.
             dim_x = 0; dim_y = 1;
-            current_slice_dim = shape.length > 2 ? 2 : 0;
+            if (shape.length >= 3) {
+                const sorted = shape.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]);
+                const top2 = [sorted[0][1], sorted[1][1]].sort((a, b) => a - b);
+                if (top2[0] === shape.length - 2 && top2[1] === shape.length - 1) {
+                    dim_x = shape.length - 2; dim_y = shape.length - 1;
+                }
+                // else keep dim_x=0, dim_y=1 (first two are largest or ambiguous)
+            }
+            // Allow URL override: ?dim_x=N&dim_y=M (set by CLI --dims)
+            { const _ux = parseInt(urlParams.get('dim_x')), _uy = parseInt(urlParams.get('dim_y'));
+              if (Number.isInteger(_ux) && Number.isInteger(_uy) && _ux >= 0 && _uy >= 0 &&
+                  _ux < shape.length && _uy < shape.length && _ux !== _uy) {
+                  dim_x = _ux; dim_y = _uy;
+              } }
+            // Pick current_slice_dim as first dim that is not dim_x or dim_y
+            current_slice_dim = 0;
+            for (let _i = 0; _i < shape.length; _i++) {
+                if (_i !== dim_x && _i !== dim_y) { current_slice_dim = _i; break; }
+            }
             activeDim = current_slice_dim;
             // initialize per-dimension flip flags
             flipDims = {};
@@ -2153,6 +2185,16 @@
             mainAxes.style.display = dim_z >= 0 ? 'none' : '';
         }
 
+        function flashDimChips() {
+            const infoEl = document.getElementById('info');
+            infoEl.classList.add('dim-chips-visible');
+            if (dimChipsTimer) clearTimeout(dimChipsTimer);
+            dimChipsTimer = setTimeout(() => {
+                infoEl.classList.remove('dim-chips-visible');
+                dimChipsTimer = null;
+            }, 1500);
+        }
+
         function setStatus(msg) {
             const el = document.getElementById('status');
             if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
@@ -2263,6 +2305,7 @@
                 compareName,
                 registrationMode,
                 registrationAlpha,
+                overlayAlpha,
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
                 qmriDim: qmriActive ? qmriDim : null,
@@ -2340,6 +2383,9 @@
             registrationMode = !!s.registrationMode;
             if (Number.isFinite(Number(s.registrationAlpha))) {
                 registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
+            }
+            if (Number.isFinite(Number(s.overlayAlpha))) {
+                overlayAlpha = Math.max(0.05, Math.min(0.95, Number(s.overlayAlpha)));
             }
             pendingViewMode = (typeof s.viewMode === 'string') ? s.viewMode : null;
             if (Array.isArray(s.mvDims) && s.mvDims.length === 3) {
@@ -2535,6 +2581,7 @@
                 vmin_override: manualVmin,
                 vmax_override: manualVmax,
                 overlay_sid,
+                overlay_alpha: overlayAlpha,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -2870,16 +2917,21 @@
                 if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
                 cycleCompareTarget(1);
             } else if (e.key === '[' || e.key === ']') {
-                if (!compareActive || !registrationMode) {
-                    showStatus('registration overlay inactive (press R in compare mode)');
-                    return;
-                }
                 const step = e.key === ']' ? 0.05 : -0.05;
-                registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
-                applyCompareLayout();
-                drawCompareFramesFromCache();
-                showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
-                saveState();
+                if (overlay_sid && !registrationMode) {
+                    // Overlay transparency mode
+                    overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
+                    updateView();
+                    showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
+                } else if (compareActive && registrationMode) {
+                    registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+                    applyCompareLayout();
+                    drawCompareFramesFromCache();
+                    showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+                    saveState();
+                } else {
+                    showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
+                }
             } else if (e.key === 'H') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) hideAllPixelInfo();
@@ -3081,6 +3133,7 @@
                 e.preventDefault();
                 if (multiViewActive) {
                     activeDim = (activeDim - 1 + shape.length) % shape.length;
+                    flashDimChips();
                     renderInfo();
                 } else {
                     if (activeDim === 0 && vfieldNTimes > 1) {
@@ -3093,12 +3146,14 @@
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
+                    flashDimChips();
                     renderInfo();
                 }
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 if (multiViewActive) {
                     activeDim = (activeDim + 1) % shape.length;
+                    flashDimChips();
                     renderInfo();
                 } else {
                     if (activeDim === shape.length - 1 && vfieldNTimes > 1) {
@@ -3111,6 +3166,7 @@
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
                         current_slice_dim = activeDim; triggerPreload();
                     }
+                    flashDimChips();
                     renderInfo();
                 }
             } else if (e.key === 'M') {
@@ -3771,6 +3827,9 @@
                 });
                 return view;
             });
+            // Pre-size panes using known array shape so all panes are equal from the start.
+            mvViews.forEach(v => { v.lastW = shape[v.dimX]; v.lastH = shape[v.dimY]; });
+            mvScaleAllCanvases();
             if (httpTransport) {
                 mvViews.forEach(v => mvRender(v));
             } else {
@@ -3980,6 +4039,7 @@
                     slice_dim: String(current_slice_dim),
                 });
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
@@ -4232,6 +4292,7 @@
                     slice_dim: String(v.sliceDir),
                 });
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (v.lockedVmin !== undefined && v.lockedVmin !== null && v.lockedVmax !== undefined && v.lockedVmax !== null) {
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));

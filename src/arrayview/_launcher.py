@@ -1141,8 +1141,45 @@ def arrayview():
         action="store_true",
         help="Enable verbose output (internal status messages)",
     )
+    parser.add_argument(
+        "--dims",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Force initial x/y viewing dimensions. "
+            "Use a comma-separated spec where 'x' and 'y' mark the spatial dims, "
+            "e.g. 'x,y,:,:' (first two dims are spatial) or ':,:,x,y' (last two). "
+            "Also accepts 0-based integer pair like '2,3'."
+        ),
+    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
+
+    # Parse --dims spec into (dim_x, dim_y) integers or None
+    def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
+        parts = [p.strip().lower() for p in spec.split(",")]
+        x_idx = next((i for i, p in enumerate(parts) if p == "x"), None)
+        y_idx = next((i for i, p in enumerate(parts) if p == "y"), None)
+        if x_idx is not None and y_idx is not None and x_idx != y_idx:
+            return (x_idx, y_idx)
+        # Fallback: try two integer indices like "2,3"
+        if len(parts) == 2:
+            try:
+                a, b = int(parts[0]), int(parts[1])
+                if a >= 0 and b >= 0 and a != b:
+                    return (a, b)
+            except ValueError:
+                pass
+        return None
+
+    dims_override: tuple[int, int] | None = None
+    if args.dims:
+        dims_override = _parse_dims_spec(args.dims)
+        if dims_override is None:
+            parser.error(
+                f"--dims {args.dims!r} is invalid. "
+                "Use e.g. 'x,y,:,:' or ':,:,x,y' or '0,1'."
+            )
     if not args.serve and not args.kill and not args.files:
         # No files given: launch the animated pixel-art demo
         import tempfile as _tempfile
@@ -1493,6 +1530,8 @@ def arrayview():
         if compare_sids:
             qs += f"&compare_sid={compare_sids[0]}"
             qs += f"&compare_sids={','.join(compare_sids)}"
+        if dims_override:
+            qs += f"&dim_x={dims_override[0]}&dim_y={dims_override[1]}"
         if notify_webview and result.get("notified"):
             # Tab was injected into existing webview window (with or without compare)
             _vprint(f"Injected into existing window (port {args.port})")
@@ -1590,6 +1629,8 @@ def arrayview():
     if compare_sids:
         qs += f"&compare_sid={compare_sids[0]}"
         qs += f"&compare_sids={','.join(compare_sids)}"
+    if dims_override:
+        qs += f"&dim_x={dims_override[0]}&dim_y={dims_override[1]}"
 
     if use_webview and overlay_sid is None:
         init_qs = f"init_sid={sid}&init_name={encoded_name}"
