@@ -1385,10 +1385,10 @@ async def load_file(request: Request):
         data = await asyncio.to_thread(load_data, filepath)
     except Exception as e:
         return {"error": str(e)}
-    session = Session(data, filepath=filepath, name=name)
+    session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)
     if body.get("rgb"):
         try:
-            _setup_rgb(session)
+            await asyncio.to_thread(_setup_rgb, session)
         except ValueError as e:
             return {"error": str(e)}
     SESSIONS[session.sid] = session
