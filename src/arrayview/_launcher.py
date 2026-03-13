@@ -321,10 +321,9 @@ def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = Fals
     if "error" in result:
         raise RuntimeError(f"[ArrayView] Relay server error: {result['error']}")
 
-    url = result.get("url") or f"http://localhost:{port}/?sid={result['sid']}"
     print(
-        f"[ArrayView] Array sent to relay server.\n"
-        f"  Open: {url}",
+        "[ArrayView] Array sent to relay server. "
+        "VS Code Simple Browser should open automatically.",
         flush=True,
     )
 
