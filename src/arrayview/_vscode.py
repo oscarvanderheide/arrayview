@@ -392,7 +392,8 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             if not _remote_message_shown:
                 _remote_message_shown = True
                 print(
-                    "[ArrayView] Remote tunnel session — ensure port is Public in VS Code Ports tab.",
+                    f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
+                    f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.",
                     flush=True,
                 )
             ext_ok = _ensure_vscode_extension()
