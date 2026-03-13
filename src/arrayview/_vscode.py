@@ -377,7 +377,7 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
         try:
             parsed_port = int(url.split(":")[2].split("/")[0].split("?")[0])
         except Exception:
-            parsed_port = 8123
+            parsed_port = 8000
 
         if is_remote:
             # Remote/tunnel: install extension + write signal file.
