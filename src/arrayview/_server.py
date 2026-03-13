@@ -1441,8 +1441,11 @@ async def load_bytes_endpoint(request: Request):
             return {"error": str(e)}
     SESSIONS[session.sid] = session
 
-    # Derive the port from the request URL so we can build the viewer URL.
-    port = request.url.port or 8000
+    # Use the actual server port (not the request URL port, which reflects the
+    # client's Host header and would be wrong if arriving via a reverse SSH tunnel).
+    import arrayview._session as _sm
+
+    port = _sm.SERVER_PORT or 8000
     url = f"http://localhost:{port}/?sid={session.sid}"
 
     # Write the signal file so the VS Code extension on this host opens Simple Browser.

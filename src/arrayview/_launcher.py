@@ -368,6 +368,7 @@ _server_ready_event = threading.Event()
 
 async def _serve_background(port: int, stop_when_closed: bool = False):
     _session_mod.SERVER_LOOP = asyncio.get_running_loop()
+    _session_mod.SERVER_PORT = port
     import socket as _socket
 
     # Pre-create the socket with SO_REUSEADDR so we can rebind immediately after
@@ -905,6 +906,7 @@ def _serve_empty(port: int) -> None:
     the port stays alive across multiple tab opens/closes without requiring the
     user to re-run ``--serve`` or re-set port visibility.
     """
+    _session_mod.SERVER_PORT = port
     threading.Thread(
         target=lambda: _uvicorn().run(
             app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
@@ -940,6 +942,7 @@ def _serve_daemon(
     """
     # Register sid as pending so /metadata can poll while data loads.
     PENDING_SESSIONS.add(sid)
+    _session_mod.SERVER_PORT = port
 
     # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
