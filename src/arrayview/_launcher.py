@@ -1310,12 +1310,23 @@ def arrayview():
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
     is_arrayview_server = _server_alive(args.port)
     if _port_in_use(args.port) and not is_arrayview_server and _is_ssh:
-        # Port occupied but not responding within the fast 0.5 s window.  When
-        # port 8000 is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000),
-        # the HTTP round-trip through the SSH mux channel can exceed 0.5 s even
-        # on a LAN.  Retry once with a longer timeout before auto-scanning to a
-        # different port (which would break relay auto-detection entirely).
-        is_arrayview_server = _server_alive(args.port, timeout=3.0)
+        # Port occupied but not responding to a fast HTTP check.  When port 8000
+        # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
+        # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
+        # but the full HTTP round-trip to the tunnel-remote ArrayView server can
+        # easily exceed the 0.5 s timeout, or fail entirely if `localhost` on the
+        # remote resolves to ::1 while ArrayView only binds to 127.0.0.1.
+        # Skip the health-check: just attempt the relay directly.  If the server
+        # on the other side of the tunnel is a real ArrayView instance, the relay
+        # succeeds.  If not, _relay_array_to_server raises and we fall through to
+        # the normal auto-scan path.
+        print(f"[ArrayView] SSH session — trying relay on port {args.port}...", flush=True)
+        try:
+            _relay_array_to_server(base_file, args.port, name, args.rgb)
+            return
+        except Exception as _relay_exc:
+            _vprint(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
+            # Fall through — not an ArrayView relay server; start our own.
     if _port_in_use(args.port) and not is_arrayview_server:
         if _is_vscode_remote():
             # In tunnel mode the port must be predictable so the user can set

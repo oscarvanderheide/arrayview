@@ -137,5 +137,6 @@ Use these skills when working on the corresponding areas:
 - **`viewer-ui-checklist`** — ANY UI change (keyboard shortcuts, layout, new panels). Guarantees `visual_smoke.py` stays in sync.
 - **`modes-consistency`** — ANY visual feature (zoom, eggs, colorbars, canvas events). Guarantees the feature is implemented across ALL six viewing modes: normal, multi-view, compare, diff, registration, qMRI.
 - **`invocation-consistency`** — ANY server, startup, or display-opening change. Guarantees the feature works across all six invocation paths: CLI, Python script, Jupyter, Julia, VS Code tunnel, plain SSH.
+- **`iterative-debug`** — ANY complex, multi-environment debugging session that has a PLAN.md + LOG.md. Enforces one-hypothesis-at-a-time, mandatory log updates, regression analysis, and always asking the user to test before claiming success.
 
 Skill files live in `.claude/skills/` and are symlinked from `~/.claude/skills/` for VS Code Copilot discovery.
