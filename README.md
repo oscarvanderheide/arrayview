@@ -170,7 +170,7 @@ arrayview [FILES...] [OPTIONS]
 | Flag | Description |
 |------|-------------|
 | `FILES` | Array paths. First is the base; extras (up to 6) preload for compare mode. |
-| `--port PORT` | Server port (default: 8123, auto-scans if busy) |
+| `--port PORT` | Server port (default: 8000, auto-scans if busy) |
 | `--window {browser,vscode,native}` | How to open the viewer |
 | `--serve` | Start a persistent empty server (useful for VS Code tunnel setup) |
 | `--kill` | Kill the server on `--port` and exit |
@@ -288,26 +288,62 @@ the open request.
 **VS Code tunnel / remote SSH:**
 
 ```bash
-# 1. Start a persistent server
+# 1. Start a persistent server on the remote machine
 arrayview --serve
 
-# 2. In VS Code Ports tab: set port 8123 to Public
+# 2. In VS Code Ports tab: right-click port 8000 → Port Visibility → Public
 
-# 3. Load arrays (they open in Simple Browser)
+# 3. Load arrays freely — each opens in Simple Browser on your local VS Code
 arrayview scan.nii.gz
 arrayview base.npy moving.npy
 ```
+
+The server persists across invocations so you only do steps 1–2 once per
+session. Kill it with `arrayview --kill` when done.
+
+**VS Code tunnel + server (multi-hop):**
+
+Use this when your working data lives on a server that you SSH into from
+the tunnel-remote machine.
+
+```
+Local VS Code ──(devtunnel)──▶ remote machine ──(SSH)──▶ server
+```
+
+1. On the remote machine: start a persistent server and set port 8000 to Public
+   (same as above).
+
+2. SSH from the remote machine to the server with a **reverse tunnel**:
+   ```bash
+   ssh -R 8000:localhost:8000 user@gpu-server
+   ```
+   This forwards server port 8000 → remote machine port 8000 (where
+   ArrayView is running).
+
+3. On the server, load your array normally — ArrayView detects the reverse
+   tunnel automatically:
+   ```bash
+   arrayview array.npy
+   ```
+   The array bytes are sent to the remote server and the viewer opens in Simple
+   Browser on your local VS Code just like in the direct tunnel case.
+
+   > If port 8000 is occupied on the GPU server by something else, use a
+   > different local port:
+   > ```bash
+   > ssh -R 8765:localhost:8000 user@gpu-server
+   > arrayview array.npy --relay 8765
+   > ```
 
 ## SSH (without VS Code)
 
 ArrayView prints a port-forwarding hint when it detects an SSH session:
 
 ```
-ssh -L 8123:localhost:8123 user@remote
+ssh -L 8000:localhost:8000 user@remote
 ```
 
-Then open `http://localhost:8123` in your local browser. The port auto-selects
-if 8123 is busy.
+Then open `http://localhost:8000` in your local browser.
 
 ## Development
 
