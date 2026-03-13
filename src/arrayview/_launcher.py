@@ -242,11 +242,11 @@ def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _server_alive(port: int) -> bool:
+def _server_alive(port: int, timeout: float = 0.5) -> bool:
     """Return True only if an ArrayView server is responding on the port."""
     url = f"http://127.0.0.1:{port}/ping"
     try:
-        with urllib.request.urlopen(url, timeout=0.5) as resp:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
             if resp.status != 200:
                 return False
             payload = json.loads(resp.read().decode("utf-8"))
@@ -270,11 +270,11 @@ def _server_pid(port: int) -> int | None:
     return None
 
 
-def _server_hostname(port: int) -> str | None:
+def _server_hostname(port: int, timeout: float = 0.5) -> str | None:
     """Return the hostname reported by the ArrayView server on ``port``, or None."""
     url = f"http://127.0.0.1:{port}/ping"
     try:
-        with urllib.request.urlopen(url, timeout=0.5) as resp:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
             if resp.status != 200:
                 return None
             payload = json.loads(resp.read().decode("utf-8"))
@@ -1306,7 +1306,16 @@ def arrayview():
 
     name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
+    # Detect SSH early — needed by the relay auto-detect retry and the relay check below.
+    _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
     is_arrayview_server = _server_alive(args.port)
+    if _port_in_use(args.port) and not is_arrayview_server and _is_ssh:
+        # Port occupied but not responding within the fast 0.5 s window.  When
+        # port 8000 is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000),
+        # the HTTP round-trip through the SSH mux channel can exceed 0.5 s even
+        # on a LAN.  Retry once with a longer timeout before auto-scanning to a
+        # different port (which would break relay auto-detection entirely).
+        is_arrayview_server = _server_alive(args.port, timeout=3.0)
     if _port_in_use(args.port) and not is_arrayview_server:
         if _is_vscode_remote():
             # In tunnel mode the port must be predictable so the user can set
@@ -1336,11 +1345,11 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
     if is_arrayview_server and _is_ssh:
         import socket as _socket
 
-        _remote_host = _server_hostname(args.port)
+        # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
+        _remote_host = _server_hostname(args.port, timeout=3.0)
         if _remote_host and _remote_host != _socket.gethostname():
             try:
                 _relay_array_to_server(base_file, args.port, name, args.rgb)
@@ -1592,4 +1601,22 @@ def arrayview():
             )
         url = f"http://localhost:{args.port}/{qs}"
         _print_viewer_location(url)
+        if is_remote and sys.stdin.isatty():
+            # New server, tunnel mode: wait for user to set port Public before
+            # writing the signal file so Simple Browser opens on first try.
+            print(
+                f"\n  VS Code Ports tab: right-click port {args.port} "
+                f"\u2192 Port Visibility \u2192 Public\n"
+                f"  Press Enter once done (or the viewer retries automatically)... ",
+                end="",
+                flush=True,
+            )
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                print(flush=True)
+                sys.exit(0)
+            # Suppress duplicate "set to Public" reminder inside _open_browser.
+            import arrayview._vscode as _vscode_mod
+            _vscode_mod._remote_message_shown = True
         _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
