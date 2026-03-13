@@ -1010,7 +1010,7 @@ def arrayview():
             "are preloaded for compare mode (up to 6 total files)."
         ),
     )
-    parser.add_argument("--port", type=int, default=8123, help="Port to serve on")
+    parser.add_argument("--port", type=int, default=8000, help="Port to serve on")
     parser.add_argument(
         "--serve",
         action="store_true",
@@ -1034,7 +1034,7 @@ def arrayview():
     parser.add_argument(
         "--kill",
         action="store_true",
-        help="Kill the ArrayView server running on --port (default 8123) and exit",
+        help="Kill the ArrayView server running on --port (default 8000) and exit",
     )
     parser.add_argument(
         "--overlay",
