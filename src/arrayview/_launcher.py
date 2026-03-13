@@ -1143,7 +1143,18 @@ def arrayview():
             )
             return
         if _port_in_use(args.port):
-            # Port busy by another process — auto-scan for a free one.
+            if _is_vscode_remote():
+                # In tunnel mode the port must be predictable so the user can
+                # set the right port to Public.  Auto-scanning would silently
+                # pick a different port, leaving the user's Ports tab stale.
+                print(
+                    f"[ArrayView] Port {args.port} is in use by another process.\n"
+                    f"  Run 'arrayview --kill --port {args.port}' to free it, "
+                    f"or use --port to specify a different port.",
+                    flush=True,
+                )
+                sys.exit(1)
+            # Non-tunnel: auto-scan for a free port.
             args.port, _ = _find_server_port(args.port + 1)
             if _port_in_use(args.port):
                 print(
@@ -1155,6 +1166,9 @@ def arrayview():
                 f"[ArrayView] Default port busy, using port {args.port}",
                 flush=True,
             )
+        # Write VS Code port settings BEFORE starting the server so VS Code
+        # sees privacy=public when it first detects the new port listening.
+        _configure_vscode_port_preview(args.port)
         script = (
             f"from arrayview._launcher import _serve_empty; _serve_empty({args.port})"
         )
@@ -1162,9 +1176,6 @@ def arrayview():
         if not _wait_for_port(args.port, timeout=15.0):
             print(f"Error: ArrayView server failed to start on port {args.port}.")
             sys.exit(1)
-        # Write VS Code port settings so the port is auto-forwarded as Public
-        # in remote tunnel sessions (saves the user a manual Ports-tab step).
-        _configure_vscode_port_preview(args.port)
         print(
             f"\n  \033[1;36m\u2192 ArrayView server started on port {args.port} (PID {proc.pid})\033[0m\n"
             f"\n  Remote tunnel setup:\n"
@@ -1188,7 +1199,18 @@ def arrayview():
 
     is_arrayview_server = _server_alive(args.port)
     if _port_in_use(args.port) and not is_arrayview_server:
-        # Port busy by another process — auto-scan for a free one.
+        if _is_vscode_remote():
+            # In tunnel mode the port must be predictable so the user can set
+            # the right port to Public.  Auto-scanning would silently pick a
+            # different port, leaving the user's Ports tab stale.
+            print(
+                f"[ArrayView] Port {args.port} is in use by another process.\n"
+                f"  Run 'arrayview --kill --port {args.port}' to free it, "
+                f"or use --port to specify a different port.",
+                flush=True,
+            )
+            sys.exit(1)
+        # Non-tunnel: auto-scan for a free port.
         args.port, is_arrayview_server_new = _find_server_port(args.port + 1)
         is_arrayview_server = is_arrayview_server_new
         if _port_in_use(args.port) and not is_arrayview_server:
