@@ -285,15 +285,17 @@ def _server_hostname(port: int) -> str | None:
     return None
 
 
-def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = False) -> None:
+def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = False, relay_host: str = "127.0.0.1") -> None:
     """Load *filepath* locally and POST the bytes to an ArrayView relay server.
 
     Used when the local port is a reverse-SSH-forwarded connection to a remote
     ArrayView server (e.g. tunnel-remote).  The relay server registers the
     session and writes its own VS Code signal file so Simple Browser opens there.
+
+    ``relay_host`` defaults to 127.0.0.1; only change it when the relay server
+    is genuinely on a different network interface (rare).
     """
     import base64
-    import socket as _socket
 
     print("[ArrayView] Relay mode: sending array to remote server...", flush=True)
     try:
@@ -308,7 +310,7 @@ def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = Fals
 
     body = json.dumps({"data_b64": data_b64, "name": name, "rgb": rgb}).encode()
     req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/load_bytes",
+        f"http://{relay_host}:{port}/load_bytes",
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -1122,6 +1124,17 @@ def arrayview():
         ),
     )
     parser.add_argument(
+        "--relay",
+        metavar="[HOST:]PORT",
+        help=(
+            "Send the array to an existing ArrayView server instead of starting a new one. "
+            "Useful over multi-hop SSH: set up a reverse tunnel "
+            "(e.g. 'ssh -R 8765:localhost:8000 user@gpu-host') "
+            "then run 'arrayview file.npy --relay 8765'. "
+            "The remote server registers the session and opens Simple Browser automatically."
+        ),
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose output (internal status messages)",
@@ -1149,6 +1162,42 @@ def arrayview():
         )
     if args.compare and len(args.files) > 1:
         parser.error("Use either positional compare files or --compare, not both.")
+
+    # -- --relay: send array bytes to a remote ArrayView server --
+    if args.relay:
+        if not args.files:
+            parser.error("--relay requires a FILE argument.")
+        relay_str = args.relay
+        if ":" in relay_str:
+            relay_host, relay_port_str = relay_str.rsplit(":", 1)
+        else:
+            relay_host, relay_port_str = "127.0.0.1", relay_str
+        try:
+            relay_port = int(relay_port_str)
+        except ValueError:
+            parser.error(f"--relay port must be an integer, got: {relay_port_str!r}")
+        relay_file = os.path.abspath(args.files[0])
+        if not os.path.isfile(relay_file):
+            print(f"Error: file not found: {relay_file}")
+            sys.exit(1)
+        relay_name = os.path.basename(relay_file)
+        if not _server_alive(relay_port):
+            print(
+                f"[ArrayView] No ArrayView server found on {relay_host}:{relay_port}.\n"
+                f"  Make sure the reverse tunnel is active:"
+                f" ssh -R {relay_port}:localhost:8000 user@this-host",
+                flush=True,
+            )
+            sys.exit(1)
+        try:
+            _relay_array_to_server(
+                relay_file, relay_port, relay_name, args.rgb,
+                relay_host=relay_host,
+            )
+        except Exception as e:
+            print(f"[ArrayView] Relay failed: {e}", flush=True)
+            sys.exit(1)
+        return
 
     # -- --kill: stop the server on the given port --
     if args.kill:
@@ -1296,9 +1345,7 @@ def arrayview():
             except Exception as e:
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)
-            return
-
-    # Resolve --window / --browser into a single window_mode
+            return    # Resolve --window / --browser into a single window_mode
     if args.browser and not args.window:
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
