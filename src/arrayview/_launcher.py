@@ -5,6 +5,7 @@ This module was extracted from _app.py during the modular refactor.
 
 import argparse
 import asyncio
+import io
 import json
 import os
 import socket
@@ -267,6 +268,63 @@ def _server_pid(port: int) -> int | None:
     except Exception:
         pass
     return None
+
+
+def _server_hostname(port: int) -> str | None:
+    """Return the hostname reported by the ArrayView server on ``port``, or None."""
+    url = f"http://127.0.0.1:{port}/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as resp:
+            if resp.status != 200:
+                return None
+            payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("ok") is True and payload.get("service") == "arrayview":
+                return payload.get("hostname")
+    except Exception:
+        pass
+    return None
+
+
+def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = False) -> None:
+    """Load *filepath* locally and POST the bytes to an ArrayView relay server.
+
+    Used when the local port is a reverse-SSH-forwarded connection to a remote
+    ArrayView server (e.g. tunnel-remote).  The relay server registers the
+    session and writes its own VS Code signal file so Simple Browser opens there.
+    """
+    import base64
+    import socket as _socket
+
+    print("[ArrayView] Relay mode: sending array to remote server...", flush=True)
+    try:
+        data = load_data(filepath)
+    except Exception as e:
+        print(f"[ArrayView] Failed to load {filepath}: {e}", flush=True)
+        raise
+
+    buf = io.BytesIO()
+    np.save(buf, data)
+    data_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    body = json.dumps({"data_b64": data_b64, "name": name, "rgb": rgb}).encode()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/load_bytes",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        result = json.loads(resp.read())
+
+    if "error" in result:
+        raise RuntimeError(f"[ArrayView] Relay server error: {result['error']}")
+
+    url = result.get("url") or f"http://localhost:{port}/?sid={result['sid']}"
+    print(
+        f"[ArrayView] Array sent to relay server.\n"
+        f"  Open: {url}",
+        flush=True,
+    )
 
 
 def _port_in_use(port: int) -> bool:
@@ -1223,6 +1281,22 @@ def arrayview():
             f"[ArrayView] Default port busy, using port {args.port}",
             flush=True,
         )
+
+    # Relay detection: if we're connected via SSH and the existing server on
+    # this port is actually on a different machine (reverse SSH tunnel), send
+    # the array bytes there instead of a filepath the remote server can't access.
+    _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
+    if is_arrayview_server and _is_ssh:
+        import socket as _socket
+
+        _remote_host = _server_hostname(args.port)
+        if _remote_host and _remote_host != _socket.gethostname():
+            try:
+                _relay_array_to_server(base_file, args.port, name, args.rgb)
+            except Exception as e:
+                print(f"[ArrayView] Relay failed: {e}", flush=True)
+                sys.exit(1)
+            return
 
     # Resolve --window / --browser into a single window_mode
     if args.browser and not args.window:

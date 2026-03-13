@@ -434,8 +434,17 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             except Exception:
                 port_hint = parsed_port
             print(
-                f"[ArrayView] SSH session detected — forward the port to access locally:\n"
-                f"  ssh -L {port_hint}:localhost:{port_hint} <user>@<remote>\n",
+                f"[ArrayView] SSH session — to view this array remotely:\n"
+                f"\n"
+                f"  Option A — port-forward from your local machine (or intermediate hop):\n"
+                f"    ssh -L {port_hint}:localhost:{port_hint} <user>@<this-host>\n"
+                f"\n"
+                f"  Option B — relay through an existing public ArrayView server\n"
+                f"  (e.g. a VS Code tunnel remote on port 8000):\n"
+                f"    1. SSH into this host WITH a reverse tunnel:\n"
+                f"       ssh -R 8000:localhost:8000 <user>@<this-host>\n"
+                f"    2. Run arrayview — it detects the relay server and sends\n"
+                f"       bytes there automatically. No new ports needed.\n",
                 flush=True,
             )
 

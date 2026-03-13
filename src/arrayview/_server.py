@@ -1302,10 +1302,13 @@ def get_shell():
 @app.get("/ping")
 def ping():
     """Health marker so clients can verify this is an ArrayView server."""
+    import socket
+
     return {
         "ok": True,
         "service": "arrayview",
         "pid": os.getpid(),
+        "hostname": socket.gethostname(),
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
     }
 
@@ -1407,7 +1410,49 @@ async def load_file(request: Request):
     return {"sid": session.sid, "name": name, "notified": notified}
 
 
-@app.get("/")
+@app.post("/load_bytes")
+async def load_bytes_endpoint(request: Request):
+    """Relay endpoint: accept a base64-encoded .npy array from a remote machine.
+
+    Used when arrayview runs on a machine that reaches this server via a reverse
+    SSH tunnel (``ssh -R PORT:localhost:PORT remote``).  The remote arrayview
+    loads the file locally, serialises it as .npy bytes, and POSTs them here.
+    This server creates the session and writes the VS Code signal file so Simple
+    Browser opens automatically on the tunnel-remote side.
+    """
+    import base64
+
+    body = await request.json()
+    data_b64 = body.get("data_b64", "")
+    name = str(body.get("name") or "array")
+    rgb = bool(body.get("rgb", False))
+
+    try:
+        raw = base64.b64decode(data_b64)
+        arr = np.load(io.BytesIO(raw))
+    except Exception as e:
+        return {"error": f"Failed to decode array: {e}"}
+
+    session = await asyncio.to_thread(Session, arr, name=name)
+    if rgb:
+        try:
+            await asyncio.to_thread(_setup_rgb, session)
+        except ValueError as e:
+            return {"error": str(e)}
+    SESSIONS[session.sid] = session
+
+    # Derive the port from the request URL so we can build the viewer URL.
+    port = request.url.port or 8000
+    url = f"http://localhost:{port}/?sid={session.sid}"
+
+    # Write the signal file so the VS Code extension on this host opens Simple Browser.
+    from arrayview._vscode import _open_via_signal_file
+
+    _open_via_signal_file(url)
+
+    return {"sid": session.sid, "url": url}
+
+
 def get_ui(sid: str = None):
     """Viewer page."""
     # VS Code Simple Browser internally calls asExternalUri() which strips query
