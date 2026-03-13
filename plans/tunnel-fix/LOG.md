@@ -214,11 +214,47 @@ av sense_images.npy
 ```
 Expected: arrayview detects the reverse tunnel automatically, relays the array, Simple Browser opens.
 
-**Result**: (pending — awaiting user test)
+**Result**: FAILED. Even 3s timeout not enough — `_server_alive` still returns False through the
+SSH reverse tunnel. Root cause unclear (possible IPv4/IPv6 mismatch, or tunnel latency > 3s).
+Decision: skip the health check entirely and just attempt relay directly (Attempt 12).
 
 ---
 
-## Attempt 12: Enter-prompt UX for tunnel without --serve
+## Attempt 12: Relay auto-detect — skip /ping, attempt relay directly
+
+**Date**: 2026-03-13
+**Hypothesis**: The 0.5s and even 3.0s `/ping` HTTP checks through a reverse SSH tunnel
+are failing (timeout or IPv4/IPv6 mismatch: `localhost` on tunnel-remote may resolve to
+`::1` while arrayview binds to `127.0.0.1`). The fix is to skip the fragile health-check
+entirely: when `_is_ssh AND _port_in_use(port) AND NOT _server_alive(fast)`, attempt the
+relay directly. `_relay_array_to_server` either works (relay server is there) or raises
+fast (connection refused / wrong server). No change to non-SSH paths.
+
+**Change**: `_launcher.py` only — replaced the 3s retry block with a direct relay attempt
+(print "Trying relay...", call `_relay_array_to_server`, return on success, fall through on failure).
+Commit: `d345348`
+
+**Regression risk**: Only fires when `_is_ssh AND _port_in_use(port) AND NOT _server_alive(500ms)`.
+On failure the relay attempt fails fast (no ArrayView server) and falls through to auto-scan.
+All non-SSH paths untouched.
+
+**Test procedure**:
+```bash
+# On tunnel-remote (ensure arrayview --serve is running with port 8000 Public)
+# SSH from tunnel-remote to GPU server WITH SAME PORT:
+ssh -R 8000:localhost:8000 oheide@rtrspla06
+
+# On GPU server:
+av sense_images.npy
+```
+Expected: "SSH session — trying relay on port 8000..." then Simple Browser opens.
+No "Default port busy" message.
+
+**Result**: (pending — awaiting user test for Attempt 12)
+
+---
+
+## Attempt 13: Enter-prompt UX — arrayview file.npy without --serve first
 
 **Date**: 2026-03-13
 **Hypothesis**: When `arrayview file.npy` starts a fresh server in tunnel mode, the signal file
@@ -245,4 +281,4 @@ uv run arrayview test_data.npy
 Expected: server starts, prompt appears "right-click port 8000 → Public, press Enter",
 after Enter Simple Browser opens immediately.
 
-**Result**: (pending — awaiting user test)
+**Result**: (pending — awaiting user test for Attempt 13)
