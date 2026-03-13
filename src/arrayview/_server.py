@@ -1449,9 +1449,10 @@ async def load_bytes_endpoint(request: Request):
     url = f"http://localhost:{port}/?sid={session.sid}"
 
     # Write the signal file so the VS Code extension on this host opens Simple Browser.
-    from arrayview._vscode import _open_via_signal_file
+    from arrayview._vscode import _open_via_signal_file, _schedule_remote_open_retries
 
     _open_via_signal_file(url)
+    _schedule_remote_open_retries(url)
 
     return {"sid": session.sid, "url": url}
 
