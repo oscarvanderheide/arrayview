@@ -57,11 +57,11 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.10"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.12"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
-_VSCODE_SIGNAL_MAX_AGE_MS = 15_000
+_VSCODE_SIGNAL_MAX_AGE_MS = 30_000  # 30s: generous window so on-disk signals survive a ~12s simpleBrowser.show wait
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +348,18 @@ def _schedule_remote_open_retries(
 
 
 def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
-    """Write a versioned control payload for the VS Code opener extension."""
+    """Write a versioned control payload for the VS Code opener extension.
+
+    Per-window targeting: the extension writes a registration file when it
+    activates, recording its hookTag (SHA-256 of VSCODE_IPC_HOOK_CLI).
+    Python reads that registry, matches its own IPC hook, and writes to
+    the targeted file for that specific window.  Falls back to the shared
+    signal file when no matching registration is found (e.g. right after
+    a window reload when terminal env still has the old IPC hook).
+    """
+    import hashlib
+    from arrayview._platform import _find_vscode_ipc_hook
+
     signal_dir = os.path.expanduser("~/.arrayview")
     try:
         os.makedirs(signal_dir, exist_ok=True)
@@ -358,11 +369,25 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
         data.setdefault("sentAtMs", int(time.time() * 1000))
         data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
         data.setdefault("requestId", uuid.uuid4().hex)
-        filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
-        # Delete any existing signal files before writing the new one.  If the
-        # extension failed to unlink a previous file (e.g. a crash) and then
-        # restarts (resetting lastHandledRequestId), it would otherwise re-consume
-        # the stale signal and open Simple Browser with an old session ID.
+
+        # Try to find the registration written by the extension for the window
+        # that owns this terminal process.  Extension writes
+        # ~/.arrayview/window-<hookTag>.json on activate; we hash our own IPC
+        # hook to find the matching registration.
+        target_filename = None
+        ipc_hook = _find_vscode_ipc_hook()
+        if ipc_hook:
+            own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
+            reg_path = os.path.join(signal_dir, f"window-{own_tag}.json")
+            if os.path.isfile(reg_path):
+                target_filename = f"open-request-ipc-{own_tag}.json"
+
+        if target_filename:
+            filenames = (target_filename,)
+        else:
+            # Fallback: shared signal file (any window's extension may claim it)
+            filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
+
         for filename in filenames:
             try:
                 os.unlink(os.path.join(signal_dir, filename))

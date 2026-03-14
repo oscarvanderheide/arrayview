@@ -2,10 +2,22 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
-const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');
+const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');  // fallback
 const LOG_FILE = path.join(SIGNAL_DIR, 'extension.log');
+
+// Per-window targeted signal file: Python writes to a file named by the SHA256
+// of VSCODE_IPC_HOOK_CLI, which is unique per VS Code window on the remote.
+// The extension checks its own targeted file first, then the fallback.
+const OWN_IPC_HOOK = process.env.VSCODE_IPC_HOOK_CLI || '';
+const OWN_HOOK_TAG = OWN_IPC_HOOK
+    ? crypto.createHash('sha256').update(OWN_IPC_HOOK).digest('hex').slice(0, 16)
+    : '';
+const TARGETED_SIGNAL_FILE = OWN_HOOK_TAG
+    ? path.join(SIGNAL_DIR, `open-request-ipc-${OWN_HOOK_TAG}.json`)
+    : null;
 
 let version = 'unknown';
 let isProcessingSignal = false;
@@ -29,26 +41,84 @@ function isExpiredSignal(data) {
     return true;
 }
 
-async function tryOpenSignalFile() {
+function isProcessAlive(pid) {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function cleanupStaleFiles() {
+    // Remove stale .claimed-* and .tmp files left behind by crashes.
+    // Also remove window-*.json registration files for dead processes.
     try {
-        if (isProcessingSignal) return;
-        if (!fs.existsSync(SIGNAL_FILE)) return;
-
-        isProcessingSignal = true;
-
-        const raw = fs.readFileSync(SIGNAL_FILE, 'utf8');
-        try { fs.unlinkSync(SIGNAL_FILE); } catch (err) {
-            log(`SIGNAL: unlink failed: ${err.message}`);
+        const files = fs.readdirSync(SIGNAL_DIR);
+        for (const f of files) {
+            if (f.startsWith('open-request-') && (f.includes('.claimed-') || f.endsWith('.tmp'))) {
+                try {
+                    fs.unlinkSync(path.join(SIGNAL_DIR, f));
+                    log(`CLEANUP: removed stale file ${f}`);
+                } catch (_) {}
+            }
+            if (f.startsWith('window-') && f.endsWith('.json')) {
+                try {
+                    const data = JSON.parse(fs.readFileSync(path.join(SIGNAL_DIR, f), 'utf8'));
+                    if (data.pid && !isProcessAlive(data.pid)) {
+                        fs.unlinkSync(path.join(SIGNAL_DIR, f));
+                        log(`CLEANUP: removed stale registration ${f} (pid ${data.pid} dead)`);
+                    }
+                } catch (_) {}
+            }
         }
+    } catch (_) {}
+}
+
+async function tryOpenSignalFile() {
+    // If we are currently showing a URL, leave any pending signal files on disk.
+    // The 1-second polling loop will pick them up once we are done.  This avoids
+    // in-memory queues that can be lost when the extension host reloads.
+    if (isProcessingSignal) return;
+
+    // Check targeted file first (matches our window's IPC hook), then fallback.
+    // Only one window's renameSync succeeds for each file; others get ENOENT.
+    const candidates = [];
+    if (TARGETED_SIGNAL_FILE) candidates.push(TARGETED_SIGNAL_FILE);
+    candidates.push(SIGNAL_FILE);
+
+    for (const signalFile of candidates) {
+        const claimedFile = signalFile + '.claimed-' + process.pid;
+        let raw;
+        try {
+            fs.renameSync(signalFile, claimedFile);
+        } catch {
+            continue;  // file doesn't exist or claimed by another window
+        }
+        try {
+            raw = fs.readFileSync(claimedFile, 'utf8');
+        } catch (e) {
+            log(`ERROR: read claimed file failed: ${e.message}`);
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+        try { fs.unlinkSync(claimedFile); } catch (_) {}
 
         let data;
         try { data = JSON.parse(raw); } catch (err) {
             log(`SIGNAL: invalid JSON: ${err.message}`);
-            return;
+            continue;
         }
 
-        if (isExpiredSignal(data)) return;
+        if (isExpiredSignal(data)) continue;
 
+        try {
+            await processSignalData(data);
+        } catch (error) {
+            log(`ERROR: ${error.message}`);
+        }
+        return;  // processed one signal, done for this tick
+    }
+}
+
+async function processSignalData(data) {
+    isProcessingSignal = true;
+    try {
         const url = data.url;
         if (!url) { log('SIGNAL: missing url'); return; }
 
@@ -82,7 +152,10 @@ async function tryOpenSignalFile() {
             try {
                 const baseUri = vscode.Uri.parse(`http://localhost:${port}/`);
                 log(`REMOTE: asExternalUri(http://localhost:${port}/)...`);
-                const externalUri = await vscode.env.asExternalUri(baseUri);
+                const externalUri = await Promise.race([
+                    vscode.env.asExternalUri(baseUri),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('asExternalUri timeout after 8s')), 8000)),
+                ]);
                 const externalBase = externalUri.toString().replace(/\/$/, '');
                 log(`REMOTE: → ${externalBase}`);
                 openUrl = externalBase + '/' + origQuery;
@@ -105,6 +178,8 @@ async function tryOpenSignalFile() {
         log(`ERROR: ${error.message}`);
     } finally {
         isProcessingSignal = false;
+        // Signal files for subsequent arrays remain on disk; the 1-second poll
+        // will pick them up now that isProcessingSignal is false again.
     }
 }
 
@@ -112,8 +187,33 @@ function activate(context) {
     version = context.extension.packageJSON.version;
     log(`=== ACTIVATE v${version} ===`);
     log(`remoteName=${vscode.env.remoteName} appHost=${vscode.env.appHost}`);
+    log(`ipcHook=${OWN_IPC_HOOK || 'NOT_SET'} hookTag=${OWN_HOOK_TAG || 'none'}`);
+    if (TARGETED_SIGNAL_FILE) {
+        log(`targetedFile=${path.basename(TARGETED_SIGNAL_FILE)}`);
+    } else {
+        log(`targetedFile=none (will use shared fallback only)`);
+    }
 
     try { fs.mkdirSync(SIGNAL_DIR, { recursive: true }); } catch (_) {}
+
+    // Write registration so Python can find this window's hookTag.
+    // Python reads ~/.arrayview/window-<hookTag>.json to know which targeted
+    // signal file to write for this specific VS Code window.
+    if (OWN_HOOK_TAG) {
+        const regFile = path.join(SIGNAL_DIR, `window-${OWN_HOOK_TAG}.json`);
+        try {
+            fs.writeFileSync(regFile, JSON.stringify({ hookTag: OWN_HOOK_TAG, pid: process.pid, ts: Date.now() }));
+            log(`REGISTER: wrote ${path.basename(regFile)}`);
+            context.subscriptions.push({ dispose: () => {
+                try { fs.unlinkSync(regFile); } catch (_) {}
+                log(`REGISTER: deleted ${path.basename(regFile)}`);
+            }});
+        } catch (e) {
+            log(`REGISTER: failed to write: ${e.message}`);
+        }
+    }
+
+    cleanupStaleFiles();
 
     void tryOpenSignalFile();
 
@@ -121,8 +221,13 @@ function activate(context) {
     context.subscriptions.push({ dispose: () => clearInterval(interval) });
 
     try {
+        const ownBasename = TARGETED_SIGNAL_FILE ? path.basename(TARGETED_SIGNAL_FILE) : null;
         const watcher = fs.watch(SIGNAL_DIR, (eventType, filename) => {
-            if (filename === path.basename(SIGNAL_FILE)) {
+            if (!filename || filename.includes('.claimed-') || filename.endsWith('.tmp')) return;
+            const isOwn = ownBasename && filename === ownBasename;
+            const isFallback = filename === path.basename(SIGNAL_FILE) ||
+                               filename === 'open-request-v0800.json';
+            if (isOwn || isFallback) {
                 log(`WATCH: event=${eventType} file=${filename}`);
                 setTimeout(() => void tryOpenSignalFile(), 100);
             }
