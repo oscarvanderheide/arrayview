@@ -576,7 +576,8 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
         # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
         base_stride = max(1, max(H, W) // 32)
         # density_offset: positive = denser (smaller stride), negative = sparser
-        stride = max(1, round(base_stride * (2 ** -density_offset)))
+        # Use √2 per step (half-octave) for finer control than 2x per step
+        stride = max(1, round(base_stride * (1.4142 ** -density_offset)))
         n_arrows = max(1, (H // stride) * (W // stride))
         rng = np.random.default_rng(int(H) * 10007 + int(W))
         gy = rng.integers(0, H, n_arrows).astype(int)
