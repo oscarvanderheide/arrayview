@@ -66,11 +66,20 @@
         }
         .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--border); }
         .axes-indicator {
-            position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
-            pointer-events: none; color: rgba(190,190,190,0.75);
+            position: absolute; inset: 0;
+            pointer-events: none;
             opacity: 0; transition: opacity 0.6s ease;
         }
-        :root.light .axes-indicator, :root.solarized .axes-indicator { color: rgba(50,50,50,0.6); }
+        .axes-lbl-x {
+            position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+            font-size: 10px; font-family: monospace; font-weight: 600;
+            color: var(--spatial-dim);
+        }
+        .axes-lbl-y {
+            position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+            font-size: 10px; font-family: monospace; font-weight: 600;
+            color: var(--spatial-dim);
+        }
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
         #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
@@ -118,38 +127,22 @@
             display: flex; align-items: center; justify-content: center; gap: 7px;
         }
         #array-name svg { flex-shrink: 0; }
-        @keyframes av-logo-walk-r {
-            0%    { transform: translate(0px,    0px); }
-            12.5% { transform: translate(4.5px,  0px); animation-timing-function: steps(1, end); }
-            100%  { transform: translate(0px,    0px); }
+        @keyframes av-logo-pulse {
+            0%, 100% { opacity: 0.25; }
+            50%       { opacity: 1;    }
         }
-        @keyframes av-logo-walk-d {
-            0%    { transform: translate(0px, 0px);    }
-            12.5% { transform: translate(0px, 4.5px);  animation-timing-function: steps(1, end); }
-            100%  { transform: translate(0px, 0px);    }
-        }
-        @keyframes av-logo-walk-l {
-            0%    { transform: translate(0px,    0px); }
-            12.5% { transform: translate(-4.5px, 0px); animation-timing-function: steps(1, end); }
-            100%  { transform: translate(0px,    0px); }
-        }
-        @keyframes av-logo-walk-u {
-            0%    { transform: translate(0px,  0px);   }
-            12.5% { transform: translate(0px, -4.5px); animation-timing-function: steps(1, end); }
-            100%  { transform: translate(0px,  0px);   }
-        }
-        /* Sequential clockwise walk: b0→b1→b2→b5→b8→b7→b6→b3, center (b4) fixed */
-        .av-logo-loading #logo-b0 { animation: av-logo-walk-r 1.6s  0.0s ease-in-out infinite; }
-        .av-logo-loading #logo-b1 { animation: av-logo-walk-r 1.6s -0.2s ease-in-out infinite; }
-        .av-logo-loading #logo-b2 { animation: av-logo-walk-d 1.6s -0.4s ease-in-out infinite; }
-        .av-logo-loading #logo-b5 { animation: av-logo-walk-d 1.6s -0.6s ease-in-out infinite; }
-        .av-logo-loading #logo-b8 { animation: av-logo-walk-l 1.6s -0.8s ease-in-out infinite; }
-        .av-logo-loading #logo-b7 { animation: av-logo-walk-l 1.6s -1.0s ease-in-out infinite; }
-        .av-logo-loading #logo-b6 { animation: av-logo-walk-u 1.6s -1.2s ease-in-out infinite; }
-        .av-logo-loading #logo-b3 { animation: av-logo-walk-u 1.6s -1.4s ease-in-out infinite; }
-        /* Smooth return to origin when animation stops (avoids snap-back jitter) */
+        /* Counter-clockwise rotation: b0→b3→b6→b7→b8→b5→b2→b1, center stays bright */
+        .av-logo-loading #logo-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
+        .av-logo-loading #logo-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .av-logo-loading #logo-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .av-logo-loading #logo-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .av-logo-loading #logo-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
+        .av-logo-loading #logo-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .av-logo-loading #logo-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .av-logo-loading #logo-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        /* When loading stops, perimeter blocks restore to full opacity cleanly */
         #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8 {
-            transition: transform 0.2s ease-out;
+            transition: opacity 0.3s ease;
         }
         #compare-view-wrap.focus-diff .compare-pane:not(.compare-diff) { display: none !important; }
         #compare-view-wrap.focus-reg .compare-pane:not(.compare-tertiary) { display: none !important; }
@@ -474,14 +467,10 @@
                 <canvas id="viewer" tabindex="0"></canvas>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
-                <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                    <text id="main-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                    <text id="main-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                </svg>
+                <div id="main-axes-svg" class="axes-indicator">
+                    <span class="axes-lbl-x">x</span>
+                    <span class="axes-lbl-y">y</span>
+                </div>
             </div>
             <div id="slim-cb-wrap" style="display:none">
                 <canvas id="slim-cb"></canvas>
@@ -497,14 +486,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-left-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text id="compare-left-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text id="compare-left-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
@@ -530,14 +515,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-right-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text id="compare-right-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text id="compare-right-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
@@ -551,14 +532,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-third-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text id="compare-third-axes-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text id="compare-third-axes-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
@@ -576,14 +553,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-fourth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
@@ -597,14 +570,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-fifth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
@@ -618,14 +587,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
                                 <div class="cv-pixel-info" id="compare-sixth-pi"></div>
-                                <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
-                                    <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="26,31 31,34 26,37" fill="currentColor"/>
-                                    <line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                                    <polygon points="3,13 6,8 9,13" fill="currentColor"/>
-                                    <text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">x</text>
-                                    <text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
-                                </svg>
+                                <div class="axes-indicator">
+                                    <span class="axes-lbl-x">x</span>
+                                    <span class="axes-lbl-y">y</span>
+                                </div>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
@@ -2180,13 +2145,11 @@
             let text = `[${idxStr}]`;
             document.getElementById('info').innerHTML = text;
             renderEggs();
-            const mainAxes = document.getElementById('main-axes-svg');
-            mainAxes.style.display = dim_z >= 0 ? 'none' : '';
         }
 
         function flashAxesIndicators() {
             document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.transition = 'opacity 0.1s ease';
+                el.style.transition = 'opacity 0.35s ease';
                 el.style.opacity = '1';
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
@@ -3747,14 +3710,20 @@
                 const cvBox = document.createElement('div');
                 cvBox.style.cssText = 'position:relative;display:inline-flex;';
                 cvBox.appendChild(cv);
-                const axSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                axSvg.classList.add('axes-indicator');
-                axSvg.setAttribute('viewBox', '0 0 40 40');
                 const _axLetters = ['x', 'y', 'z'];
                 const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
                 const _axY = _axLetters[dims.indexOf(def.dimY)] || '?';
-                axSvg.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/><polygon points="26,31 31,34 26,37" fill="currentColor"/><line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/><polygon points="3,13 6,8 9,13" fill="currentColor"/><text x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">${_axX}</text><text x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">${_axY}</text>`;
-                cvBox.appendChild(axSvg);
+                const axDiv = document.createElement('div');
+                axDiv.className = 'axes-indicator';
+                const axLblX = document.createElement('span');
+                axLblX.className = 'axes-lbl-x';
+                axLblX.textContent = _axX;
+                const axLblY = document.createElement('span');
+                axLblY.className = 'axes-lbl-y';
+                axLblY.textContent = _axY;
+                axDiv.appendChild(axLblX);
+                axDiv.appendChild(axLblY);
+                cvBox.appendChild(axDiv);
                 const piEl = document.createElement('div');
                 piEl.className = 'cv-pixel-info';
                 cvBox.appendChild(piEl);
