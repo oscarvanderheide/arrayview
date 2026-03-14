@@ -538,3 +538,71 @@ class TestLoadUpload:
             files={"file": ("bad.npy", b"not numpy data", "application/octet-stream")},
         )
         assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Multiple overlays: /slice with overlay_sid and overlay_colors
+# ---------------------------------------------------------------------------
+
+class TestMultipleOverlays:
+    def test_single_overlay_with_color(self, client, sid_2d):
+        """A single binary mask overlay with explicit hex color renders without error."""
+        from arrayview._app import SESSIONS, Session
+        mask = np.zeros((64, 64), dtype=np.uint8)
+        mask[10:30, 10:30] = 1
+        ov_session = Session(mask, name="mask1")
+        SESSIONS[ov_session.sid] = ov_session
+
+        r = client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1, "dim_y": 0, "indices": "0,0",
+                "overlay_sid": ov_session.sid,
+                "overlay_colors": "ff4444",
+            },
+        )
+        assert r.status_code == 200
+        img = Image.open(io.BytesIO(r.content))
+        assert img.width > 0 and img.height > 0
+
+    def test_two_overlays_comma_separated(self, client, sid_2d):
+        """Two overlays passed as comma-separated sids are composited without error."""
+        from arrayview._app import SESSIONS, Session
+        mask1 = np.zeros((64, 64), dtype=np.uint8)
+        mask1[5:20, 5:20] = 1
+        mask2 = np.zeros((64, 64), dtype=np.uint8)
+        mask2[40:55, 40:55] = 1
+        ov1 = Session(mask1, name="mask1")
+        ov2 = Session(mask2, name="mask2")
+        SESSIONS[ov1.sid] = ov1
+        SESSIONS[ov2.sid] = ov2
+
+        r = client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1, "dim_y": 0, "indices": "0,0",
+                "overlay_sid": f"{ov1.sid},{ov2.sid}",
+                "overlay_colors": "ff4444,44cc44",
+            },
+        )
+        assert r.status_code == 200
+        img = Image.open(io.BytesIO(r.content))
+        assert img.width > 0 and img.height > 0
+
+    def test_composite_overlays_helper(self, client, sid_2d):
+        """_composite_overlays helper iterates all sids and returns modified rgba."""
+        from arrayview._server import _composite_overlays
+        from arrayview._app import SESSIONS, Session
+        mask = np.zeros((64, 64), dtype=np.uint8)
+        mask[20:40, 20:40] = 1
+        ov = Session(mask, name="ov")
+        SESSIONS[ov.sid] = ov
+
+        rgba = np.zeros((64, 64, 4), dtype=np.uint8)
+        result = _composite_overlays(
+            rgba, ov.sid, "ff0000", 0.5,
+            dim_x=1, dim_y=0, idx_tuple=(0, 0), shape_hw=(64, 64),
+        )
+        # The mask region should have been tinted red
+        assert result[25, 25, 0] > 0  # red channel non-zero in masked area
+        assert result[0, 0, 0] == 0   # outside mask unchanged

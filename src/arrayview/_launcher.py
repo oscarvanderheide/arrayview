@@ -387,6 +387,9 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     await server.serve(sockets=[sock])
 
 
+_OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
+
+
 def view(
     data,
     name: str = None,
@@ -395,6 +398,7 @@ def view(
     height: int = 500,
     window: str | bool | None = None,
     rgb: bool = False,
+    overlay=None,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -411,6 +415,9 @@ def view(
     ``rgb`` — treat the array as RGB/RGBA. The first or last dimension must
     have size 3 (RGB) or 4 (RGBA). When True, the colorbar is hidden and each
     slice is composited directly from the colour channels.
+
+    ``overlay`` — a single array or list of arrays to composite as overlays.
+    Each overlay is assigned an auto-palette color from _OVERLAY_PALETTE.
     """
     # Normalise string window modes.
     _force_browser = False
@@ -570,6 +577,23 @@ def view(
     if rgb:
         _setup_rgb(session)
     SESSIONS[session.sid] = session
+
+    # Register overlay sessions.
+    _overlay_sids = []
+    _overlay_colors = []
+    if overlay is not None:
+        _ov_list = overlay if isinstance(overlay, (list, tuple)) else [overlay]
+        for _i, _ov_arr in enumerate(_ov_list):
+            if not isinstance(_ov_arr, np.ndarray):
+                try:
+                    _ov_arr = np.array(_ov_arr)
+                except Exception:
+                    pass
+            _ov_session = Session(_ov_arr, name=f"overlay {_i + 1}")
+            SESSIONS[_ov_session.sid] = _ov_session
+            _overlay_sids.append(_ov_session.sid)
+            _overlay_colors.append(_OVERLAY_PALETTE[_i % len(_OVERLAY_PALETTE)])
+
     win_w, win_h = 1400, 900
 
     # Start (or restart) the background server if it isn't responding or is stale.
@@ -646,6 +670,9 @@ def view(
         time.sleep(0.01)
 
     url_viewer = f"http://localhost:{port}/?sid={session.sid}"
+    if _overlay_sids:
+        url_viewer += f"&overlay_sid={','.join(_overlay_sids)}"
+        url_viewer += f"&overlay_colors={','.join(_overlay_colors)}"
     encoded_name = urllib.parse.quote(name)
     url_shell = (
         f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"

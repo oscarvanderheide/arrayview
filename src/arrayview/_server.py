@@ -80,6 +80,47 @@ def _pil_image():
 
 
 # ---------------------------------------------------------------------------
+# Overlay helpers
+# ---------------------------------------------------------------------------
+
+def _parse_hex_color(hex_str: str) -> np.ndarray | None:
+    """Parse a 6-char hex string like 'ff4444' into a uint8 RGB array, or None."""
+    h = hex_str.strip().lstrip("#")
+    if len(h) != 6:
+        return None
+    try:
+        return np.array([int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)], dtype=np.uint8)
+    except ValueError:
+        return None
+
+
+def _composite_overlays(
+    rgba: np.ndarray,
+    overlay_sid_str: str | None,
+    overlay_colors_str: str | None,
+    overlay_alpha: float,
+    dim_x: int,
+    dim_y: int,
+    idx_tuple: tuple[int, ...],
+    shape_hw: tuple[int, int],
+) -> np.ndarray:
+    """Composite one or more overlays onto rgba.  overlay_sid_str is comma-separated."""
+    if not overlay_sid_str:
+        return rgba
+    sids = [s.strip() for s in overlay_sid_str.split(",") if s.strip()]
+    colors_raw = [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
+    for i, sid in enumerate(sids):
+        color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
+        ov_raw = _extract_overlay_mask(sid, dim_x, dim_y, idx_tuple, expected_shape=shape_hw)
+        rgba = _composite_overlay_mask(
+            rgba, ov_raw, alpha=overlay_alpha,
+            is_label=_overlay_is_label_map(sid, ov_raw),
+            override_color=color,
+        )
+    return rgba
+
+
+# ---------------------------------------------------------------------------
 # FastAPI application
 # ---------------------------------------------------------------------------
 app = FastAPI()
@@ -257,15 +298,13 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                     vmax_override=vmax_override,
                 )
 
-                # Overlay compositing (segmentation masks)
+                # Overlay compositing (one or more segmentation masks)
                 overlay_sid = msg.get("overlay_sid")
+                overlay_colors = msg.get("overlay_colors")
                 overlay_alpha = float(msg.get("overlay_alpha", 0.45))
-                ov_raw = _extract_overlay_mask(
-                    overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=(h, w)
-                )
-                rgba = _composite_overlay_mask(
-                    rgba, ov_raw, alpha=overlay_alpha,
-                    is_label=_overlay_is_label_map(overlay_sid, ov_raw),
+                rgba = _composite_overlays(
+                    rgba, overlay_sid, overlay_colors, overlay_alpha,
+                    dim_x, dim_y, idx_tuple, (h, w),
                 )
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
@@ -827,6 +866,7 @@ def get_slice(
     vmin_override: float | None = None,
     vmax_override: float | None = None,
     overlay_sid: str | None = None,
+    overlay_colors: str | None = None,
     overlay_alpha: float = 0.45,
 ):
     session = SESSIONS.get(sid)
@@ -882,12 +922,9 @@ def get_slice(
                 vmin_override,
                 vmax_override,
             )
-            ov_raw = _extract_overlay_mask(
-                overlay_sid, dim_x, dim_y, idx_tuple, expected_shape=rgba.shape[:2]
-            )
-            rgba = _composite_overlay_mask(
-                rgba, ov_raw, alpha=overlay_alpha,
-                is_label=_overlay_is_label_map(overlay_sid, ov_raw),
+            rgba = _composite_overlays(
+                rgba, overlay_sid, overlay_colors, overlay_alpha,
+                dim_x, dim_y, idx_tuple, rgba.shape[:2],
             )
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
             _, vmin, vmax = _prepare_display(

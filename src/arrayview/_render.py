@@ -464,11 +464,15 @@ def _composite_overlay_mask(
     ov_raw: np.ndarray | None,
     alpha: float = float(OVERLAY_ALPHA),
     is_label: bool = False,
+    override_color: np.ndarray | None = None,
 ) -> np.ndarray:
     """Alpha-composite an overlay on top of an RGBA frame.
 
     - is_label=True  → treat ov_raw as integer labels (1..N), each label gets a
-                        distinct categorical colour from LABEL_COLORS.
+                        distinct categorical colour from LABEL_COLORS.  If
+                        override_color is supplied AND the mask is binary (exactly
+                        one unique non-zero value), that colour is used instead of
+                        LABEL_COLORS — for palette-assigned overlay lists.
     - is_label=False → treat ov_raw as a float heatmap in [0,∞); normalise to
                        [0,1] and map through a desaturated jet-like palette.
       In both cases pixels where ov_raw == 0 are transparent (no overlay).
@@ -483,11 +487,15 @@ def _composite_overlay_mask(
         # Label map: each integer value 1..N gets a distinct colour.
         labels = np.round(ov_raw).astype(np.int32)
         unique_labels = np.unique(labels)
-        for lbl in unique_labels:
-            if lbl <= 0:
-                continue
+        nonzero_labels = unique_labels[unique_labels > 0]
+        # Binary mask with a palette override colour
+        use_override = override_color is not None and len(nonzero_labels) == 1
+        for lbl in nonzero_labels:
             mask = labels == lbl
-            color = LABEL_COLORS[(lbl - 1) % len(LABEL_COLORS)]
+            if use_override:
+                color = override_color
+            else:
+                color = LABEL_COLORS[(lbl - 1) % len(LABEL_COLORS)]
             _blend_color(out, mask, color, ov_a)
     else:
         # Float heatmap: normalise to [0,1], apply a desaturated warm-cool LUT.

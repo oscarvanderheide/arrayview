@@ -724,6 +724,16 @@
         })();
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
+        // overlay_colors: comma-separated hex palette for multiple overlays (auto-assigned if absent)
+        const _OVERLAY_PALETTE = ['ff4444','44cc44','4488ff','ffcc00','ff44ff','44ffff'];
+        const _overlaySids = overlay_sid ? overlay_sid.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const _overlayColorsParam = urlParams.get('overlay_colors') || '';
+        const _overlayColorsArr = _overlayColorsParam ? _overlayColorsParam.split(',').map(s => s.trim()) : [];
+        // Build final per-overlay color list (explicit param wins, else auto from palette)
+        const _overlayColors = _overlaySids.map((_, i) =>
+            (_overlayColorsArr[i] || _OVERLAY_PALETTE[i % _OVERLAY_PALETTE.length])
+        );
+        const overlay_colors = _overlayColors.join(',') || null;
         const transport = urlParams.get('transport') || 'ws';
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
@@ -1805,6 +1815,7 @@
                     params.set('vmax_override', String(manualVmax));
                 }
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
 
                 const frame = await fetchSliceFrame(params);
@@ -2513,6 +2524,7 @@
             const params = new URLSearchParams();
             params.set('sid', sid);
             if (overlay_sid) params.set('overlay_sid', overlay_sid);
+            if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
             if (compareSid) params.set('compare_sid', compareSid);
             if (compareSidList.length && (compareLocked || compareSidList.length > 1)) {
                 params.set('compare_sids', compareSidList.join(','));
@@ -2642,6 +2654,7 @@
                 vmin_override: manualVmin,
                 vmax_override: manualVmax,
                 overlay_sid,
+                overlay_colors,
                 overlay_alpha: overlayAlpha,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
@@ -4087,6 +4100,7 @@
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid,
+                overlay_colors,
             }));
         }
 
@@ -4110,6 +4124,7 @@
                     slice_dim: String(current_slice_dim),
                 });
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
                 v.vmin = frame.vmin;
@@ -4343,6 +4358,7 @@
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
                 overlay_sid,
+                overlay_colors,
             }));
         }
 
@@ -4363,6 +4379,7 @@
                     slice_dim: String(v.sliceDir),
                 });
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (v.lockedVmin !== undefined && v.lockedVmin !== null && v.lockedVmax !== undefined && v.lockedVmax !== null) {
                     params.set('vmin_override', String(v.lockedVmin));
