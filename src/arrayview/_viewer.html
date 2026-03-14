@@ -684,6 +684,7 @@
                 <div class="help-row"><span class="key">O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
+                <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus diff/overlay pane (in X or R mode)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
@@ -802,6 +803,7 @@
         const vfieldCanvas = document.getElementById('vfield-canvas');
         let _vfieldAbort = null;
         let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-5..+5, half-octave steps)
+        let vfLengthLevel = 0;  // { / } keys adjust arrow length  (-5..+5, half-octave steps)
 
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
@@ -1629,12 +1631,13 @@
                 ctx2.fillStyle   = 'rgba(80, 200, 90, 0.88)';
                 ctx2.lineWidth = 1.2;
                 ctx2.lineCap = 'round';
+                const arrowScale = data.scale * (1.4142 ** vfLengthLevel);
                 for (const [ix, iy, vx, vy] of data.arrows) {
                     const ax = (flip_x ? (imgW - 1 - ix) : ix) * sx;
                     const ay = (flip_y ? (imgH - 1 - iy) : iy) * sy;
                     const avx = (flip_x ? -vx : vx) * sx;
                     const avy = (flip_y ? -vy : vy) * sy;
-                    _drawArrow(ctx2, ax + 0.5, ay + 0.5, ax + 0.5 + avx * data.scale, ay + 0.5 + avy * data.scale);
+                    _drawArrow(ctx2, ax + 0.5, ay + 0.5, ax + 0.5 + avx * arrowScale, ay + 0.5 + avy * arrowScale);
                 }
                 vfieldCanvas.style.display = '';
             } catch (e) {
@@ -3010,6 +3013,10 @@
                 } else {
                     showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                 }
+            } else if ((e.key === '{' || e.key === '}') && hasVectorfield && !compareActive) {
+                vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
+                drawVectorOverlay();
+                showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
             } else if (e.key === 'H') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) hideAllPixelInfo();
