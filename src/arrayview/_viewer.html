@@ -2570,6 +2570,36 @@
             saveState();
         }
 
+        // ── Drag-and-drop array files ──────────────────────────────────────────
+        // Drop a .npy or .mat file anywhere on the viewer to open it in a new tab.
+        document.body.addEventListener('dragover', (e) => {
+            if (e.dataTransfer.types.includes('Files')) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            }
+        });
+        document.body.addEventListener('drop', async (e) => {
+            if (!e.dataTransfer.files.length) return;
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+            if (!['npy', 'mat'].includes(ext)) {
+                showStatus(`Unsupported file type: .${ext || '?'} (use .npy or .mat)`);
+                return;
+            }
+            showStatus(`Loading ${file.name}…`);
+            const form = new FormData();
+            form.append('file', file);
+            try {
+                const res = await fetch('/load-upload', { method: 'POST', body: form });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.detail || String(res.status));
+                showStatus(`Opened: ${body.name}`);
+            } catch (err) {
+                showStatus(`Failed to load file: ${err.message}`);
+            }
+        });
+
         function updateView() {
             renderInfo();
             if (compareActive) {

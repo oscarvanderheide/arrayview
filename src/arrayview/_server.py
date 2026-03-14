@@ -11,7 +11,7 @@ import os
 import threading
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
 from importlib.resources import files as _pkg_files
@@ -1422,6 +1422,46 @@ async def load_file(request: Request):
         # If no shells are connected the native window is gone and the caller must open a new one.
         notified = await _notify_shells(session.sid, name, url=tab_url, wait=False)
     return {"sid": session.sid, "name": name, "notified": notified}
+
+
+@app.post("/load-upload")
+async def load_upload(file: UploadFile = File(...)):
+    """Accept a drag-and-dropped .npy or .mat file and create a new session.
+
+    The browser reads the file bytes locally via FileReader and POSTs them here
+    as multipart/form-data.  Works in all environments because no file path is
+    needed — the bytes travel over HTTP regardless of whether the server is
+    local or remote.
+    """
+    import tempfile
+
+    filename = file.filename or "array"
+    ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+    if ext not in (".npy", ".mat"):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext or '(none)'}")
+
+    contents = await file.read()
+    # Save to a temp file so the existing load_data() path handles format detection
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+
+    try:
+        data = await asyncio.to_thread(load_data, tmp_path)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    name = filename
+    session = await asyncio.to_thread(Session, data, name=name)
+    SESSIONS[session.sid] = session
+    await _notify_shells(session.sid, name, wait=False)
+    return {"sid": session.sid, "name": name}
 
 
 @app.post("/load_bytes")

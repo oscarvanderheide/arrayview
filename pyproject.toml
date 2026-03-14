@@ -36,6 +36,7 @@ dependencies = [
     "uvicorn>=0.41.0",
     "websockets>=14.0",
     "zarr>=2.17",
+    "python-multipart>=0.0.22",
 ]
 
 [project.scripts]

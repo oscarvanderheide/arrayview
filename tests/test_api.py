@@ -504,3 +504,37 @@ class TestOverlayIsLabelMap:
         SESSIONS[s.sid] = s
         ov_raw = arr.astype(np.float32)
         assert _overlay_is_label_map(s.sid, ov_raw) is True
+
+
+# ---------------------------------------------------------------------------
+# Drag-and-drop upload: /load-upload
+# ---------------------------------------------------------------------------
+
+class TestLoadUpload:
+    def test_upload_npy_creates_session(self, client, tmp_path):
+        arr = np.random.default_rng(1).standard_normal((20, 30)).astype(np.float32)
+        buf = io.BytesIO()
+        np.save(buf, arr)
+        buf.seek(0)
+        r = client.post(
+            "/load-upload",
+            files={"file": ("test_array.npy", buf, "application/octet-stream")},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "sid" in body
+        assert body["name"] == "test_array.npy"
+
+    def test_upload_unsupported_type_returns_400(self, client):
+        r = client.post(
+            "/load-upload",
+            files={"file": ("bad.txt", b"hello", "text/plain")},
+        )
+        assert r.status_code == 400
+
+    def test_upload_bad_npy_returns_400(self, client):
+        r = client.post(
+            "/load-upload",
+            files={"file": ("bad.npy", b"not numpy data", "application/octet-stream")},
+        )
+        assert r.status_code == 400
