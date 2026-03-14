@@ -496,7 +496,7 @@ async def get_metadata(sid: str):
 
 
 @app.get("/vectorfield/{sid}")
-def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int = 0):
+def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int = 0, density_offset: int = 0):
     """Return downsampled deformation vector field arrows for the current 2-D view."""
     session = SESSIONS.get(sid)
     if not session or session.vfield is None:
@@ -535,7 +535,9 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
 
         # Uniform random sampling with a fixed seed derived from (H, W) so that
         # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
-        stride = max(1, max(H, W) // 32)
+        base_stride = max(1, max(H, W) // 32)
+        # density_offset: positive = denser (smaller stride), negative = sparser
+        stride = max(1, round(base_stride * (2 ** -density_offset)))
         n_arrows = max(1, (H // stride) * (W // stride))
         rng = np.random.default_rng(int(H) * 10007 + int(W))
         gy = rng.integers(0, H, n_arrows).astype(int)
