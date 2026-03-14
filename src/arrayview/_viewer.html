@@ -801,7 +801,7 @@
         const VFIELD_T_DIM = -2; // sentinel activeDim value for the vfield time dim
         const vfieldCanvas = document.getElementById('vfield-canvas');
         let _vfieldAbort = null;
-        let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-3..+3)
+        let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-5..+5, half-octave steps)
 
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
@@ -3004,7 +3004,7 @@
                     showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
                     saveState();
                 } else if (hasVectorfield && !overlay_sid && !compareActive) {
-                    vfDensityLevel = Math.max(-3, Math.min(3, vfDensityLevel + (e.key === ']' ? 1 : -1)));
+                    vfDensityLevel = Math.max(-5, Math.min(5, vfDensityLevel + (e.key === ']' ? 1 : -1)));
                     drawVectorOverlay();
                     showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
                 } else {
