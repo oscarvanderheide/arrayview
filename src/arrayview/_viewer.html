@@ -3954,6 +3954,8 @@
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
+            // Re-apply border state to the normal canvas (multi-view panes are gone)
+            document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
             updateView();
             showStatus('3-plane view: off');
         }
