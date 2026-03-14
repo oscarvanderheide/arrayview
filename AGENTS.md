@@ -25,25 +25,59 @@ It runs a local FastAPI server with an HTML/JS frontend, then displays it either
 ```
 CLI / Python API
    |
-   +- view()          Python entry point
-   +- arrayview()     CLI entry point (`uvx arrayview file.npy`)
+   +- view()          Python entry point  (_launcher.py)
+   +- arrayview()     CLI entry point (`uvx arrayview file.npy`)  (_launcher.py)
       |
-      +- FastAPI server (thread or subprocess)
+      +- FastAPI server  (_server.py)
          +- /           viewer HTML
          +- /shell      pywebview shell HTML
-         +- /ws/{sid}   websocket for render updates
+         +- /ws/{sid}   WebSocket for render updates
          +- /load       register arrays
          +- /ping       health check
 ```
 
 ## Core Files
 
-- `src/arrayview/_app.py`: server lifecycle, platform detection, CLI/API wiring
-- `src/arrayview/_viewer.html`: viewer UI
-- `src/arrayview/_shell.html`: shell page for native tab/window management
-- `vscode-extension/extension.js`: VS Code opener behavior
-- `vscode-extension/package.json`: extension metadata and version
-- `src/arrayview/arrayview-opener.vsix`: packaged extension installed by Python code
+### Backend (server-side)
+
+| File | Responsibility |
+|------|---------------|
+| `src/arrayview/_launcher.py` | Entry points (`view()`, `arrayview()` CLI), process management, window opening |
+| `src/arrayview/_server.py` | FastAPI app, all REST routes, WebSocket handlers, HTML templates |
+| `src/arrayview/_session.py` | Sessions, global state, caches, render thread, constants |
+| `src/arrayview/_render.py` | Rendering pipeline: colormaps, LUTs, slice extraction, RGBA/mosaic/RGB |
+| `src/arrayview/_vscode.py` | VS Code extension management, signal-file IPC, browser opening |
+| `src/arrayview/_platform.py` | Platform/environment detection |
+| `src/arrayview/_io.py` | Array I/O (load from file, format detection) |
+| `src/arrayview/_app.py` | **Compat shim only** — re-exports from the modules above; do not add logic here |
+
+### Frontend
+
+| File | Responsibility |
+|------|---------------|
+| `src/arrayview/_viewer.html` | Viewer UI (single-file, all JS/CSS embedded) |
+| `src/arrayview/_shell.html` | Shell page for native tab/window management |
+
+### VS Code Extension
+
+| File | Responsibility |
+|------|---------------|
+| `vscode-extension/extension.js` | VS Code opener behavior |
+| `vscode-extension/package.json` | Extension metadata and version |
+| `src/arrayview/arrayview-opener.vsix` | Packaged extension installed by Python code |
+
+## Skills — When to Use
+
+**Always invoke the relevant skill before touching the corresponding area.**
+
+| Skill | Trigger |
+|-------|---------|
+| `viewer-ui-checklist` | ANY UI change: keyboard shortcuts, layout, new panels, canvas behavior. Keeps `visual_smoke.py` in sync. |
+| `modes-consistency` | ANY visual feature: zoom, eggs, colorbars, canvas events, new rendering modes. Ensures the feature works across all six viewing modes (normal, multi-view, compare, diff, registration, qMRI). |
+| `invocation-consistency` | ANY server, startup, or display-opening change. Ensures the feature works across all six invocation paths: CLI, Python script, Jupyter, Julia, VS Code tunnel, plain SSH. |
+| `task-workflow` | Feature or fix tasks — enforces one-commit-per-TODO-item workflow and required collateral updates (README/help/tests/CHANGELOG). |
+
+Skill files live in `.claude/skills/` and are symlinked from `~/.claude/skills/`.
 
 ## Non-Negotiables
 
@@ -52,41 +86,51 @@ CLI / Python API
 - If re-trying a previously failed approach, explicitly note why it may work now.
 - Avoid manual cleanup requirements for users. Viewer shutdown should be automatic and reliable.
 - Do not regress existing working paths while fixing tunnel/remote behavior.
+- Do not add logic to `_app.py` — it is a compat shim only. Add new logic to the appropriate module.
 
-## Workflow For Complex Debugging
+## Testing
 
+```bash
+uv sync --group test
+uv run playwright install chromium
 
-1. Start a logfile `LOG_<FEATURE>.md`.
-2. Record each significant attempt:
-   - hypothesis
-   - change made
-   - result
-   - decision (keep/revert/follow-up)
-3. Prefer incremental, testable changes.
-4. Verify behavior in the most failure-prone environments:
-   - VS Code local terminal
-   - VS Code remote/tunnel
-5. If behavior is not as expected, check logfile before a new attempt
+# Fast: HTTP API only (~2s)
+uv run pytest tests/test_api.py -v
 
-## High-Risk Areas
+# CLI entry-point tests
+uv run pytest tests/test_cli.py -v
 
-- VS Code extension install/update detection and stale extension versions
-- Recovering VS Code IPC hook when env vars are stripped (`uv run` and subprocesses)
-- Deciding when to use native window vs browser vs VS Code Simple Browser
-- Port-forward/autoforward behavior in tunnel environments
-- Shutdown lifecycle and orphan process prevention
+# Browser/Playwright tests (~100s)
+uv run pytest tests/test_browser.py -v
 
-## Quick Validation Matrix
+# All tests
+uv run pytest tests/
 
-- `uv run arrayview data.py` (whether it runs at all)
-- `uv run pytest tests/test_api.py`
-- `uv run pytest tests/test_browser.py` (when UI behavior changed)
-- Manual smoke checks:
-  - Local CLI (`arrayview file.npy`)
-  - Python `view(arr)` in script
-  - Jupyter inline default
-  - VS Code terminal browser path
-  - Remote/tunnel path
+# Visual smoke test — run after any UI change, review screenshots
+uv run python tests/visual_smoke.py
+# Screenshots saved to tests/smoke_output/
+```
+
+Visual regression baselines are in `tests/snapshots/`. Delete a snapshot file to reset its baseline.
+
+## Validation Matrix
+
+After any change, verify the affected paths:
+
+| What changed | Minimum checks |
+|---|---|
+| Server / API | `pytest tests/test_api.py` |
+| CLI / entry points | `pytest tests/test_cli.py` |
+| Viewer UI | `pytest tests/test_browser.py` + `python tests/visual_smoke.py` |
+| VS Code / platform | Manual: VS Code local terminal, VS Code remote/tunnel |
+| Large array handling | `pytest tests/test_large_arrays.py` |
+
+Manual smoke paths (for platform/display changes):
+- Local CLI: `arrayview file.npy`
+- Python script: `view(arr)`
+- Jupyter inline (default)
+- VS Code terminal browser path
+- VS Code remote/tunnel path
 
 ## Platform Behavior (Must Preserve)
 
@@ -96,26 +140,17 @@ CLI / Python API
 - VS Code tunnel/SSH remote: should open in VS Code Simple Browser, never open UI on remote host browser by mistake
 - Use `localhost` in URLs (not `127.0.0.1`) for reliable VS Code port forwarding
 
-## VS Code Integration Notes
+## VS Code Integration
 
-- `_in_vscode_terminal()` determines whether VS Code routing should be used
-- `_find_vscode_ipc_hook()` may need to recover hooks from parent processes
-- `_ensure_vscode_extension()` must handle install/update robustness
-- `_VSCODE_EXT_VERSION` in `_app.py` must match `vscode-extension/package.json`
+Key functions (all in `_vscode.py`):
 
+- `_ensure_vscode_extension()` — installs/updates the VSIX; must handle stale versions robustly
+- `_configure_vscode_port_preview()` — sets up port forwarding for the viewer URL
+- `_open_via_signal_file()` — IPC mechanism to open URLs in the VS Code client
+- `_schedule_remote_open_retries()` — retries for tunnel environments where IPC may not be immediately available
+
+`_VSCODE_EXT_VERSION` is defined in `_vscode.py` and must match `vscode-extension/package.json`.
 If extension behavior changes, rebuild the VSIX and keep versioning in sync.
-
-## Development Commands
-
-```bash
-uv sync --group test
-uv run playwright install chromium
-uv run pytest tests/
-uv run pytest tests/test_api.py
-uv run pytest tests/test_browser.py
-```
-
-Visual snapshots are in `tests/snapshots/`.
 
 ## Rebuild VS Code Extension
 
@@ -124,19 +159,24 @@ cd vscode-extension
 vsce package -o ../src/arrayview/arrayview-opener.vsix
 ```
 
-Then update `_VSCODE_EXT_VERSION` in `src/arrayview/_app.py`.
+Then update `_VSCODE_EXT_VERSION` in `src/arrayview/_vscode.py`.
+
+## High-Risk Areas
+
+- VS Code extension install/update detection and stale extension versions
+- Recovering VS Code IPC hook when env vars are stripped (`uv run` and subprocesses)
+- Deciding when to use native window vs browser vs VS Code Simple Browser
+- Port-forward/autoforward behavior in tunnel environments
+- Shutdown lifecycle and orphan process prevention
+
+## Workflow For Complex Debugging
+
+1. Start a logfile `LOG_<FEATURE>.md`.
+2. Record each significant attempt: hypothesis → change made → result → decision (keep/revert/follow-up).
+3. Prefer incremental, testable changes.
+4. Verify behavior in the most failure-prone environments: VS Code local terminal, VS Code remote/tunnel.
+5. If behavior is not as expected, re-read the logfile before a new attempt.
 
 ## Source Of Truth
 
 - End-user usage and setup: `README.md`
-
-## Skills
-
-Use these skills when working on the corresponding areas:
-
-- **`viewer-ui-checklist`** — ANY UI change (keyboard shortcuts, layout, new panels). Guarantees `visual_smoke.py` stays in sync.
-- **`modes-consistency`** — ANY visual feature (zoom, eggs, colorbars, canvas events). Guarantees the feature is implemented across ALL six viewing modes: normal, multi-view, compare, diff, registration, qMRI.
-- **`invocation-consistency`** — ANY server, startup, or display-opening change. Guarantees the feature works across all six invocation paths: CLI, Python script, Jupyter, Julia, VS Code tunnel, plain SSH.
-- **`iterative-debug`** — ANY complex, multi-environment debugging session that has a PLAN.md + LOG.md. Enforces one-hypothesis-at-a-time, mandatory log updates, regression analysis, and always asking the user to test before claiming success.
-
-Skill files live in `.claude/skills/` and are symlinked from `~/.claude/skills/` for VS Code Copilot discovery.
