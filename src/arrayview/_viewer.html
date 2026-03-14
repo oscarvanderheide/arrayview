@@ -683,7 +683,7 @@
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key">O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode) or registration blend (R in compare)</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus diff/overlay pane (in X or R mode)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
@@ -787,6 +787,7 @@
         const VFIELD_T_DIM = -2; // sentinel activeDim value for the vfield time dim
         const vfieldCanvas = document.getElementById('vfield-canvas');
         let _vfieldAbort = null;
+        let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-3..+3)
 
         let ws = null, wsReady = false, wsSentSeq = 0;
         let isRendering = false;
@@ -1541,7 +1542,7 @@
             vfieldCanvas.style.height = canvas.style.height;
             const imgW = canvas.width, imgH = canvas.height;
             const sx = dispW / imgW, sy = dispH / imgH;
-            const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(','), t_index: vfieldT });
+            const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(','), t_index: vfieldT, density_offset: vfDensityLevel });
             try {
                 const res = await fetch(`/vectorfield/${sid}?${params}`, { signal });
                 if (!res.ok || signal.aborted) return;
@@ -2896,6 +2897,10 @@
                     drawCompareFramesFromCache();
                     showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
                     saveState();
+                } else if (hasVectorfield && !overlay_sid && !compareActive) {
+                    vfDensityLevel = Math.max(-3, Math.min(3, vfDensityLevel + (e.key === ']' ? 1 : -1)));
+                    drawVectorOverlay();
+                    showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
                 } else {
                     showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                 }
