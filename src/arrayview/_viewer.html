@@ -371,7 +371,7 @@
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-        .mv-canvas-wrap.canvas-bordered { outline: 1px solid var(--border); }
+        .mv-pane.canvas-bordered { outline: 1px solid var(--border); }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
         #reg-blend-bar-wrap {
@@ -3081,7 +3081,7 @@
             } else if (e.key === 'b') {
                 canvasBorders = !canvasBorders;
                 if (multiViewActive) {
-                    mvViews.forEach(v => { if (v.wrap) v.wrap.classList.toggle('canvas-bordered', canvasBorders); });
+                    mvViews.forEach(v => { if (v.pane) v.pane.classList.toggle('canvas-bordered', canvasBorders); });
                 } else if (compareActive) {
                     document.querySelectorAll('.compare-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
                 } else if (qmriActive) {
