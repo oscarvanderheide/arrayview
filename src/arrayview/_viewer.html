@@ -413,7 +413,7 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; }
-        .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
+        .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
         .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
@@ -779,6 +779,10 @@
         let _pixelInfoVisible = false;
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
+        // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
+        const cmpManualVmin = Array(6).fill(null);
+        const cmpManualVmax = Array(6).fill(null);
+        let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
@@ -906,6 +910,41 @@
             document.getElementById('compare-fifth-pane-cb-labels'),
             document.getElementById('compare-sixth-pane-cb-labels'),
         ];
+        // Per-pane colorbar wheel/drag/dblclick interaction for compare mode
+        comparePaneCbs.forEach((cbCv, i) => {
+            if (!cbCv) return;
+            cbCv.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                if (!compareActive) return;
+                const frame = compareFrames[i];
+                if (!frame) return;
+                const vmin = cmpManualVmin[i] ?? frame.vmin;
+                const vmax = cmpManualVmax[i] ?? frame.vmax;
+                const win = vmax - vmin;
+                if (win <= 0) return;
+                const factor = e.deltaY > 0 ? 1.1 : (1 / 1.1);
+                const center = (vmin + vmax) / 2;
+                const newHalf = (win * factor) / 2;
+                cmpManualVmin[i] = center - newHalf;
+                cmpManualVmax[i] = center + newHalf;
+                drawComparePaneCb(i);
+                compareRender();
+            }, { passive: false });
+            cbCv.addEventListener('mousedown', (e) => {
+                if (e.button !== 0 || !compareActive) return;
+                _cmpCbDragPane = i;
+                _cmpCbDragX = e.clientX;
+                e.preventDefault();
+            });
+            cbCv.addEventListener('dblclick', () => {
+                if (!compareActive) return;
+                cmpManualVmin[i] = null;
+                cmpManualVmax[i] = null;
+                drawComparePaneCb(i);
+                compareRender();
+            });
+        });
+
         // Diff pane colorbar
         const diffPaneCb = document.getElementById('compare-diff-pane-cb');
         const diffPaneCbLabels = document.getElementById('compare-diff-pane-cb-labels');
@@ -927,7 +966,7 @@
         }
         slimCbCanvas.addEventListener('wheel', (e) => {
             e.preventDefault();
-            if (multiViewActive || compareActive || qmriActive) return;
+            if (compareActive || qmriActive) return;
             if (manualVmin === null) return;
             const win = manualVmax - manualVmin;
             if (win <= 0) return;
@@ -945,8 +984,27 @@
             e.preventDefault();
         });
         window.addEventListener('mousemove', (e) => {
+            // Compare-mode per-pane colorbar drag
+            if (_cmpCbDragPane !== null && _cmpCbDragX !== null && compareActive) {
+                const i = _cmpCbDragPane;
+                const frame = compareFrames[i];
+                if (frame) {
+                    const vmin = cmpManualVmin[i] ?? frame.vmin;
+                    const vmax = cmpManualVmax[i] ?? frame.vmax;
+                    const cbCv = comparePaneCbs[i];
+                    const cbW = parseInt(cbCv?.style.width) || cbCv?.offsetWidth || 200;
+                    const win = vmax - vmin;
+                    const dx = e.clientX - _cmpCbDragX;
+                    _cmpCbDragX = e.clientX;
+                    cmpManualVmin[i] = vmin - (dx / cbW) * win;
+                    cmpManualVmax[i] = vmax - (dx / cbW) * win;
+                    drawComparePaneCb(i);
+                    compareRender();
+                }
+                return;
+            }
             if (_cbDragX === null) return;
-            if (multiViewActive || compareActive || qmriActive) return;
+            if (compareActive || qmriActive) return;
             if (manualVmin === null) return;
             const dx = e.clientX - _cbDragX;
             _cbDragX = e.clientX;
@@ -958,9 +1016,9 @@
             drawSlimColorbar(cbMarkerFrac);
             _cbApplyAndRender();
         });
-        window.addEventListener('mouseup', () => { _cbDragX = null; });
+        window.addEventListener('mouseup', () => { _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null; });
         slimCbCanvas.addEventListener('dblclick', () => {
-            if (multiViewActive || compareActive || qmriActive) return;
+            if (compareActive || qmriActive) return;
             manualVmin = null; manualVmax = null;
             updateView();
             showStatus('window/level: reset to auto');
@@ -1315,9 +1373,11 @@
             sCtx.restore();
             if (cbLabels) {
                 const frame = compareFrames[idx];
+                const labelVmin = cmpManualVmin[idx] ?? frame.vmin;
+                const labelVmax = cmpManualVmax[idx] ?? frame.vmax;
                 cbLabels.style.display = '';
                 cbLabels.style.width = cssW + 'px';
-                cbLabels.innerHTML = `<span>${_cbFmt(frame.vmin)}</span><span>${_cbFmt(frame.vmax)}</span>`;
+                cbLabels.innerHTML = `<span>${_cbFmt(labelVmin)}</span><span>${_cbFmt(labelVmax)}</span>`;
             }
         }
 
@@ -1813,13 +1873,16 @@
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
                 });
-                if (manualVmin !== null && manualVmax !== null) {
-                    params.set('vmin_override', String(manualVmin));
-                    params.set('vmax_override', String(manualVmax));
-                }
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
-                const requests = renderSids.map(sidVal => {
+                const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
+                    // Per-pane vmin/vmax takes precedence, then global manual range
+                    const pVmin = cmpManualVmin[i] ?? manualVmin;
+                    const pVmax = cmpManualVmax[i] ?? manualVmax;
+                    if (pVmin !== null && pVmax !== null) {
+                        reqParams.set('vmin_override', String(pVmin));
+                        reqParams.set('vmax_override', String(pVmax));
+                    }
                     if (sidVal === sid && overlay_sid) {
                         reqParams.set('overlay_sid', overlay_sid);
                         reqParams.set('overlay_alpha', String(overlayAlpha));
