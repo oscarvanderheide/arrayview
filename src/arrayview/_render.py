@@ -438,14 +438,25 @@ def _extract_overlay_mask(
     return None
 
 
-def _overlay_is_label_map(overlay_sid: str | None) -> bool:
-    """Return True if the overlay session looks like an integer label map."""
+def _overlay_is_label_map(overlay_sid: str | None, ov_raw: np.ndarray | None = None) -> bool:
+    """Return True if the overlay should be rendered as discrete integer labels.
+
+    Returns False (heatmap) for float arrays or integer arrays with more than
+    16 unique non-zero values in the current slice (continuous segmentation scores).
+    """
     if not overlay_sid:
         return False
     ov_session = SESSIONS.get(str(overlay_sid))
     if ov_session is None:
         return False
-    return np.issubdtype(ov_session.data.dtype, np.integer)
+    if not np.issubdtype(ov_session.data.dtype, np.integer):
+        return False  # float → heatmap
+    if ov_raw is not None:
+        unique_vals = np.unique(ov_raw[np.isfinite(ov_raw)])
+        n_nonzero = int(np.sum(unique_vals != 0))
+        if n_nonzero > 16:
+            return False  # too many labels → treat as heatmap
+    return True
 
 
 def _composite_overlay_mask(
