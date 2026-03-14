@@ -378,7 +378,9 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     sock.listen(128)
     sock.set_inheritable(True)
     _server_ready_event.set()  # port is bound — callers can proceed
-    config = _uvicorn().Config(app, log_level="error", timeout_keep_alive=30)
+    config = _uvicorn().Config(
+        app, log_level="error", timeout_keep_alive=30, ws_ping_interval=None
+    )
     server = _uvicorn().Server(config)
     if stop_when_closed:
         asyncio.create_task(_stop_server_when_viewer_closes(server))
