@@ -27,6 +27,7 @@ def _vprint(*args, **kwargs) -> None:
 SERVER_LOOP = None
 SERVER_PORT: int | None = None  # actual port the uvicorn server is bound to
 VIEWER_SOCKETS = 0  # count of active viewer WebSocket connections
+VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
@@ -330,6 +331,7 @@ __all__ = [
     # Global state
     "SERVER_LOOP",
     "VIEWER_SOCKETS",
+    "VIEWER_SIDS",
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",

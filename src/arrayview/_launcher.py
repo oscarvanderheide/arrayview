@@ -458,6 +458,14 @@ def view(
     if name is None:
         name = f"Array {data.shape}"
 
+    # Remote/tunnel: if the caller didn't override the port and a --serve server
+    # is already running on the CLI default (8000), use that instead of 8123.
+    # This ensures av.view(x) in Python/Jupyter/Julia on a tunnel connects to
+    # the persistent server whose port the user has already set to Public.
+    _CLI_DEFAULT_PORT = 8000
+    if port == 8123 and _is_vscode_remote() and _server_alive(_CLI_DEFAULT_PORT):
+        port = _CLI_DEFAULT_PORT
+
     # Julia/PythonCall: must be handled before the is_jupyter defaults because:
     # 1. _in_jupyter() returns False for IJulia kernels (not ipykernel)
     # 2. that would set inline=False and window=True, overriding user intent
@@ -501,6 +509,42 @@ def view(
             port,
             window,
         )
+
+    # VS Code tunnel/remote with an existing --serve server: register the array
+    # via /load and open the viewer through the signal-file mechanism.  This
+    # avoids starting a new server on a different port (which wouldn't be Public).
+    if _is_vscode_remote() and _server_alive(port):
+        try:
+            import tempfile as _tf
+            with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
+                _tmp_path = _tmp.name
+            np.save(_tmp_path, data)
+            body = json.dumps({"filepath": _tmp_path, "name": name, "rgb": rgb}).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/load",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                result = json.loads(resp.read())
+            try:
+                os.unlink(_tmp_path)
+            except Exception:
+                pass
+            if "error" in result:
+                raise RuntimeError(result["error"])
+            sid = result["sid"]
+            url_viewer = f"http://localhost:{port}/?sid={sid}"
+            # On a tunnel, inline IFrames don't work (localhost URL in notebook
+            # webview can't route through VS Code port forwarding).  Always
+            # open via Simple Browser signal file.
+            _open_browser(url_viewer, force_vscode=True, blocking=True)
+            _print_viewer_location(url_viewer)
+            return url_viewer
+        except Exception as e:
+            _vprint(f"[ArrayView] Failed to register with --serve server: {e}", flush=True)
+            # Fall through to subprocess/in-process paths.
 
     # VS Code tunnel/remote: the calling Python process may exit shortly after
     # view() returns (one-shot scripts, non-interactive use).  A daemon-thread

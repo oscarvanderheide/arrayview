@@ -17,6 +17,7 @@ from arrayview._session import (  # noqa: F401
     _vprint,
     SERVER_LOOP,
     VIEWER_SOCKETS,
+    VIEWER_SIDS,
     SHELL_SOCKETS,
     _window_process,
     PENDING_SESSIONS,

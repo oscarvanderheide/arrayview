@@ -172,6 +172,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
 
     await ws.accept()
     _session_mod.VIEWER_SOCKETS += 1
+    _session_mod.VIEWER_SIDS.add(sid)
     loop = asyncio.get_running_loop()
 
     try:
@@ -285,6 +286,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
         traceback.print_exc()
     finally:
         _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
+        # Note: we don't remove from VIEWER_SIDS here because the set is used
+        # only to check if a session was *ever* connected, not currently connected.
 
 
 @app.get("/clearcache/{sid}")

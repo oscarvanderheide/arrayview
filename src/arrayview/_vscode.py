@@ -57,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.7"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.10"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -115,6 +115,39 @@ def _patch_vscode_extension_metadata(version: str) -> None:
             )
 
 
+def _remove_old_extension_versions(current_version: str) -> None:
+    """Delete extension directories for versions older than current_version.
+
+    When multiple versions of arrayview-opener are installed side-by-side,
+    VS Code may load an older version instead of the latest.  Removing stale
+    directories ensures the correct version is picked up on the next reload.
+    """
+    import shutil
+    for ext_base in (
+        os.path.expanduser("~/.vscode-server/extensions"),
+        os.path.expanduser("~/.vscode/extensions"),
+    ):
+        if not os.path.isdir(ext_base):
+            continue
+        try:
+            entries = os.listdir(ext_base)
+        except OSError:
+            continue
+        prefix = "arrayview.arrayview-opener-"
+        for entry in entries:
+            if not entry.startswith(prefix):
+                continue
+            version_str = entry[len(prefix):]
+            if version_str == current_version:
+                continue  # keep
+            old_dir = os.path.join(ext_base, entry)
+            try:
+                shutil.rmtree(old_dir)
+                _vprint(f"[ArrayView] removed old extension: {entry}", flush=True)
+            except Exception as exc:
+                _vprint(f"[ArrayView] could not remove {entry}: {exc}", flush=True)
+
+
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
@@ -123,12 +156,8 @@ def _ensure_vscode_extension() -> bool:
     commands to promote the port to public preview.
 
     Force-installs the current VSIX into the running UI extension host.
-    Hot-installing immediately activates the new version alongside any older
-    version that may still be running. The extension and Python code use a
-    versioned signal filename so stale instances won't consume new requests.
-
-    We do NOT uninstall first: an explicit uninstall causes VS Code to mark the
-    extension and skip hot-activation on reinstall (see log.txt attempt 11).
+    Old extension directories are removed first so VS Code always picks up
+    the new version on the next extension-host reload.
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
@@ -154,6 +183,11 @@ def _ensure_vscode_extension() -> bool:
             flush=True,
         )
         return False
+
+    # Remove stale extension directories before installing so VS Code loads
+    # only this version on the next extension-host reload.
+    _remove_old_extension_versions(_VSCODE_EXT_VERSION)
+
     try:
         r = subprocess.run(
             [code, "--install-extension", vsix_path, "--force"],
@@ -287,26 +321,27 @@ def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
 
 
 def _schedule_remote_open_retries(
-    url: str, interval: float = 7.0, count: int = 6
+    url: str, interval: float = 15.0, count: int = 2
 ) -> None:
-    """Re-send the open-preview signal if no viewer WebSocket has connected yet.
+    """Backup retries via signal file (extension handles primary retries internally).
 
-    In remote/tunnel sessions the port may be private on first open (user sees
-    auth page). Once the user sets Port Visibility → Public, the next retry
-    re-opens Simple Browser with the now-public URL — no need to re-run arrayview.
-    Retries stop as soon as VIEWER_SOCKETS > 0 (viewer loaded successfully).
+    Reduced to 2 retries at 15s intervals.  The VS Code extension now retries
+    ``simpleBrowser.show()`` internally after claiming a signal, so Python-side
+    retries are only needed as a Safety net (e.g. extension not loaded yet after
+    a fresh install).
     """
+    import urllib.parse as _urlparse
+    _parsed = _urlparse.urlparse(url)
+    _qs = _urlparse.parse_qs(_parsed.query)
+    _target_sid = _qs.get("sid", [None])[0]
 
     def _loop() -> None:
-        from arrayview._session import VIEWER_SOCKETS as _vs  # re-read at call time
-
         for i in range(count):
             time.sleep(interval)
-            # Re-import to get current value (mutable scalar)
-            import arrayview._session as _sm
-
-            if _sm.VIEWER_SOCKETS > 0:
-                return  # viewer connected; port is public and working
+            if _target_sid:
+                import arrayview._session as _sm
+                if _target_sid in _sm.VIEWER_SIDS:
+                    return  # this session's viewer connected
             _open_via_signal_file(url)
 
     threading.Thread(target=_loop, daemon=True).start()
@@ -335,8 +370,10 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
                 pass
         for filename in filenames:
             signal_file = os.path.join(signal_dir, filename)
-            with open(signal_file, "w") as f:
+            tmp_file = signal_file + ".tmp"
+            with open(tmp_file, "w") as f:
                 json.dump(data, f)
+            os.replace(tmp_file, signal_file)  # atomic on POSIX + Windows
         return True
     except Exception:
         return False
@@ -393,7 +430,8 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
                 _remote_message_shown = True
                 print(
                     f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
-                    f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.",
+                    f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.\n"
+                    f"  If the Simple Browser tab shows an auth page, make the port Public then reload the tab.",
                     flush=True,
                 )
             ext_ok = _ensure_vscode_extension()
@@ -403,7 +441,10 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             # installed from a prior session even if _ensure failed (e.g.
             # `code` CLI not in PATH, Julia stripped env, etc.).
             _open_via_signal_file(url)
-            _schedule_remote_open_retries(url)
+            # Note: retries deliberately omitted. simpleBrowser.show() opens a
+            # NEW tab on every call (not idempotent). If the port was Private and
+            # shows an auth page, the user should make the port Public and reload
+            # the Simple Browser tab manually.
             if not ext_ok:
                 _vprint(
                     "[ArrayView] extension install could not be verified — signal file written anyway",
