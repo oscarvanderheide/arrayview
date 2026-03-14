@@ -13,7 +13,7 @@ Each row: shortcut | what it does | smoke test scenario
 ───────────────────────────────────────────────────────────────────
 NAVIGATION
   scroll          prev/next slice           ✓ 07, 11 (scroll in 3d, qmri)
-  h/l/←/→        move cursor to dim        ✗ (moves info label only)
+  h/l/←/→        move cursor to dim        ✓ 50 (axes flash on h/l)
   j/k/↓/↑        prev/next index           ✓ 07 (arrow keys scroll)
   r               reverse axis              ✓ 19 (r key reverses)
   Space           toggle auto-play          ✓ 20 (play then stop)
@@ -62,11 +62,17 @@ INFO & EXPORT
   toast routing   diff/border toasts → #status (bottom-left)  ✓ 49
 
 LOADING ANIMATION
-  logo walk-anim while loading-overlay vis  ✓ 47 (js eval checks .av-logo-loading)
-  logo-b0..b8 IDs present for walk anim    ✓ 47 (js eval checks rect IDs)
+  logo pulse-anim while loading-overlay vis ✓ 47 (js eval checks .av-logo-loading)
+  logo-b0..b8 IDs present for pulse anim   ✓ 47 (js eval checks rect IDs)
   logo stops after canvas visible           ✓ 47
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
   loading text absent                       ✓ 47 (#loading-label not in DOM)
+
+AXES INDICATOR (edge labels)
+  h/l dims flash axes labels, fade in+out   ✓ 50 (opacity checked after h press)
+  axes visible in mosaic mode (z key)       ✓ 50 (mosaic mode flash)
+  axes visible in multiview (v key)         ✓ 50 (multiview flash)
+  axes visible in compare mode (B key)      ✗ (requires interactive picker)
 
 VIEW MODES (colorbar visible in all)
   single 2d                                 ✓ 01
@@ -83,7 +89,7 @@ MEDICAL IMAGE SIZES (canvas fill / sizing check)
   4D medical qmri 5-panel                   ✓ 31
 
 STABILITY (keys must not cause UI element jumps)
-  h/l — cursor dim switch                   ✓ 32 (bounding box check)
+  h/l — cursor dim switch + axes flash      ✓ 32 (bounding box check), 50 (axes flash)
   j/k — slice navigate                      ✓ 33 (bounding box check)
   Z — zen mode toggle                       ✓ 34 (before/after)
   b — border toggle                         ✓ 35 (before/after)
@@ -98,6 +104,11 @@ STABILITY (keys must not cause UI element jumps)
 
 PERFORMANCE
   compute_global_stats ndim≥4 2D sampling  ✓ test_api.py (samples 2D slices, not 3D volumes)
+
+OVERLAY
+  multiple masks (overlay_sid=sid1,sid2)   ✓ 51 (two binary masks, red+green palette)
+  heatmap for float/many-label overlays    ✓ test_api.py (TestOverlayIsLabelMap)
+  drag-and-drop .npy upload               ✓ test_api.py (TestLoadUpload)
 
 ═══════════════════════════════════════════════════════════════════
 RULE: when you add a keyboard shortcut, add a scenario here.
@@ -675,9 +686,9 @@ def run_smoke(page, base, client, tmp):
             )
 
     # ── 47: logo animation ────────────────────────────────────────────────────
-    # Verify the logo animates while loading and stops after canvas is visible.
+    # Verify the logo animates (opacity pulse) while loading and stops after canvas visible.
     # Also verify #loading-track (ping-pong bar) and #loading-label (text) are gone.
-    # Verify SVG rect IDs (logo-b0..b8) required for sequential walk animation.
+    # Verify SVG rect IDs (logo-b0..b8) required for pulse animation.
     _goto(page, base, sid2d)
     logo_has_class = page.evaluate(
         "() => document.getElementById('av-logo-svg').classList.contains('av-logo-loading')"
@@ -689,7 +700,7 @@ def run_smoke(page, base, client, tmp):
     )
     if missing_rects:
         print(
-            f"  WARNING: SVG logo rect IDs missing (walk animation broken): {missing_rects}"
+            f"  WARNING: SVG logo rect IDs missing (pulse animation broken): {missing_rects}"
         )
     loading_track_present = page.evaluate(
         "() => !!document.getElementById('loading-track')"
@@ -748,6 +759,73 @@ def run_smoke(page, base, client, tmp):
         print(
             "  WARNING: #status is empty after X in normal mode — toast may not route correctly"
         )
+
+    # ── 50: axes indicator — edge labels flash on h/l, mosaic, multiview ─────
+    # Verify that pressing h in a 3D array makes .axes-indicator opacity become 1.
+    # Also verify axes are visible in mosaic mode (not hidden when dim_z >= 0).
+    # Also verify axes flash in multiview mode.
+    _goto(page, base, sid3d)
+    # Check baseline: axes indicator starts hidden (opacity 0)
+    ax_opacity_before = page.evaluate(
+        "() => { const el = document.querySelector('.axes-indicator'); "
+        "return parseFloat(el ? getComputedStyle(el).opacity : '-1'); }"
+    )
+    _press(page, "h", wait=500)
+    ax_opacity_after = page.evaluate(
+        "() => { const el = document.querySelector('.axes-indicator'); "
+        "return parseFloat(el ? getComputedStyle(el).opacity : '-1'); }"
+    )
+    _shot(page, "50a_axes_flash_normal")
+    if ax_opacity_after < 0.5:
+        print(f"  WARNING: axes indicator opacity={ax_opacity_after:.2f} after h — expected ~1.0 (fade-in not working)")
+    # Check mosaic mode: axes should still be visible after z key
+    _press(page, "z", wait=400)
+    _press(page, "h", wait=500)
+    ax_opacity_mosaic = page.evaluate(
+        "() => { const el = document.querySelector('.axes-indicator'); "
+        "return parseFloat(el ? getComputedStyle(el).opacity : '-1'); }"
+    )
+    _shot(page, "50b_axes_flash_mosaic")
+    if ax_opacity_mosaic < 0.5:
+        print(f"  WARNING: axes indicator opacity={ax_opacity_mosaic:.2f} in mosaic mode — should flash on h")
+    # Check multiview mode
+    _press(page, "z", wait=200)  # exit mosaic
+    _press(page, "v", wait=400)
+    _press(page, "h", wait=500)
+    ax_opacity_mv = page.evaluate(
+        "() => { const els = document.querySelectorAll('.axes-indicator'); "
+        "return Math.max(...Array.from(els, e => parseFloat(getComputedStyle(e).opacity))); }"
+    )
+    _shot(page, "50c_axes_flash_multiview")
+    if ax_opacity_mv < 0.5:
+        print(f"  WARNING: axes indicator max opacity={ax_opacity_mv:.2f} in multiview — expected ~1.0")
+    _press(page, "v", wait=200)  # exit multiview
+
+    # -----------------------------------------------------------------------
+    # 51: Multiple overlays — two binary masks with auto-palette colors
+    # -----------------------------------------------------------------------
+    print("51: multiple overlays (two masks)")
+    rng = np.random.default_rng(51)
+    base_arr = rng.standard_normal((64, 64)).astype(np.float32)
+    mask_a = np.zeros((64, 64), dtype=np.uint8)
+    mask_a[5:25, 5:25] = 1   # top-left quadrant
+    mask_b = np.zeros((64, 64), dtype=np.uint8)
+    mask_b[40:60, 40:60] = 1  # bottom-right quadrant
+    sid_base = _load(client, base_arr, "arr_51_base", tmp)
+    sid_ov_a = _load(client, mask_a, "arr_51_ov_a", tmp)
+    sid_ov_b = _load(client, mask_b, "arr_51_ov_b", tmp)
+    try:
+        page.evaluate("() => sessionStorage.clear()")
+    except Exception:
+        pass
+    page.goto(
+        f"{base}/?sid={sid_base}"
+        f"&overlay_sid={sid_ov_a},{sid_ov_b}"
+        f"&overlay_colors=ff4444,44cc44"
+    )
+    page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+    page.wait_for_timeout(1400)
+    _shot(page, "51_multi_overlay")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
