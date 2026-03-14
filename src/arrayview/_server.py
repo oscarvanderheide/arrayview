@@ -265,7 +265,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 )
                 rgba = _composite_overlay_mask(
                     rgba, ov_raw, alpha=overlay_alpha,
-                    is_label=_overlay_is_label_map(overlay_sid),
+                    is_label=_overlay_is_label_map(overlay_sid, ov_raw),
                 )
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
@@ -885,7 +885,7 @@ def get_slice(
             )
             rgba = _composite_overlay_mask(
                 rgba, ov_raw, alpha=overlay_alpha,
-                is_label=_overlay_is_label_map(overlay_sid),
+                is_label=_overlay_is_label_map(overlay_sid, ov_raw),
             )
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
             _, vmin, vmax = _prepare_display(

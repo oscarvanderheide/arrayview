@@ -454,3 +454,53 @@ class TestPortAndTunnelHelpers:
         from arrayview._app import _can_native_window
         monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
         assert _can_native_window() is False
+
+
+# ---------------------------------------------------------------------------
+# Overlay heatmap: _overlay_is_label_map
+# ---------------------------------------------------------------------------
+
+class TestOverlayIsLabelMap:
+    """_overlay_is_label_map returns True for small integer label maps only."""
+
+    def _register(self, arr, tmp_path, client, name):
+        from tests.conftest import register_array
+        return register_array(client, arr, tmp_path, name)
+
+    def test_float_array_is_not_label_map(self, client, tmp_path):
+        from arrayview._render import _overlay_is_label_map
+        from arrayview._app import SESSIONS, Session
+        arr = np.random.default_rng(0).random((32, 32)).astype(np.float32)
+        s = Session(arr, name="ov_float")
+        SESSIONS[s.sid] = s
+        assert _overlay_is_label_map(s.sid) is False
+
+    def test_integer_few_labels_is_label_map(self, client, tmp_path):
+        from arrayview._render import _overlay_is_label_map
+        from arrayview._app import SESSIONS, Session
+        arr = np.zeros((32, 32), dtype=np.int32)
+        arr[5:15, 5:15] = 1
+        arr[15:25, 15:25] = 2
+        s = Session(arr, name="ov_labels")
+        SESSIONS[s.sid] = s
+        assert _overlay_is_label_map(s.sid) is True
+
+    def test_integer_many_unique_values_is_heatmap(self, client, tmp_path):
+        from arrayview._render import _overlay_is_label_map
+        from arrayview._app import SESSIONS, Session
+        arr = np.arange(32 * 32, dtype=np.int32).reshape(32, 32)  # 1024 unique values
+        s = Session(arr, name="ov_many")
+        SESSIONS[s.sid] = s
+        ov_raw = arr.astype(np.float32)
+        assert _overlay_is_label_map(s.sid, ov_raw) is False
+
+    def test_integer_exactly_16_labels_is_label_map(self, client, tmp_path):
+        from arrayview._render import _overlay_is_label_map
+        from arrayview._app import SESSIONS, Session
+        arr = np.zeros((32, 32), dtype=np.int32)
+        for i in range(16):
+            arr[i * 2, :] = i + 1  # labels 1..16
+        s = Session(arr, name="ov_16")
+        SESSIONS[s.sid] = s
+        ov_raw = arr.astype(np.float32)
+        assert _overlay_is_label_map(s.sid, ov_raw) is True
