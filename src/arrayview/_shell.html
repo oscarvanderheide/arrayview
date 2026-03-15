@@ -137,6 +137,8 @@
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
             if (msg.action === 'new_tab') {
+                // Close the welcome placeholder tab when a real array arrives
+                if (tabs['__welcome__']) closeTab('__welcome__');
                 addTab(msg.sid, msg.name, msg.url);
             }
         };
@@ -152,8 +154,13 @@
             addTab(initSid, initName || 'Array', url);
         } else {
             fetch('/sessions').then(r => r.json()).then(sessions => {
-                sessions.forEach(s => addTab(s.sid, s.name));
-            }).catch(() => {});
+                if (sessions.length > 0) {
+                    sessions.forEach(s => addTab(s.sid, s.name));
+                } else {
+                    // No arrays loaded yet — show the welcome/plasma screen
+                    addTab('__welcome__', '', '/');
+                }
+            }).catch(() => { addTab('__welcome__', '', '/'); });
         }
     </script>
 </body>

@@ -2664,7 +2664,17 @@
                 const res = await fetch('/load-upload', { method: 'POST', body: form });
                 const body = await res.json();
                 if (!res.ok) throw new Error(body.detail || String(res.status));
-                showStatus(`Opened: ${body.name}`);
+                if (!sid) {
+                    // Welcome screen — navigate in-place (replaces the welcome tab)
+                    window.location.href = '/?sid=' + body.sid;
+                } else if (window.parent !== window && window.parent.__arrayviewShell) {
+                    // Shell with real array — server WS will add the tab
+                    showStatus(`Opened: ${body.name}`);
+                } else {
+                    // Browser (non-shell) — open in new tab
+                    window.open('/?sid=' + body.sid, '_blank');
+                    showStatus(`Opened: ${body.name}`);
+                }
             } catch (err) {
                 showStatus(`Failed to load file: ${err.message}`);
             }
@@ -3608,10 +3618,14 @@
                                         if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
                                         else {
                                             finish({ type: 'navigate', sid: data.sid });
-                                            if (window.parent !== window && window.parent.__arrayviewShell) {
-                                                window.parent.addTab(data.sid, data.name || f.name);
-                                            } else {
+                                            if (!sid) {
+                                                // Welcome screen — navigate in-place
                                                 window.location.href = '/?sid=' + data.sid;
+                                            } else if (window.parent !== window && window.parent.__arrayviewShell) {
+                                                // Shell with real array — server WS will add the tab
+                                            } else {
+                                                // Browser (non-shell) — open in new tab
+                                                window.open('/?sid=' + data.sid, '_blank');
                                             }
                                         }
                                     }).catch(() => { showToast('load failed'); finish(null); });
