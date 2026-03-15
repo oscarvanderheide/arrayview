@@ -2970,6 +2970,12 @@
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
+            // Forward Cmd/Ctrl+Shift+[/] to shell for tab cycling
+            const modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
+            if (modKey && e.shiftKey && (e.key === '[' || e.key === ']')) {
+                reportParent('tab-cycle', { dir: e.key === '[' ? -1 : 1 });
+                return;
+            }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
             if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
             if (helpOverlay.classList.contains('visible')) {
