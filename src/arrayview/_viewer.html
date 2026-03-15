@@ -441,6 +441,20 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             position: fixed; inset: 0; z-index: 5; pointer-events: none;
         }
+        #empty-hint {
+            display: none; position: fixed; inset: 0; z-index: 2;
+            align-items: center; justify-content: center; pointer-events: none;
+        }
+        #empty-hint.visible { display: flex; }
+        #empty-hint-inner {
+            color: var(--muted); font-size: 12px; letter-spacing: 0.04em;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+        }
+        #empty-hint-inner kbd {
+            display: inline-block; font-family: inherit; font-size: 11px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 3px; padding: 0 4px; margin: 0 1px;
+        }
     </style>
 </head>
 <body>
@@ -606,6 +620,11 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
+        <div id="empty-hint">
+            <div id="empty-hint-inner">
+                <div><kbd>O</kbd> open &nbsp;·&nbsp; drop file to load</div>
+            </div>
+        </div>
     </div>
     <textarea id="keyboard-sink" autocomplete="off" autocorrect="off" spellcheck="false"
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
@@ -2007,10 +2026,46 @@
 
         function hideLoadingOverlay() {
             document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('empty-hint').classList.remove('visible');
+        }
+
+        function drawPlasmaDemo() {
+            // Plasma colormap LUT (sampled from matplotlib's plasma, 32 stops → interpolated)
+            const PLASMA = [
+                [13,8,135],[84,2,163],[139,10,165],[185,50,137],[219,92,104],
+                [244,136,73],[254,188,43],[240,249,33],
+            ];
+            function plasmaColor(t) {
+                const n = PLASMA.length - 1;
+                const i = Math.min(n - 1, Math.floor(t * n));
+                const f = t * n - i;
+                const [r0,g0,b0] = PLASMA[i], [r1,g1,b1] = PLASMA[i+1];
+                return [r0 + f*(r1-r0), g0 + f*(g1-g0), b0 + f*(b1-b0)];
+            }
+            const W = 320, H = 200;
+            canvas.width = W; canvas.height = H;
+            const imgData = ctx.createImageData(W, H);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const u = x / W, v = y / H;
+                    const val = 0.5 + 0.5 * Math.sin(u * 6.28 + 1.2) * Math.cos(v * 6.28 - 0.7)
+                              + 0.25 * Math.sin((u + v) * 9.4);
+                    const t = Math.max(0, Math.min(1, val));
+                    const [r,g,b] = plasmaColor(t);
+                    const idx = (y * W + x) * 4;
+                    imgData.data[idx] = r; imgData.data[idx+1] = g;
+                    imgData.data[idx+2] = b; imgData.data[idx+3] = 255;
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+            scaleCanvas(W, H);
+            document.getElementById('canvas-wrap').style.display = '';
+            document.getElementById('empty-hint').classList.add('visible');
+            document.getElementById('info').textContent = '';
         }
 
         async function init() {
-            if (!sid) { hideLoadingOverlay(); return; }
+            if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
             reportParent('metadata-request', { sid });
             const res = await fetch(`/metadata/${sid}`);
             if (!res.ok) {
