@@ -3567,7 +3567,14 @@
                                 item.className = 'cp-item'; item.tabIndex = 0;
                                 item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
                                     + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
-                                function pick() { finish({ type: 'navigate', sid: s.sid }); window.location.href = '/?sid=' + s.sid; }
+                                function pick() {
+                                    finish({ type: 'navigate', sid: s.sid });
+                                    if (window.parent !== window && window.parent.__arrayviewShell) {
+                                        window.parent.addTab(s.sid, s.name || '(unnamed)');
+                                    } else {
+                                        window.location.href = '/?sid=' + s.sid;
+                                    }
+                                }
                                 item.onclick = pick;
                                 item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
                                 listEl.appendChild(item);
@@ -3593,7 +3600,14 @@
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
                                     }).then(r => r.json()).then(data => {
                                         if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
-                                        else { finish({ type: 'navigate', sid: data.sid }); window.location.href = '/?sid=' + data.sid; }
+                                        else {
+                                            finish({ type: 'navigate', sid: data.sid });
+                                            if (window.parent !== window && window.parent.__arrayviewShell) {
+                                                window.parent.addTab(data.sid, data.name || f.name);
+                                            } else {
+                                                window.location.href = '/?sid=' + data.sid;
+                                            }
+                                        }
                                     }).catch(() => { showToast('load failed'); finish(null); });
                                 }
                                 item.onclick = pickFile;
