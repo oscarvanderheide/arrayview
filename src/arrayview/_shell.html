@@ -116,6 +116,19 @@
             updateTabBarVisibility();
         }
 
+        function cycleTab(dir) {
+            const sids = Object.keys(tabs);
+            if (sids.length < 2) return;
+            const idx = sids.indexOf(activeSid);
+            const next = sids[(idx + dir + sids.length) % sids.length];
+            activateTab(next);
+        }
+
+        window.addEventListener('message', (e) => {
+            if (!e.data || e.data.source !== 'arrayview-viewer') return;
+            if (e.data.phase === 'tab-cycle') cycleTab(e.data.detail?.dir ?? 1);
+        });
+
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
         // Mark this window as the native shell so embedded viewer iframes
