@@ -1156,10 +1156,10 @@ def _serve_daemon(
         except KeyboardInterrupt:
             pass
     else:
-        # Keep the server alive for 5 minutes after the last viewer closes so
-        # the next `arrayview file.npy` invocation can reuse this process
-        # instead of spawning a new subprocess (cold-start can take 300–600 ms).
-        _wait_for_viewer_close(idle_seconds=300)
+        # Keep the server alive briefly after the last viewer closes (grace period
+        # for page refreshes). No extended idle timeout — shut down immediately
+        # when the last window closes for cleaner debugging and resource management.
+        _wait_for_viewer_close(idle_seconds=0)
     os._exit(0)
 
 
