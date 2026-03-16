@@ -13,7 +13,7 @@ import uuid
 import zipfile
 from importlib.resources import files as _pkg_files
 
-from arrayview._session import _vprint, VIEWER_SOCKETS
+from arrayview._session import _vprint
 from arrayview._platform import (
     _find_code_cli,
     _find_vscode_ipc_hook,
@@ -57,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.12"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.13"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -123,6 +123,7 @@ def _remove_old_extension_versions(current_version: str) -> None:
     directories ensures the correct version is picked up on the next reload.
     """
     import shutil
+
     for ext_base in (
         os.path.expanduser("~/.vscode-server/extensions"),
         os.path.expanduser("~/.vscode/extensions"),
@@ -137,7 +138,7 @@ def _remove_old_extension_versions(current_version: str) -> None:
         for entry in entries:
             if not entry.startswith(prefix):
                 continue
-            version_str = entry[len(prefix):]
+            version_str = entry[len(prefix) :]
             if version_str == current_version:
                 continue  # keep
             old_dir = os.path.join(ext_base, entry)
@@ -331,6 +332,7 @@ def _schedule_remote_open_retries(
     a fresh install).
     """
     import urllib.parse as _urlparse
+
     _parsed = _urlparse.urlparse(url)
     _qs = _urlparse.parse_qs(_parsed.query)
     _target_sid = _qs.get("sid", [None])[0]
@@ -340,6 +342,7 @@ def _schedule_remote_open_retries(
             time.sleep(interval)
             if _target_sid:
                 import arrayview._session as _sm
+
                 if _target_sid in _sm.VIEWER_SIDS:
                     return  # this session's viewer connected
             _open_via_signal_file(url)

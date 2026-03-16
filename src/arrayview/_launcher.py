@@ -188,7 +188,9 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
     """
     proc = _open_webview(url, win_w, win_h, capture_stderr=True)
     _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
-    sockets_before = _session_mod.VIEWER_SOCKETS  # capture count so we detect a NEW connection
+    sockets_before = (
+        _session_mod.VIEWER_SOCKETS
+    )  # capture count so we detect a NEW connection
 
     def _read_stderr():
         try:
@@ -884,7 +886,6 @@ def _view_julia(
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
     """
-    import numpy as np
 
     # Detect VS Code *now*, in the parent process where TERM_PROGRAM and
     # VSCODE_IPC_HOOK_CLI are still available.  The subprocess inherits a
@@ -1094,7 +1095,9 @@ def _serve_daemon(
                     os.unlink(filepath)
                 except Exception:
                     pass
-            session = _session_mod.Session(data, filepath=None if cleanup else filepath, name=name)
+            session = _session_mod.Session(
+                data, filepath=None if cleanup else filepath, name=name
+            )
             session.sid = sid
             if rgb:
                 from arrayview._render import _setup_rgb

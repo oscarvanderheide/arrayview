@@ -68,6 +68,11 @@ LOADING ANIMATION
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
   loading text absent                       ✓ 47 (#loading-label not in DOM)
 
+WELCOME SCREEN / DEMO
+  empty-hint visible on welcome session     ✓ 48 (check .visible on #empty-hint)
+  dim-label active no hover highlight       ✓ 52 (CSS rule present)
+  dim-track drag scrubs index               ✓ 53 (mousedown+move on track)
+
 AXES INDICATOR (edge labels)
   h/l dims flash axes labels, fade in+out   ✓ 50 (opacity checked after h press)
   axes visible in mosaic mode (z key)       ✓ 50 (mosaic mode flash)
@@ -115,7 +120,6 @@ RULE: when you add a keyboard shortcut, add a scenario here.
 ═══════════════════════════════════════════════════════════════════
 """
 
-import os
 import socket
 import threading
 import time
@@ -739,6 +743,14 @@ def run_smoke(page, base, client, tmp):
     eggs_text = page.locator("#mode-eggs").inner_text()
     if "RGB" not in eggs_text:
         print("  WARNING: RGB egg not visible in demo plasma scenario")
+    # empty-hint ("O open · drop file to load") must be visible on welcome screen
+    hint_visible = page.evaluate(
+        "() => document.getElementById('empty-hint').classList.contains('visible')"
+    )
+    if not hint_visible:
+        print(
+            "  WARNING: #empty-hint not visible on welcome demo screen — fix _isWelcomeScreen logic"
+        )
 
     # ── 49: toast routing — showToast() messages appear in #status (bottom-left) ──
     # Press X in normal mode (no compare) — triggers "diff view: only in 2-pane
@@ -777,7 +789,9 @@ def run_smoke(page, base, client, tmp):
     )
     _shot(page, "50a_axes_flash_normal")
     if ax_opacity_after < 0.5:
-        print(f"  WARNING: axes indicator opacity={ax_opacity_after:.2f} after h — expected ~1.0 (fade-in not working)")
+        print(
+            f"  WARNING: axes indicator opacity={ax_opacity_after:.2f} after h — expected ~1.0 (fade-in not working)"
+        )
     # Check mosaic mode: axes should still be visible after z key
     _press(page, "z", wait=400)
     _press(page, "h", wait=500)
@@ -787,7 +801,9 @@ def run_smoke(page, base, client, tmp):
     )
     _shot(page, "50b_axes_flash_mosaic")
     if ax_opacity_mosaic < 0.5:
-        print(f"  WARNING: axes indicator opacity={ax_opacity_mosaic:.2f} in mosaic mode — should flash on h")
+        print(
+            f"  WARNING: axes indicator opacity={ax_opacity_mosaic:.2f} in mosaic mode — should flash on h"
+        )
     # Check multiview mode
     _press(page, "z", wait=200)  # exit mosaic
     _press(page, "v", wait=400)
@@ -798,7 +814,9 @@ def run_smoke(page, base, client, tmp):
     )
     _shot(page, "50c_axes_flash_multiview")
     if ax_opacity_mv < 0.5:
-        print(f"  WARNING: axes indicator max opacity={ax_opacity_mv:.2f} in multiview — expected ~1.0")
+        print(
+            f"  WARNING: axes indicator max opacity={ax_opacity_mv:.2f} in multiview — expected ~1.0"
+        )
     _press(page, "v", wait=200)  # exit multiview
 
     # -----------------------------------------------------------------------
@@ -808,7 +826,7 @@ def run_smoke(page, base, client, tmp):
     rng = np.random.default_rng(51)
     base_arr = rng.standard_normal((64, 64)).astype(np.float32)
     mask_a = np.zeros((64, 64), dtype=np.uint8)
-    mask_a[5:25, 5:25] = 1   # top-left quadrant
+    mask_a[5:25, 5:25] = 1  # top-left quadrant
     mask_b = np.zeros((64, 64), dtype=np.uint8)
     mask_b[40:60, 40:60] = 1  # bottom-right quadrant
     sid_base = _load(client, base_arr, "arr_51_base", tmp)
@@ -826,6 +844,53 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
     page.wait_for_timeout(1400)
     _shot(page, "51_multi_overlay")
+
+    # ── 52: dimbar hover — active dim must NOT get grayish hover background ──
+    print("52: dimbar hover no-highlight on active dim")
+    _goto(page, base, sid3d, wait=800)
+    _focus(page)
+    # The active-dim label must have no background when hovered (CSS specificity fix)
+    bg_active_hovered = page.evaluate(
+        "() => {"
+        "  const el = document.querySelector('.active-dim.dim-label');"
+        "  if (!el) return 'NOT_FOUND';"
+        "  const rule = Array.from(document.styleSheets)"
+        "    .flatMap(s => { try { return Array.from(s.cssRules); } catch { return []; } })"
+        "    .find(r => r.selectorText && r.selectorText.includes('.dim-label:not(.active-dim):hover'));"
+        "  return rule ? 'ok' : 'rule_missing';"
+        "}"
+    )
+    _shot(page, "52_dimbar_hover")
+    if bg_active_hovered != "ok":
+        print(
+            f"  WARNING: dim-label hover CSS rule missing ({bg_active_hovered}) — active dim may still highlight"
+        )
+
+    # ── 53: dim-track drag to scrub ─────────────────────────────────────────
+    print("53: dim-track drag scrubs dimension index")
+    _goto(page, base, sid3d, wait=800)
+    _focus(page)
+    # Get the track element for a scroll dim (not x/y)
+    # Move to the far-left of the track and drag to far-right, index should change
+    idx_before = page.evaluate(
+        "() => window._arrayviewState ? window._arrayviewState.indices : null"
+    )
+    track_box = page.evaluate(
+        "() => {"
+        "  const track = document.querySelector('.dim-label.dim-chip .dim-track');"
+        "  if (!track) return null;"
+        "  const r = track.getBoundingClientRect();"
+        "  return { x: r.left, y: r.top + r.height / 2, w: r.width };"
+        "}"
+    )
+    if track_box:
+        page.mouse.move(track_box["x"] + track_box["w"] * 0.1, track_box["y"])
+        page.mouse.down()
+        page.mouse.move(track_box["x"] + track_box["w"] * 0.9, track_box["y"])
+        page.wait_for_timeout(200)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+    _shot(page, "53_dim_track_drag")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
