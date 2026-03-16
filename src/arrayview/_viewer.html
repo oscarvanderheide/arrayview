@@ -2378,6 +2378,8 @@
                 el.style.opacity = '1';
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
+            // In multi-view mode, keep axes indicators always visible
+            if (multiViewActive) return;
             axesFlashTimer = setTimeout(() => {
                 document.querySelectorAll('.axes-indicator').forEach(el => {
                     el.style.transition = 'opacity 0.6s ease';
@@ -4225,6 +4227,7 @@
             const _firstNonSpatial = shape.findIndex((_, i) => !dims.includes(i));
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
+            flashAxesIndicators(); // Show axes indicators in multi-view mode
             showStatus('3-plane view — press v to exit', 3000);
         }
 
@@ -4240,6 +4243,10 @@
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
+            // Hide axes indicators when exiting multi-view
+            document.querySelectorAll('.axes-indicator').forEach(el => {
+                el.style.opacity = '0';
+            });
             // Re-apply border state to the normal canvas (multi-view panes are gone)
             document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
             updateView();
