@@ -18,29 +18,17 @@ import urllib.request
 import uuid
 from importlib.resources import files as _pkg_files
 
-import numpy as np
-
 # ---------------------------------------------------------------------------
 # Imports from sibling modules
 # ---------------------------------------------------------------------------
-from arrayview._session import (
-    _vprint,
-    SERVER_LOOP,
-    VIEWER_SOCKETS,
-    _window_process,
-    PENDING_SESSIONS,
-    Session,
-    SESSIONS,
-)
-import arrayview._session as _session_mod  # for mutable globals
-
-from arrayview._render import _setup_rgb
-from arrayview._io import load_data, _tensor_to_numpy
+# NOTE: numpy, _session, _render, and _io are intentionally NOT imported at
+# module level.  They are loaded lazily (inside functions / via _LazyMod) so
+# that the CLI fast path — when the server is already alive — costs only the
+# Python startup + stdlib, saving ~300–350 ms per invocation.
 from arrayview._platform import (
     _in_jupyter,
     _in_vscode_terminal,
     _is_vscode_remote,
-    _in_vscode_tunnel,
     _can_native_window,
     _is_julia_env,
     _in_julia_jupyter,
@@ -52,6 +40,7 @@ from arrayview._vscode import (
     _print_viewer_location,
     _open_browser,
 )
+
 # _server.py (FastAPI) is imported lazily via _server_mod() to keep the
 # import-time cost of ``import arrayview`` low (~175 ms saved).
 _server_mod_cache = None
@@ -61,8 +50,10 @@ def _server_mod():
     global _server_mod_cache
     if _server_mod_cache is None:
         import arrayview._server as _srv  # noqa: PLC0415 — intentional lazy import
+
         _server_mod_cache = _srv
     return _server_mod_cache
+
 
 # ---------------------------------------------------------------------------
 # Lazy uvicorn import
@@ -78,6 +69,55 @@ def _uvicorn():
 
         _uvicorn_mod = uvicorn
     return _uvicorn_mod
+
+
+# ---------------------------------------------------------------------------
+# Lazy session module proxy
+# ---------------------------------------------------------------------------
+class _LazyMod:
+    """Load a module on first attribute access.
+
+    Keeps the module-level import cost of _launcher.py near zero on the CLI
+    fast path (server already alive).  The real module is loaded the first
+    time any attribute is accessed — which happens only in the slow path
+    (starting the server or registering arrays).
+    """
+
+    __slots__ = ("_modname", "_mod")
+
+    def __init__(self, modname: str) -> None:
+        object.__setattr__(self, "_modname", modname)
+        object.__setattr__(self, "_mod", None)
+
+    def _load(self):
+        import importlib
+
+        mod = importlib.import_module(object.__getattribute__(self, "_modname"))
+        object.__setattr__(self, "_mod", mod)
+        return mod
+
+    def __getattr__(self, attr: str):
+        mod = object.__getattribute__(self, "_mod")
+        if mod is None:
+            mod = self._load()
+        return getattr(mod, attr)
+
+    def __setattr__(self, attr: str, val):
+        if attr in ("_modname", "_mod"):
+            object.__setattr__(self, attr, val)
+            return
+        mod = object.__getattribute__(self, "_mod")
+        if mod is None:
+            mod = self._load()
+        setattr(mod, attr, val)
+
+
+_session_mod = _LazyMod("arrayview._session")
+
+
+def _vprint(*args, **kwargs) -> None:
+    """Proxy for _session_mod._vprint; triggers lazy load only on first call."""
+    _session_mod._vprint(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +188,7 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
     """
     proc = _open_webview(url, win_w, win_h, capture_stderr=True)
     _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
-    sockets_before = VIEWER_SOCKETS  # capture count so we detect a NEW connection
+    sockets_before = _session_mod.VIEWER_SOCKETS  # capture count so we detect a NEW connection
 
     def _read_stderr():
         try:
@@ -295,7 +335,13 @@ def _server_hostname(port: int, timeout: float = 0.5) -> str | None:
     return None
 
 
-def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = False, relay_host: str = "127.0.0.1") -> None:
+def _relay_array_to_server(
+    filepath: str,
+    port: int,
+    name: str,
+    rgb: bool = False,
+    relay_host: str = "127.0.0.1",
+) -> None:
     """Load *filepath* locally and POST the bytes to an ArrayView relay server.
 
     Used when the local port is a reverse-SSH-forwarded connection to a remote
@@ -306,6 +352,8 @@ def _relay_array_to_server(filepath: str, port: int, name: str, rgb: bool = Fals
     is genuinely on a different network interface (rare).
     """
     import base64
+    import numpy as np
+    from arrayview._io import load_data
 
     print("[ArrayView] Relay mode: sending array to remote server...", flush=True)
     try:
@@ -346,12 +394,20 @@ def _port_in_use(port: int) -> bool:
         return False
 
 
-def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
+def _wait_for_port(port: int, timeout: float = 10.0, tcp_only: bool = False) -> bool:
+    """Wait until the server on *port* is ready.
+
+    ``tcp_only=True`` uses a raw TCP connect instead of an HTTP /ping.  This is
+    faster on cold start (saves ~20 ms per poll) and safe when we know the server
+    is ours (we just spawned it).  Combined with WS retry in the viewer, the
+    browser can open as soon as the port is bound.
+    """
+    check = _port_in_use if tcp_only else _server_alive
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _server_alive(port):
+        if check(port):
             return True
-        time.sleep(0.05)
+        time.sleep(0.02)
     return False
 
 
@@ -434,6 +490,9 @@ def view(
     ``overlay`` — a single array or list of arrays to composite as overlays.
     Each overlay is assigned an auto-palette color from _OVERLAY_PALETTE.
     """
+    import numpy as np
+    from arrayview._io import _tensor_to_numpy
+
     # Normalise string window modes.
     _force_browser = False
     _force_vscode = False
@@ -540,10 +599,13 @@ def view(
     if _is_vscode_remote() and _server_alive(port):
         try:
             import tempfile as _tf
+
             with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
                 _tmp_path = _tmp.name
             np.save(_tmp_path, data)
-            body = json.dumps({"filepath": _tmp_path, "name": name, "rgb": rgb}).encode()
+            body = json.dumps(
+                {"filepath": _tmp_path, "name": name, "rgb": rgb}
+            ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/load",
                 data=body,
@@ -567,7 +629,9 @@ def view(
             _print_viewer_location(url_viewer)
             return url_viewer
         except Exception as e:
-            _vprint(f"[ArrayView] Failed to register with --serve server: {e}", flush=True)
+            _vprint(
+                f"[ArrayView] Failed to register with --serve server: {e}", flush=True
+            )
             # Fall through to subprocess/in-process paths.
 
     # VS Code tunnel/remote: the calling Python process may exit shortly after
@@ -588,10 +652,12 @@ def view(
             force_vscode=True,
         )
 
-    session = Session(data, name=name)
+    session = _session_mod.Session(data, name=name)
     if rgb:
+        from arrayview._render import _setup_rgb
+
         _setup_rgb(session)
-    SESSIONS[session.sid] = session
+    _session_mod.SESSIONS[session.sid] = session
 
     # Register overlay sessions.
     _overlay_sids = []
@@ -604,8 +670,8 @@ def view(
                     _ov_arr = np.array(_ov_arr)
                 except Exception:
                     pass
-            _ov_session = Session(_ov_arr, name=f"overlay {_i + 1}")
-            SESSIONS[_ov_session.sid] = _ov_session
+            _ov_session = _session_mod.Session(_ov_arr, name=f"overlay {_i + 1}")
+            _session_mod.SESSIONS[_ov_session.sid] = _ov_session
             _overlay_sids.append(_ov_session.sid)
             _overlay_colors.append(_OVERLAY_PALETTE[_i % len(_OVERLAY_PALETTE)])
 
@@ -702,7 +768,8 @@ def view(
             if wp is not None and wp.poll() is None:
                 # Webview already open — inject new tab
                 asyncio.run_coroutine_threadsafe(
-                    _server_mod()._notify_shells(session.sid, name), _session_mod.SERVER_LOOP
+                    _server_mod()._notify_shells(session.sid, name),
+                    _session_mod.SERVER_LOOP,
                 )
             else:
                 _session_mod._window_process = _open_webview_with_fallback(
@@ -753,43 +820,20 @@ async def _stop_server_when_viewer_closes(
     while True:
         while _sm.VIEWER_SOCKETS > 0:
             await asyncio.sleep(0.2)
-        # Grace period (lets page refreshes reconnect before we shut down).
-        frames = [
-            "\u280b",
-            "\u2819",
-            "\u2839",
-            "\u2838",
-            "\u283c",
-            "\u2834",
-            "\u2826",
-            "\u2827",
-            "\u2807",
-            "\u280f",
-        ]
-        fi = 0
-        sys.stderr.write("\n")  # start on a fresh line, never paste onto shell prompt
-        sys.stderr.flush()
+        # Grace period: let page refreshes reconnect.
         deadline = time.monotonic() + grace_seconds
         while time.monotonic() < deadline:
             if _sm.VIEWER_SOCKETS > 0:
-                sys.stderr.write("\r" + " " * 60 + "\r")
-                sys.stderr.flush()
                 break
-            sys.stderr.write(
-                f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m"
-            )
-            sys.stderr.flush()
-            fi += 1
             await asyncio.sleep(0.08)
         else:
-            sys.stderr.write("\r" + " " * 60 + "\r")
-            sys.stderr.flush()
-            _vprint("[ArrayView] Server stopped.", flush=True)
             server.should_exit = True
             return
 
 
-def _wait_for_viewer_close(grace_seconds: float = 1.0, idle_seconds: float = 0.0) -> None:
+def _wait_for_viewer_close(
+    grace_seconds: float = 1.0, idle_seconds: float = 0.0
+) -> None:
     """Block until all viewer WebSocket connections close.
 
     Waits for a viewer WebSocket to connect, then all to disconnect, then applies a
@@ -806,40 +850,16 @@ def _wait_for_viewer_close(grace_seconds: float = 1.0, idle_seconds: float = 0.0
     while True:
         while _sm.VIEWER_SOCKETS > 0:
             time.sleep(0.2)
-        # All sockets gone — grace period for page refresh / reconnect
-        frames = [
-            "\u280b",
-            "\u2819",
-            "\u2839",
-            "\u2838",
-            "\u283c",
-            "\u2834",
-            "\u2826",
-            "\u2827",
-            "\u2807",
-            "\u280f",
-        ]
-        fi = 0
-        sys.stderr.write("\n")  # start on a fresh line, never paste onto shell prompt
-        sys.stderr.flush()
+        # Grace period: let page refreshes reconnect.
         deadline = time.monotonic() + grace_seconds
         reconnected = False
         while time.monotonic() < deadline:
             if _sm.VIEWER_SOCKETS > 0:
-                sys.stderr.write("\r" + " " * 60 + "\r")
-                sys.stderr.flush()
                 reconnected = True
-                break  # reconnected; wait again
-            sys.stderr.write(
-                f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m"
-            )
-            sys.stderr.flush()
-            fi += 1
+                break
             time.sleep(0.08)
         if reconnected:
             continue  # back to Phase 2 (wait for close)
-        sys.stderr.write("\r" + " " * 60 + "\r")
-        sys.stderr.flush()
         if idle_seconds <= 0:
             return  # no idle timeout → exit immediately
         # Idle phase: keep the server alive so the next CLI call reuses it.
@@ -854,7 +874,7 @@ def _wait_for_viewer_close(grace_seconds: float = 1.0, idle_seconds: float = 0.0
 
 
 def _view_julia(
-    data: np.ndarray,
+    data: "np.ndarray",
     name: str,
     port: int,
     window: bool,
@@ -864,6 +884,8 @@ def _view_julia(
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
     """
+    import numpy as np
+
     # Detect VS Code *now*, in the parent process where TERM_PROGRAM and
     # VSCODE_IPC_HOOK_CLI are still available.  The subprocess inherits a
     # stripped environment (Julia/PythonCall, uv run, etc.) so detection
@@ -881,7 +903,7 @@ def _view_julia(
 
 
 def _view_subprocess(
-    data: np.ndarray,
+    data: "np.ndarray",
     name: str,
     port: int,
     window: bool,
@@ -896,6 +918,7 @@ def _view_subprocess(
     (Julia, VS Code tunnel one-shot scripts, CLI).  The subprocess server
     survives because it is not a daemon thread.
     """
+    import numpy as np
     import tempfile
 
     # Persist the array to a temp file so the server subprocess can load it.
@@ -952,7 +975,7 @@ def _view_subprocess(
         subprocess.Popen(
             [sys.executable, "-c", script],
         )
-        if not _wait_for_port(port, timeout=15.0):
+        if not _wait_for_port(port, timeout=15.0, tcp_only=True):
             try:
                 os.unlink(tmp_path)
             except Exception:
@@ -1010,7 +1033,11 @@ def _serve_empty(port: int) -> None:
     _session_mod.SERVER_PORT = port
     threading.Thread(
         target=lambda: _uvicorn().run(
-            _server_mod().app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+            _server_mod().app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            timeout_keep_alive=30,
         ),
         daemon=True,
     ).start()
@@ -1042,18 +1069,24 @@ def _serve_daemon(
     cleanup=True: delete filepath after loading (used when it is a temp file).
     """
     # Register sid as pending so /metadata can poll while data loads.
-    PENDING_SESSIONS.add(sid)
+    _session_mod.PENDING_SESSIONS.add(sid)
     _session_mod.SERVER_PORT = port
 
     # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
         target=lambda: _uvicorn().run(
-            _server_mod().app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+            _server_mod().app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            timeout_keep_alive=30,
         ),
         daemon=True,
     ).start()
 
     def _load():
+        from arrayview._io import load_data
+
         try:
             data = load_data(filepath)
             if cleanup:
@@ -1061,9 +1094,11 @@ def _serve_daemon(
                     os.unlink(filepath)
                 except Exception:
                     pass
-            session = Session(data, filepath=None if cleanup else filepath, name=name)
+            session = _session_mod.Session(data, filepath=None if cleanup else filepath, name=name)
             session.sid = sid
             if rgb:
+                from arrayview._render import _setup_rgb
+
                 _setup_rgb(session)
             if vfield_filepath:
                 try:
@@ -1078,15 +1113,15 @@ def _serve_daemon(
                         f"[ArrayView] Warning: failed to load vector field {vfield_filepath}: {e}",
                         flush=True,
                     )
-            SESSIONS[session.sid] = session
+            _session_mod.SESSIONS[session.sid] = session
             if overlay_filepath and overlay_sid:
                 try:
                     ov_data = load_data(overlay_filepath)
-                    ov_session = Session(
+                    ov_session = _session_mod.Session(
                         ov_data, filepath=overlay_filepath, name="overlay"
                     )
                     ov_session.sid = overlay_sid
-                    SESSIONS[overlay_sid] = ov_session
+                    _session_mod.SESSIONS[overlay_sid] = ov_session
                 except Exception as e:
                     _vprint(
                         f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
@@ -1096,18 +1131,18 @@ def _serve_daemon(
                 try:
                     cmp_data = load_data(compare_filepath)
                     cmp_name = os.path.basename(compare_filepath) or "compare"
-                    cmp_session = Session(
+                    cmp_session = _session_mod.Session(
                         cmp_data, filepath=compare_filepath, name=cmp_name
                     )
                     cmp_session.sid = compare_sid
-                    SESSIONS[compare_sid] = cmp_session
+                    _session_mod.SESSIONS[compare_sid] = cmp_session
                 except Exception as e:
                     _vprint(
                         f"[ArrayView] Warning: failed to load compare array {compare_filepath}: {e}",
                         flush=True,
                     )
         finally:
-            PENDING_SESSIONS.discard(sid)
+            _session_mod.PENDING_SESSIONS.discard(sid)
 
     threading.Thread(target=_load, daemon=True).start()
 
@@ -1335,7 +1370,10 @@ def arrayview():
             sys.exit(1)
         try:
             _relay_array_to_server(
-                relay_file, relay_port, relay_name, args.rgb,
+                relay_file,
+                relay_port,
+                relay_name,
+                args.rgb,
                 relay_host=relay_host,
             )
         except Exception as e:
@@ -1424,7 +1462,7 @@ def arrayview():
             f"from arrayview._launcher import _serve_empty; _serve_empty({args.port})"
         )
         proc = subprocess.Popen([sys.executable, "-c", script])
-        if not _wait_for_port(args.port, timeout=15.0):
+        if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
             print(f"Error: ArrayView server failed to start on port {args.port}.")
             sys.exit(1)
         print(
@@ -1462,7 +1500,9 @@ def arrayview():
         # on the other side of the tunnel is a real ArrayView instance, the relay
         # succeeds.  If not, _relay_array_to_server raises and we fall through to
         # the normal auto-scan path.
-        print(f"[ArrayView] SSH session — trying relay on port {args.port}...", flush=True)
+        print(
+            f"[ArrayView] SSH session — trying relay on port {args.port}...", flush=True
+        )
         try:
             _relay_array_to_server(base_file, args.port, name, args.rgb)
             return
@@ -1509,7 +1549,7 @@ def arrayview():
             except Exception as e:
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)
-            return    # Resolve --window / --browser into a single window_mode
+            return  # Resolve --window / --browser into a single window_mode
     if args.browser and not args.window:
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
@@ -1691,7 +1731,7 @@ def arrayview():
     subprocess.Popen(
         [sys.executable, "-c", script],
     )
-    if not _wait_for_port(args.port, timeout=15.0):
+    if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
         print(
             f"Error: ArrayView server failed to start on port {args.port}. "
             "Use --port to pick another."
@@ -1775,5 +1815,6 @@ def arrayview():
                 sys.exit(0)
             # Suppress duplicate "set to Public" reminder inside _open_browser.
             import arrayview._vscode as _vscode_mod
+
             _vscode_mod._remote_message_shown = True
         _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))

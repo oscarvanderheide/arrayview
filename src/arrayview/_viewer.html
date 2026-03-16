@@ -1702,6 +1702,9 @@
             return new ImageData(out, w, h);
         }
 
+        let _wsRetryTimer = null;
+        let _wsEverConnected = false;
+
         function initWebSocket() {
             if (httpTransport) {
                 reportParent('transport-http', { sid });
@@ -1711,12 +1714,14 @@
                 updateView();
                 return;
             }
+            if (_wsRetryTimer) { clearTimeout(_wsRetryTimer); _wsRetryTimer = null; }
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
                 reportParent('ws-open', { host: location.host });
+                _wsEverConnected = true;
                 wsReady = true;
                 setStatus('');
                 sink.focus();
@@ -1787,11 +1792,14 @@
             ws.onclose = () => {
                 reportParent('ws-close', { sid });
                 wsReady = false;
-                setStatus('WebSocket closed.');
+                // Silently retry: server may be restarting or the connection dropped.
+                // Back off: 300 ms if we connected before, 500 ms on first-time failure.
+                const delay = _wsEverConnected ? 300 : 500;
+                _wsRetryTimer = setTimeout(initWebSocket, delay);
             };
             ws.onerror = () => {
                 reportParent('ws-error', { sid });
-                ws.close();
+                ws.close();  // onclose fires next and handles retry
             };
         }
 
