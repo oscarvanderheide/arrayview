@@ -584,6 +584,12 @@ def view(
     if window:
         inline = False
 
+    # Auto-detect VS Code terminal: prefer Simple Browser over native window
+    if _in_vscode_terminal() and not _force_vscode and not _force_browser:
+        _force_vscode = True
+        if window is True:  # Convert bool to False so we hit the browser path below
+            window = False
+
     # Julia/PythonCall: the GIL is not released reliably between Julia statements,
     # so an in-process uvicorn thread cannot serve requests once view() returns.
     # Use a fully independent subprocess server instead (same approach as the CLI).
