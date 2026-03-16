@@ -1556,6 +1556,10 @@ def arrayview():
     if args.browser and not args.window:
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
+    # Auto-detect: prefer VS Code Simple Browser in VS Code terminal
+    if window_mode is None and _in_vscode_terminal():
+        window_mode = "vscode"
+    # Explicit native is not supported in remote/tunnel environments
     if window_mode == "native" and _is_vscode_remote():
         _vprint(
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
