@@ -640,7 +640,7 @@
         <div id="loading-overlay"></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
-                <div><kbd>O</kbd> open &nbsp;·&nbsp; drop file to load</div>
+                <div><kbd id="open-shortcut-hint">Cmd+O</kbd> open &nbsp;·&nbsp; drop file to load</div>
             </div>
         </div>
     </div>
@@ -718,7 +718,7 @@
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
-                <div class="help-row"><span class="key">O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
+                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
@@ -797,6 +797,14 @@
             href: window.location.href,
             transport,
         });
+
+        // Set platform-specific keyboard shortcut text
+        const isMac = navigator.platform.includes('Mac');
+        const openShortcutText = isMac ? 'Cmd+O' : 'Ctrl+O';
+        const hintEl = document.getElementById('open-shortcut-hint');
+        const helpEl = document.getElementById('open-shortcut-help');
+        if (hintEl) hintEl.textContent = openShortcutText;
+        if (helpEl) helpEl.textContent = openShortcutText;
 
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
@@ -3123,7 +3131,7 @@
             } else if (e.key === 'P') {
                 if (isInlineEmbed) return;
                 toggleCompareMode();
-            } else if (e.key === 'O') {
+            } else if ((e.key === 'o' || e.key === 'O') && modKey) {
                 if (isInlineEmbed) return;
                 showUnifiedPicker('open');
             } else if (e.key === 'X') {
