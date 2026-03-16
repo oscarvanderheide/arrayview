@@ -68,20 +68,33 @@ def load_data(filepath):
 
         return tifffile.imread(filepath)
     elif filepath.endswith(".mat"):
-        import scipy.io
+        try:
+            import scipy.io
 
-        mat = scipy.io.loadmat(filepath)
-        arrays = {
-            k: v
-            for k, v in mat.items()
-            if not k.startswith("_") and isinstance(v, np.ndarray)
-        }
-        if len(arrays) == 1:
-            return next(iter(arrays.values()))
-        raise ValueError(
-            f".mat file contains multiple arrays: {list(arrays.keys())}. "
-            "Load it manually and pass the array to view()."
-        )
+            mat = scipy.io.loadmat(filepath)
+            arrays = {
+                k: v
+                for k, v in mat.items()
+                if not k.startswith("_") and isinstance(v, np.ndarray)
+            }
+            if len(arrays) == 1:
+                return next(iter(arrays.values()))
+            raise ValueError(
+                f".mat file contains multiple arrays: {list(arrays.keys())}. "
+                "Load it manually and pass the array to view()."
+            )
+        except NotImplementedError:
+            # MATLAB v7.3 files use HDF5 — scipy cannot load them; fall back to h5py.
+            import h5py
+
+            f = h5py.File(filepath, "r")
+            arrays = {k: f[k] for k in f.keys() if isinstance(f[k], h5py.Dataset)}
+            if len(arrays) == 1:
+                return np.array(next(iter(arrays.values())))
+            raise ValueError(
+                f".mat (v7.3) file contains multiple datasets: {list(arrays.keys())}. "
+                "Load it manually with h5py and pass the array to view()."
+            )
     else:
         raise ValueError(
             "Unsupported format. Supported: .npy, .npz, .nii/.nii.gz, .zarr, "
