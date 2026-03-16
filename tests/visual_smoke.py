@@ -27,7 +27,7 @@ AXES & VIEWS
   v               3-plane multiview         ✓ 08
   V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
-  q               qMRI mode                 ✓ 10-12
+  q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full)
 
 DISPLAY
   b               toggle border             ✓ 16
@@ -332,6 +332,17 @@ def run_smoke(page, base, client, tmp):
     _press(page, "q", wait=1500)
     _shot(page, "12_qmri_3panel")
     _press(page, "q", wait=400)
+
+    # ── 12a: qMRI toggle compact/full (5-panel) ──────────────────────────────
+    _goto(page, base, sid4d)
+    _focus(page)
+    _press(page, "q", wait=2500)  # enter full view (5 panels)
+    _shot(page, "12a_qmri_full_5panel", wait=0)
+    _press(page, "q", wait=1500)  # toggle to compact (3 panels)
+    _shot(page, "12b_qmri_compact_3panel", wait=0)
+    _press(page, "q", wait=2500)  # toggle back to full (5 panels)
+    _shot(page, "12c_qmri_full_again", wait=0)
+    _press(page, "q", wait=400)  # exit qMRI
 
     # ── 13-14: compare mode ───────────────────────────────────────────────────
     _goto_compare(page, base, sid2d, sid2d_b)

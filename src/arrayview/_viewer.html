@@ -706,7 +706,7 @@
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
                 <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices and crosshair to center (3-plane view)</span></div>
-                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode (auto-detects unique dim of size 3–6)</span></div>
+                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact (T₁, T₂, |PD|) / full view</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
@@ -920,6 +920,7 @@
         let qmriActive = false;
         let qmriDim = -1;
         let qmriViews = [];
+        let qmriCompact = false; // false = full view (all maps), true = compact (T₁, T₂, |PD| only)
         const QMRI_COLORMAPS = {
             3: ['lipari', 'navia', 'gray'],
             4: ['lipari', 'navia', 'gray', 'twilight_shifted'],
@@ -3565,7 +3566,21 @@
                 showStatus('origin reset');
             } else if (e.key === 'q') {
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
-                if (qmriActive) exitQmri(); else enterQmri();
+                if (qmriActive) {
+                    // Toggle between compact and full view
+                    const n = shape[qmriDim];
+                    if (n > 3) {
+                        qmriCompact = !qmriCompact;
+                        exitQmri();
+                        enterQmri();
+                    } else {
+                        // Only 3 maps available, exit qMRI mode
+                        exitQmri();
+                    }
+                } else {
+                    qmriCompact = false; // Start in full view
+                    enterQmri();
+                }
             } else if (e.key >= '1' && e.key <= '9') {
                 // Digit key (1-9): accumulate for slice index jump
                 sliceJumpBuffer += e.key;
@@ -4238,21 +4253,32 @@
             if (multiViewActive) exitMultiView();
             qmriActive = true;
             qmriDim = activeDim;
-            const cmaps = QMRI_COLORMAPS[n];
+            
+            // Determine which maps to show based on compact mode
+            const allCmaps = QMRI_COLORMAPS[n];
+            // Compact mode: show only T₁, T₂, |PD|
+            // Indices: T₁=0, T₂=1, |PD| varies by n (n=3→2, n=4→2, n=5→3, n=6→4)
+            const pdIndex = n === 3 ? 2 : (n === 4 ? 2 : (n === 5 ? 3 : 4));
+            const compactIndices = [0, 1, pdIndex];
+            const mapIndices = (qmriCompact && n > 3) ? compactIndices : Array.from({length: n}, (_, i) => i);
+            const cmaps = mapIndices.map(i => allCmaps[i]);
+            const nMaps = cmaps.length;
+            
             document.getElementById('canvas-wrap').style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
-            wrap.className = `active qmri-${n}`;
+            wrap.className = `active qmri-${nMaps}`;
             // Group canvases into rows: n≤4 → single row; 5 → [3,2]; 6 → [3,3]
-            const rowSizes = n <= 4 ? [n] : [3, n - 3];
+            const rowSizes = nMaps <= 4 ? [nMaps] : [3, nMaps - 3];
             qmriViews = [];
             let cmapIdx = 0;
             rowSizes.forEach(rowSize => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row';
                 for (let ri = 0; ri < rowSize; ri++) {
-                    const idx = cmapIdx++;
-                    const cmap = cmaps[idx];
+                    const viewIdx = cmapIdx++;
+                    const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
+                    const cmap = cmaps[viewIdx];
                     const pane = document.createElement('div');
                     pane.className = 'qv-pane';
                     const label = document.createElement('div');
@@ -4279,7 +4305,7 @@
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
                     const view = {
-                        colormap: cmap, qmriIdx: idx,
+                        colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1,
@@ -4340,7 +4366,8 @@
                 qmriViews.forEach(v => qvRender(v));
             }
             renderInfo();
-            showStatus('qMRI mode — press q to exit', 3000);
+            const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
+            showStatus(`qMRI mode${modeText} — press q to ${n > 3 ? 'toggle / ' : ''}exit`, 3000);
         }
 
         function exitQmri() {
