@@ -1492,6 +1492,11 @@
             ctx2.fillStyle = grad;
             ctx2.fillRect(0, 0, cssW, stripH);
             ctx2.restore();
+            // Set blend labels width to match canvas width
+            const blendLabels = document.getElementById('reg-blend-labels');
+            if (blendLabels) {
+                blendLabels.style.width = cssW + 'px';
+            }
         }
 
         function drawDiffPaneCb(vmin, vmax) {
