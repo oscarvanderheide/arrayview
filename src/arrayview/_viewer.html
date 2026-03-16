@@ -3227,6 +3227,7 @@
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
+                manualVmin = manualVmax = null;
                 _eggsVisible = true;
                 _complexEggVisible = true;
                 clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
@@ -3413,6 +3414,7 @@
             } else if (e.key === 'L') {
                 if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
                 logScale = !logScale;
+                manualVmin = manualVmax = null;
                 _eggsVisible = true;
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 renderInfo();
@@ -3447,6 +3449,7 @@
                             _fftActive = false;
                             isComplex = d.is_complex || false;
                             if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
+                            manualVmin = manualVmax = null;
                             updateView(); triggerPreload();
                             renderEggs();
                         });
@@ -3460,6 +3463,7 @@
                             _eggsVisible = true;
                             isComplex = d.is_complex || false;
                             complexMode = 0;
+                            manualVmin = manualVmax = null;
                             updateView(); triggerPreload();
                             renderEggs();
                         });
