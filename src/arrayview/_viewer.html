@@ -445,6 +445,16 @@
             background: var(--surface-2); border: 1px solid var(--border);
             border-radius: 3px; padding: 0 4px; margin: 0 1px;
         }
+        /* Welcome screen */
+        #welcome-hint {
+            display: none; margin-top: 14px;
+            color: #f5c842; font-size: 13px; letter-spacing: 0.04em;
+            text-align: center; pointer-events: none;
+        }
+        #welcome-hint.visible { display: block; }
+        body.welcome-mode #info { visibility: hidden; }
+        body.welcome-mode #array-name { visibility: hidden; }
+        body.welcome-mode #slim-cb-wrap { display: none !important; }
     </style>
 </head>
 <body>
@@ -484,6 +494,7 @@
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-labels"></div>
             </div>
+            <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> open &nbsp;·&nbsp; drop file to load</div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -804,8 +815,10 @@
         const openShortcutText = isMac ? 'Cmd+O' : 'Ctrl+O';
         const hintEl = document.getElementById('open-shortcut-hint');
         const helpEl = document.getElementById('open-shortcut-help');
+        const welcomeOpenEl = document.getElementById('welcome-hint-open');
         if (hintEl) hintEl.textContent = openShortcutText;
         if (helpEl) helpEl.textContent = openShortcutText;
+        if (welcomeOpenEl) welcomeOpenEl.textContent = isMac ? '⌘O' : 'Ctrl+O';
 
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
@@ -1169,7 +1182,8 @@
         function getBaseScale(w, h) {
             // viewer-row wraps content; use window dimensions with a comfortable cap
             const maxW = Math.max(100, window.innerWidth - 80);
-            const maxH = Math.max(100, window.innerHeight - uiReserveV());
+            const rawH = Math.max(100, window.innerHeight - uiReserveV());
+            const maxH = _isWelcomeScreen ? Math.min(rawH, Math.floor(window.innerHeight * 0.50)) : rawH;
             return Math.min(maxW / w, maxH / h) * 0.80;
         }
 
@@ -1177,10 +1191,13 @@
             const bottomReserve = 72; // slim colorbar (~31px) + eggs (~22px) + gaps
             const maxW = Math.max(100, window.innerWidth - 80);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve);
+            // In welcome mode cap canvas to ~50% of viewport height
+            const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
+            const effectiveMaxH = Math.min(maxH, welcomeCapH);
             const baseScale = getBaseScale(w, h);
             // Cap the scale: canvas must never exceed available space, so colorbar+eggs
             // always have room regardless of how far the user has zoomed in.
-            const capScale = Math.min(maxW / w, maxH / h);
+            const capScale = Math.min(maxW / w, effectiveMaxH / h);
             const atMax = baseScale * userZoom >= capScale;
             if (atMax) {
                 // Snap userZoom to the exact value that hits the cap so that any
@@ -1812,7 +1829,7 @@
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
-                        if (_isWelcomeScreen) document.getElementById('empty-hint').classList.add('visible');
+                        if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
                     }
                     scaleCanvas(width, height);
                     drawVectorOverlay();
@@ -2131,9 +2148,10 @@
                 }
             }
             ctx.putImageData(imgData, 0, 0);
+            document.body.classList.add('welcome-mode');
             scaleCanvas(W, H);
             document.getElementById('canvas-wrap').style.display = '';
-            document.getElementById('empty-hint').classList.add('visible');
+            document.getElementById('welcome-hint').classList.add('visible');
             document.getElementById('info').textContent = '';
         }
 
@@ -2162,6 +2180,9 @@
             if (rgbMode) cbVisible = false;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
             _isWelcomeScreen = data.name === 'welcome';
+            if (_isWelcomeScreen) {
+                document.body.classList.add('welcome-mode');
+            }
             indices = shape.map(s => Math.floor(s / 2));
             // Sane spatial dim defaults: last two dims if they are significantly larger
             // (e.g. (3,4,120,120) → dim_x=2, dim_y=3), otherwise fallback to first two.

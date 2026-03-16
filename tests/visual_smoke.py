@@ -69,7 +69,7 @@ LOADING ANIMATION
   loading text absent                       ✓ 47 (#loading-label not in DOM)
 
 WELCOME SCREEN / DEMO
-  empty-hint visible on welcome session     ✓ 48 (check .visible on #empty-hint)
+  empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
   dim-label active no hover highlight       ✓ 52 (hover bg transparent for all labels)
   dim-track drag scrubs index               ✓ 53 (mousedown+move on track)
 
@@ -782,14 +782,20 @@ def run_smoke(page, base, client, tmp):
     eggs_text = page.locator("#mode-eggs").inner_text()
     if "RGB" not in eggs_text:
         print("  WARNING: RGB egg not visible in demo plasma scenario")
-    # empty-hint ("O open · drop file to load") must be visible on welcome screen
+    # welcome-hint ("⌘O open · drop file to load") must be visible on welcome screen
     hint_visible = page.evaluate(
-        "() => document.getElementById('empty-hint').classList.contains('visible')"
+        "() => document.getElementById('welcome-hint').classList.contains('visible')"
     )
     if not hint_visible:
         print(
-            "  WARNING: #empty-hint not visible on welcome demo screen — fix _isWelcomeScreen logic"
+            "  WARNING: #welcome-hint not visible on welcome demo screen — fix _isWelcomeScreen logic"
         )
+    # body should have welcome-mode class (caps canvas to 50% height)
+    welcome_mode = page.evaluate(
+        "() => document.body.classList.contains('welcome-mode')"
+    )
+    if not welcome_mode:
+        print("  WARNING: body.welcome-mode class not set on welcome demo screen")
 
     # ── 49: toast routing — showToast() messages appear in #status (bottom-left) ──
     # Press X in normal mode (no compare) — triggers "diff view: only in 2-pane
