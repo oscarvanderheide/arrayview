@@ -8,7 +8,7 @@
 - ~~allow me to specify a slice index number with number keys and then enter to go to that slice for the current active slice dim.~~ (done)
 - ~~in qMRI mode, there can be 3 to 6 parameter maps. when i press q the first time, show them all. when i press q another time, only show T1, T2 and abs(PD) as three canvasses horizontally aligned.~~ (done)
 - ~~when in qmri mode, q goes to "compact mode" with T1 and T2 and PD only as required in one of the above todo items. but then when i press q again it should quit qmri mode.~~ (done)
-- it still doesnt auto-open in vscode simplebrowser when i run from vscode terminal. please use your skills and this issue has been coming up several times and took many efforts to fix again. when you have the fix, write it the fuck down somewhere.
+- ~~it still doesnt auto-open in vscode simplebrowser when i run from vscode terminal. please use your skills and this issue has been coming up several times and took many efforts to fix again. when you have the fix, write it the fuck down somewhere.~~ (done - see VSCODE_DETECTION.md)
 - see overlay_misalignment.png, the colorbar below the overlay canvas is misaligned. there's also text there that should not be there at all.
 - the arrows indicating (x,y), (y,z) and (x,z) directions should always be visible in multi-view mode
 - look at welcome. its shit. the canvas needs to be like 50% height, not square, and the text to open with cmd+o or ctrl+o or drop should be below it in yellow. i'd like some lofi pixel art animation of some cozy forest or city as an array on the welcome screen but forget about it if thats too complicated.
