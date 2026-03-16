@@ -236,13 +236,16 @@ def _in_vscode_tunnel() -> bool:
 def _can_native_window() -> bool:
     """True if a pywebview native window can be opened.
 
-    Returns False whenever a VS Code IPC hook is detectable, meaning we're
+    Returns False whenever a VS Code terminal is detectable, meaning we're
     running inside a VS Code terminal (local or remote/tunnel).  In that case
     we always prefer the Simple Browser route over a native window, because on
     a tunnel-server machine the user isn't looking at that screen.
     """
+    # TERM_PROGRAM=vscode is the most reliable VS Code terminal indicator and
+    # is preserved across uv-run / tmux where the IPC hook may be stripped.
+    if os.environ.get("TERM_PROGRAM") == "vscode":
+        return False
     # If a VS Code IPC hook is findable we are inside a VS Code terminal.
-    # Prefer the browser route regardless of platform.
     if _find_vscode_ipc_hook():
         return False
     if _is_vscode_remote():

@@ -76,11 +76,16 @@ async function tryOpenSignalFile() {
     // in-memory queues that can be lost when the extension host reloads.
     if (isProcessingSignal) return;
 
-    // Check targeted file first (matches our window's IPC hook), then fallback.
-    // Only one window's renameSync succeeds for each file; others get ENOENT.
+    // Check targeted file first (matches our window's IPC hook), then primary,
+    // then compat signal files for older/published arrayview Python versions.
     const candidates = [];
     if (TARGETED_SIGNAL_FILE) candidates.push(TARGETED_SIGNAL_FILE);
     candidates.push(SIGNAL_FILE);
+    // Compat: older arrayview releases write to these filenames
+    candidates.push(
+        path.join(SIGNAL_DIR, 'open-request-v0800.json'),
+        path.join(SIGNAL_DIR, 'open-request-v0400.json'),
+    );
 
     for (const signalFile of candidates) {
         const claimedFile = signalFile + '.claimed-' + process.pid;
@@ -226,7 +231,8 @@ function activate(context) {
             if (!filename || filename.includes('.claimed-') || filename.endsWith('.tmp')) return;
             const isOwn = ownBasename && filename === ownBasename;
             const isFallback = filename === path.basename(SIGNAL_FILE) ||
-                               filename === 'open-request-v0800.json';
+                               filename === 'open-request-v0800.json' ||
+                               filename === 'open-request-v0400.json';
             if (isOwn || isFallback) {
                 log(`WATCH: event=${eventType} file=${filename}`);
                 setTimeout(() => void tryOpenSignalFile(), 100);

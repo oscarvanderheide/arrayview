@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import arrayview._app as appmod
+import arrayview._launcher as _launcher_mod
 
 
 class _DummyResponse:
@@ -22,19 +23,23 @@ class _DummyResponse:
         return json.dumps(self._payload).encode()
 
 
-def test_cli_positional_compare_paths_register_and_open(monkeypatch):
-    base = "/tmp/base.npy"
-    cmp1 = "/tmp/cmp1.npy"
-    cmp2 = "/tmp/cmp2.npy"
+def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    cmp1 = str(tmp_path / "cmp1.npy")
+    cmp2 = str(tmp_path / "cmp2.npy")
+    np.save(
+        base, np.zeros((8, 8), dtype=np.float32)
+    )  # must exist for os.path.isfile check
     requests = []
     opened = {}
 
     monkeypatch.setattr(sys, "argv", ["arrayview", base, cmp1, cmp2, "--browser"])
-    monkeypatch.setattr(appmod, "load_data", lambda _: np.zeros((8, 8), dtype=np.float32))
-    monkeypatch.setattr(appmod, "_server_alive", lambda _: True)
-    monkeypatch.setattr(appmod, "_port_in_use", lambda _: False)
-    monkeypatch.setattr(appmod, "_can_native_window", lambda: False)
-    monkeypatch.setattr(appmod, "_open_browser", lambda url, blocking=False, force_vscode=False: opened.setdefault("url", url))
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda url, blocking=False, force_vscode=False: opened.setdefault("url", url),
+    )
 
     def fake_urlopen(req, timeout=5):
         body = json.loads((req.data or b"{}").decode())
@@ -70,18 +75,16 @@ def test_cli_rejects_more_than_six_files(monkeypatch):
         appmod.arrayview()
 
 
-def test_cli_accepts_six_total_files_for_compare(monkeypatch):
-    files = [f"/tmp/a{i}.npy" for i in range(6)]
+def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
+    files = [str(tmp_path / f"a{i}.npy") for i in range(6)]
+    np.save(files[0], np.zeros((8, 8), dtype=np.float32))  # only base must exist
     requests = []
     opened = {}
 
     monkeypatch.setattr(sys, "argv", ["arrayview", *files, "--browser"])
-    monkeypatch.setattr(appmod, "load_data", lambda _: np.zeros((8, 8), dtype=np.float32))
-    monkeypatch.setattr(appmod, "_server_alive", lambda _: True)
-    monkeypatch.setattr(appmod, "_port_in_use", lambda _: False)
-    monkeypatch.setattr(appmod, "_can_native_window", lambda: False)
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
     monkeypatch.setattr(
-        appmod,
+        _launcher_mod,
         "_open_browser",
         lambda url, blocking=False, force_vscode=False: opened.setdefault("url", url),
     )

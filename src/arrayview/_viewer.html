@@ -88,13 +88,14 @@
             cursor: pointer; padding: 1px 5px; margin: 0 -5px;
             border-radius: 4px; transition: background 0.12s;
         }
-        .dim-label:hover { background: rgba(255,255,255,0.09); }
-        :root.light .dim-label:hover { background: rgba(0,0,0,0.07); }
+        .dim-label:not(.active-dim):hover { background: rgba(255,255,255,0.09); }
+        :root.light .dim-label:not(.active-dim):hover { background: rgba(0,0,0,0.07); }
         .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
         .dim-text { display: inline-block; min-width: 3ch; text-align: right; }
         .dim-track {
             width: 100%; height: 3px; background: var(--border);
             border-radius: 1px; margin-top: 2px; min-width: 20px; overflow: hidden;
+            cursor: ew-resize;
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
@@ -779,6 +780,7 @@
         const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
         let _reportedFirstFrame = false;
+        let _isWelcomeScreen = false;
 
         function reportParent(phase, detail) {
             try {
@@ -1767,6 +1769,7 @@
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
                         document.getElementById('loading-overlay').style.display = 'none';
                         document.getElementById('canvas-wrap').style.display = '';
+                        if (_isWelcomeScreen) document.getElementById('empty-hint').classList.add('visible');
                     }
                     scaleCanvas(width, height);
                     drawVectorOverlay();
@@ -2115,6 +2118,7 @@
             rgbMode = data.is_rgb || false;
             if (rgbMode) cbVisible = false;
             if (data.name) document.getElementById('array-name-text').textContent = data.name;
+            _isWelcomeScreen = data.name === 'welcome';
             indices = shape.map(s => Math.floor(s / 2));
             // Sane spatial dim defaults: last two dims if they are significantly larger
             // (e.g. (3,4,120,120) → dim_x=2, dim_y=3), otherwise fallback to first two.
@@ -3669,10 +3673,11 @@
                                         else {
                                             finish({ type: 'navigate', sid: data.sid });
                                             if (!sid) {
-                                                // Welcome screen — navigate in-place
+                                                // No-session welcome screen — navigate in-place
                                                 window.location.href = '/?sid=' + data.sid;
                                             } else if (window.parent !== window && window.parent.__arrayviewShell) {
-                                                // Shell with real array — server WS will add the tab
+                                                // Shell — open new tab directly
+                                                window.parent.addTab(data.sid, data.name || f.name);
                                             } else {
                                                 // Browser (non-shell) — open in new tab
                                                 window.open('/?sid=' + data.sid, '_blank');
@@ -5001,6 +5006,48 @@
             } else {
                 renderInfo();
             }
+            sink.focus();
+        });
+
+        // Drag on a dim-track slider to scrub through that dimension
+        let _trackDrag = null; // { d, isVfield }
+        infoEl.addEventListener('mousedown', (e) => {
+            const track = e.target.closest('.dim-track');
+            if (!track) return;
+            const span = track.closest('[data-dim]');
+            if (!span) return;
+            const d = parseInt(span.dataset.dim);
+            if (d === VFIELD_T_DIM && vfieldNTimes <= 1) return;
+            if (d !== VFIELD_T_DIM && shape[d] <= 1) return;
+            e.preventDefault();
+            _trackDrag = { d, isVfield: d === VFIELD_T_DIM };
+            document.body.style.userSelect = 'none';
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!_trackDrag) return;
+            const { d, isVfield } = _trackDrag;
+            // Re-query the track each move in case info re-rendered
+            const track = infoEl.querySelector(`[data-dim="${d}"]`)?.querySelector('.dim-track');
+            if (!track) return;
+            const rect = track.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            if (isVfield) {
+                vfieldT = Math.round(pct * (vfieldNTimes - 1));
+                drawVectorOverlay();
+                renderInfo();
+            } else {
+                indices[d] = Math.round(pct * (shape[d] - 1));
+                renderInfo();
+                if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                else if (qmriActive) qmriViews.forEach(v => qvRender(v));
+                else updateView();
+            }
+        });
+        document.addEventListener('mouseup', (e) => {
+            if (!_trackDrag) return;
+            document.body.style.userSelect = '';
+            saveState();
+            _trackDrag = null;
             sink.focus();
         });
 
