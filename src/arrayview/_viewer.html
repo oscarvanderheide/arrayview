@@ -2688,7 +2688,8 @@
         }
 
         // ── Drag-and-drop array files ──────────────────────────────────────────
-        // Drop a .npy or .mat file anywhere on the viewer to open it in a new tab.
+        // Drop any supported file anywhere on the viewer to open it in a new tab.
+        const _SUPPORTED_EXTS = new Set(['npy', 'npz', 'nii', 'gz', 'zarr', 'pt', 'pth', 'h5', 'hdf5', 'tif', 'tiff', 'mat']);
         document.body.addEventListener('dragover', (e) => {
             if (e.dataTransfer.types.includes('Files')) {
                 e.preventDefault();
@@ -2699,9 +2700,12 @@
             if (!e.dataTransfer.files.length) return;
             e.preventDefault();
             const file = e.dataTransfer.files[0];
-            const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
-            if (!['npy', 'mat'].includes(ext)) {
-                showStatus(`Unsupported file type: .${ext || '?'} (use .npy or .mat)`);
+            const nameLower = file.name.toLowerCase();
+            const ext = nameLower.includes('.') ? nameLower.split('.').pop() : '';
+            // Accept .nii.gz as a special case (double extension)
+            const isNiiGz = nameLower.endsWith('.nii.gz');
+            if (!isNiiGz && !_SUPPORTED_EXTS.has(ext)) {
+                showStatus(`Unsupported file type: .${ext || '?'}`);
                 return;
             }
             showStatus(`Loading ${file.name}…`);
