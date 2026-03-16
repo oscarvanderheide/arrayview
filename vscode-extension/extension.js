@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
 const SIGNAL_FILE = path.join(SIGNAL_DIR, 'open-request-v0900.json');  // fallback
@@ -11,7 +12,34 @@ const LOG_FILE = path.join(SIGNAL_DIR, 'extension.log');
 // Per-window targeted signal file: Python writes to a file named by the SHA256
 // of VSCODE_IPC_HOOK_CLI, which is unique per VS Code window on the remote.
 // The extension checks its own targeted file first, then the fallback.
-const OWN_IPC_HOOK = process.env.VSCODE_IPC_HOOK_CLI || '';
+//
+// On LOCAL VS Code desktop the extension host may not inherit VSCODE_IPC_HOOK_CLI
+// directly, so we also walk parent processes to find it — the same approach
+// Python uses in _platform._find_vscode_ipc_hook().
+function _findVscodeIpcHook() {
+    const direct = process.env.VSCODE_IPC_HOOK_CLI || '';
+    if (direct && fs.existsSync(direct)) return direct;
+    // Walk up to 8 ancestor processes looking for VSCODE_IPC_HOOK_CLI.
+    let pid = process.pid;
+    for (let i = 0; i < 8; i++) {
+        const ppidRes = spawnSync('ps', ['-p', String(pid), '-o', 'ppid='],
+            { encoding: 'utf8', timeout: 2000 });
+        const ppid = parseInt((ppidRes.stdout || '').trim(), 10);
+        if (!ppid || ppid <= 1) break;
+        const envRes = spawnSync('ps', ['ewwww', '-p', String(ppid)],
+            { encoding: 'utf8', timeout: 3000 });
+        for (const token of (envRes.stdout || '').split(/\s+/)) {
+            if (token.startsWith('VSCODE_IPC_HOOK_CLI=')) {
+                const val = token.slice('VSCODE_IPC_HOOK_CLI='.length);
+                if (val && fs.existsSync(val)) return val;
+            }
+        }
+        pid = ppid;
+    }
+    return '';
+}
+
+const OWN_IPC_HOOK = _findVscodeIpcHook();
 const OWN_HOOK_TAG = OWN_IPC_HOOK
     ? crypto.createHash('sha256').update(OWN_IPC_HOOK).digest('hex').slice(0, 16)
     : '';
