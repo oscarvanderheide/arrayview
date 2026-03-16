@@ -70,7 +70,7 @@ LOADING ANIMATION
 
 WELCOME SCREEN / DEMO
   empty-hint visible on welcome session     ✓ 48 (check .visible on #empty-hint)
-  dim-label active no hover highlight       ✓ 52 (CSS rule present)
+  dim-label active no hover highlight       ✓ 52 (hover bg transparent for all labels)
   dim-track drag scrubs index               ✓ 53 (mousedown+move on track)
 
 AXES INDICATOR (edge labels)
@@ -845,25 +845,25 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(1400)
     _shot(page, "51_multi_overlay")
 
-    # ── 52: dimbar hover — active dim must NOT get grayish hover background ──
-    print("52: dimbar hover no-highlight on active dim")
+    # ── 52: dimbar hover — no grayish background on any dim label ─────────
+    print("52: dimbar hover no-highlight on any dim label")
     _goto(page, base, sid3d, wait=800)
     _focus(page)
-    # The active-dim label must have no background when hovered (CSS specificity fix)
-    bg_active_hovered = page.evaluate(
+    # .dim-label:hover must use background: transparent (no glow on any label)
+    hover_rule_ok = page.evaluate(
         "() => {"
-        "  const el = document.querySelector('.active-dim.dim-label');"
-        "  if (!el) return 'NOT_FOUND';"
-        "  const rule = Array.from(document.styleSheets)"
-        "    .flatMap(s => { try { return Array.from(s.cssRules); } catch { return []; } })"
-        "    .find(r => r.selectorText && r.selectorText.includes('.dim-label:not(.active-dim):hover'));"
-        "  return rule ? 'ok' : 'rule_missing';"
+        "  const rules = Array.from(document.styleSheets)"
+        "    .flatMap(s => { try { return Array.from(s.cssRules); } catch { return []; } });"
+        "  const hoverRule = rules.find(r => r.selectorText && r.selectorText.trim() === '.dim-label:hover');"
+        "  if (!hoverRule) return 'rule_missing';"
+        "  const bg = hoverRule.style.background || hoverRule.style.backgroundColor;"
+        "  return bg === 'transparent' || bg === '' ? 'ok' : bg;"
         "}"
     )
     _shot(page, "52_dimbar_hover")
-    if bg_active_hovered != "ok":
+    if hover_rule_ok != "ok":
         print(
-            f"  WARNING: dim-label hover CSS rule missing ({bg_active_hovered}) — active dim may still highlight"
+            f"  WARNING: dim-label hover CSS rule not transparent ({hover_rule_ok}) — labels may still highlight"
         )
 
     # ── 53: dim-track drag to scrub ─────────────────────────────────────────

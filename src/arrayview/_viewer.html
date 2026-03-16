@@ -94,7 +94,6 @@
         .dim-track {
             width: 100%; height: 3px; background: var(--border);
             border-radius: 1px; margin-top: 2px; min-width: 20px; overflow: hidden;
-            cursor: ew-resize;
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
@@ -5011,9 +5010,7 @@
         // Drag on a dim-track slider to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
         infoEl.addEventListener('mousedown', (e) => {
-            const track = e.target.closest('.dim-track');
-            if (!track) return;
-            const span = track.closest('[data-dim]');
+            const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
             if (d === VFIELD_T_DIM && vfieldNTimes <= 1) return;
