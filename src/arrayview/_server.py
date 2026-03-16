@@ -216,9 +216,31 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
     _session_mod.VIEWER_SIDS.add(sid)
     loop = asyncio.get_running_loop()
 
+    # Single-slot message queue: the receiver always overwrites the pending
+    # slot with the newest request so stale intermediate frames are skipped.
+    _pending: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def _receiver() -> None:
+        try:
+            while True:
+                msg = await ws.receive_json()
+                try:
+                    _pending.get_nowait()  # evict any still-pending request
+                except asyncio.QueueEmpty:
+                    pass
+                await _pending.put(msg)
+        except (WebSocketDisconnect, Exception):
+            pass
+        finally:
+            _pending.put_nowait(None)  # sentinel — always fires, even on cancel
+
+    recv_task = asyncio.create_task(_receiver())
     try:
         while True:
-            msg = await ws.receive_json()
+            msg = await _pending.get()
+            if msg is None:
+                break  # disconnect or receiver error
+
             seq = int(msg.get("seq", 0))
 
             dim_x = int(msg["dim_x"])
@@ -235,6 +257,11 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
             direction = int(msg.get("direction", 1))  # scroll direction (+1/-1)
             slice_dim = int(msg.get("slice_dim", -1))
+            # S4: canvas display resolution hint (device pixels).  When set and the
+            # rendered slice is larger, the server thumbnails it down before sending
+            # so we skip transmitting pixels the browser discards anyway.
+            canvas_w = int(msg.get("canvas_w", 0))
+            canvas_h = int(msg.get("canvas_h", 0))
 
             if session.rgb_axis is not None:
                 # RGB/RGBA mode — render directly from channel data; skip colormap.
@@ -309,6 +336,17 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             vminmax = np.array([vmin, vmax], dtype=np.float32).tobytes()
+            # S4: thumbnail downsample to avoid transmitting pixels the browser
+            # discards.  Only shrinks (PIL.thumbnail never enlarges).
+            if canvas_w and canvas_h and (w > canvas_w or h > canvas_h):
+                pil = _pil_image().fromarray(
+                    rgba.astype(np.uint8) if rgba.dtype != np.uint8 else rgba,
+                    mode="RGBA",
+                )
+                pil.thumbnail((canvas_w, canvas_h), _pil_image().LANCZOS)
+                rgba = np.array(pil)
+                h, w = rgba.shape[:2]
+                header = np.array([seq, w, h], dtype=np.uint32).tobytes()
             await ws.send_bytes(header + vminmax + rgba.tobytes())
 
             # Warm neighbor slices in the background (Phase 3 prefetch)
@@ -316,14 +354,17 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 _schedule_prefetch(
                     session, dim_x, dim_y, list(idx_tuple), slice_dim, direction
                 )
-    except WebSocketDisconnect:
-        pass  # normal: browser closed the tab/window
     except Exception as _ws_exc:
         import traceback
 
         _vprint(f"[ArrayView] WS/{sid[:8]}: {_ws_exc}", flush=True)
         traceback.print_exc()
     finally:
+        recv_task.cancel()
+        try:
+            await recv_task
+        except asyncio.CancelledError:
+            pass
         _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
         # Note: we don't remove from VIEWER_SIDS here because the set is used
         # only to check if a session was *ever* connected, not currently connected.

@@ -12,17 +12,22 @@ import sys
 
 _jupyter_server_port: int | None = None
 
+_JUPYTER_CACHE: bool | None = None  # None = not yet computed
+
 
 def _in_jupyter() -> bool:
+    global _JUPYTER_CACHE
+    if _JUPYTER_CACHE is not None:
+        return _JUPYTER_CACHE
     try:
         from IPython import get_ipython
 
         shell = get_ipython()
-        if shell is None:
-            return False
-        return "ipykernel" in type(shell).__module__
+        result = shell is not None and "ipykernel" in type(shell).__module__
     except ImportError:
-        return False
+        result = False
+    _JUPYTER_CACHE = result
+    return result
 
 
 # ---------------------------------------------------------------------------

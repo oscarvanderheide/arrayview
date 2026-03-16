@@ -52,7 +52,17 @@ from arrayview._vscode import (
     _print_viewer_location,
     _open_browser,
 )
-from arrayview._server import app, _notify_shells
+# _server.py (FastAPI) is imported lazily via _server_mod() to keep the
+# import-time cost of ``import arrayview`` low (~175 ms saved).
+_server_mod_cache = None
+
+
+def _server_mod():
+    global _server_mod_cache
+    if _server_mod_cache is None:
+        import arrayview._server as _srv  # noqa: PLC0415 — intentional lazy import
+        _server_mod_cache = _srv
+    return _server_mod_cache
 
 # ---------------------------------------------------------------------------
 # Lazy uvicorn import
@@ -379,7 +389,12 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
     sock.set_inheritable(True)
     _server_ready_event.set()  # port is bound — callers can proceed
     config = _uvicorn().Config(
-        app, log_level="error", timeout_keep_alive=30, ws_ping_interval=None
+        _server_mod().app,
+        log_level="error",
+        timeout_keep_alive=30,
+        ws_ping_interval=None,
+        ws="websockets",  # S7: explicit backend — enables permessage-deflate compression
+        ws_per_message_deflate=True,  # S7: negotiate deflate with browser (transparent)
     )
     server = _uvicorn().Server(config)
     if stop_when_closed:
@@ -663,11 +678,8 @@ def view(
     else:
         _platform_mod._jupyter_server_port = port  # server already ours on this port
 
-    # Ensure background server captures the event loop before continuing.
-    # If the server was already running in our process, SERVER_LOOP is already set.
-    deadline = time.monotonic() + 5.0
-    while _session_mod.SERVER_LOOP is None and time.monotonic() < deadline:
-        time.sleep(0.01)
+    # SERVER_LOOP is set as the first statement of _serve_background, before
+    # _server_ready_event fires, so it is guaranteed non-None by this point.
 
     url_viewer = f"http://localhost:{port}/?sid={session.sid}"
     if _overlay_sids:
@@ -690,7 +702,7 @@ def view(
             if wp is not None and wp.poll() is None:
                 # Webview already open — inject new tab
                 asyncio.run_coroutine_threadsafe(
-                    _notify_shells(session.sid, name), _session_mod.SERVER_LOOP
+                    _server_mod()._notify_shells(session.sid, name), _session_mod.SERVER_LOOP
                 )
             else:
                 _session_mod._window_process = _open_webview_with_fallback(
@@ -777,11 +789,15 @@ async def _stop_server_when_viewer_closes(
             return
 
 
-def _wait_for_viewer_close(grace_seconds: float = 1.0) -> None:
+def _wait_for_viewer_close(grace_seconds: float = 1.0, idle_seconds: float = 0.0) -> None:
     """Block until all viewer WebSocket connections close.
+
     Waits for a viewer WebSocket to connect, then all to disconnect, then applies a
     brief grace period so page refreshes don't prematurely kill the server.
-    Shows a short shutdown animation during the grace period.
+
+    If ``idle_seconds > 0``, the server stays alive that many extra seconds after
+    the grace period so the next ``arrayview`` CLI invocation can reuse it without
+    spawning a new subprocess.  A new viewer connection resets the countdown.
     """
     import arrayview._session as _sm
 
@@ -807,10 +823,12 @@ def _wait_for_viewer_close(grace_seconds: float = 1.0) -> None:
         sys.stderr.write("\n")  # start on a fresh line, never paste onto shell prompt
         sys.stderr.flush()
         deadline = time.monotonic() + grace_seconds
+        reconnected = False
         while time.monotonic() < deadline:
             if _sm.VIEWER_SOCKETS > 0:
                 sys.stderr.write("\r" + " " * 60 + "\r")
                 sys.stderr.flush()
+                reconnected = True
                 break  # reconnected; wait again
             sys.stderr.write(
                 f"\r\033[33m{frames[fi % len(frames)]} Shutting down...\033[0m"
@@ -818,10 +836,21 @@ def _wait_for_viewer_close(grace_seconds: float = 1.0) -> None:
             sys.stderr.flush()
             fi += 1
             time.sleep(0.08)
+        if reconnected:
+            continue  # back to Phase 2 (wait for close)
+        sys.stderr.write("\r" + " " * 60 + "\r")
+        sys.stderr.flush()
+        if idle_seconds <= 0:
+            return  # no idle timeout → exit immediately
+        # Idle phase: keep the server alive so the next CLI call reuses it.
+        # A new viewer resets the timer; total inactivity → exit cleanly.
+        idle_deadline = time.monotonic() + idle_seconds
+        while time.monotonic() < idle_deadline:
+            if _sm.VIEWER_SOCKETS > 0:
+                break  # new viewer connected → back to Phase 2
+            time.sleep(1.0)
         else:
-            sys.stderr.write("\r" + " " * 60 + "\r")
-            sys.stderr.flush()
-            return  # deadline passed with no reconnect → really closed
+            return  # idle timeout expired — really done
 
 
 def _view_julia(
@@ -981,7 +1010,7 @@ def _serve_empty(port: int) -> None:
     _session_mod.SERVER_PORT = port
     threading.Thread(
         target=lambda: _uvicorn().run(
-            app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+            _server_mod().app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
     ).start()
@@ -1019,7 +1048,7 @@ def _serve_daemon(
     # Start uvicorn immediately — the window can open before data is ready.
     threading.Thread(
         target=lambda: _uvicorn().run(
-            app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
+            _server_mod().app, host="127.0.0.1", port=port, log_level="error", timeout_keep_alive=30
         ),
         daemon=True,
     ).start()
@@ -1089,7 +1118,10 @@ def _serve_daemon(
         except KeyboardInterrupt:
             pass
     else:
-        _wait_for_viewer_close()
+        # Keep the server alive for 5 minutes after the last viewer closes so
+        # the next `arrayview file.npy` invocation can reuse this process
+        # instead of spawning a new subprocess (cold-start can take 300–600 ms).
+        _wait_for_viewer_close(idle_seconds=300)
     os._exit(0)
 
 
