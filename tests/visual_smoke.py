@@ -37,7 +37,7 @@ DISPLAY
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
    P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed; enabled in native shell iframe)
-   O               unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
+   Cmd+O / Ctrl+O  unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
    (search box)    substring filter          ✓ 45e (type query, list filters client-side; box top-anchored, no jump)
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
@@ -195,6 +195,15 @@ def _focus(page):
 
 def _press(page, key, wait=400):
     page.keyboard.press(key)
+    page.wait_for_timeout(wait)
+
+
+def _press_open_shortcut(page, wait=800):
+    """Press platform-specific open shortcut (Cmd+O on Mac, Ctrl+O elsewhere)."""
+    import sys
+
+    modifier = "Meta" if sys.platform == "darwin" else "Control"
+    page.keyboard.press(f"{modifier}+KeyO")
     page.wait_for_timeout(wait)
 
 
@@ -599,7 +608,7 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(400)
     _shot(page, "44c_D_range_locked")
 
-    # ── 45: unified picker — O and P keys open #uni-picker ───────────────────
+    # ── 45: unified picker — Cmd+O/Ctrl+O and P keys open #uni-picker ───────────────────
     # Cycle: open → compare → overlay → open…
     # P opens in Compare mode. Tab: compare→overlay, Tab: overlay→open
     _goto(page, base, sid2d)
@@ -614,17 +623,36 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "45c_uni_picker_open_mode")
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
-    _press(page, "O", wait=800)  # opens directly in Open mode
+    _press_open_shortcut(page, wait=800)  # opens directly in Open mode
     _shot(page, "45d_uni_picker_open_direct")
     page.keyboard.press("q")
     page.wait_for_timeout(200)
-    _press(page, "O", wait=800)  # opens in Open mode
+    _press_open_shortcut(page, wait=800)  # opens in Open mode
     _shot(page, "45d_uni_picker_open_direct")
     page.keyboard.press("q")
     page.wait_for_timeout(200)
 
     # 45e: search / fzf filter — type in search box, verify filtered list
-    _press(page, "O", wait=800)  # open picker
+    _press_open_shortcut(page, wait=800)  # open picker
+    search_input = page.locator("#uni-picker-search")
+    search_input.type("test", delay=50)  # type a query; fzf/substring filter runs
+    page.wait_for_timeout(400)
+    _shot(page, "45e_uni_picker_search_filtered")
+    # Verify picker box is top-anchored (not vertically centered) so filtering
+    # doesn't cause vertical jumps. Box top should be well above mid-viewport.
+    box_top = page.evaluate(
+        "() => document.getElementById('uni-picker-box').getBoundingClientRect().top"
+    )
+    vh = page.evaluate("() => window.innerHeight")
+    if box_top > vh * 0.5:
+        print(
+            f"  WARNING: #uni-picker-box top={box_top:.0f}px looks vertically centered (vh={vh}); expected top-anchored"
+        )
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+
+    # 45f: ArrowDown from search box moves focus to first list item
+    _press_open_shortcut(page, wait=800)  # open picker in Open mode
     search_input = page.locator("#uni-picker-search")
     search_input.type("test", delay=50)  # type a query; fzf/substring filter runs
     page.wait_for_timeout(400)
