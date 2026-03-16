@@ -3567,14 +3567,14 @@
             } else if (e.key === 'q') {
                 if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
                 if (qmriActive) {
-                    // Toggle between compact and full view
                     const n = shape[qmriDim];
-                    if (n > 3) {
-                        qmriCompact = !qmriCompact;
+                    if (n > 3 && !qmriCompact) {
+                        // Full mode → switch to compact mode
+                        qmriCompact = true;
                         exitQmri();
                         enterQmri();
                     } else {
-                        // Only 3 maps available, exit qMRI mode
+                        // Compact mode or n=3 → exit qMRI mode
                         exitQmri();
                     }
                 } else {
@@ -4367,7 +4367,8 @@
             }
             renderInfo();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
-            showStatus(`qMRI mode${modeText} — press q to ${n > 3 ? 'toggle / ' : ''}exit`, 3000);
+            const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
+            showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
         }
 
         function exitQmri() {
