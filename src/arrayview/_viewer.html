@@ -2746,6 +2746,9 @@
 
             isRendering = true;
             wsSentSeq++;
+            const _dpr = window.devicePixelRatio || 1;
+            const canvas_w = Math.round((parseInt(canvas.style.width)  || window.innerWidth)  * _dpr);
+            const canvas_h = Math.round((parseInt(canvas.style.height) || window.innerHeight) * _dpr);
             ws.send(JSON.stringify({
                 seq: wsSentSeq,
                 dim_x, dim_y, dim_z,
@@ -2761,6 +2764,8 @@
                 overlay_sid,
                 overlay_colors,
                 overlay_alpha: overlayAlpha,
+                canvas_w,
+                canvas_h,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -4227,6 +4232,9 @@
             v.rendering = true; v.seq++;
             const qIndices = [...indices];
             qIndices[qmriDim] = v.qmriIdx;
+            const _qdpr = window.devicePixelRatio || 1;
+            const _qcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _qdpr);
+            const _qch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _qdpr);
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
@@ -4236,6 +4244,8 @@
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid,
                 overlay_colors,
+                canvas_w: _qcw,
+                canvas_h: _qch,
             }));
         }
 
@@ -4485,6 +4495,9 @@
             if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
+            const _mvdpr = window.devicePixelRatio || 1;
+            const _mvcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _mvdpr);
+            const _mvch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _mvdpr);
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
                 indices: [...indices], colormap: currentColormap(),
@@ -4494,6 +4507,8 @@
                 vmax_override: v.lockedVmax ?? null,
                 overlay_sid,
                 overlay_colors,
+                canvas_w: _mvcw,
+                canvas_h: _mvch,
             }));
         }
 

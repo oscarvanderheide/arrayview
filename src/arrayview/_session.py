@@ -131,6 +131,31 @@ async def _render(loop: asyncio.AbstractEventLoop, func) -> object:
     return await fut
 
 
+def _percentile_pair(
+    sample: "np.ndarray", orig_dtype: "np.dtype", lo: float, hi: float
+) -> "tuple[float, float]":
+    """Return (pct_lo, pct_hi) of *sample*, using a fast bincount path for
+    integer source dtypes whose value range fits in <=65536 bins.
+
+    For integer arrays (int8/uint8/int16/uint16) the full-range histogram is
+    O(N) with a very small constant, avoiding the O(N log N) sort that
+    np.percentile performs.
+    """
+    if orig_dtype.kind in ("i", "u") and orig_dtype.itemsize <= 2:
+        imin = int(np.iinfo(orig_dtype).min)
+        imax = int(np.iinfo(orig_dtype).max)
+        int_sample = np.clip(sample, imin, imax).astype(np.int32) - imin
+        counts = np.bincount(int_sample, minlength=imax - imin + 1)
+        total = int(counts.sum())
+        cumsum = np.cumsum(counts)
+        lo_idx = int(np.searchsorted(cumsum, lo / 100.0 * total))
+        hi_idx = int(np.searchsorted(cumsum, hi / 100.0 * total))
+        return float(imin + lo_idx), float(imin + hi_idx)
+    # General path: use numpy sort-based percentile
+    f32 = sample.astype(np.float32)
+    return float(np.percentile(f32, lo)), float(np.percentile(f32, hi))
+
+
 class Session:
     def __init__(self, data, filepath=None, name=None):
         self.sid = uuid.uuid4().hex
@@ -177,6 +202,7 @@ class Session:
             total = int(np.prod(self.shape))
             max_samples = 200_000
             ndim = len(self.shape)
+            orig_dtype = np.dtype(getattr(self.data, "dtype", np.float32))
             if total <= max_samples:
                 sample = np.array(self.data).ravel()
             elif ndim >= 4:
@@ -209,10 +235,10 @@ class Session:
                 sample = np.concatenate(chunks)
             if np.iscomplexobj(sample):
                 sample = np.abs(sample)
-            sample = np.nan_to_num(sample).astype(np.float32)
+            sample = np.nan_to_num(sample)
 
             self.global_stats = {
-                i: (float(np.percentile(sample, lo)), float(np.percentile(sample, hi)))
+                i: _percentile_pair(sample, orig_dtype, lo, hi)
                 for i, (lo, hi) in enumerate(DR_PERCENTILES)
             }
         except Exception:
