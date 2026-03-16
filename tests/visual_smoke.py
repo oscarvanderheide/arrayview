@@ -814,7 +814,7 @@ def run_smoke(page, base, client, tmp):
     # ── 50: axes indicator — edge labels flash on h/l, mosaic, multiview ─────
     # Verify that pressing h in a 3D array makes .axes-indicator opacity become 1.
     # Also verify axes are visible in mosaic mode (not hidden when dim_z >= 0).
-    # Also verify axes flash in multiview mode.
+    # Also verify axes are ALWAYS visible in multiview mode (not just flashing).
     _goto(page, base, sid3d)
     # Check baseline: axes indicator starts hidden (opacity 0)
     ax_opacity_before = page.evaluate(
@@ -843,18 +843,28 @@ def run_smoke(page, base, client, tmp):
         print(
             f"  WARNING: axes indicator opacity={ax_opacity_mosaic:.2f} in mosaic mode — should flash on h"
         )
-    # Check multiview mode
+    # Check multiview mode: axes should remain visible (not just flash)
     _press(page, "z", wait=200)  # exit mosaic
     _press(page, "v", wait=400)
-    _press(page, "h", wait=500)
-    ax_opacity_mv = page.evaluate(
+    ax_opacity_mv_initial = page.evaluate(
         "() => { const els = document.querySelectorAll('.axes-indicator'); "
         "return Math.max(...Array.from(els, e => parseFloat(getComputedStyle(e).opacity))); }"
     )
-    _shot(page, "50c_axes_flash_multiview")
-    if ax_opacity_mv < 0.5:
+    _shot(page, "50c_axes_always_visible_multiview")
+    if ax_opacity_mv_initial < 0.5:
         print(
-            f"  WARNING: axes indicator max opacity={ax_opacity_mv:.2f} in multiview — expected ~1.0"
+            f"  WARNING: axes indicator max opacity={ax_opacity_mv_initial:.2f} on entering multiview — expected ~1.0"
+        )
+    # Wait 2 seconds to verify axes don't fade out (they should stay visible)
+    page.wait_for_timeout(2000)
+    ax_opacity_mv_after_wait = page.evaluate(
+        "() => { const els = document.querySelectorAll('.axes-indicator'); "
+        "return Math.max(...Array.from(els, e => parseFloat(getComputedStyle(e).opacity))); }"
+    )
+    _shot(page, "50d_axes_still_visible_after_wait")
+    if ax_opacity_mv_after_wait < 0.5:
+        print(
+            f"  WARNING: axes indicator faded to {ax_opacity_mv_after_wait:.2f} after 2s in multiview — should stay visible"
         )
     _press(page, "v", wait=200)  # exit multiview
 
