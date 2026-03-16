@@ -1823,9 +1823,13 @@ def arrayview():
             )
             try:
                 input()
-            except (EOFError, KeyboardInterrupt):
+            except KeyboardInterrupt:
                 print(flush=True)
                 sys.exit(0)
+            except EOFError:
+                # stdin reached EOF (e.g. uvx / piped stdin) — don't abort,
+                # proceed to open browser immediately without waiting.
+                print(flush=True)
             # Suppress duplicate "set to Public" reminder inside _open_browser.
             import arrayview._vscode as _vscode_mod
 
