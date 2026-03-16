@@ -1510,6 +1510,11 @@ async def load_file(request: Request):
     filepath = str(body["filepath"])
     name = str(body.get("name") or os.path.basename(filepath))
     notify = bool(body.get("notify", False))
+    # Dedup: if the same file is already loaded, return the existing session.
+    abs_path = os.path.abspath(filepath)
+    for existing in SESSIONS.values():
+        if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
+            return {"sid": existing.sid, "name": existing.name, "notified": False}
     try:
         data = await asyncio.to_thread(load_data, filepath)
     except Exception as e:
