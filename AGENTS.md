@@ -184,3 +184,4 @@ Then update `_VSCODE_EXT_VERSION` in `src/arrayview/_vscode.py`.
 ## Changelog
 
 - **multi-overlay**: `view(arr, overlay=[mask1, mask2, ...])` now accepts a list of overlay masks, each auto-assigned a distinct palette color. Binary masks use the palette color; multi-label masks use per-label colors; continuous/float masks render as heatmap. Server compositing uses `_composite_overlays` in `_server.py`.
+- **welcome-screen**: Canvas capped to 50% viewport height; yellow hint text (⌘O / Ctrl+O · drop file) shown below canvas instead of centered overlay. `body.welcome-mode` CSS class applied.
