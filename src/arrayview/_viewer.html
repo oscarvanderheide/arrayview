@@ -5020,6 +5020,8 @@
             if (d === VFIELD_T_DIM && vfieldNTimes <= 1) return;
             if (d !== VFIELD_T_DIM && shape[d] <= 1) return;
             e.preventDefault();
+            // Activate the dragged dim immediately
+            if (d !== VFIELD_T_DIM && activeDim !== d) { activeDim = d; renderInfo(); }
             _trackDrag = { d, isVfield: d === VFIELD_T_DIM };
             document.body.style.userSelect = 'none';
         });
@@ -5077,6 +5079,8 @@
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
             indices[hoveredDim] = Math.max(0, Math.min(shape[hoveredDim] - 1, indices[hoveredDim] + delta));
+            // Activate the hovered dim (make it yellow)
+            if (activeDim !== hoveredDim) { activeDim = hoveredDim; }
             renderInfo();
             if (multiViewActive) {
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
