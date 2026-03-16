@@ -54,3 +54,29 @@ uv run arrayview file.npy
 - `src/arrayview/_launcher.py` — main `view()` function with detection logic
 - `src/arrayview/_platform.py` — `_in_vscode_terminal()` detection function
 - `src/arrayview/_vscode.py` — `_open_via_signal_file()` and extension install
+
+## Tunnel (Remote) Enter Prompt Fix
+
+### Problem
+
+When running `uvx --from git+... arrayview file.npy` on a tunnel remote, the Enter prompt at line ~1814 calls `input()` which can receive `EOFError` immediately (stdin at EOF from the way uvx/shell launches the process). The old code did:
+
+```python
+except (EOFError, KeyboardInterrupt):
+    sys.exit(0)  # BUG: exits before _open_browser is called
+```
+
+This caused the signal file to never be written → Simple Browser never opened → `ERR_CONNECTION_REFUSED`.
+
+### Fix (current code)
+
+Split EOFError and KeyboardInterrupt handling:
+
+```python
+except KeyboardInterrupt:
+    sys.exit(0)  # intentional abort: user pressed Ctrl+C
+except EOFError:
+    pass  # stdin was at EOF: proceed immediately to _open_browser
+```
+
+`_open_browser` is now always called, even when stdin provides no input.
