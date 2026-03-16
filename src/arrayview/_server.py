@@ -11,7 +11,15 @@ import os
 import threading
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, WebSocket
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    WebSocket,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
 from importlib.resources import files as _pkg_files
@@ -21,10 +29,8 @@ from importlib.resources import files as _pkg_files
 # ---------------------------------------------------------------------------
 from arrayview._session import (
     _vprint,
-    VIEWER_SOCKETS,
     SHELL_SOCKETS,
     PENDING_SESSIONS,
-    _ensure_render_thread,
     _render,
     _schedule_prefetch,
     Session,
@@ -50,7 +56,6 @@ from arrayview._render import (
     _prepare_display,
     _init_luts,
     _ensure_lut,
-    apply_colormap_rgba,
     _setup_rgb,
     render_rgb_rgba,
     render_rgba,
@@ -83,13 +88,16 @@ def _pil_image():
 # Overlay helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_hex_color(hex_str: str) -> np.ndarray | None:
     """Parse a 6-char hex string like 'ff4444' into a uint8 RGB array, or None."""
     h = hex_str.strip().lstrip("#")
     if len(h) != 6:
         return None
     try:
-        return np.array([int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)], dtype=np.uint8)
+        return np.array(
+            [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)], dtype=np.uint8
+        )
     except ValueError:
         return None
 
@@ -108,12 +116,18 @@ def _composite_overlays(
     if not overlay_sid_str:
         return rgba
     sids = [s.strip() for s in overlay_sid_str.split(",") if s.strip()]
-    colors_raw = [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
+    colors_raw = (
+        [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
+    )
     for i, sid in enumerate(sids):
         color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
-        ov_raw = _extract_overlay_mask(sid, dim_x, dim_y, idx_tuple, expected_shape=shape_hw)
+        ov_raw = _extract_overlay_mask(
+            sid, dim_x, dim_y, idx_tuple, expected_shape=shape_hw
+        )
         rgba = _composite_overlay_mask(
-            rgba, ov_raw, alpha=overlay_alpha,
+            rgba,
+            ov_raw,
+            alpha=overlay_alpha,
             is_label=_overlay_is_label_map(sid, ov_raw),
             override_color=color,
         )
@@ -330,8 +344,14 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 overlay_colors = msg.get("overlay_colors")
                 overlay_alpha = float(msg.get("overlay_alpha", 0.45))
                 rgba = _composite_overlays(
-                    rgba, overlay_sid, overlay_colors, overlay_alpha,
-                    dim_x, dim_y, idx_tuple, (h, w),
+                    rgba,
+                    overlay_sid,
+                    overlay_colors,
+                    overlay_alpha,
+                    dim_x,
+                    dim_y,
+                    idx_tuple,
+                    (h, w),
                 )
 
             header = np.array([seq, w, h], dtype=np.uint32).tobytes()
@@ -576,7 +596,14 @@ async def get_metadata(sid: str):
 
 
 @app.get("/vectorfield/{sid}")
-def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int = 0, density_offset: int = 0):
+def get_vectorfield(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    t_index: int = 0,
+    density_offset: int = 0,
+):
     """Return downsampled deformation vector field arrows for the current 2-D view."""
     session = SESSIONS.get(sid)
     if not session or session.vfield is None:
@@ -618,7 +645,7 @@ def get_vectorfield(sid: str, dim_x: int, dim_y: int, indices: str, t_index: int
         base_stride = max(1, max(H, W) // 32)
         # density_offset: positive = denser (smaller stride), negative = sparser
         # Use √2 per step (half-octave) for finer control than 2x per step
-        stride = max(1, round(base_stride * (1.4142 ** -density_offset)))
+        stride = max(1, round(base_stride * (1.4142**-density_offset)))
         n_arrows = max(1, (H // stride) * (W // stride))
         rng = np.random.default_rng(int(H) * 10007 + int(W))
         gy = rng.integers(0, H, n_arrows).astype(int)
@@ -965,8 +992,14 @@ def get_slice(
                 vmax_override,
             )
             rgba = _composite_overlays(
-                rgba, overlay_sid, overlay_colors, overlay_alpha,
-                dim_x, dim_y, idx_tuple, rgba.shape[:2],
+                rgba,
+                overlay_sid,
+                overlay_colors,
+                overlay_alpha,
+                dim_x,
+                dim_y,
+                idx_tuple,
+                rgba.shape[:2],
             )
             raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
             _, vmin, vmax = _prepare_display(
@@ -1517,7 +1550,9 @@ async def load_upload(file: UploadFile = File(...)):
     filename = file.filename or "array"
     ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
     if ext not in (".npy", ".mat"):
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext or '(none)'}")
+        raise HTTPException(
+            status_code=400, detail=f"Unsupported file type: {ext or '(none)'}"
+        )
 
     contents = await file.read()
     # Save to a temp file so the existing load_data() path handles format detection
