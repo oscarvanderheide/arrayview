@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "publisher": "arrayview",
   "license": "MIT",
   "engines": { "vscode": "^1.80.0" },
