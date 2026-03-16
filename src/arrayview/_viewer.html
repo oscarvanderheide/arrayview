@@ -367,7 +367,7 @@
         #reg-blend-bar-wrap {
             display: none; flex-direction: column; align-items: stretch; width: 100%;
         }
-        #compare-view-wrap.registration-mode #reg-blend-bar-wrap { display: flex; }
+        #compare-view-wrap.registration-mode #reg-blend-bar-wrap { display: flex; cursor: ew-resize; }
         #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb,
         #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb-labels { display: none !important; }
         #reg-blend-cb {
@@ -561,7 +561,7 @@
                             <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
                             <div id="reg-blend-bar-wrap">
                                 <canvas id="reg-blend-cb"></canvas>
-                                <div id="reg-blend-labels"><span>fixed</span><span>moving</span></div>
+                                <div id="reg-blend-labels"><span></span><span></span></div>
                             </div>
                         </div>
                     </div>
@@ -1000,6 +1000,32 @@
         const diffPaneCbLabels = document.getElementById('compare-diff-pane-cb-labels');
         // Registration blend bar canvas
         const regBlendCb = document.getElementById('reg-blend-cb');
+        const regBlendBarWrap = document.getElementById('reg-blend-bar-wrap');
+        // Drag and scroll on blend bar to adjust registrationAlpha
+        let _regBlendDragX = null, _regBlendDragAlpha0 = null;
+        regBlendBarWrap.addEventListener('wheel', (e) => {
+            if (!compareActive || !registrationMode) return;
+            e.preventDefault();
+            const step = e.deltaY > 0 ? 0.05 : -0.05;
+            registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+            applyCompareLayout(); drawCompareFramesFromCache(); saveState();
+            showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+        }, { passive: false });
+        regBlendBarWrap.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || !compareActive || !registrationMode) return;
+            _regBlendDragX = e.clientX;
+            _regBlendDragAlpha0 = registrationAlpha;
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (_regBlendDragX === null) return;
+            const rect = regBlendBarWrap.getBoundingClientRect();
+            const dx = e.clientX - _regBlendDragX;
+            registrationAlpha = Math.max(0.05, Math.min(0.95, (_regBlendDragAlpha0 || 0.5) + dx / rect.width));
+            applyCompareLayout(); drawCompareFramesFromCache(); drawRegBlendCb();
+            showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+        });
+        window.addEventListener('mouseup', () => { if (_regBlendDragX !== null) { _regBlendDragX = null; saveState(); } });
         const slimCbCanvas = document.getElementById('slim-cb');
         const slimCbLabels = document.getElementById('slim-cb-labels');
         const slimCbWrap = document.getElementById('slim-cb-wrap');
@@ -1249,9 +1275,9 @@
                 const rightV = compareLuma(R, i) * aMoving;
                 const leftA = (L[i + 3] / 255) * aFixed;
                 const rightA = (R[i + 3] / 255) * aMoving;
-                out[i] = Math.min(255, Math.round(255 * (leftV)));
-                out[i + 1] = Math.min(255, Math.round(255 * (rightV)));
-                out[i + 2] = Math.min(255, Math.round(255 * (leftV)));
+                out[i] = Math.min(255, Math.round(255 * (rightV)));     // R ← right (purple)
+                out[i + 1] = Math.min(255, Math.round(255 * (leftV)));  // G ← left (green)
+                out[i + 2] = Math.min(255, Math.round(255 * (rightV))); // B ← right (purple)
                 out[i + 3] = Math.min(255, Math.round(255 * (leftA + rightA)));
             }
             return {
@@ -1281,9 +1307,11 @@
             const labels = compareDisplaySids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length) {
                 const movingPct = Math.round(registrationAlpha * 100);
-                labels[0] = `${compareBaseName || 'fixed'} fixed`;
-                labels[1] = `${compareName || 'moving'} moving`;
+                labels[0] = compareBaseName || 'base';
+                labels[1] = compareName || 'other';
                 labels[2] = `overlay (${movingPct}% moving)`;
+                const blendLabels = document.getElementById('reg-blend-labels');
+                if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
             }
             compareTitles.forEach((el, idx) => {
@@ -1447,8 +1475,8 @@
             const ctx2 = regBlendCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
             const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
-            grad.addColorStop(0, 'rgba(67,97,238,0.85)');
-            grad.addColorStop(1, 'rgba(180,142,173,0.85)');
+            grad.addColorStop(0, 'rgba(74,222,128,0.9)');   // green ← left/base
+            grad.addColorStop(1, 'rgba(199,125,255,0.9)');  // purple ← right/moving
             ctx2.fillStyle = grad;
             ctx2.fillRect(0, 0, cssW, stripH);
             ctx2.restore();
