@@ -3133,7 +3133,17 @@
                 toggleCompareMode();
             } else if ((e.key === 'o' || e.key === 'O') && modKey) {
                 if (isInlineEmbed) return;
-                showUnifiedPicker('open');
+                const result = await showUnifiedPicker('open');
+                if (!result) return;
+                if (result.mode === 'compare' && (result.type === 'session' || result.type === 'loaded')) {
+                    // User switched to compare mode and picked an array
+                    await enterCompareModeBySid(result.sid, result.name || '');
+                } else if (result.mode === 'overlay' && (result.type === 'session' || result.type === 'loaded')) {
+                    // User switched to overlay mode and picked an array
+                    const newUrl = `/?sid=${sid}&overlay_sid=${result.sid}`;
+                    window.location.href = newUrl;
+                }
+                // For 'navigate' type (mode='open'), navigation already happened in the picker
             } else if (e.key === 'X') {
                 if (!compareActive || compareDisplaySids.length !== 2) {
                     showToast('diff view: only in 2-pane compare mode');
@@ -3603,10 +3613,12 @@
 
         // ── Unified picker (Open / Compare / Overlay) ──────────────────────
         // Returns a Promise that resolves to:
-        //   null                        – cancelled
-        //   { type:'navigate', sid }    – Open mode: navigate to sid
-        //   { type:'session', sid, name } – Compare/Overlay: use loaded session
-        //   { type:'loaded',  sid, name } – Compare/Overlay: file was loaded
+        //   null                              – cancelled
+        //   { mode:'open', type:'navigate', sid }    – Open mode: navigate to sid
+        //   { mode:'compare', type:'session', sid, name } – Compare: use loaded session
+        //   { mode:'compare', type:'loaded',  sid, name } – Compare: file was loaded
+        //   { mode:'overlay', type:'session', sid, name } – Overlay: use loaded session
+        //   { mode:'overlay', type:'loaded',  sid, name } – Overlay: file was loaded
         const _UNI_MODES = ['open', 'compare', 'overlay'];
         const _UNI_LABELS = { open: 'Open', compare: 'Side-by-side', overlay: 'Overlay' };
         const _UNI_COLORS = { open: 'var(--active-dim)', compare: '#4ade80', overlay: '#c77dff' };
@@ -3680,7 +3692,7 @@
                                 item.innerHTML = `<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
                                     + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
                                 function pick() {
-                                    finish({ type: 'navigate', sid: s.sid });
+                                    finish({ mode: 'open', type: 'navigate', sid: s.sid });
                                     if (window.parent !== window && window.parent.__arrayviewShell) {
                                         window.parent.addTab(s.sid, s.name || '(unnamed)');
                                     } else {
@@ -3713,7 +3725,7 @@
                                     }).then(r => r.json()).then(data => {
                                         if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
                                         else {
-                                            finish({ type: 'navigate', sid: data.sid });
+                                            finish({ mode: 'open', type: 'navigate', sid: data.sid });
                                             if (!sid) {
                                                 // No-session welcome screen — navigate in-place
                                                 window.location.href = '/?sid=' + data.sid;
@@ -3765,7 +3777,7 @@
                                     + (!matches ? `<span class="cp-item-incompat">Incompatible Shape</span>` : '')
                                     + `<span class="cp-item-shape">${shapeStr}</span></span>`;
                                 if (matches) {
-                                    function pick() { finish({ type: 'session', sid: s.sid, name: s.name || '' }); }
+                                    function pick() { finish({ mode, type: 'session', sid: s.sid, name: s.name || '' }); }
                                     item.onclick = pick;
                                     item.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
                                 }
@@ -3798,7 +3810,7 @@
                                             body: JSON.stringify({ filepath: f.path, name: f.name }),
                                         }).then(r => r.json()).then(data => {
                                             if (data.error) { showToast(`load error: ${data.error}`); finish(null); }
-                                            else { finish({ type: 'loaded', sid: data.sid, name: data.name || f.name }); }
+                                            else { finish({ mode, type: 'loaded', sid: data.sid, name: data.name || f.name }); }
                                         }).catch(() => { showToast('load failed'); finish(null); });
                                     }
                                     item.onclick = pickFile;
