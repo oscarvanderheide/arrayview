@@ -29,7 +29,9 @@ from arrayview._platform import (
     _in_jupyter,
     _in_vscode_terminal,
     _is_vscode_remote,
+    _in_vscode_tunnel,
     _can_native_window,
+    _find_vscode_ipc_hook,
     _is_julia_env,
     _in_julia_jupyter,
 )
@@ -1291,6 +1293,11 @@ def arrayview():
         help="Enable verbose output (internal status messages)",
     )
     parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Print environment detection results and exit (useful for debugging VS Code/tunnel issues)",
+    )
+    parser.add_argument(
         "--dims",
         metavar="SPEC",
         default=None,
@@ -1303,6 +1310,41 @@ def arrayview():
     )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
+
+    # --diagnose: print detection results and exit
+    if getattr(args, "diagnose", False):
+        import json as _json
+        from ._platform import (
+            _find_vscode_ipc_hook,
+            _in_jupyter,
+        )
+
+        diag: dict = {
+            "env": {
+                "TERM_PROGRAM": os.environ.get("TERM_PROGRAM"),
+                "VSCODE_IPC_HOOK_CLI": os.environ.get("VSCODE_IPC_HOOK_CLI"),
+                "SSH_CONNECTION": os.environ.get("SSH_CONNECTION"),
+                "SSH_CLIENT": os.environ.get("SSH_CLIENT"),
+                "VSCODE_INJECTION": os.environ.get("VSCODE_INJECTION"),
+                "VSCODE_AGENT_FOLDER": os.environ.get("VSCODE_AGENT_FOLDER"),
+                "DISPLAY": os.environ.get("DISPLAY"),
+                "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
+            },
+            "detection": {
+                "in_vscode_terminal": _in_vscode_terminal(),
+                "is_vscode_remote": _is_vscode_remote(),
+                "in_vscode_tunnel": _in_vscode_tunnel(),
+                "can_native_window": _can_native_window(),
+                "in_jupyter": _in_jupyter(),
+                "vscode_ipc_hook_recovered": _find_vscode_ipc_hook(),
+            },
+            "pid": os.getpid(),
+            "ppid": os.getppid(),
+            "platform": sys.platform,
+            "python": sys.executable,
+        }
+        print(_json.dumps(diag, indent=2))
+        return
 
     # Parse --dims spec into (dim_x, dim_y) integers or None
     def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
