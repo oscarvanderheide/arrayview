@@ -61,7 +61,9 @@ _VSCODE_EXT_VERSION = "0.9.14"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
-_VSCODE_SIGNAL_MAX_AGE_MS = 30_000  # 30s: generous window so on-disk signals survive a ~12s simpleBrowser.show wait
+_VSCODE_SIGNAL_MAX_AGE_MS = (
+    60_000  # 60s: survive extension-host reloads (~12s) plus simpleBrowser.show latency
+)
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +151,17 @@ def _remove_old_extension_versions(current_version: str) -> None:
                 _vprint(f"[ArrayView] could not remove {entry}: {exc}", flush=True)
 
 
+def _extension_on_disk(version: str) -> bool:
+    """Return True if the extension directory for *version* exists on disk."""
+    for base in (
+        os.path.expanduser("~/.vscode/extensions"),
+        os.path.expanduser("~/.vscode-server/extensions"),
+    ):
+        if os.path.isdir(os.path.join(base, f"arrayview.arrayview-opener-{version}")):
+            return True
+    return False
+
+
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
@@ -156,12 +169,25 @@ def _ensure_vscode_extension() -> bool:
     and, in remote/tunnel sessions, can actively invoke VS Code's forwarded-port
     commands to promote the port to public preview.
 
-    Force-installs the current VSIX into the running UI extension host.
-    Old extension directories are removed first so VS Code always picks up
-    the new version on the next extension-host reload.
+    Skips reinstallation if the correct version is already present on disk —
+    reinstalling with --force causes an extension-host reload, which creates a
+    timing gap during which a signal file may be missed.  Old extension
+    directories are cleaned up before any fresh install.
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
+        return True
+
+    # Fast path: correct version already installed — no reinstall needed.
+    # Reinstalling with --force triggers an extension-host reload, which
+    # creates a ~10-15s gap during which the signal file can be missed.
+    _remove_old_extension_versions(_VSCODE_EXT_VERSION)
+    if _extension_on_disk(_VSCODE_EXT_VERSION):
+        _VSCODE_EXT_INSTALLED = True
+        _vprint(
+            f"[ArrayView] extension v{_VSCODE_EXT_VERSION} already installed — skipping reinstall",
+            flush=True,
+        )
         return True
 
     code = _find_code_cli()
@@ -184,10 +210,6 @@ def _ensure_vscode_extension() -> bool:
             flush=True,
         )
         return False
-
-    # Remove stale extension directories before installing so VS Code loads
-    # only this version on the next extension-host reload.
-    _remove_old_extension_versions(_VSCODE_EXT_VERSION)
 
     try:
         r = subprocess.run(
@@ -489,6 +511,9 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             # Always write the signal file: the extension may already be
             # installed even if _ensure failed (e.g. `code` CLI not found).
             _open_via_signal_file(url)
+            # Schedule a retry in case the extension was mid-reload when the
+            # first signal was written (e.g. first run with old version removed).
+            _schedule_remote_open_retries(url, interval=10.0, count=2)
             opened = True
 
         is_plain_ssh = (
