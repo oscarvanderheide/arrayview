@@ -2400,18 +2400,10 @@
             // initialize per-dimension flip flags
             flipDims = {};
             for (let i = 0; i < shape.length; i++) flipDims[i] = false;
-            const _hadSavedState = restoreStateFromSessionStorage();
+            restoreStateFromSessionStorage();
             if (stateParam) {
                 const decodedUrlState = decodeStateParam(stateParam);
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
-            }
-            // Apply server-recommended colormap only on first load (no saved state or URL state).
-            // This lets dtype-aware defaults kick in without overriding user preferences.
-            if (!_hadSavedState && !stateParam && data.recommended_colormap) {
-                const recIdx = COLORMAPS.indexOf(data.recommended_colormap);
-                if (recIdx !== -1 && recIdx !== colormap_idx) {
-                    colormap_idx = recIdx;
-                }
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             initWebSocket();

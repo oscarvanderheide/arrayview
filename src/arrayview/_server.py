@@ -439,9 +439,6 @@ async def reload_session(sid: str):
     session.mosaic_cache.clear()
     session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     await asyncio.to_thread(session.compute_global_stats)
-    session.recommended_colormap = _session_mod._recommend_colormap(
-        session.data, session.global_stats
-    )
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -475,9 +472,6 @@ async def update_session(sid: str, request: Request):
     session.mosaic_cache.clear()
     session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
     await asyncio.to_thread(session.compute_global_stats)
-    session.recommended_colormap = _session_mod._recommend_colormap(
-        session.data, session.global_stats
-    )
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -666,7 +660,6 @@ async def get_metadata(sid: str):
             "has_vectorfield": session.vfield is not None,
             "vfield_n_times": _vfield_n_times(session),
             "is_rgb": session.rgb_axis is not None,
-            "recommended_colormap": getattr(session, "recommended_colormap", "gray"),
         }
     except Exception as e:
         import traceback
@@ -975,13 +968,15 @@ def get_info(sid: str):
         info["size_mb"] = round(session.data.nbytes / 1024**2, 2)
     except AttributeError:
         info["size_mb"] = None
-    # Recommended colormap and the reason it was chosen
-    info["recommended_colormap"] = getattr(session, "recommended_colormap", None)
+    # Colormap reason for the info overlay (feature: info-overlay-enhanced)
     try:
-        info["recommended_colormap_reason"] = _session_mod._recommend_colormap_reason(
+        reason = _session_mod._recommend_colormap_reason(
             session.data, session.global_stats
         )
+        info["recommended_colormap"] = reason.split(" ")[0]
+        info["recommended_colormap_reason"] = reason
     except Exception:
+        info["recommended_colormap"] = None
         info["recommended_colormap_reason"] = None
     if session.fft_axes is not None:
         info["fft_axes"] = list(session.fft_axes)

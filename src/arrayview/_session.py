@@ -197,7 +197,6 @@ class Session:
         self.vfield = None  # Optional deformation vector field: (*spatial_shape, 3)
 
         self.compute_global_stats()
-        self.recommended_colormap = _recommend_colormap(self.data, self.global_stats)
 
     def compute_global_stats(self):
         try:
@@ -245,27 +244,6 @@ class Session:
             }
         except Exception:
             self.global_stats = {}
-
-
-def _recommend_colormap(data, global_stats: dict) -> str:
-    """Return the most appropriate colormap name for the given array.
-
-    Rules (applied in order):
-    1. bool dtype           → "gray"  (binary, no need for colour)
-    2. complex dtype        → "gray"  (magnitude; diverging not meaningful)
-    3. Signed with vmin < 0 → "RdBu_r" (diverging data)
-    4. All other cases      → "gray"  (safe default)
-    """
-    dtype = np.dtype(getattr(data, "dtype", np.float32))
-    if dtype.kind == "b":
-        return "gray"
-    if np.iscomplexobj(data):
-        return "gray"
-    # Check if the data range is signed (vmin < 0) using DR index 1 (1–99 pct)
-    vmin, _ = global_stats.get(1, global_stats.get(0, (0.0, 1.0)))
-    if dtype.kind in ("i", "f") and vmin < 0:
-        return "RdBu_r"
-    return "gray"
 
 
 def _recommend_colormap_reason(data, global_stats: dict) -> str:
