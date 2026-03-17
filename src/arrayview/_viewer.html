@@ -74,6 +74,8 @@
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
         #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
+        #hist-wrap { display: none; position: fixed; z-index: 2; text-align: center; }
+        #hist-canvas { display: block; margin: 0 auto; border-radius: 3px; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -494,6 +496,9 @@
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-labels"></div>
             </div>
+            <div id="hist-wrap">
+                <canvas id="hist-canvas"></canvas>
+            </div>
             <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> open &nbsp;·&nbsp; drop file to load</div>
         </div>
         <div id="compare-view-wrap">
@@ -722,6 +727,7 @@
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
+                <div class="help-row"><span class="key">W</span><span class="desc">toggle histogram strip (pixel value distribution)</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -846,6 +852,9 @@
         let customColormap = null, customGradientStops = null;
 
         let cbVisible = true;
+        let histVisible = false;
+        let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
+        let _histRefreshTimer = null;
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
@@ -1189,7 +1198,7 @@
         }
 
         function scaleCanvas(w, h) {
-            const bottomReserve = 72; // slim colorbar (~31px) + eggs (~22px) + gaps
+            const bottomReserve = 72 + (histVisible && !compareActive && !rgbMode ? HIST_H + 6 : 0); // slim colorbar (~31px) + eggs (~22px) + gaps + optional histogram
             const maxW = Math.max(100, window.innerWidth - 80);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve);
             // In welcome mode cap canvas to ~50% of viewport height
@@ -1645,6 +1654,101 @@
             slimCbLabels.style.display = '';
             slimCbLabels.style.width = cssW + 'px';
             slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+            // Refresh histogram position whenever colorbar is redrawn
+            if (histVisible) _positionAndDrawHistogram();
+        }
+
+        // ── Histogram strip (W key) ──────────────────────────────────────────
+        const HIST_H = 48; // CSS height of the histogram canvas in px
+
+        async function _fetchHistogram() {
+            if (!sid || !indices.length) return;
+            const params = new URLSearchParams({
+                dim_x: dim_x,
+                dim_y: dim_y,
+                indices: indices.join(','),
+                complex_mode: complexMode,
+                bins: 128,
+            });
+            try {
+                const resp = await fetch(`/histogram/${sid}?${params}`);
+                if (!resp.ok) return;
+                _histData = await resp.json();
+            } catch (_) { _histData = null; }
+        }
+
+        function _renderHistogramCanvas(cssW) {
+            const histCanvas = document.getElementById('hist-canvas');
+            if (!histCanvas || !_histData || !_histData.counts || !_histData.counts.length) return;
+            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+            const dpr = window.devicePixelRatio || 1;
+            histCanvas.width = Math.round(cssW * dpr);
+            histCanvas.height = Math.round(HIST_H * dpr);
+            histCanvas.style.width = cssW + 'px';
+            histCanvas.style.height = HIST_H + 'px';
+            const hCtx = histCanvas.getContext('2d');
+            hCtx.clearRect(0, 0, histCanvas.width, histCanvas.height);
+            hCtx.save();
+            hCtx.scale(dpr, dpr);
+            const maxCount = Math.max(...counts, 1);
+            const n = counts.length;
+            const barW = cssW / n;
+            const barColor = isDark ? 'rgba(180,180,200,0.55)' : 'rgba(80,80,100,0.5)';
+            const vlineColor = isDark ? 'rgba(255,255,100,0.8)' : 'rgba(180,100,0,0.8)';
+            // Draw bars
+            hCtx.fillStyle = barColor;
+            for (let i = 0; i < n; i++) {
+                const barH = Math.max(1, (counts[i] / maxCount) * (HIST_H - 4));
+                hCtx.fillRect(i * barW, HIST_H - barH, barW - 0.5, barH);
+            }
+            // Draw vmin/vmax lines (current window)
+            const range = dmax - dmin || 1;
+            const vminF = (( manualVmin ?? currentVmin ) - dmin) / range;
+            const vmaxF = (( manualVmax ?? currentVmax ) - dmin) / range;
+            hCtx.strokeStyle = vlineColor;
+            hCtx.lineWidth = 1;
+            if (vminF >= 0 && vminF <= 1) {
+                const x = Math.round(vminF * (cssW - 1)) + 0.5;
+                hCtx.beginPath(); hCtx.moveTo(x, 0); hCtx.lineTo(x, HIST_H); hCtx.stroke();
+            }
+            if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
+                const x = Math.round(vmaxF * (cssW - 1)) + 0.5;
+                hCtx.beginPath(); hCtx.moveTo(x, 0); hCtx.lineTo(x, HIST_H); hCtx.stroke();
+            }
+            hCtx.restore();
+        }
+
+        function _positionAndDrawHistogram() {
+            const histWrap = document.getElementById('hist-wrap');
+            if (!histWrap || !histVisible) { if (histWrap) histWrap.style.display = 'none'; return; }
+            if (compareActive || rgbMode) { histWrap.style.display = 'none'; return; }
+            // Align with the slim colorbar
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (!cbWrap || cbWrap.style.display === 'none') { histWrap.style.display = 'none'; return; }
+            const cssW = parseInt(cbWrap.style.width) || 200;
+            const cbTop = parseInt(cbWrap.style.top) || 0;
+            // Position histogram below the colorbar (cb ~31px tall)
+            const cbH = cbWrap.getBoundingClientRect().height || 31;
+            histWrap.style.top  = (cbTop + cbH + 3) + 'px';
+            histWrap.style.left = cbWrap.style.left;
+            histWrap.style.width = cssW + 'px';
+            histWrap.style.display = 'block';
+            _renderHistogramCanvas(cssW);
+        }
+
+        async function toggleHistogram() {
+            histVisible = !histVisible;
+            if (histVisible) {
+                await _fetchHistogram();
+                _positionAndDrawHistogram();
+                showToast('histogram: on');
+            } else {
+                const histWrap = document.getElementById('hist-wrap');
+                if (histWrap) histWrap.style.display = 'none';
+                showToast('histogram: off');
+            }
+            // Update bottomReserve by re-running scaleCanvas
+            scaleCanvas(lastImgW || canvas.width, lastImgH || canvas.height);
         }
 
         function showDataInfo(rows) {
@@ -2836,6 +2940,14 @@
 
         function updateView() {
             renderInfo();
+            // Debounced histogram refresh when visible
+            if (histVisible && !compareActive && !rgbMode) {
+                clearTimeout(_histRefreshTimer);
+                _histRefreshTimer = setTimeout(async () => {
+                    await _fetchHistogram();
+                    _positionAndDrawHistogram();
+                }, 150);
+            }
             if (compareActive) {
                 compareRender();
                 return;
@@ -3339,6 +3451,9 @@
                     document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
                 }
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
+            } else if (e.key === 'W') {
+                if (compareActive || rgbMode) { showStatus('histogram: not available in this mode'); return; }
+                toggleHistogram();
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'N') {
