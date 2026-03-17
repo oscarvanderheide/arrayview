@@ -1,25 +1,41 @@
 # TODO
 
-- ~~dragging into simplebrowser from vscode file explorer doesnt work~~ (technical limitation)
-- ~~when i run uv run arrayview in terminal (with or without passing array), it still opens in native window not vscode simplebrowser~~ (done)
-- ~~i want to go back to situation where killing the last open window (be it native, vscode browser, whatever) kills the server. right now stuff keeps lingering for too long and it leads to confusing situations and difficulties with debugging~~ (done)
-- ~~instead of shft + o, can i use cmd + o on mac and ctrl + o on linux/windows for open?~~ (done)
-- ~~when i use the file picker and switch to compare or overlay mode, it doesnt work, i can select an array but i dont get them side-by-side.~~ (done)
-- ~~allow me to specify a slice index number with number keys and then enter to go to that slice for the current active slice dim.~~ (done)
-- ~~in qMRI mode, there can be 3 to 6 parameter maps. when i press q the first time, show them all. when i press q another time, only show T1, T2 and abs(PD) as three canvasses horizontally aligned.~~ (done)
-- ~~when in qmri mode, q goes to "compact mode" with T1 and T2 and PD only as required in one of the above todo items. but then when i press q again it should quit qmri mode.~~ (done)
-- ~~it still doesnt auto-open in vscode simplebrowser when i run from vscode terminal. please use your skills and this issue has been coming up several times and took many efforts to fix again. when you have the fix, write it the fuck down somewhere.~~ (done - see VSCODE_DETECTION.md)
-- ~~see overlay_misalignment.png, the colorbar below the overlay canvas is misaligned. there's also text there that should not be there at all.~~ (done)
-- ~~the arrows indicating (x,y), (y,z) and (x,z) directions should always be visible in multi-view mode~~ (done)
-- look at welcome. its shit. the canvas needs to be like 50% height, not square, and the text to open with cmd+o or ctrl+o or drop should be below it in yellow. i'd like some lofi pixel art animation of some cozy forest or city as an array on the welcome screen but forget about it if thats too complicated.
-- on the tunnel, when i do uvx --from git+https://github.com/oscarvanderheide/arrayview arrayview senserefscan_csm.npy, it says: Updated https://github.com/oscarvanderheide/arrayview (f9ddddb26fe6178aaf82a7e2aef2f7f51411992a) Built arrayview @ git+https://github.com/oscarvanderheide/arrayview@f9ddddb26fe6178aaf82a7e2aef
-Installed 49 packages in 54ms
-  VS Code Ports tab: right-click port 8000 → Port Visibility → Public
-  Press Enter once done (or the viewer retries automatically)... %                                   
 
-ForOscarTest/HV_3Dand2D/results [ master]
-❯ 
-no port opens and i get err_connection_refused and i did not press enter myself. Again, im quite pissed this is broken agian because it took a long time to get things running over the tunnel
+- no need for automatic colormap selection as introduced in commit 952fc1a1fe596ab6b2007c2796b38df49ae8fc2f, get rid of it
+- the linked crosshair from a778ab75ef3bd4ae2cf33b33bbfa6bac17f5a696 is broken. get rid of it, dont need it somehow changes what i see in the viewer (like small version of the array in top left corner of the window with the info overlayed). fix this. 
+- where do screenshots and slices (npy) get saved? 
+- rect ROI is ok, i want to focus on a special roi mode later on
+- the histogram with W is nice. right now i see the yellow vertical liens for current clim. would be nice to be able to drag them to chang clims. and see the value of current bin when hovering over the histogram
+- automatically opening in vscode browser tab is still not working locally: arrayview main
+❯ uv run arrayview --diagnose   
+{
+  "env": {
+    "TERM_PROGRAM": "vscode",
+    "VSCODE_IPC_HOOK_CLI": null,
+    "SSH_CONNECTION": null,
+    "SSH_CLIENT": null,
+    "VSCODE_INJECTION": "1",
+    "VSCODE_AGENT_FOLDER": null,
+    "DISPLAY": "/private/tmp/com.apple.launchd.MzjoGL4Vi1/org.xquartz:0",
+    "WAYLAND_DISPLAY": null
+  },
+  "detection": {
+    "in_vscode_terminal": true,
+    "is_vscode_remote": false,
+    "in_vscode_tunnel": true,
+    "can_native_window": false,
+    "in_jupyter": false,
+    "vscode_ipc_hook_recovered": null
+  },
+  "pid": 29667,
+  "ppid": 29666,
+  "platform": "darwin",
+  "python": "/Users/oscar/Projects/packages/python/arrayview/.venv/bin/python3"
+}
+
+- make shift + o open picker as well since cmd or ctrl + o does not work well in vscode. welcome should say something like: pick array with {cmd,ctrl,shift} + o or drop array in window. keep it minimal. no cmd emoji thingy
+- when i enable hover info, i need to move mouse for it to appear. tahts annoying it should appear immediatly.
+- picker needs a rewrite. it should allows me to directly open another array with enter like it does now. no switching between modes with tab. i want to be able to select arrays with <space> and then it should switch to compare mode and also change the UI color like it does now. i want to be able to select up to four arrays for compare. they should then appear in 2x2 grid. for 2, it should be 1x2, for three 1x3. for more arrays, users just needs to cat them themselves. adjust the compare mode s.t. 4 is maximum. the diff and registration modes should only work (like now) when two arrays are selected.
 
 
-each item a separate commit. no need for separate branches unless you work on things in parallel. in that case, do the merge (no merge commits pls, just rebase) afterwards. 
+each item a separate commit. no need for separate branches unless you work on things in parallel. in that case, do the merge (no merge commits pls, just rebase) afterwards.  

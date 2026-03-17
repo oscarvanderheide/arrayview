@@ -57,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.14"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.16"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -331,16 +331,37 @@ def _configure_vscode_port_preview(port: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _open_via_signal_file(url: str, delay: float = 0.0) -> bool:
-    """Write the URL to the versioned ArrayView opener signal file."""
-    return _write_vscode_signal(
-        {
-            "action": "open-preview",
-            "url": url,
-            "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
-        },
-        delay=delay,
-    )
+def _open_via_signal_file(
+    url: str, delay: float = 0.0, title: str | None = None
+) -> bool:
+    """Write the URL to the versioned ArrayView opener signal file.
+
+    *title* is shown as the VS Code tab label (e.g. "ArrayView: sample.npy").
+    If omitted it is auto-derived from the session name embedded in the URL's
+    ``?sid=`` query parameter.
+    """
+    if title is None:
+        try:
+            import urllib.parse as _up
+
+            _sid = _up.parse_qs(_up.urlparse(url).query).get("sid", [None])[0]
+            if _sid:
+                import arrayview._session as _sm
+
+                _sess = _sm.SESSIONS.get(_sid)
+                if _sess:
+                    title = f"ArrayView: {_sess.name}"
+        except Exception:
+            pass
+
+    payload: dict = {
+        "action": "open-preview",
+        "url": url,
+        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+    }
+    if title:
+        payload["title"] = title
+    return _write_vscode_signal(payload, delay=delay)
 
 
 def _schedule_remote_open_retries(
@@ -375,12 +396,21 @@ def _schedule_remote_open_retries(
 def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
     """Write a versioned control payload for the VS Code opener extension.
 
-    Per-window targeting: the extension writes a registration file when it
-    activates, recording its hookTag (SHA-256 of VSCODE_IPC_HOOK_CLI).
-    Python reads that registry, matches its own IPC hook, and writes to
-    the targeted file for that specific window.  Falls back to the shared
-    signal file when no matching registration is found (e.g. right after
-    a window reload when terminal env still has the old IPC hook).
+    Per-window targeting: when VSCODE_IPC_HOOK_CLI can be found (directly or
+    via parent-process walk), Python computes hookTag = SHA-256(ipc_hook)[:16]
+    and writes *only* to the targeted file
+    ``~/.arrayview/open-request-ipc-<hookTag>.json``.  The extension in the
+    correct VS Code window checks that same file and claims it exclusively.
+
+    The registration-file check (window-<tag>.json) has been intentionally
+    removed: writing to the targeted file is safe even before the extension
+    has activated, because the extension calls tryOpenSignalFile() immediately
+    on activate and will find the file.  Removing the check eliminates the
+    race window where Python fell back to the shared file (claimable by any
+    window) just because the extension hadn't written its registration yet.
+
+    Falls back to the shared signal file only when ipc_hook is not found at
+    all (e.g. non-VS Code environment or fully-stripped env).
     """
     import hashlib
     from arrayview._platform import _find_vscode_ipc_hook
@@ -395,20 +425,16 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
         data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
         data.setdefault("requestId", uuid.uuid4().hex)
 
-        # Try to find the registration written by the extension for the window
-        # that owns this terminal process.  Extension writes
-        # ~/.arrayview/window-<hookTag>.json on activate; we hash our own IPC
-        # hook to find the matching registration.
-        target_filename = None
+        # Always use the targeted file when we have an IPC hook — no
+        # registration-file check.  This prevents any other VS Code window
+        # from racing to claim the shared fallback file.
         ipc_hook = _find_vscode_ipc_hook()
         if ipc_hook:
             own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
-            reg_path = os.path.join(signal_dir, f"window-{own_tag}.json")
-            if os.path.isfile(reg_path):
-                target_filename = f"open-request-ipc-{own_tag}.json"
-
-        if target_filename:
-            filenames = (target_filename,)
+            data["hookTag"] = (
+                own_tag  # extension verifies this on shared-fallback claims
+            )
+            filenames: tuple[str, ...] = (f"open-request-ipc-{own_tag}.json",)
         else:
             # Fallback: shared signal file (any window's extension may claim it)
             filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
