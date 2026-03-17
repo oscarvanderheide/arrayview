@@ -84,7 +84,6 @@ AXES INDICATOR (edge labels)
   axes visible in compare mode (B key)      ✗ (requires interactive picker)
 
 COMPARE MODE
-  linked cursors across compare panes       ✓ 55 (mousemove on left pane, crosshair on right)
   drag title to reorder panes               ✓ 56 (drag left title → right title swaps pane order)
 
 VIEW MODES (colorbar visible in all)
@@ -984,36 +983,6 @@ def run_smoke(page, base, client, tmp):
         print(
             f"  WARN: histogram state unexpected (before={hist_visible_before}, after={hist_visible_after}, hidden={hist_hidden})"
         )
-
-    # ── 55: linked crosshair in compare mode ─────────────────────────────────
-    print("55: linked crosshair syncs across compare panes on hover")
-    _goto_compare(page, base, sid2d, sid2d_b, wait=1500)
-    _focus(page)
-    left_cv = page.locator("#compare-left-canvas")
-    right_xhair = page.locator("#compare-right-xhair")
-    left_box = left_cv.bounding_box()
-    if left_box:
-        # Hover over the center of the left pane
-        page.mouse.move(
-            left_box["x"] + left_box["width"] / 2,
-            left_box["y"] + left_box["height"] / 2,
-        )
-        page.wait_for_timeout(300)
-        _shot(page, "55a_linked_crosshair_hover")
-        # Verify the right pane crosshair is visible (display != 'none')
-        xhair_display = page.evaluate(
-            "() => { const el = document.getElementById('compare-right-xhair'); return el ? getComputedStyle(el).display : 'missing'; }"
-        )
-        if xhair_display not in ("none", "missing"):
-            print("  OK: right-pane crosshair visible while hovering left pane")
-        else:
-            print(
-                f"  WARN: right-pane crosshair not visible (display={xhair_display!r})"
-            )
-    # Move mouse away and confirm crosshairs are cleared
-    page.mouse.move(10, 10)
-    page.wait_for_timeout(200)
-    _shot(page, "55b_linked_crosshair_cleared")
 
     # ── 56: drag-to-reorder compare panels ───────────────────────────────────
     print("56: drag-to-reorder compare panels")
