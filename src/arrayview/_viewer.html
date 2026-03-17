@@ -748,6 +748,7 @@
                 <div class="help-row"><span class="key">H</span><span class="desc">toggle pixel hover tooltip</span></div>
                 <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
                 <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
+                <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
                 <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
                 <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
@@ -3340,6 +3341,22 @@
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
             } else if (e.key === 's') {
                 saveScreenshot();
+            } else if (e.key === 'N') {
+                // Export current 2-D slice as .npy
+                if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; }
+                const idxStr = indices.join(',');
+                const params = new URLSearchParams({
+                    dim_x: dim_x, dim_y: dim_y,
+                    indices: idxStr,
+                    complex_mode: complexMode,
+                });
+                const a = document.createElement('a');
+                a.href = `/export_slice/${sid}?${params}`;
+                a.download = '';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showStatus('slice exported as .npy');
             } else if (e.key === 'g') {
                 saveGif();
             } else if (e.key === 'm') {

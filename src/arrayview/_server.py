@@ -840,6 +840,39 @@ def get_roi(
     }
 
 
+@app.get("/export_slice/{sid}")
+def export_slice(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    complex_mode: int = 0,
+):
+    """Return the current 2-D slice as a downloadable .npy file.
+
+    The slice is the raw floating-point data (before colormap/LUT), with the
+    complex mode applied (mag/phase/real/imag). Used by the N-key shortcut.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    buf = io.BytesIO()
+    np.save(buf, data)
+    buf.seek(0)
+    # Build a suggested filename: sessionname_dim_x_dim_y_idx.npy
+    name_stem = (session.name or "slice").replace(" ", "_").replace("/", "_")
+    idx_str = "_".join(str(v) for v in idx_tuple)
+    filename = f"{name_stem}_x{dim_x}_y{dim_y}_{idx_str}.npy"
+    return Response(
+        content=buf.read(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/info/{sid}")
 def get_info(sid: str):
     session = SESSIONS.get(sid)
