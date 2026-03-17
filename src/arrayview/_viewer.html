@@ -1758,12 +1758,44 @@
             const maxCount = Math.max(...counts, 1);
             const n = counts.length;
             const barW = cssW / n;
-            const barColor = isDark ? 'rgba(180,180,200,0.55)' : 'rgba(80,80,100,0.5)';
             const vlineColor = isDark ? 'rgba(255,255,100,0.8)' : 'rgba(180,100,0,0.8)';
-            // Draw bars
-            hCtx.fillStyle = barColor;
+            // Build a 1-row offscreen canvas with the active colormap gradient for bar coloring
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            let _cmapData = null;
+            const _cmapW = 256;
+            if (stops && stops.length >= 2) {
+                const offscreen = document.createElement('canvas');
+                offscreen.width = _cmapW; offscreen.height = 1;
+                const oCtx = offscreen.getContext('2d');
+                const grad = oCtx.createLinearGradient(0, 0, _cmapW, 0);
+                const ns = stops.length;
+                for (let i = 0; i < ns; i++) {
+                    const t = ns <= 1 ? 0 : i / (ns - 1);
+                    const rgb = stops[i];
+                    grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+                }
+                oCtx.fillStyle = grad;
+                oCtx.fillRect(0, 0, _cmapW, 1);
+                _cmapData = oCtx.getImageData(0, 0, _cmapW, 1).data;
+            }
+            // Draw bars colored by colormap at each bin's center value
+            const windowVmin = manualVmin ?? currentVmin;
+            const windowVmax = manualVmax ?? currentVmax;
+            const windowRange = windowVmax - windowVmin || 1;
             for (let i = 0; i < n; i++) {
                 const barH = Math.max(1, (counts[i] / maxCount) * (HIST_H - 4));
+                let fillStyle;
+                if (_cmapData) {
+                    // Bin center in data units
+                    const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / n;
+                    // Fraction within the current window [windowVmin, windowVmax], clamped
+                    const frac = Math.max(0, Math.min(1, (binCenter - windowVmin) / windowRange));
+                    const px = Math.min(_cmapW - 1, Math.round(frac * (_cmapW - 1))) * 4;
+                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},0.72)`;
+                } else {
+                    fillStyle = isDark ? 'rgba(180,180,200,0.55)' : 'rgba(80,80,100,0.5)';
+                }
+                hCtx.fillStyle = fillStyle;
                 hCtx.fillRect(i * barW, HIST_H - barH, barW - 0.5, barH);
             }
             // Draw vmin/vmax lines (current window)

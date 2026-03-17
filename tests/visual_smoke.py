@@ -50,8 +50,9 @@ DISPLAY
    m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
-   W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
-   W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag left clim line)
+    W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
+    W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag left clim line)
+    W (colormap)    bars colored by colormap  ✓ 60 (colormap-colored histogram bars)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
 
 INFO & EXPORT
@@ -1143,6 +1144,34 @@ def run_smoke(page, base, client, tmp):
         print("  OK: Colormap reason visible in info overlay")
     else:
         print("  WARN: Colormap reason not detected in info overlay DOM")
+
+    # ── 60: histogram bars colored by colormap ───────────────────────────────
+    print("60: histogram bars colored by active colormap")
+    _goto(page, base, sid2d, wait=600)
+    _focus(page)
+    # Enable histogram, verify bars are present
+    _press(page, "W", wait=600)
+    hist_visible = page.evaluate(
+        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
+    )
+    _shot(page, "60a_histogram_colormap_default")
+    # Cycle colormap and re-screenshot (should use new colormap colors)
+    _press(page, "c", wait=400)
+    _shot(page, "60b_histogram_colormap_after_c")
+    # Check that hist-canvas has non-zero dimensions (bars drawn)
+    hist_canvas_size = page.evaluate("""() => {
+        const c = document.getElementById('hist-canvas');
+        return c ? { w: c.width, h: c.height } : null;
+    }""")
+    _press(page, "W", wait=300)  # close histogram
+    if hist_visible and hist_canvas_size and hist_canvas_size["w"] > 0:
+        print(
+            f"  OK: colormap-colored histogram drawn ({hist_canvas_size['w']}x{hist_canvas_size['h']})"
+        )
+    else:
+        print(
+            f"  WARN: histogram or canvas issue (visible={hist_visible}, size={hist_canvas_size})"
+        )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
