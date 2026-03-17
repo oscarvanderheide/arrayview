@@ -148,6 +148,41 @@ class TestInfo:
         r = client.get("/info/doesnotexist000")
         assert r.status_code == 404
 
+    def test_recommended_colormap_and_reason_present(self, client, sid_2d):
+        """Enhanced info overlay: recommended_colormap and reason are returned."""
+        body = client.get(f"/info/{sid_2d}").json()
+        assert "recommended_colormap" in body
+        assert "recommended_colormap_reason" in body
+        assert isinstance(body["recommended_colormap"], str)
+        assert isinstance(body["recommended_colormap_reason"], str)
+
+    def test_signed_data_reason_mentions_rdbu(self, client, tmp_path):
+        """Signed float data (vmin < 0) → colormap reason mentions RdBu_r."""
+        arr = np.random.randn(20, 20).astype(np.float32)
+        np.save(tmp_path / "signed.npy", arr)
+        r = client.post("/load", json={"filepath": str(tmp_path / "signed.npy")})
+        sid = r.json()["sid"]
+        body = client.get(f"/info/{sid}").json()
+        assert "RdBu_r" in body["recommended_colormap_reason"]
+
+    def test_bool_data_reason_mentions_bool(self, client, tmp_path):
+        """Bool array → colormap reason mentions bool dtype."""
+        arr = np.array([[True, False], [False, True]])
+        np.save(tmp_path / "bool.npy", arr)
+        r = client.post("/load", json={"filepath": str(tmp_path / "bool.npy")})
+        sid = r.json()["sid"]
+        body = client.get(f"/info/{sid}").json()
+        assert "bool" in body["recommended_colormap_reason"]
+
+    def test_positive_data_reason_mentions_gray(self, client, tmp_path):
+        """Positive float data → colormap reason mentions gray."""
+        arr = np.abs(np.random.randn(20, 20).astype(np.float32)) + 1.0
+        np.save(tmp_path / "pos.npy", arr)
+        r = client.post("/load", json={"filepath": str(tmp_path / "pos.npy")})
+        sid = r.json()["sid"]
+        body = client.get(f"/info/{sid}").json()
+        assert "gray" in body["recommended_colormap_reason"]
+
 
 # ---------------------------------------------------------------------------
 # /slice

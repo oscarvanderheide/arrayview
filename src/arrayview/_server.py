@@ -975,6 +975,14 @@ def get_info(sid: str):
         info["size_mb"] = round(session.data.nbytes / 1024**2, 2)
     except AttributeError:
         info["size_mb"] = None
+    # Recommended colormap and the reason it was chosen
+    info["recommended_colormap"] = getattr(session, "recommended_colormap", None)
+    try:
+        info["recommended_colormap_reason"] = _session_mod._recommend_colormap_reason(
+            session.data, session.global_stats
+        )
+    except Exception:
+        info["recommended_colormap_reason"] = None
     if session.fft_axes is not None:
         info["fft_axes"] = list(session.fft_axes)
     return info

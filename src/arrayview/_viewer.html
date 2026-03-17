@@ -3844,6 +3844,7 @@
                             ['Elements', d.total_elements.toLocaleString()],
                             ['Size', d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'],
                         ];
+                        if (d.recommended_colormap_reason) rows.push(['Colormap', d.recommended_colormap_reason]);
                         if (d.filepath) rows.push(['File', d.filepath]);
                         if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
                         showDataInfo(rows);

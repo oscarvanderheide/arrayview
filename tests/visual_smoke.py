@@ -56,7 +56,7 @@ DISPLAY
 INFO & EXPORT
   hover           pixel value + cb marker   ✓ 15, 43 (tooltip follows cursor; H enables first)
   H               toggle pixel hover tip    ✓ 43
-  i               data info overlay         ✓ 27
+  i               data info overlay         ✓ 27, 59 (colormap reason row)
   N               export current slice .npy ✗ (triggers download dialog)
    s               save screenshot           ✗ (triggers download dialog)
    s (annotation)  slice info burned in PNG  ✓ 57 (canvas annotation pixel check)
@@ -1123,6 +1123,32 @@ def run_smoke(page, base, client, tmp):
         print(
             f"  WARN: rect ROI status not seen (on={status_on!r}, off={status_off!r})"
         )
+
+    # ── 59: enhanced info overlay (i key) shows Colormap row ─────────────────
+    print("59: i key info overlay shows Colormap reason row")
+    _goto(page, base, sid3d, wait=1200)
+    _focus(page)
+    _press(page, "i", wait=800)
+    colormap_row_visible = page.evaluate("""() => {
+        const rows = document.querySelectorAll('#info-overlay td, #info-panel td, .info-row td');
+        for (const td of rows) {
+            if (td.textContent && td.textContent.toLowerCase().includes('gray')) return true;
+            if (td.textContent && td.textContent.toLowerCase().includes('rdbu')) return true;
+        }
+        // Also try any visible element containing colormap reason keywords
+        const all = document.querySelectorAll('*');
+        for (const el of all) {
+            const t = el.textContent || '';
+            if ((t.includes('gray') || t.includes('RdBu')) && t.includes('(') && el.children.length === 0) return true;
+        }
+        return false;
+    }""")
+    _shot(page, "59_info_overlay_colormap_row")
+    _press(page, "Escape", wait=300)
+    if colormap_row_visible:
+        print("  OK: Colormap reason visible in info overlay")
+    else:
+        print("  WARN: Colormap reason not detected in info overlay DOM")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

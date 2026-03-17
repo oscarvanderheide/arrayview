@@ -268,6 +268,19 @@ def _recommend_colormap(data, global_stats: dict) -> str:
     return "gray"
 
 
+def _recommend_colormap_reason(data, global_stats: dict) -> str:
+    """Return a human-readable reason for the recommended colormap choice."""
+    dtype = np.dtype(getattr(data, "dtype", np.float32))
+    if dtype.kind == "b":
+        return "gray (bool dtype — binary data)"
+    if np.iscomplexobj(data):
+        return "gray (complex dtype — showing magnitude)"
+    vmin, _ = global_stats.get(1, global_stats.get(0, (0.0, 1.0)))
+    if dtype.kind in ("i", "f") and vmin < 0:
+        return "RdBu_r (signed data — vmin < 0)"
+    return "gray (default — unsigned/positive data)"
+
+
 SESSIONS = {}
 
 COLORMAPS = [
