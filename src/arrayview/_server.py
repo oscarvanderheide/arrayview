@@ -446,6 +446,42 @@ async def reload_session(sid: str):
     return {"version": session.data_version}
 
 
+@app.post("/update/{sid}")
+async def update_session(sid: str, request: Request):
+    """Replace session data with a new numpy array sent as raw .npy bytes.
+
+    The request body must be a valid .npy file (as produced by ``np.save``).
+    Clears caches and bumps ``data_version`` so polling clients re-render.
+    Used by ``ViewHandle.update(arr)`` in Python.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    raw = await request.body()
+    if not raw:
+        return Response(status_code=400, content="empty body")
+    try:
+        arr = np.load(io.BytesIO(raw))
+    except Exception as e:
+        return Response(status_code=400, content=f"failed to decode array: {e}")
+    session.data = arr
+    session.shape = arr.shape
+    session.spatial_shape = arr.shape
+    session.rgb_axis = None
+    session.fft_original_data = None
+    session.fft_axes = None
+    session.raw_cache.clear()
+    session.rgba_cache.clear()
+    session.mosaic_cache.clear()
+    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    await asyncio.to_thread(session.compute_global_stats)
+    session.recommended_colormap = _session_mod._recommend_colormap(
+        session.data, session.global_stats
+    )
+    session.data_version = getattr(session, "data_version", 0) + 1
+    return {"version": session.data_version}
+
+
 @app.get("/cache_info/{sid}")
 def cache_info(sid: str):
     """Phase 5: debug endpoint — returns per-session cache usage and budgets."""

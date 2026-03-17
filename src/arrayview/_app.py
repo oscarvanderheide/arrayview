@@ -166,6 +166,7 @@ from arrayview._launcher import (  # noqa: F401
     _server_ready_event,
     _serve_background,
     view,
+    ViewHandle,
     _is_script_mode,
     _stop_server_when_viewer_closes,
     _wait_for_viewer_close,

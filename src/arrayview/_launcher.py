@@ -465,6 +465,71 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 
 
+class ViewHandle(str):
+    """Returned by :func:`view`.  Behaves as a URL string for backward compatibility
+    and additionally exposes ``.update(arr)`` to push a new array into the viewer
+    without reopening a window.
+
+    Example::
+
+        v = view(arr)
+        # ... modify arr ...
+        v.update(arr2)        # viewer refreshes in-place
+    """
+
+    def __new__(cls, url: str, sid: str, port: int):
+        obj = super().__new__(cls, url)
+        obj._sid = sid
+        obj._port = port
+        return obj
+
+    @property
+    def sid(self) -> str:
+        """Session ID for the viewer."""
+        return self._sid
+
+    @property
+    def url(self) -> str:
+        """Viewer URL (same as ``str(handle)``)."""
+        return str(self)
+
+    @property
+    def port(self) -> int:
+        """Port the ArrayView server is listening on."""
+        return self._port
+
+    def update(self, arr) -> None:
+        """Push *arr* to the viewer, replacing the current data in-place.
+
+        The viewer refreshes automatically (no window reload needed).
+        Accepts any array-like that can be converted to numpy.
+        """
+        import io as _io
+
+        import numpy as _np
+        import urllib.request as _req
+
+        if not isinstance(arr, _np.ndarray):
+            arr = _np.array(arr)
+        buf = _io.BytesIO()
+        _np.save(buf, arr)
+        body = buf.getvalue()
+        request = _req.Request(
+            f"http://127.0.0.1:{self._port}/update/{self._sid}",
+            data=body,
+            method="POST",
+        )
+        try:
+            with _req.urlopen(request, timeout=10) as resp:
+                resp.read()
+        except Exception as e:
+            raise RuntimeError(
+                f"[ArrayView] Failed to update viewer: {e}\n"
+                f"  URL: http://127.0.0.1:{self._port}/update/{self._sid}\n"
+                f"  Is the ArrayView server still running?"
+            ) from e
+
+
 def view(
     data,
     name: str = None,
@@ -637,7 +702,7 @@ def view(
             # open via Simple Browser signal file.
             _open_browser(url_viewer, force_vscode=True, blocking=True)
             _print_viewer_location(url_viewer)
-            return url_viewer
+            return ViewHandle(url_viewer, sid, port)
         except Exception as e:
             _vprint(
                 f"[ArrayView] Failed to register with --serve server: {e}", flush=True
@@ -801,7 +866,7 @@ def view(
         _open_browser(url_viewer, force_vscode=_force_vscode)
 
     _print_viewer_location(url_viewer)
-    return url_viewer
+    return ViewHandle(url_viewer, session.sid, port)
 
 
 def _is_script_mode() -> bool:
@@ -1029,7 +1094,7 @@ def _view_subprocess(
         # blocking=True when force_vscode so signal file is written before
         # returning to Julia (daemon thread would be killed on process exit).
         _open_browser(url_viewer, force_vscode=force_vscode, blocking=force_vscode)
-    return url_viewer
+    return ViewHandle(url_viewer, sid, port)
 
 
 def _serve_empty(port: int) -> None:
