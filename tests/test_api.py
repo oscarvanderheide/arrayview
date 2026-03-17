@@ -521,6 +521,77 @@ class TestReload:
 
 
 # ---------------------------------------------------------------------------
+# /update — ViewHandle.update() live-update endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestUpdate:
+    def test_update_bumps_data_version(self, client, sid_2d):
+        """POST /update/{sid} with .npy bytes should bump data_version."""
+        buf = io.BytesIO()
+        np.save(buf, np.zeros((10, 10), dtype=np.float32))
+        r = client.post(f"/update/{sid_2d}", content=buf.getvalue())
+        assert r.status_code == 200
+        assert r.json()["version"] == 1
+
+    def test_update_changes_shape(self, client, sid_2d):
+        """After /update, metadata should reflect the new array shape."""
+        new_arr = np.ones((5, 7, 3), dtype=np.float32)
+        buf = io.BytesIO()
+        np.save(buf, new_arr)
+        client.post(f"/update/{sid_2d}", content=buf.getvalue())
+        meta = client.get(f"/metadata/{sid_2d}").json()
+        assert meta["shape"] == [5, 7, 3]
+
+    def test_update_unknown_sid_is_404(self, client):
+        r = client.post("/update/doesnotexist000", content=b"")
+        assert r.status_code == 404
+
+    def test_update_bad_bytes_is_400(self, client, sid_2d):
+        r = client.post(f"/update/{sid_2d}", content=b"not a numpy array")
+        assert r.status_code == 400
+
+    def test_update_clears_cache_and_recomputes_stats(self, client, sid_2d):
+        """After update, data_version reflects sequential updates."""
+        ones = np.ones((8, 8), dtype=np.float32)
+        buf = io.BytesIO()
+        np.save(buf, ones)
+        r1 = client.post(f"/update/{sid_2d}", content=buf.getvalue())
+        v1 = r1.json()["version"]
+
+        twos = np.full((8, 8), 2.0, dtype=np.float32)
+        buf2 = io.BytesIO()
+        np.save(buf2, twos)
+        r2 = client.post(f"/update/{sid_2d}", content=buf2.getvalue())
+        assert r2.json()["version"] == v1 + 1
+
+
+class TestViewHandle:
+    """Unit tests for the ViewHandle class (no server required)."""
+
+    def test_view_handle_is_string_subclass(self):
+        from arrayview._launcher import ViewHandle
+
+        h = ViewHandle("http://localhost:8123/?sid=abc", "abc", 8123)
+        assert isinstance(h, str)
+        assert str(h) == "http://localhost:8123/?sid=abc"
+
+    def test_view_handle_properties(self):
+        from arrayview._launcher import ViewHandle
+
+        h = ViewHandle("http://localhost:9000/?sid=xyz", "xyz", 9000)
+        assert h.sid == "xyz"
+        assert h.port == 9000
+        assert h.url == "http://localhost:9000/?sid=xyz"
+
+    def test_view_handle_equality_with_str(self):
+        from arrayview._launcher import ViewHandle
+
+        h = ViewHandle("http://localhost:8123/?sid=abc", "abc", 8123)
+        assert h == "http://localhost:8123/?sid=abc"
+
+
+# ---------------------------------------------------------------------------
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 

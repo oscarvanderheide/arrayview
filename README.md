@@ -86,6 +86,16 @@ view(
 )
 ```
 
+`view()` returns a `ViewHandle` — a string subclass that behaves as the viewer URL and additionally exposes a `.update(arr)` method for pushing new data without reopening a window:
+
+```python
+v = view(arr)          # opens viewer, v == "http://localhost:8123/?sid=..."
+v.update(arr2)         # viewer refreshes in-place with new array
+v.update(arr3)         # update again — keeps the same window/tab open
+print(v.sid)           # session ID
+print(v.port)          # server port
+```
+
 **`window` modes:**
 
 | Value | Behavior |
