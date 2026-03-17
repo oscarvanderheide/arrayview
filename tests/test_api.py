@@ -592,6 +592,43 @@ class TestViewHandle:
 
 
 # ---------------------------------------------------------------------------
+# /histogram — histogram strip endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestHistogram:
+    def test_histogram_returns_counts_and_edges(self, client, sid_2d):
+        r = client.get(
+            f"/histogram/{sid_2d}",
+            params={"dim_x": 1, "dim_y": 0, "indices": "0,0"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "counts" in body
+        assert "edges" in body
+        assert "vmin" in body
+        assert "vmax" in body
+        assert len(body["counts"]) >= 8
+        assert len(body["edges"]) == len(body["counts"]) + 1
+
+    def test_histogram_unknown_sid_is_404(self, client):
+        r = client.get(
+            "/histogram/doesnotexist000",
+            params={"dim_x": 1, "dim_y": 0, "indices": "0,0"},
+        )
+        assert r.status_code == 404
+
+    def test_histogram_bin_count_respected(self, client, sid_2d):
+        r = client.get(
+            f"/histogram/{sid_2d}",
+            params={"dim_x": 1, "dim_y": 0, "indices": "0,0", "bins": 32},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["counts"]) == 32
+
+
+# ---------------------------------------------------------------------------
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 

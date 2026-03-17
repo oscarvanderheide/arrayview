@@ -48,13 +48,15 @@ DISPLAY
    L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs); no-op in RGB mode (toast shown)
    M               mask threshold            ✓ 40f (MASK egg in #mode-eggs)
    m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
-  f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
-  T               cycle theme               ✓ 26
+   f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
+   T               cycle theme               ✓ 26
+   W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
 
 INFO & EXPORT
   hover           pixel value + cb marker   ✓ 15, 43 (tooltip follows cursor; H enables first)
   H               toggle pixel hover tip    ✓ 43
   i               data info overlay         ✓ 27
+  N               export current slice .npy ✗ (triggers download dialog)
   s               save screenshot           ✗ (triggers download dialog)
   g               save GIF                  ✗ (triggers download dialog)
   e               copy URL                  ✗ (clipboard, no visual change)
@@ -682,7 +684,7 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(200)
 
     # 45f: ArrowDown from search box moves focus to first list item
-    _press(page, "O", wait=800)  # open picker in Open mode
+    _press_open_shortcut(page, wait=800)  # open picker in Open mode
     search_input = page.locator("#uni-picker-search")
     search_input.click()
     page.wait_for_timeout(200)
@@ -946,6 +948,36 @@ def run_smoke(page, base, client, tmp):
         page.mouse.up()
         page.wait_for_timeout(300)
     _shot(page, "53_dim_track_drag")
+
+    # ── 54: histogram strip (W key) ──────────────────────────────────────────
+    print("54: W key toggles histogram strip below colorbar")
+    # Navigate away first then back, to ensure fresh JS state (same-URL _goto may reuse state)
+    _goto(page, base, sid2d, wait=600)
+    _goto(page, base, sid3d, wait=800)
+    _focus(page)
+    # Histogram should be hidden initially
+    hist_visible_before = page.evaluate(
+        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
+    )
+    _press(page, "W")
+    page.wait_for_timeout(600)
+    hist_visible_after = page.evaluate(
+        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
+    )
+    _shot(page, "54a_histogram_on")
+    # Toggle off
+    _press(page, "W")
+    page.wait_for_timeout(300)
+    hist_hidden = page.evaluate(
+        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display === 'none' : true; }"
+    )
+    _shot(page, "54b_histogram_off")
+    if not hist_visible_before and hist_visible_after and hist_hidden:
+        print("  OK: histogram toggles on/off with W key")
+    else:
+        print(
+            f"  WARN: histogram state unexpected (before={hist_visible_before}, after={hist_visible_after}, hidden={hist_hidden})"
+        )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

@@ -876,6 +876,50 @@ def get_roi(
     }
 
 
+@app.get("/histogram/{sid}")
+def get_histogram(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    complex_mode: int = 0,
+    bins: int = 128,
+):
+    """Return a histogram of the current 2-D slice as JSON.
+
+    Returns ``{"counts": [...], "edges": [...], "vmin": float, "vmax": float}``
+    where ``edges`` has length ``bins + 1``.  Finite values only.
+    Used by the W-key histogram strip in the viewer.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    flat = data.ravel()
+    finite = flat[np.isfinite(flat)]
+    if finite.size == 0:
+        return {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
+    vmin = float(finite.min())
+    vmax = float(finite.max())
+    if vmin == vmax:
+        return {
+            "counts": [int(finite.size)],
+            "edges": [vmin, vmax + 1e-9],
+            "vmin": vmin,
+            "vmax": vmax,
+        }
+    bins = max(8, min(bins, 512))
+    counts, edges = np.histogram(finite, bins=bins)
+    return {
+        "counts": counts.tolist(),
+        "edges": [float(e) for e in edges],
+        "vmin": vmin,
+        "vmax": vmax,
+    }
+
+
 @app.get("/export_slice/{sid}")
 def export_slice(
     sid: str,
