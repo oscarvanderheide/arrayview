@@ -53,6 +53,9 @@ let lastHandledRequestId = null;
 let lastHandledUrl = null;
 let lastHandledAt = 0;
 
+// Track open webview panels by URL so we can reveal instead of re-creating.
+const _openPanels = new Map(); // url -> vscode.WebviewPanel
+
 function log(message) {
     const line = `[${new Date().toISOString()}] ${message}\n`;
     try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
@@ -98,6 +101,13 @@ function cleanupStaleFiles() {
     } catch (_) {}
 }
 
+// Shared-fallback files: any window may claim these, so we must verify hookTag.
+const SHARED_FALLBACK_BASENAMES = new Set([
+    path.basename(SIGNAL_FILE),
+    'open-request-v0800.json',
+    'open-request-v0400.json',
+]);
+
 async function tryOpenSignalFile() {
     // If we are currently showing a URL, leave any pending signal files on disk.
     // The 1-second polling loop will pick them up once we are done.  This avoids
@@ -108,9 +118,8 @@ async function tryOpenSignalFile() {
     // then compat signal files for older/published arrayview Python versions.
     const candidates = [];
     if (TARGETED_SIGNAL_FILE) candidates.push(TARGETED_SIGNAL_FILE);
-    candidates.push(SIGNAL_FILE);
-    // Compat: older arrayview releases write to these filenames
     candidates.push(
+        SIGNAL_FILE,
         path.join(SIGNAL_DIR, 'open-request-v0800.json'),
         path.join(SIGNAL_DIR, 'open-request-v0400.json'),
     );
@@ -130,13 +139,34 @@ async function tryOpenSignalFile() {
             try { fs.unlinkSync(claimedFile); } catch (_) {}
             continue;
         }
-        try { fs.unlinkSync(claimedFile); } catch (_) {}
 
         let data;
         try { data = JSON.parse(raw); } catch (err) {
             log(`SIGNAL: invalid JSON: ${err.message}`);
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
             continue;
         }
+
+        // --- Multi-window guard ---
+        // If a shared fallback file carries a hookTag that doesn't match ours,
+        // it was written by Python for a different VS Code window.  Forward it
+        // to that window's targeted file so the correct extension instance picks
+        // it up, then skip processing here.
+        const isSharedFallback = SHARED_FALLBACK_BASENAMES.has(path.basename(signalFile));
+        if (isSharedFallback && data.hookTag && OWN_HOOK_TAG && data.hookTag !== OWN_HOOK_TAG) {
+            log(`SIGNAL: hookTag mismatch (ours=${OWN_HOOK_TAG} signal=${data.hookTag}), forwarding to correct window`);
+            const targetedFile = path.join(SIGNAL_DIR, `open-request-ipc-${data.hookTag}.json`);
+            const tmp = targetedFile + '.tmp';
+            try {
+                fs.writeFileSync(tmp, JSON.stringify(data));
+                fs.renameSync(tmp, targetedFile);
+                log(`SIGNAL: forwarded to ${path.basename(targetedFile)}`);
+            } catch (_) {}
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+
+        try { fs.unlinkSync(claimedFile); } catch (_) {}
 
         if (isExpiredSignal(data)) continue;
 
@@ -147,6 +177,67 @@ async function tryOpenSignalFile() {
         }
         return;  // processed one signal, done for this tick
     }
+}
+
+// Open or reveal a VS Code WebviewPanel for the given URL.
+// Using createWebviewPanel instead of simpleBrowser.show lets us set a custom
+// tab title (e.g. "ArrayView: sample.npy").  The webview just wraps the
+// arrayview server URL in a full-page iframe.
+function openInWebviewPanel(url, title) {
+    const label = title || 'ArrayView';
+
+    // Reveal existing panel for this URL if still open.
+    const existing = _openPanels.get(url);
+    if (existing) {
+        try {
+            existing.reveal(undefined, false);
+            log(`PANEL: revealed existing panel for ${url}`);
+            return;
+        } catch (_) {
+            _openPanels.delete(url);
+        }
+    }
+
+    const viewColumn = vscode.window.activeTextEditor
+        ? vscode.ViewColumn.Beside
+        : vscode.ViewColumn.Active;
+
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.preview',
+        label,
+        { viewColumn, preserveFocus: false },
+        {
+            enableScripts: true,
+            enableForms: true,
+            retainContextWhenHidden: true,
+        }
+    );
+
+    // Use a nonce so the CSP allows exactly our inline script and nothing else.
+    // The iframe src is set via JS (not as an HTML attribute) to avoid any
+    // attribute-encoding issues and to match VS Code's own Simple Browser pattern.
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const jsonUrl = JSON.stringify(url); // safe JS string literal embedding
+
+    panel.webview.html = `<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; frame-src *; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+</style>
+</head>
+<body>
+<iframe id="f" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads"></iframe>
+<script nonce="${nonce}">document.getElementById('f').src = ${jsonUrl};</script>
+</body>
+</html>`;
+
+    _openPanels.set(url, panel);
+    panel.onDidDispose(() => _openPanels.delete(url));
+    log(`PANEL: created "${label}" for ${url}`);
 }
 
 async function processSignalData(data) {
@@ -166,7 +257,7 @@ async function processSignalData(data) {
             return;
         }
 
-        log(`SIGNAL: requestId=${requestId || 'none'} url=${url}`);
+        log(`SIGNAL: requestId=${requestId || 'none'} url=${url} title=${data.title || '(none)'}`);
         lastHandledRequestId = requestId;
         lastHandledUrl = url;
         lastHandledAt = now;
@@ -199,14 +290,9 @@ async function processSignalData(data) {
             }
         }
 
-        log(`simpleBrowser.show(${openUrl})`);
-        // Race against a 12s timeout so isProcessingSignal is always released
-        // even if the command's promise never resolves (VS Code tunnel bug).
-        await Promise.race([
-            vscode.commands.executeCommand('simpleBrowser.show', openUrl),
-            new Promise(resolve => setTimeout(resolve, 12000)),
-        ]);
-        log('simpleBrowser.show done');
+        log(`openInWebviewPanel(${openUrl})`);
+        openInWebviewPanel(openUrl, data.title);
+        log('openInWebviewPanel done');
     } catch (error) {
         log(`ERROR: ${error.message}`);
     } finally {
