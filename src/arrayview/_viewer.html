@@ -411,6 +411,7 @@
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
             max-width: 100%; max-height: 100%;
         }
+        .cv-crosshair { position: absolute; top: 0; left: 0; pointer-events: none; display: none; }
         #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
         #compare-view-wrap.active #compare-cb-wrap { display: none; } /* hidden; per-pane colorbars are used instead */
         #compare-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
@@ -509,6 +510,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-left-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-left-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -530,6 +532,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-diff-xhair"></canvas>
                             </div>
                             <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
@@ -542,6 +545,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-right-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-right-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -563,6 +567,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-third-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-third-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-third-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -588,6 +593,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fourth-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-fourth-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-fourth-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -609,6 +615,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-fifth-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-fifth-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-fifth-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -630,6 +637,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-sixth-canvas" class="compare-canvas"></canvas>
+                                <canvas class="cv-crosshair" id="compare-sixth-xhair"></canvas>
                                 <div class="cv-pixel-info" id="compare-sixth-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
@@ -4223,6 +4231,8 @@
             compareWrap.classList.remove('registration-mode');
             compareFocusMode = false;
             compareWrap.classList.remove('focus-diff', 'focus-reg');
+            // Clear any lingering crosshair overlays
+            document.querySelectorAll('.cv-crosshair').forEach(xh => { xh.style.display = 'none'; });
             if (!multiViewActive && !qmriActive) {
                 document.getElementById('canvas-wrap').style.display = '';
             }
@@ -5481,6 +5491,73 @@
             cv.addEventListener('mouseleave', () => {
                 if (piEl) piEl.style.display = 'none';
             });
+        });
+
+        // ── Linked crosshair: sync cursor position across all compare panes ──
+        const _xhairCanvases = [
+            document.getElementById('compare-left-xhair'),
+            document.getElementById('compare-right-xhair'),
+            document.getElementById('compare-third-xhair'),
+            document.getElementById('compare-fourth-xhair'),
+            document.getElementById('compare-fifth-xhair'),
+            document.getElementById('compare-sixth-xhair'),
+            document.getElementById('compare-diff-xhair'),
+        ].filter(Boolean);
+
+        function _drawCrossHair(xhairCv, imgCv, fx, fy) {
+            // Size the overlay to match the image canvas CSS size
+            const w = imgCv.offsetWidth || imgCv.width;
+            const h = imgCv.offsetHeight || imgCv.height;
+            if (!w || !h) return;
+            const dpr = window.devicePixelRatio || 1;
+            xhairCv.width  = Math.round(w * dpr);
+            xhairCv.height = Math.round(h * dpr);
+            xhairCv.style.width  = w + 'px';
+            xhairCv.style.height = h + 'px';
+            xhairCv.style.display = 'block';
+            const ctx = xhairCv.getContext('2d');
+            ctx.clearRect(0, 0, xhairCv.width, xhairCv.height);
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            const cx = Math.round(fx * w);
+            const cy = Math.round(fy * h);
+            ctx.strokeStyle = 'rgba(255,255,80,0.7)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath(); ctx.moveTo(cx + 0.5, 0); ctx.lineTo(cx + 0.5, h); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, cy + 0.5); ctx.lineTo(w, cy + 0.5); ctx.stroke();
+            ctx.restore();
+        }
+
+        function _clearAllCrossHairs() {
+            _xhairCanvases.forEach(xh => { xh.style.display = 'none'; });
+        }
+
+        // Attach linked crosshair listeners to all compareCanvases + diffCanvas
+        const _allCvForXhair = [...compareCanvases, document.getElementById('compare-diff-canvas')].filter(Boolean);
+        _allCvForXhair.forEach((cv, _idx) => {
+            cv.addEventListener('mousemove', (e) => {
+                if (!compareActive) return;
+                const rect = cv.getBoundingClientRect();
+                if (!rect.width || !rect.height) return;
+                const fx = (e.clientX - rect.left) / rect.width;
+                const fy = (e.clientY - rect.top)  / rect.height;
+                // Draw crosshair on all other visible compare canvases
+                _allCvForXhair.forEach((other) => {
+                    if (other === cv) return; // skip the source pane
+                    const xhairId = other.id.replace('-canvas', '-xhair');
+                    const xhairCanvas = document.getElementById(xhairId);
+                    if (!xhairCanvas) return;
+                    const otherRect = other.getBoundingClientRect();
+                    if (!otherRect.width || !otherRect.height) return;
+                    _drawCrossHair(xhairCanvas, other, fx, fy);
+                });
+                // Hide crosshair on source pane
+                const srcXhairId = cv.id.replace('-canvas', '-xhair');
+                const srcXhair = document.getElementById(srcXhairId);
+                if (srcXhair) srcXhair.style.display = 'none';
+            });
+            cv.addEventListener('mouseleave', _clearAllCrossHairs);
         });
 
         function closeSocket() {
