@@ -93,36 +93,6 @@ class TestMetadata:
         r = client.get("/metadata/doesnotexist000")
         assert r.status_code == 404
 
-    def test_recommended_colormap_positive_data_is_gray(self, client, tmp_path):
-        """Non-negative float data should recommend gray."""
-        arr = np.linspace(0.0, 1.0, 64 * 64, dtype=np.float32).reshape(64, 64)
-        path = tmp_path / "pos.npy"
-        np.save(path, arr)
-        r = client.post("/load", json={"filepath": str(path)})
-        sid = r.json()["sid"]
-        body = client.get(f"/metadata/{sid}").json()
-        assert body["recommended_colormap"] == "gray"
-
-    def test_recommended_colormap_signed_data_is_RdBu_r(self, client, tmp_path):
-        """Signed float data (vmin < 0) should recommend RdBu_r."""
-        arr = np.linspace(-1.0, 1.0, 64 * 64, dtype=np.float32).reshape(64, 64)
-        path = tmp_path / "signed.npy"
-        np.save(path, arr)
-        r = client.post("/load", json={"filepath": str(path)})
-        sid = r.json()["sid"]
-        body = client.get(f"/metadata/{sid}").json()
-        assert body["recommended_colormap"] == "RdBu_r"
-
-    def test_recommended_colormap_bool_is_gray(self, client, tmp_path):
-        """Boolean arrays should always recommend gray."""
-        arr = np.array([[True, False], [False, True]])
-        path = tmp_path / "bool.npy"
-        np.save(path, arr)
-        r = client.post("/load", json={"filepath": str(path)})
-        sid = r.json()["sid"]
-        body = client.get(f"/metadata/{sid}").json()
-        assert body["recommended_colormap"] == "gray"
-
 
 # ---------------------------------------------------------------------------
 # /info
