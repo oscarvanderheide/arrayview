@@ -51,6 +51,7 @@ DISPLAY
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
    W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
+   A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
 
 INFO & EXPORT
   hover           pixel value + cb marker   ✓ 15, 43 (tooltip follows cursor; H enables first)
@@ -1098,6 +1099,29 @@ def run_smoke(page, base, client, tmp):
     else:
         print(
             "  WARN: annotation box pixels not detected — check _annotateCanvas logic"
+        )
+
+    # ── 58: rectangle ROI mode (A key) ────────────────────────────────────────
+    print("58: A key toggles rectangle ROI mode")
+    _goto(page, base, sid3d, wait=1200)
+    _focus(page)
+    # Press A to enable rect ROI mode — check status bar message
+    _press(page, "A", wait=400)
+    status_on = page.evaluate(
+        "() => (document.getElementById('status') || {}).textContent || ''"
+    )
+    _shot(page, "58a_rect_roi_mode_on")
+    # Press A again to disable
+    _press(page, "A", wait=400)
+    status_off = page.evaluate(
+        "() => (document.getElementById('status') || {}).textContent || ''"
+    )
+    _shot(page, "58b_rect_roi_mode_off")
+    if "rect ROI" in status_on or "rect ROI" in status_off:
+        print(f"  OK: rect ROI status shown (on={status_on!r}, off={status_off!r})")
+    else:
+        print(
+            f"  WARN: rect ROI status not seen (on={status_on!r}, off={status_off!r})"
         )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
