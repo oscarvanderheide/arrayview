@@ -3108,7 +3108,49 @@
         }
 
         function saveScreenshot() {
+            // Build annotation lines: name + slice index info
+            function _buildAnnotation() {
+                const name = document.getElementById('array-name-text')?.textContent?.trim() || sid.slice(0, 8);
+                const shapeStr = shape.length ? shape.join('×') : '';
+                const idxStr = indices.length ? `[${indices.map((v, i) => {
+                    if (shape.length > 2) {
+                        if (i === dim_x) return ':';
+                        if (i === dim_y) return ':';
+                        return String(v);
+                    }
+                    return String(v);
+                }).join(', ')}]` : '';
+                const lines = [name];
+                if (shapeStr) lines.push(`shape: ${shapeStr}`);
+                if (idxStr) lines.push(`idx: ${idxStr}`);
+                return lines;
+            }
+            function _annotateCanvas(src, lines) {
+                if (!lines || !lines.length) return src;
+                const dst = document.createElement('canvas');
+                dst.width = src.width; dst.height = src.height;
+                const ctx = dst.getContext('2d');
+                ctx.drawImage(src, 0, 0);
+                const dpr = window.devicePixelRatio || 1;
+                const fontSize = Math.max(10, Math.round(12 * dpr));
+                ctx.font = `${fontSize}px monospace`;
+                const lineH = fontSize + 2;
+                const pad = Math.round(4 * dpr);
+                const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
+                const boxW = maxW + pad * 2;
+                const boxH = lineH * lines.length + pad * 2;
+                const bx = pad;
+                const by = src.height - boxH - pad;
+                ctx.fillStyle = 'rgba(0,0,0,0.55)';
+                ctx.fillRect(bx, by, boxW, boxH);
+                ctx.fillStyle = '#ffffff';
+                lines.forEach((line, i) => {
+                    ctx.fillText(line, bx + pad, by + pad + lineH * i + fontSize - 1);
+                });
+                return dst;
+            }
             let dataUrl, filename;
+            const lines = _buildAnnotation();
             if (multiViewActive && mvViews.length) {
                 // Composite all multiview canvases side by side
                 const gap = 12;
@@ -3124,10 +3166,10 @@
                     offCtx.drawImage(c, x, Math.round((totalH - c.height) / 2));
                     x += c.width + gap;
                 });
-                dataUrl = off.toDataURL('image/png');
+                dataUrl = _annotateCanvas(off, lines).toDataURL('image/png');
                 filename = `multiview_${indices.join('-')}.png`;
             } else {
-                dataUrl = canvas.toDataURL('image/png');
+                dataUrl = _annotateCanvas(canvas, lines).toDataURL('image/png');
                 filename = `slice_${indices.join('-')}.png`;
             }
             const link = document.createElement('a');
