@@ -1,4 +1,5 @@
 """Layer 1: HTTP API tests (no browser required, runs in seconds)."""
+
 import io
 
 import httpx
@@ -11,6 +12,7 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+
 
 class TestHealth:
     def test_ping(self, client):
@@ -46,10 +48,13 @@ class TestHealth:
 # /load
 # ---------------------------------------------------------------------------
 
+
 class TestLoad:
     def test_load_2d_returns_sid_and_name(self, client, arr_2d, tmp_path):
         np.save(tmp_path / "a.npy", arr_2d)
-        r = client.post("/load", json={"filepath": str(tmp_path / "a.npy"), "name": "myarray"})
+        r = client.post(
+            "/load", json={"filepath": str(tmp_path / "a.npy"), "name": "myarray"}
+        )
         assert r.status_code == 200
         body = r.json()
         assert "sid" in body
@@ -70,6 +75,7 @@ class TestLoad:
 # /metadata
 # ---------------------------------------------------------------------------
 
+
 class TestMetadata:
     def test_2d_shape_and_not_complex(self, client, sid_2d):
         r = client.get(f"/metadata/{sid_2d}")
@@ -87,10 +93,41 @@ class TestMetadata:
         r = client.get("/metadata/doesnotexist000")
         assert r.status_code == 404
 
+    def test_recommended_colormap_positive_data_is_gray(self, client, tmp_path):
+        """Non-negative float data should recommend gray."""
+        arr = np.linspace(0.0, 1.0, 64 * 64, dtype=np.float32).reshape(64, 64)
+        path = tmp_path / "pos.npy"
+        np.save(path, arr)
+        r = client.post("/load", json={"filepath": str(path)})
+        sid = r.json()["sid"]
+        body = client.get(f"/metadata/{sid}").json()
+        assert body["recommended_colormap"] == "gray"
+
+    def test_recommended_colormap_signed_data_is_RdBu_r(self, client, tmp_path):
+        """Signed float data (vmin < 0) should recommend RdBu_r."""
+        arr = np.linspace(-1.0, 1.0, 64 * 64, dtype=np.float32).reshape(64, 64)
+        path = tmp_path / "signed.npy"
+        np.save(path, arr)
+        r = client.post("/load", json={"filepath": str(path)})
+        sid = r.json()["sid"]
+        body = client.get(f"/metadata/{sid}").json()
+        assert body["recommended_colormap"] == "RdBu_r"
+
+    def test_recommended_colormap_bool_is_gray(self, client, tmp_path):
+        """Boolean arrays should always recommend gray."""
+        arr = np.array([[True, False], [False, True]])
+        path = tmp_path / "bool.npy"
+        np.save(path, arr)
+        r = client.post("/load", json={"filepath": str(path)})
+        sid = r.json()["sid"]
+        body = client.get(f"/metadata/{sid}").json()
+        assert body["recommended_colormap"] == "gray"
+
 
 # ---------------------------------------------------------------------------
 # /info
 # ---------------------------------------------------------------------------
+
 
 class TestInfo:
     def test_2d_fields(self, client, sid_2d):
@@ -116,12 +153,20 @@ class TestInfo:
 # /slice
 # ---------------------------------------------------------------------------
 
+
 class TestSlice:
     def test_2d_returns_jpeg_with_correct_dimensions(self, client, sid_2d):
-        r = client.get(f"/slice/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        r = client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         assert r.status_code == 200
         assert "image/jpeg" in r.headers["content-type"]
         img = Image.open(io.BytesIO(r.content))
@@ -131,7 +176,9 @@ class TestSlice:
     def test_gray_vs_viridis_differ(self, client, sid_2d):
         base = {"dim_x": 1, "dim_y": 0, "indices": "0,0", "dr": 0, "slice_dim": 0}
         r_gray = client.get(f"/slice/{sid_2d}", params={**base, "colormap": "gray"})
-        r_viridis = client.get(f"/slice/{sid_2d}", params={**base, "colormap": "viridis"})
+        r_viridis = client.get(
+            f"/slice/{sid_2d}", params={**base, "colormap": "viridis"}
+        )
         assert r_gray.content != r_viridis.content
 
     def test_constant_array_nearly_uniform_colors(self, client, tmp_path, server_url):
@@ -139,31 +186,54 @@ class TestSlice:
         arr = np.ones((40, 40), dtype=np.float32)
         np.save(tmp_path / "flat.npy", arr)
         with httpx.Client(base_url=server_url, timeout=15) as c:
-            sid = c.post("/load", json={"filepath": str(tmp_path / "flat.npy")}).json()["sid"]
-            r = c.get(f"/slice/{sid}", params={
-                "dim_x": 1, "dim_y": 0, "indices": "0,0",
-                "colormap": "gray", "dr": 0, "slice_dim": 0,
-            })
+            sid = c.post("/load", json={"filepath": str(tmp_path / "flat.npy")}).json()[
+                "sid"
+            ]
+            r = c.get(
+                f"/slice/{sid}",
+                params={
+                    "dim_x": 1,
+                    "dim_y": 0,
+                    "indices": "0,0",
+                    "colormap": "gray",
+                    "dr": 0,
+                    "slice_dim": 0,
+                },
+            )
         img = Image.open(io.BytesIO(r.content)).convert("RGB")
         pixels = np.array(img).reshape(-1, 3)
         # Allow small JPEG compression variance
         assert int((pixels.max(axis=0) - pixels.min(axis=0)).max()) < 5
 
     def test_3d_slice_returns_jpeg(self, client, sid_3d):
-        r = client.get(f"/slice/{sid_3d}", params={
-            "dim_x": 2, "dim_y": 1, "indices": "0,0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        r = client.get(
+            f"/slice/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         assert r.status_code == 200
         assert "image/jpeg" in r.headers["content-type"]
         img = Image.open(io.BytesIO(r.content))
         assert img.size == (64, 64)
 
     def test_unknown_sid_is_404(self, client):
-        r = client.get("/slice/doesnotexist000", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        r = client.get(
+            "/slice/doesnotexist000",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         assert r.status_code == 404
 
     def test_overlay_sid_changes_http_slice(self, client, tmp_path):
@@ -173,7 +243,9 @@ class TestSlice:
         np.save(tmp_path / "base.npy", base)
         np.save(tmp_path / "mask.npy", mask)
 
-        sid = client.post("/load", json={"filepath": str(tmp_path / "base.npy")}).json()["sid"]
+        sid = client.post(
+            "/load", json={"filepath": str(tmp_path / "base.npy")}
+        ).json()["sid"]
         overlay_sid = client.post(
             "/load", json={"filepath": str(tmp_path / "mask.npy"), "name": "overlay"}
         ).json()["sid"]
@@ -187,7 +259,9 @@ class TestSlice:
             "slice_dim": 0,
         }
         plain = client.get(f"/slice/{sid}", params=params)
-        over = client.get(f"/slice/{sid}", params={**params, "overlay_sid": overlay_sid})
+        over = client.get(
+            f"/slice/{sid}", params={**params, "overlay_sid": overlay_sid}
+        )
         assert plain.status_code == 200
         assert over.status_code == 200
         assert plain.content != over.content
@@ -209,9 +283,12 @@ class TestOverlayWebSocket:
         np.save(tmp_path / "mask_ws.npy", mask)
 
         with TestClient(app) as c:
-            sid = c.post("/load", json={"filepath": str(tmp_path / "base_ws.npy")}).json()["sid"]
+            sid = c.post(
+                "/load", json={"filepath": str(tmp_path / "base_ws.npy")}
+            ).json()["sid"]
             overlay_sid = c.post(
-                "/load", json={"filepath": str(tmp_path / "mask_ws.npy"), "name": "overlay"}
+                "/load",
+                json={"filepath": str(tmp_path / "mask_ws.npy"), "name": "overlay"},
             ).json()["sid"]
             with c.websocket_connect(f"/ws/{sid}") as ws:
                 ws.send_json(
@@ -241,12 +318,20 @@ class TestOverlayWebSocket:
 # /grid
 # ---------------------------------------------------------------------------
 
+
 class TestGrid:
     def test_3d_returns_png(self, client, sid_3d):
-        r = client.get(f"/grid/{sid_3d}", params={
-            "dim_x": 2, "dim_y": 1, "indices": "0,0,0",
-            "slice_dim": 0, "colormap": "gray", "dr": 0,
-        })
+        r = client.get(
+            f"/grid/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "slice_dim": 0,
+                "colormap": "gray",
+                "dr": 0,
+            },
+        )
         assert r.status_code == 200
         assert "image/png" in r.headers["content-type"]
         img = Image.open(io.BytesIO(r.content))
@@ -254,10 +339,17 @@ class TestGrid:
         assert img.size[0] > 64 and img.size[1] > 64
 
     def test_unknown_sid_is_404(self, client):
-        r = client.get("/grid/doesnotexist000", params={
-            "dim_x": 2, "dim_y": 1, "indices": "0,0,0",
-            "slice_dim": 0, "colormap": "gray", "dr": 0,
-        })
+        r = client.get(
+            "/grid/doesnotexist000",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "slice_dim": 0,
+                "colormap": "gray",
+                "dr": 0,
+            },
+        )
         assert r.status_code == 404
 
 
@@ -265,12 +357,20 @@ class TestGrid:
 # /gif
 # ---------------------------------------------------------------------------
 
+
 class TestGif:
     def test_3d_returns_gif(self, client, sid_3d):
-        r = client.get(f"/gif/{sid_3d}", params={
-            "dim_x": 2, "dim_y": 1, "indices": "0,0,0",
-            "slice_dim": 0, "colormap": "gray", "dr": 0,
-        })
+        r = client.get(
+            f"/gif/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "slice_dim": 0,
+                "colormap": "gray",
+                "dr": 0,
+            },
+        )
         assert r.status_code == 200
         assert "image/gif" in r.headers["content-type"]
         img = Image.open(io.BytesIO(r.content))
@@ -281,12 +381,20 @@ class TestGif:
 # /pixel
 # ---------------------------------------------------------------------------
 
+
 class TestPixel:
     def test_returns_numeric_value(self, client, sid_2d):
-        r = client.get(f"/pixel/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "px": 40, "py": 50, "complex_mode": 0,
-        })
+        r = client.get(
+            f"/pixel/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 40,
+                "py": 50,
+                "complex_mode": 0,
+            },
+        )
         assert r.status_code == 200
         body = r.json()
         assert "value" in body
@@ -294,33 +402,54 @@ class TestPixel:
 
     def test_first_pixel_near_zero(self, client, sid_2d):
         """linspace(0,1, 100×80)[0,0] = 0.0."""
-        r = client.get(f"/pixel/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "px": 0, "py": 0, "complex_mode": 0,
-        })
+        r = client.get(
+            f"/pixel/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 0,
+                "py": 0,
+                "complex_mode": 0,
+            },
+        )
         assert r.status_code == 200
         assert abs(r.json()["value"]) < 0.01
 
     def test_last_pixel_near_one(self, client, sid_2d):
         """linspace(0,1, 100×80)[-1,-1] ≈ 1.0."""
-        r = client.get(f"/pixel/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "px": 79, "py": 99, "complex_mode": 0,
-        })
+        r = client.get(
+            f"/pixel/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 79,
+                "py": 99,
+                "complex_mode": 0,
+            },
+        )
         assert r.status_code == 200
         assert abs(r.json()["value"] - 1.0) < 0.01
 
     def test_unknown_sid_is_404(self, client):
-        r = client.get("/pixel/doesnotexist000", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "px": 0, "py": 0,
-        })
+        r = client.get(
+            "/pixel/doesnotexist000",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 0,
+                "py": 0,
+            },
+        )
         assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------
 # /clearcache
 # ---------------------------------------------------------------------------
+
 
 class TestClearCache:
     def test_clear_returns_ok(self, client, sid_2d):
@@ -330,10 +459,17 @@ class TestClearCache:
 
     def test_slice_still_works_after_clear(self, client, sid_2d):
         client.get(f"/clearcache/{sid_2d}")
-        r = client.get(f"/slice/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        r = client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         assert r.status_code == 200
         assert "image/jpeg" in r.headers["content-type"]
 
@@ -342,25 +478,48 @@ class TestClearCache:
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 
+
 class TestROI:
     def test_roi_returns_stats(self, client, sid_2d):
         # arr_2d is linspace(0,1) shaped 100×80; request a region we know
-        r = client.get(f"/roi/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "x0": 0, "y0": 0, "x1": 10, "y1": 10,
-            "complex_mode": 0,
-        })
+        r = client.get(
+            f"/roi/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "x0": 0,
+                "y0": 0,
+                "x1": 10,
+                "y1": 10,
+                "complex_mode": 0,
+            },
+        )
         assert r.status_code == 200
         body = r.json()
-        assert "min" in body and "max" in body and "mean" in body and "std" in body and "n" in body
+        assert (
+            "min" in body
+            and "max" in body
+            and "mean" in body
+            and "std" in body
+            and "n" in body
+        )
         assert body["n"] == 121  # 11×11 pixels
         assert body["min"] <= body["mean"] <= body["max"]
 
     def test_roi_unknown_sid_is_404(self, client):
-        r = client.get("/roi/doesnotexist000", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "x0": 0, "y0": 0, "x1": 5, "y1": 5,
-        })
+        r = client.get(
+            "/roi/doesnotexist000",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "x0": 0,
+                "y0": 0,
+                "x1": 5,
+                "y1": 5,
+            },
+        )
         assert r.status_code == 404
 
 
@@ -386,11 +545,19 @@ class TestMemoryAwareCache:
     def test_byte_counters_reset_on_clearcache(self, client, sid_2d):
         """After clearcache, byte counters should be 0."""
         from arrayview._app import SESSIONS
+
         # Warm the cache by requesting a slice
-        client.get(f"/slice/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         client.get(f"/clearcache/{sid_2d}")
         session = SESSIONS.get(sid_2d)
         if session:
@@ -401,11 +568,19 @@ class TestMemoryAwareCache:
     def test_byte_counters_positive_after_slice(self, client, sid_2d):
         """After rendering a slice, raw byte counter should be > 0."""
         from arrayview._app import SESSIONS
+
         client.get(f"/clearcache/{sid_2d}")
-        client.get(f"/slice/{sid_2d}", params={
-            "dim_x": 1, "dim_y": 0, "indices": "0,0",
-            "colormap": "gray", "dr": 0, "slice_dim": 0,
-        })
+        client.get(
+            f"/slice/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "slice_dim": 0,
+            },
+        )
         session = SESSIONS.get(sid_2d)
         if session:
             assert session._raw_bytes > 0
@@ -419,6 +594,7 @@ class TestPortAndTunnelHelpers:
         """If an arrayview server is live, _find_server_port returns it as already_running."""
         import re
         from arrayview._app import _find_server_port
+
         port = int(re.search(r":(\d+)", server_url).group(1))
         found, alive = _find_server_port(port)
         assert alive is True
@@ -428,6 +604,7 @@ class TestPortAndTunnelHelpers:
         """When preferred port is busy (not arrayview), _find_server_port scans ahead."""
         import socket as _socket
         from arrayview._app import _find_server_port
+
         # Bind and listen to make the port genuinely appear in use.
         # Use a large backlog so _server_alive's probe doesn't consume the only slot.
         with _socket.socket() as s:
@@ -441,17 +618,25 @@ class TestPortAndTunnelHelpers:
 
     def test_in_vscode_tunnel_false_in_clean_env(self, monkeypatch):
         from arrayview._app import _in_vscode_tunnel
-        for k in ("VSCODE_INJECTION", "VSCODE_AGENT_FOLDER", "SSH_CLIENT", "SSH_CONNECTION"):
+
+        for k in (
+            "VSCODE_INJECTION",
+            "VSCODE_AGENT_FOLDER",
+            "SSH_CLIENT",
+            "SSH_CONNECTION",
+        ):
             monkeypatch.delenv(k, raising=False)
         assert _in_vscode_tunnel() is False
 
     def test_in_vscode_tunnel_true_with_ssh(self, monkeypatch):
         from arrayview._app import _in_vscode_tunnel
+
         monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
         assert _in_vscode_tunnel() is True
 
     def test_can_native_window_false_in_tunnel(self, monkeypatch):
         from arrayview._app import _can_native_window
+
         monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
         assert _can_native_window() is False
 
@@ -460,16 +645,19 @@ class TestPortAndTunnelHelpers:
 # Overlay heatmap: _overlay_is_label_map
 # ---------------------------------------------------------------------------
 
+
 class TestOverlayIsLabelMap:
     """_overlay_is_label_map returns True for small integer label maps only."""
 
     def _register(self, arr, tmp_path, client, name):
         from tests.conftest import register_array
+
         return register_array(client, arr, tmp_path, name)
 
     def test_float_array_is_not_label_map(self, client, tmp_path):
         from arrayview._render import _overlay_is_label_map
         from arrayview._app import SESSIONS, Session
+
         arr = np.random.default_rng(0).random((32, 32)).astype(np.float32)
         s = Session(arr, name="ov_float")
         SESSIONS[s.sid] = s
@@ -478,6 +666,7 @@ class TestOverlayIsLabelMap:
     def test_integer_few_labels_is_label_map(self, client, tmp_path):
         from arrayview._render import _overlay_is_label_map
         from arrayview._app import SESSIONS, Session
+
         arr = np.zeros((32, 32), dtype=np.int32)
         arr[5:15, 5:15] = 1
         arr[15:25, 15:25] = 2
@@ -488,6 +677,7 @@ class TestOverlayIsLabelMap:
     def test_integer_many_unique_values_is_heatmap(self, client, tmp_path):
         from arrayview._render import _overlay_is_label_map
         from arrayview._app import SESSIONS, Session
+
         arr = np.arange(32 * 32, dtype=np.int32).reshape(32, 32)  # 1024 unique values
         s = Session(arr, name="ov_many")
         SESSIONS[s.sid] = s
@@ -497,6 +687,7 @@ class TestOverlayIsLabelMap:
     def test_integer_exactly_16_labels_is_label_map(self, client, tmp_path):
         from arrayview._render import _overlay_is_label_map
         from arrayview._app import SESSIONS, Session
+
         arr = np.zeros((32, 32), dtype=np.int32)
         for i in range(16):
             arr[i * 2, :] = i + 1  # labels 1..16
@@ -509,6 +700,7 @@ class TestOverlayIsLabelMap:
 # ---------------------------------------------------------------------------
 # Drag-and-drop upload: /load-upload
 # ---------------------------------------------------------------------------
+
 
 class TestLoadUpload:
     def test_upload_npy_creates_session(self, client, tmp_path):
@@ -544,10 +736,12 @@ class TestLoadUpload:
 # Multiple overlays: /slice with overlay_sid and overlay_colors
 # ---------------------------------------------------------------------------
 
+
 class TestMultipleOverlays:
     def test_single_overlay_with_color(self, client, sid_2d):
         """A single binary mask overlay with explicit hex color renders without error."""
         from arrayview._app import SESSIONS, Session
+
         mask = np.zeros((64, 64), dtype=np.uint8)
         mask[10:30, 10:30] = 1
         ov_session = Session(mask, name="mask1")
@@ -556,7 +750,9 @@ class TestMultipleOverlays:
         r = client.get(
             f"/slice/{sid_2d}",
             params={
-                "dim_x": 1, "dim_y": 0, "indices": "0,0",
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
                 "overlay_sid": ov_session.sid,
                 "overlay_colors": "ff4444",
             },
@@ -568,6 +764,7 @@ class TestMultipleOverlays:
     def test_two_overlays_comma_separated(self, client, sid_2d):
         """Two overlays passed as comma-separated sids are composited without error."""
         from arrayview._app import SESSIONS, Session
+
         mask1 = np.zeros((64, 64), dtype=np.uint8)
         mask1[5:20, 5:20] = 1
         mask2 = np.zeros((64, 64), dtype=np.uint8)
@@ -580,7 +777,9 @@ class TestMultipleOverlays:
         r = client.get(
             f"/slice/{sid_2d}",
             params={
-                "dim_x": 1, "dim_y": 0, "indices": "0,0",
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
                 "overlay_sid": f"{ov1.sid},{ov2.sid}",
                 "overlay_colors": "ff4444,44cc44",
             },
@@ -593,6 +792,7 @@ class TestMultipleOverlays:
         """_composite_overlays helper iterates all sids and returns modified rgba."""
         from arrayview._server import _composite_overlays
         from arrayview._app import SESSIONS, Session
+
         mask = np.zeros((64, 64), dtype=np.uint8)
         mask[20:40, 20:40] = 1
         ov = Session(mask, name="ov")
@@ -600,9 +800,15 @@ class TestMultipleOverlays:
 
         rgba = np.zeros((64, 64, 4), dtype=np.uint8)
         result = _composite_overlays(
-            rgba, ov.sid, "ff0000", 0.5,
-            dim_x=1, dim_y=0, idx_tuple=(0, 0), shape_hw=(64, 64),
+            rgba,
+            ov.sid,
+            "ff0000",
+            0.5,
+            dim_x=1,
+            dim_y=0,
+            idx_tuple=(0, 0),
+            shape_hw=(64, 64),
         )
         # The mask region should have been tinted red
         assert result[25, 25, 0] > 0  # red channel non-zero in masked area
-        assert result[0, 0, 0] == 0   # outside mask unchanged
+        assert result[0, 0, 0] == 0  # outside mask unchanged
