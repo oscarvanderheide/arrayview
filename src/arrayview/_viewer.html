@@ -3611,6 +3611,7 @@
             } else if (e.key === 'H') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) hideAllPixelInfo();
+                else canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                 showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                 saveState();
             } else if (e.key === 'Z') {
