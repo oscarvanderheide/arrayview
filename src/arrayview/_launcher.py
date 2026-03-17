@@ -700,7 +700,9 @@ def view(
             # On a tunnel, inline IFrames don't work (localhost URL in notebook
             # webview can't route through VS Code port forwarding).  Always
             # open via Simple Browser signal file.
-            _open_browser(url_viewer, force_vscode=True, blocking=True)
+            _open_browser(
+                url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}"
+            )
             _print_viewer_location(url_viewer)
             return ViewHandle(url_viewer, sid, port)
         except Exception as e:
@@ -851,7 +853,9 @@ def view(
                     url_shell, win_w, win_h
                 )
         except Exception:
-            _open_browser(url_viewer, force_vscode=_force_vscode)
+            _open_browser(
+                url_viewer, force_vscode=_force_vscode, title=f"ArrayView: {name}"
+            )
     else:
         if (
             window
@@ -863,7 +867,9 @@ def view(
                 "[ArrayView] Native window unavailable; opening browser fallback",
                 flush=True,
             )
-        _open_browser(url_viewer, force_vscode=_force_vscode)
+        _open_browser(
+            url_viewer, force_vscode=_force_vscode, title=f"ArrayView: {name}"
+        )
 
     _print_viewer_location(url_viewer)
     return ViewHandle(url_viewer, session.sid, port)
@@ -1089,11 +1095,21 @@ def _view_subprocess(
     if window and can_native:
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            _open_browser(url_viewer, force_vscode=force_vscode, blocking=force_vscode)
+            _open_browser(
+                url_viewer,
+                force_vscode=force_vscode,
+                blocking=force_vscode,
+                title=f"ArrayView: {name}",
+            )
     else:
         # blocking=True when force_vscode so signal file is written before
         # returning to Julia (daemon thread would be killed on process exit).
-        _open_browser(url_viewer, force_vscode=force_vscode, blocking=force_vscode)
+        _open_browser(
+            url_viewer,
+            force_vscode=force_vscode,
+            blocking=force_vscode,
+            title=f"ArrayView: {name}",
+        )
     return ViewHandle(url_viewer, sid, port)
 
 
@@ -1860,12 +1876,17 @@ def arrayview():
                 _vprint("[ArrayView] Falling back to browser", flush=True)
                 url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
-                _open_browser(url, blocking=True)
+                _open_browser(url, blocking=True, title=f"ArrayView: {name}")
         else:
             url = f"http://localhost:{args.port}/{qs}"
             if getattr(args, "watch", False):
                 _start_watch_thread(base_file, sid, args.port)
-            _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
+            _open_browser(
+                url,
+                blocking=True,
+                force_vscode=(window_mode == "vscode"),
+                title=f"ArrayView: {name}",
+            )
         return
 
     sid = uuid.uuid4().hex
@@ -1958,7 +1979,12 @@ def arrayview():
             _vprint("[ArrayView] Falling back to browser", flush=True)
             url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
-            _open_browser(url, blocking=False, force_vscode=(window_mode == "vscode"))
+            _open_browser(
+                url,
+                blocking=False,
+                force_vscode=(window_mode == "vscode"),
+                title=f"ArrayView: {name}",
+            )
     else:
         if use_webview and overlay_sid:
             _vprint(
@@ -1992,4 +2018,9 @@ def arrayview():
             _vscode_mod._remote_message_shown = True
         if getattr(args, "watch", False):
             _start_watch_thread(base_file, sid, args.port)
-        _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
+        _open_browser(
+            url,
+            blocking=True,
+            force_vscode=(window_mode == "vscode"),
+            title=f"ArrayView: {name}",
+        )
