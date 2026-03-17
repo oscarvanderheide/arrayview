@@ -2155,6 +2155,31 @@
             document.getElementById('info').textContent = '';
         }
 
+        // --watch mode: poll /data_version/{sid} every 1.5 s and re-render on bump.
+        let _watchDataVersion = -1;
+        let _watchPollTimer = null;
+        function _startWatchPoller() {
+            if (!sid || _watchPollTimer !== null) return;
+            const _doPoll = async () => {
+                try {
+                    const r = await fetch(`/data_version/${sid}`);
+                    if (!r.ok) return;
+                    const { version } = await r.json();
+                    if (_watchDataVersion === -1) { _watchDataVersion = version; return; }
+                    if (version !== _watchDataVersion) {
+                        _watchDataVersion = version;
+                        // Clear caches and re-render
+                        await fetch(`/clearcache/${sid}`);
+                        updateView();
+                        triggerPreload();
+                        renderInfo();
+                    }
+                } catch (_e) { /* network errors are transient */ }
+                _watchPollTimer = setTimeout(_doPoll, 1500);
+            };
+            _watchPollTimer = setTimeout(_doPoll, 1500);
+        }
+
         async function init() {
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
             reportParent('metadata-request', { sid });
@@ -2225,6 +2250,7 @@
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             initWebSocket();
+            _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();
             if (compareSid && !multiViewActive && !qmriActive) enterCompareModeBySid(compareSid);

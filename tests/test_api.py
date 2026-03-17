@@ -475,6 +475,52 @@ class TestClearCache:
 
 
 # ---------------------------------------------------------------------------
+# /reload and /data_version  (--watch mode)
+# ---------------------------------------------------------------------------
+
+
+class TestReload:
+    def test_data_version_initial_is_zero(self, client, sid_2d):
+        r = client.get(f"/data_version/{sid_2d}")
+        assert r.status_code == 200
+        assert r.json()["version"] == 0
+
+    def test_reload_bumps_data_version(self, client, tmp_path):
+        """POST /reload/{sid} should increment data_version and return it."""
+        arr = np.linspace(0.0, 1.0, 32 * 32, dtype=np.float32).reshape(32, 32)
+        path = tmp_path / "watch.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        assert client.get(f"/data_version/{sid}").json()["version"] == 0
+
+        # Overwrite file and reload
+        arr2 = np.zeros((32, 32), dtype=np.float32)
+        np.save(path, arr2)
+        r = client.post(f"/reload/{sid}")
+        assert r.status_code == 200
+        assert r.json()["version"] == 1
+        assert client.get(f"/data_version/{sid}").json()["version"] == 1
+
+    def test_reload_unknown_sid_is_404(self, client):
+        r = client.post("/reload/doesnotexist000")
+        assert r.status_code == 404
+
+    def test_reload_updates_shape(self, client, tmp_path):
+        """After reload with a differently-shaped file, shape in metadata updates."""
+        arr = np.zeros((8, 8), dtype=np.float32)
+        path = tmp_path / "resized.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        assert client.get(f"/metadata/{sid}").json()["shape"] == [8, 8]
+
+        # Save a larger array and reload
+        np.save(path, np.zeros((16, 16), dtype=np.float32))
+        client.post(f"/reload/{sid}")
+        assert client.get(f"/metadata/{sid}").json()["shape"] == [16, 16]
+
+
+# ---------------------------------------------------------------------------
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 

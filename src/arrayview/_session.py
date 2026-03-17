@@ -168,6 +168,7 @@ class Session:
         self.global_stats = {}
         self.fft_original_data = None
         self.fft_axes = None
+        self.data_version = 0  # incremented by /reload when file is reloaded
 
         self.rgb_axis = None  # set by _setup_rgb(); axis index in actual shape
         self.spatial_shape = data.shape  # shape without rgb_axis (set by _setup_rgb)

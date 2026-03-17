@@ -401,6 +401,51 @@ def clear_cache(sid: str):
     return {"status": "ok"}
 
 
+@app.get("/data_version/{sid}")
+def get_data_version(sid: str):
+    """Return the current data version for a session (incremented on reload)."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    return {"version": getattr(session, "data_version", 0)}
+
+
+@app.post("/reload/{sid}")
+async def reload_session(sid: str):
+    """Reload session data from its source file (used by --watch mode).
+
+    Clears caches and bumps data_version so polling clients know to re-render.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    filepath = session.filepath
+    if not filepath or not os.path.isfile(filepath):
+        return {"error": "session has no reloadable filepath"}
+    try:
+        data = await asyncio.to_thread(load_data, filepath)
+    except Exception as e:
+        return {"error": str(e)}
+    # Replace data and recompute stats in-place (keep sid and name).
+    session.data = data
+    session.shape = data.shape
+    session.spatial_shape = data.shape
+    session.rgb_axis = None
+    session.fft_original_data = None
+    session.fft_axes = None
+    # Clear all render caches.
+    session.raw_cache.clear()
+    session.rgba_cache.clear()
+    session.mosaic_cache.clear()
+    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    await asyncio.to_thread(session.compute_global_stats)
+    session.recommended_colormap = _session_mod._recommend_colormap(
+        session.data, session.global_stats
+    )
+    session.data_version = getattr(session, "data_version", 0) + 1
+    return {"version": session.data_version}
+
+
 @app.get("/cache_info/{sid}")
 def cache_info(sid: str):
     """Phase 5: debug endpoint — returns per-session cache usage and budgets."""

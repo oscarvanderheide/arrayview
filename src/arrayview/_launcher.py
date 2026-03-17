@@ -1211,6 +1211,48 @@ def _make_demo_array() -> "np.ndarray":
     return arr
 
 
+def _start_watch_thread(filepath: str, sid: str, port: int) -> None:
+    """Start a background thread that watches *filepath* for mtime changes.
+
+    On each detected change the thread POSTs to /reload/{sid} on the local
+    server so the viewer automatically re-renders the updated array.
+    Runs as a daemon thread — exits automatically when the main process ends.
+    """
+    import urllib.request as _urlreq
+
+    def _watch():
+        try:
+            last_mtime = os.stat(filepath).st_mtime
+        except OSError:
+            return
+        while True:
+            time.sleep(1.0)
+            try:
+                mtime = os.stat(filepath).st_mtime
+            except OSError:
+                continue
+            if mtime != last_mtime:
+                last_mtime = mtime
+                try:
+                    req = _urlreq.Request(
+                        f"http://127.0.0.1:{port}/reload/{sid}",
+                        data=b"",
+                        method="POST",
+                    )
+                    with _urlreq.urlopen(req, timeout=10) as resp:
+                        result = json.loads(resp.read())
+                    ver = result.get("version", "?")
+                    print(
+                        f"[ArrayView] File changed — reloaded (version {ver})",
+                        flush=True,
+                    )
+                except Exception as e:
+                    _vprint(f"[ArrayView] Watch reload error: {e}", flush=True)
+
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
@@ -1296,6 +1338,11 @@ def arrayview():
         "--diagnose",
         action="store_true",
         help="Print environment detection results and exit (useful for debugging VS Code/tunnel issues)",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Watch FILE for changes and auto-reload the viewer when the file is modified",
     )
     parser.add_argument(
         "--dims",
@@ -1751,6 +1798,8 @@ def arrayview():
                 _open_browser(url, blocking=True)
         else:
             url = f"http://localhost:{args.port}/{qs}"
+            if getattr(args, "watch", False):
+                _start_watch_thread(base_file, sid, args.port)
             _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
         return
 
@@ -1876,4 +1925,6 @@ def arrayview():
             import arrayview._vscode as _vscode_mod
 
             _vscode_mod._remote_message_shown = True
+        if getattr(args, "watch", False):
+            _start_watch_thread(base_file, sid, args.port)
         _open_browser(url, blocking=True, force_vscode=(window_mode == "vscode"))
