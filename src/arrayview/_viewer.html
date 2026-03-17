@@ -199,6 +199,7 @@
         .cp-item-incompat { color: #c87575; font-size: 11px; white-space: nowrap; font-weight: 500; }
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
+        .cp-item-selected { border-color: #4ade80 !important; }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -682,7 +683,7 @@
         <div id="uni-picker-box">
             <div id="uni-picker-header">
                 <span id="uni-picker-mode-pill"></span>
-                <span id="uni-picker-tab-hint">tab to switch mode</span>
+                <span id="uni-picker-tab-hint">Space to select &middot; Enter to open</span>
             </div>
             <input id="uni-picker-search" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
             <div id="uni-picker-list"></div>
@@ -740,7 +741,7 @@
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
-                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Shift+O) — navigate to a session or local file</span></div>
+                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
@@ -938,6 +939,7 @@
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let compareFrames = [];
         let compareDisplaySids = [];
+        let _compareExplicitSids = null; // when set, getCompareRenderSids() returns this directly
         let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
         let registrationMode = false;
@@ -1398,7 +1400,9 @@
         }
 
         function updateCompareTitles() {
-            const labels = compareDisplaySids.map(sidVal => comparePaneLabelForSid(sidVal));
+            const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
+                ? _compareExplicitSids : compareDisplaySids;
+            const labels = effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length) {
                 const movingPct = Math.round(registrationAlpha * 100);
                 labels[0] = compareBaseName || 'base';
@@ -1414,7 +1418,9 @@
         }
 
         function applyCompareLayout() {
-            const count = registrationMode ? 3 : Math.max(1, compareDisplaySids.length);
+            const sidsLen = _compareExplicitSids ? _compareExplicitSids.length
+                : compareDisplaySids.length;
+            const count = registrationMode ? 3 : Math.max(1, sidsLen);
             const cols = count <= 2 ? count : (count === 4 ? 2 : 3);
             document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
             comparePaneEls.forEach((pane, idx) => {
@@ -1447,6 +1453,10 @@
         }
 
         function getCompareRenderSids() {
+            // When the picker chose explicit sids (picker-rewrite), use them directly.
+            if (_compareExplicitSids && _compareExplicitSids.length) {
+                return _compareExplicitSids.slice(0, compareCanvases.length);
+            }
             const orderedTargets = [compareSid, ...compareSidList.filter(s => s && s !== compareSid)]
                 .filter(Boolean);
             const out = [sid];
@@ -3553,17 +3563,15 @@
                 if (isInlineEmbed) return;
                 const result = await showUnifiedPicker('open');
                 if (!result) return;
-                if (result.mode === 'compare' && (result.type === 'session' || result.type === 'loaded')) {
-                    // User switched to compare mode and picked an array
-                    await enterCompareModeBySid(result.sid, result.name || '');
-                } else if (result.mode === 'overlay' && (result.type === 'session' || result.type === 'loaded')) {
-                    // User switched to overlay mode and picked an array
-                    const newUrl = `/?sid=${sid}&overlay_sid=${result.sid}`;
-                    window.location.href = newUrl;
+                if (result.action === 'compare' && result.sids && result.sids.length >= 2) {
+                    await enterCompareModeByMultipleSids(result.sids);
+                } else if (result.action === 'compare' && result.sids && result.sids.length === 1) {
+                    await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
-                // For 'navigate' type (mode='open'), navigation already happened in the picker
+                // For 'open' action, navigation already happened in the picker
             } else if (e.key === 'X') {
-                if (!compareActive || compareDisplaySids.length !== 2) {
+                const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
+                if (!compareActive || cmpCount !== 2) {
                     showToast('diff view: only in 2-pane compare mode');
                     return;
                 }
@@ -4132,17 +4140,352 @@
             }
         }
 
-        // ── Unified picker (Open / Compare / Overlay) ──────────────────────
-        // Returns a Promise that resolves to:
-        //   null                              – cancelled
-        //   { mode:'open', type:'navigate', sid }    – Open mode: navigate to sid
-        //   { mode:'compare', type:'session', sid, name } – Compare: use loaded session
-        //   { mode:'compare', type:'loaded',  sid, name } – Compare: file was loaded
-        //   { mode:'overlay', type:'session', sid, name } – Overlay: use loaded session
-        //   { mode:'overlay', type:'loaded',  sid, name } – Overlay: file was loaded
-        const _UNI_MODES = ['open', 'compare', 'overlay'];
-        const _UNI_LABELS = { open: 'Open', compare: 'Side-by-side', overlay: 'Overlay' };
-        const _UNI_COLORS = { open: 'var(--active-dim)', compare: '#4ade80', overlay: '#c77dff' };
+        // ── Multi-session compare entry point (picker-rewrite) ──────────────
+        // sids: array of 2–4 session IDs to compare side-by-side.
+        // Unlike enterCompareModeBySid(), this does NOT auto-prepend the current sid.
+        async function enterCompareModeByMultipleSids(sids) {
+            if (!sids || sids.length < 1) return false;
+            try {
+                if (multiViewActive) exitMultiView();
+                if (qmriActive) exitQmri();
+                // Use the first sid as the "primary" compareSid for compat with
+                // diff / registration (which use compareDisplaySids[0] / [1]).
+                compareSid = sids[0];
+                compareName = compareNameBySid[sids[0]] || sids[0].slice(0, 8);
+                compareBaseName = compareNameBySid[sids[0]] || sids[0].slice(0, 8);
+                _compareExplicitSids = [...sids]; // passed directly to getCompareRenderSids()
+                // Keep compareSidList in sync for URL state / cycleCompareTarget compat.
+                for (const s of sids) {
+                    if (!compareSidList.includes(s) && s !== sid) compareSidList.unshift(s);
+                }
+                compareFrames = [];
+                compareDisplaySids = [];
+                compareOverflowNotified = false;
+                compareRegistrationFrame = null;
+                compareRendering = false;
+                comparePending = false;
+                compareActive = true;
+                document.getElementById('canvas-wrap').style.display = 'none';
+                compareWrap.classList.add('active');
+                applyCompareLayout();
+                renderInfo();
+                updateView();
+                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
+                const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
+                showStatus(`compare: ${names.join(' · ')}`);
+                return true;
+            } catch (e) {
+                showStatus(`compare failed: ${e.message || e}`);
+                return false;
+            }
+        }
+
+        // ── Unified picker ─────────────────────────────────────────────────
+        // Single mode: all sessions (including current) + unloaded files.
+        // Space toggles selection (up to 4). Enter with 0/1 selected = open;
+        // Enter with 2–4 selected = compare those arrays.
+        // Returns a Promise resolving to null (cancelled) or { action, sids, names }
+        // where action is 'open' or 'compare'.
+
+        async function _fetchPickerData() {
+            let sessions = [], fileEntries = [];
+            try { const r = await fetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
+            try {
+                const r = await fetch('/listfiles');
+                if (r.ok) {
+                    const all = await r.json();
+                    const loaded = new Set(sessions.map(s => s.filepath).filter(Boolean));
+                    fileEntries = all.filter(f => !loaded.has(f.path));
+                }
+            } catch (_) {}
+            return { sessions, fileEntries };
+        }
+
+        function showUnifiedPicker(_ignored) {
+            return new Promise(async resolve => {
+                const { sessions, fileEntries } = await _fetchPickerData();
+                for (const s of sessions) { if (s.name) compareNameBySid[s.sid] = s.name; }
+
+                const overlay   = document.getElementById('uni-picker');
+                const listEl    = document.getElementById('uni-picker-list');
+                const pilEl     = document.getElementById('uni-picker-mode-pill');
+                const hintEl    = document.getElementById('uni-picker-tab-hint');
+                const cancelBtn = document.getElementById('uni-picker-cancel');
+                const searchEl  = document.getElementById('uni-picker-search');
+
+                let done = false;
+                let _searchTimer = null;
+                // Map from sid/filepath → { sid|null, filepath|null, name, isFile, fileObj }
+                const _selected = new Map(); // key = sid or filepath → item descriptor
+
+                function cleanup() {
+                    overlay.classList.remove('visible');
+                    cancelBtn.onclick = null;
+                    overlay.onkeydown = null;
+                    searchEl.oninput = null;
+                    if (_searchTimer) { clearTimeout(_searchTimer); _searchTimer = null; }
+                    document.getElementById('keyboard-sink').focus();
+                }
+                function finish(val) {
+                    if (done) return; done = true;
+                    cleanup(); resolve(val);
+                }
+                cancelBtn.onclick = () => finish(null);
+
+                function _selCount() { return _selected.size; }
+
+                function _updateHint() {
+                    const n = _selCount();
+                    if (n === 0) {
+                        hintEl.textContent = 'Space to select · Enter to open';
+                    } else if (n === 1) {
+                        hintEl.textContent = `1 selected · Enter to open · Space to add`;
+                    } else {
+                        hintEl.textContent = `${n} selected · Enter to compare · Space to toggle`;
+                    }
+                    pilEl.textContent = n >= 2 ? 'Compare' : 'Open';
+                    overlay.style.setProperty('--picker-accent', n >= 2 ? '#4ade80' : 'var(--active-dim)');
+                }
+
+                function _itemKey(s) { return s.sid || s.filepath || s.path || s.name; }
+
+                function populate(filtSessions, filtFiles) {
+                    filtSessions = filtSessions ?? sessions;
+                    filtFiles    = filtFiles    ?? fileEntries;
+                    listEl.innerHTML = '';
+                    const inSearch = !!searchEl.value.trim();
+
+                    // Sessions section
+                    if (filtSessions.length) {
+                        const hdr = document.createElement('div');
+                        hdr.className = 'cp-section-header'; hdr.textContent = 'Loaded';
+                        listEl.appendChild(hdr);
+                        filtSessions.forEach(s => {
+                            const key = _itemKey(s);
+                            const shapeStr = Array.isArray(s.shape) ? `[${s.shape.join(', ')}]` : '?';
+                            const isCurrent = s.sid === sid;
+                            const item = document.createElement('div');
+                            item.className = 'cp-item'; item.tabIndex = 0;
+                            item.dataset.key = key;
+                            const selMark = `<span class="cp-item-sel" style="display:none;color:#4ade80;font-weight:700;margin-right:4px">✓</span>`;
+                            const curMark = isCurrent ? `<span class="cp-item-warn">(current)</span>` : '';
+                            item.innerHTML = `${selMark}<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                                + `<span class="cp-item-right">${curMark}<span class="cp-item-shape">${shapeStr}</span></span>`;
+
+                            function _refreshSelMark() {
+                                item.querySelector('.cp-item-sel').style.display = _selected.has(key) ? '' : 'none';
+                                item.classList.toggle('cp-item-selected', _selected.has(key));
+                            }
+                            function toggleSel(e) {
+                                e && e.preventDefault();
+                                if (_selected.has(key)) {
+                                    _selected.delete(key);
+                                } else if (_selCount() < 4) {
+                                    _selected.set(key, { sid: s.sid, name: s.name || '' });
+                                } else {
+                                    showToast('max 4 arrays in compare');
+                                    return;
+                                }
+                                _refreshSelMark();
+                                _updateHint();
+                            }
+                            function openItem() {
+                                if (_selCount() <= 1) {
+                                    // open / navigate
+                                    finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
+                                    if (window.parent !== window && window.parent.__arrayviewShell) {
+                                        window.parent.addTab(s.sid, s.name || '(unnamed)');
+                                    } else {
+                                        window.location.href = '/?sid=' + s.sid;
+                                    }
+                                } else {
+                                    // multi-compare: ensure this item is in selection
+                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: s.sid, name: s.name || '' });
+                                    _commitCompare();
+                                }
+                            }
+                            item.onclick = openItem;
+                            item.onkeydown = e => {
+                                if (e.key === ' ') { toggleSel(e); return; }
+                                if (e.key === 'Enter') { e.preventDefault(); openItem(); }
+                            };
+                            _refreshSelMark();
+                            listEl.appendChild(item);
+                        });
+                    }
+
+                    // Files section
+                    if (filtFiles.length) {
+                        const hdr = document.createElement('div');
+                        hdr.className = 'cp-section-header'; hdr.textContent = 'Files';
+                        listEl.appendChild(hdr);
+                        filtFiles.forEach(f => {
+                            const key = f.path || f.name;
+                            const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
+                                : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                            const item = document.createElement('div');
+                            item.className = 'cp-item'; item.tabIndex = 0;
+                            item.dataset.key = key;
+                            const selMark = `<span class="cp-item-sel" style="display:none;color:#4ade80;font-weight:700;margin-right:4px">✓</span>`;
+                            item.innerHTML = `${selMark}<span class="cp-item-name">${f.name}</span>`
+                                + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
+
+                            function _refreshSelMark() {
+                                item.querySelector('.cp-item-sel').style.display = _selected.has(key) ? '' : 'none';
+                                item.classList.toggle('cp-item-selected', _selected.has(key));
+                            }
+                            function toggleSel(e) {
+                                e && e.preventDefault();
+                                if (_selected.has(key)) {
+                                    _selected.delete(key);
+                                    _refreshSelMark(); _updateHint();
+                                } else if (_selCount() < 4) {
+                                    // Need to load the file first to get a sid
+                                    item.classList.add('cp-item-loading');
+                                    item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                    }).then(r => r.json()).then(data => {
+                                        if (data.error) { showToast(`load error: ${data.error}`); item.classList.remove('cp-item-loading'); return; }
+                                        item.classList.remove('cp-item-loading');
+                                        _selected.set(key, { sid: data.sid, name: data.name || f.name });
+                                        _refreshSelMark(); _updateHint();
+                                    }).catch(() => { showToast('load failed'); item.classList.remove('cp-item-loading'); });
+                                } else {
+                                    showToast('max 4 arrays in compare');
+                                }
+                            }
+                            function openFile() {
+                                if (_selCount() <= 1) {
+                                    // Open directly
+                                    item.classList.add('cp-item-loading');
+                                    item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                    }).then(r => r.json()).then(data => {
+                                        if (data.error) { showToast(`load error: ${data.error}`); finish(null); return; }
+                                        finish({ action: 'open', sids: [data.sid], names: [data.name || f.name] });
+                                        if (!sid) {
+                                            window.location.href = '/?sid=' + data.sid;
+                                        } else if (window.parent !== window && window.parent.__arrayviewShell) {
+                                            window.parent.addTab(data.sid, data.name || f.name);
+                                        } else {
+                                            window.open('/?sid=' + data.sid, '_blank');
+                                        }
+                                    }).catch(() => { showToast('load failed'); finish(null); });
+                                } else {
+                                    // multi-compare: load then commit
+                                    item.classList.add('cp-item-loading');
+                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
+                                    }).then(r => r.json()).then(data => {
+                                        if (data.error) { showToast(`load error: ${data.error}`); return; }
+                                        if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: data.sid, name: data.name || f.name });
+                                        _commitCompare();
+                                    }).catch(() => { showToast('load failed'); });
+                                }
+                            }
+                            item.onclick = openFile;
+                            item.onkeydown = e => {
+                                if (e.key === ' ') { toggleSel(e); return; }
+                                if (e.key === 'Enter') { e.preventDefault(); openFile(); }
+                            };
+                            _refreshSelMark();
+                            listEl.appendChild(item);
+                        });
+                    }
+
+                    if (!filtSessions.length && !filtFiles.length) {
+                        const msg = document.createElement('div');
+                        msg.style.cssText = 'color:var(--muted);font-size:12px;padding:6px 2px';
+                        msg.textContent = inSearch ? 'No matches' : 'No arrays loaded and no supported files found';
+                        listEl.appendChild(msg);
+                    }
+                    _updateHint();
+                }
+
+                function _commitCompare() {
+                    const items = [..._selected.values()];
+                    if (items.length < 2) return;
+                    const sids = items.map(i => i.sid).filter(Boolean);
+                    const names = items.map(i => i.name);
+                    finish({ action: 'compare', sids, names });
+                }
+
+                // ── Search wiring ──────────────────────────────────────────
+                searchEl.oninput = () => {
+                    if (_searchTimer) clearTimeout(_searchTimer);
+                    _searchTimer = setTimeout(() => {
+                        _searchTimer = null;
+                        const q = searchEl.value.trim().toLowerCase();
+                        const filtSessions = q ? sessions.filter(s => (s.name || '').toLowerCase().includes(q)) : sessions;
+                        const filtFiles    = q ? fileEntries.filter(f => f.name.toLowerCase().includes(q)) : fileEntries;
+                        populate(filtSessions, filtFiles);
+                    }, 100);
+                };
+
+                overlay.classList.add('visible');
+                overlay.style.setProperty('--picker-accent', 'var(--active-dim)');
+                searchEl.value = '';
+                searchEl.focus();
+                populate();
+
+                overlay.onkeydown = e => {
+                    const inSearch = document.activeElement === searchEl;
+                    if (e.key === 'Escape') { e.preventDefault(); finish(null); return; }
+                    if (e.key === 'q' && !inSearch) { e.preventDefault(); finish(null); return; }
+                    if (e.key === 'Enter' && !inSearch && _selCount() >= 2) { e.preventDefault(); _commitCompare(); return; }
+                    if (e.key === 'Enter' && _selCount() === 1 && !inSearch) {
+                        // Open the one selected item
+                        const [item] = _selected.values();
+                        if (item.sid) {
+                            finish({ action: 'open', sids: [item.sid], names: [item.name] });
+                            if (window.parent !== window && window.parent.__arrayviewShell) {
+                                window.parent.addTab(item.sid, item.name || '(unnamed)');
+                            } else {
+                                window.location.href = '/?sid=' + item.sid;
+                            }
+                        }
+                        return;
+                    }
+                    const items = [...listEl.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)')];
+                    const idx = items.indexOf(document.activeElement);
+                    if (e.key === 'ArrowDown' || (e.key === 'j' && !inSearch)) {
+                        e.preventDefault();
+                        if (idx < items.length - 1) items[idx + 1].focus();
+                        else if (idx === -1 && items.length) items[0].focus();
+                    } else if (e.key === 'ArrowUp' || (e.key === 'k' && !inSearch)) {
+                        e.preventDefault();
+                        if (idx > 0) items[idx - 1].focus();
+                        else if (idx === 0) searchEl.focus();
+                    } else if (inSearch) {
+                        return; // let other keys through to the input
+                    }
+                };
+            });
+        }
+
+        async function getCompareCandidates() {
+            const res = await fetch('/sessions');
+            if (!res.ok) { showStatus('compare: could not query sessions'); return []; }
+            const sessions = await res.json();
+            const candidates = sessions.filter(s => s.sid && s.sid !== sid);
+            for (const s of candidates) {
+                if (s.name) compareNameBySid[s.sid] = s.name;
+            }
+            return candidates;
+        }
+
+        async function enterComparePrompt() {
+            const result = await showUnifiedPicker('compare');
+            if (!result) return;
+            if (result.action === 'compare' && result.sids.length >= 2) {
+                await enterCompareModeByMultipleSids(result.sids);
+            } else if (result.action === 'compare' && result.sids.length === 1) {
+                await enterCompareModeBySid(result.sids[0], result.names[0] || '');
+            }
+        }
+
 
         async function _fetchPickerData() {
             let sessions = [], fileEntries = [];
@@ -4457,6 +4800,7 @@
             compareActive = false;
             compareFrames = [];
             compareDisplaySids = [];
+            _compareExplicitSids = null;
             compareRegistrationFrame = null;
             compareRendering = false;
             comparePending = false;
