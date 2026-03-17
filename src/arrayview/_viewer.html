@@ -502,7 +502,7 @@
                 <canvas id="hist-canvas"></canvas>
                 <div id="hist-tooltip"></div>
             </div>
-            <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> open &nbsp;·&nbsp; drop file to load</div>
+            <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> / Shift+O &nbsp;·&nbsp; drop array in window</div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -659,7 +659,7 @@
         <div id="loading-overlay"></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
-                <div><kbd id="open-shortcut-hint">Cmd+O</kbd> open &nbsp;·&nbsp; drop file to load</div>
+                <div><kbd id="open-shortcut-hint">Cmd+O</kbd> / Shift+O &nbsp;·&nbsp; drop array in window</div>
             </div>
         </div>
     </div>
@@ -740,7 +740,7 @@
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
-                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker in Open mode (navigate to a session or local file)</span></div>
+                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Shift+O) — navigate to a session or local file</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
@@ -3549,7 +3549,7 @@
             } else if (e.key === 'P') {
                 if (isInlineEmbed) return;
                 toggleCompareMode();
-            } else if ((e.key === 'o' || e.key === 'O') && modKey) {
+            } else if (((e.key === 'o' || e.key === 'O') && modKey) || (e.key === 'O' && e.shiftKey && !modKey)) {
                 if (isInlineEmbed) return;
                 const result = await showUnifiedPicker('open');
                 if (!result) return;
