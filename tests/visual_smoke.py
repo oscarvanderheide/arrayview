@@ -51,6 +51,7 @@ DISPLAY
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
    W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
+   W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag left clim line)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
 
 INFO & EXPORT
@@ -983,6 +984,30 @@ def run_smoke(page, base, client, tmp):
         print(
             f"  WARN: histogram state unexpected (before={hist_visible_before}, after={hist_visible_after}, hidden={hist_hidden})"
         )
+
+    # ── 55: histogram drag-clim ──────────────────────────────────────────────
+    print("55: histogram drag vmin/vmax lines to change clims")
+    _goto(page, base, sid2d, wait=600)
+    _focus(page)
+    _press(page, "W")
+    page.wait_for_timeout(600)
+    hist_canvas = page.locator("#hist-canvas")
+    hist_box = hist_canvas.bounding_box()
+    if hist_box:
+        # Drag from left-quarter to center (simulates dragging vmin line right)
+        start_x = hist_box["x"] + hist_box["width"] * 0.1
+        end_x = hist_box["x"] + hist_box["width"] * 0.4
+        mid_y = hist_box["y"] + hist_box["height"] / 2
+        page.mouse.move(start_x, mid_y)
+        page.mouse.down()
+        page.mouse.move(end_x, mid_y, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        _shot(page, "55_histogram_drag_clim")
+        print("  OK: histogram drag-clim screenshot taken")
+    else:
+        print("  WARN: hist-canvas not found — W key may not have worked")
+    _press(page, "W")  # close histogram
 
     # ── 56: drag-to-reorder compare panels ───────────────────────────────────
     print("56: drag-to-reorder compare panels")

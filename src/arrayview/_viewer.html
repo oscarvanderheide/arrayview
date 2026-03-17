@@ -75,7 +75,8 @@
         #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
         #hist-wrap { display: none; position: fixed; z-index: 2; text-align: center; }
-        #hist-canvas { display: block; margin: 0 auto; border-radius: 3px; }
+        #hist-canvas { display: block; margin: 0 auto; border-radius: 3px; cursor: default; }
+        #hist-tooltip { position: absolute; top: -20px; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -499,6 +500,7 @@
             </div>
             <div id="hist-wrap">
                 <canvas id="hist-canvas"></canvas>
+                <div id="hist-tooltip"></div>
             </div>
             <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> open &nbsp;·&nbsp; drop file to load</div>
         </div>
@@ -858,6 +860,7 @@
         let histVisible = false;
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
         let _histRefreshTimer = null;
+        let _histVminX = null, _histVmaxX = null; // last-drawn line x in CSS px (for hit-testing)
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
@@ -1759,12 +1762,15 @@
             const vmaxF = (( manualVmax ?? currentVmax ) - dmin) / range;
             hCtx.strokeStyle = vlineColor;
             hCtx.lineWidth = 1;
+            _histVminX = null; _histVmaxX = null;
             if (vminF >= 0 && vminF <= 1) {
                 const x = Math.round(vminF * (cssW - 1)) + 0.5;
+                _histVminX = x - 0.5;
                 hCtx.beginPath(); hCtx.moveTo(x, 0); hCtx.lineTo(x, HIST_H); hCtx.stroke();
             }
             if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
                 const x = Math.round(vmaxF * (cssW - 1)) + 0.5;
+                _histVmaxX = x - 0.5;
                 hCtx.beginPath(); hCtx.moveTo(x, 0); hCtx.lineTo(x, HIST_H); hCtx.stroke();
             }
             hCtx.restore();
@@ -1799,9 +1805,102 @@
                 if (histWrap) histWrap.style.display = 'none';
                 showToast('histogram: off');
             }
-            // Update bottomReserve by re-running scaleCanvas
+             // Update bottomReserve by re-running scaleCanvas
             scaleCanvas(lastImgW || canvas.width, lastImgH || canvas.height);
         }
+
+        // ── Histogram drag-clim and hover-bin-value ──────────────────────────
+        (function _initHistInteraction() {
+            const histCanvas = document.getElementById('hist-canvas');
+            const histTooltip = document.getElementById('hist-tooltip');
+            if (!histCanvas || !histTooltip) return;
+
+            let _dragTarget = null; // 'vmin' | 'vmax' | null
+            let _renderTimer = null;
+
+            function _xToValue(x, cssW) {
+                if (!_histData) return null;
+                const { vmin: dmin, vmax: dmax } = _histData;
+                const range = dmax - dmin || 1;
+                return dmin + (x / cssW) * range;
+            }
+
+            function _hitLine(x) {
+                const HIT = 7; // px hit radius
+                if (_histVminX !== null && Math.abs(x - _histVminX) <= HIT) return 'vmin';
+                if (_histVmaxX !== null && Math.abs(x - _histVmaxX) <= HIT) return 'vmax';
+                return null;
+            }
+
+            function _scheduleRender() {
+                clearTimeout(_renderTimer);
+                _renderTimer = setTimeout(() => { updateView(); triggerPreload(); }, 80);
+            }
+
+            histCanvas.addEventListener('mousedown', (e) => {
+                if (!histVisible || !_histData) return;
+                const rect = histCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const target = _hitLine(x);
+                if (!target) return;
+                _dragTarget = target;
+                // Initialise manualVmin/manualVmax from current display values
+                if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
+                if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
+                histCanvas.style.cursor = 'ew-resize';
+                e.preventDefault();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!histVisible || !_histData) return;
+                const rect = histCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const cssW = rect.width || 1;
+                if (_dragTarget) {
+                    const val = _xToValue(Math.max(0, Math.min(cssW, x)), cssW);
+                    if (val === null) return;
+                    if (_dragTarget === 'vmin') {
+                        manualVmin = Math.min(val, manualVmax - 1e-10);
+                    } else {
+                        manualVmax = Math.max(val, manualVmin + 1e-10);
+                    }
+                    _positionAndDrawHistogram();
+                    // Update colorbar labels immediately
+                    const slimCbLabels = document.getElementById('slim-cb-labels');
+                    if (slimCbLabels) slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin)}</span><span>${_cbFmt(manualVmax)}</span>`;
+                    _scheduleRender();
+                } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
+                           rect.top <= e.clientY && e.clientY <= rect.bottom) {
+                    // Hover: show bin value
+                    const { counts, edges } = _histData;
+                    const binIdx = Math.min(counts.length - 1, Math.floor((x / cssW) * counts.length));
+                    if (binIdx >= 0 && binIdx < counts.length) {
+                        const lo = edges[binIdx], hi = edges[binIdx + 1];
+                        histTooltip.textContent = `${_cbFmt(lo)}–${_cbFmt(hi)}: ${counts[binIdx]}`;
+                        histTooltip.style.left = Math.min(x, cssW - 120) + 'px';
+                        histTooltip.style.display = 'block';
+                    }
+                    // Update cursor
+                    histCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : 'default';
+                } else {
+                    histTooltip.style.display = 'none';
+                    histCanvas.style.cursor = 'default';
+                }
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (_dragTarget) {
+                    _dragTarget = null;
+                    histCanvas.style.cursor = 'default';
+                    clearTimeout(_renderTimer);
+                    updateView(); triggerPreload();
+                }
+            });
+
+            histCanvas.addEventListener('mouseleave', () => {
+                if (!_dragTarget) histTooltip.style.display = 'none';
+            });
+        })();
 
         function showDataInfo(rows) {
             document.getElementById('info-table').innerHTML =
