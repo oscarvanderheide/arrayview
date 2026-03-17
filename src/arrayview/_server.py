@@ -585,6 +585,7 @@ async def get_metadata(sid: str):
             "has_vectorfield": session.vfield is not None,
             "vfield_n_times": _vfield_n_times(session),
             "is_rgb": session.rgb_axis is not None,
+            "recommended_colormap": getattr(session, "recommended_colormap", "gray"),
         }
     except Exception as e:
         import traceback
