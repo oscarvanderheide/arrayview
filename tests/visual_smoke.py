@@ -83,6 +83,7 @@ AXES INDICATOR (edge labels)
 
 COMPARE MODE
   linked cursors across compare panes       ✓ 55 (mousemove on left pane, crosshair on right)
+  drag title to reorder panes               ✓ 56 (drag left title → right title swaps pane order)
 
 VIEW MODES (colorbar visible in all)
   single 2d                                 ✓ 01
@@ -1011,6 +1012,58 @@ def run_smoke(page, base, client, tmp):
     page.mouse.move(10, 10)
     page.wait_for_timeout(200)
     _shot(page, "55b_linked_crosshair_cleared")
+
+    # ── 56: drag-to-reorder compare panels ───────────────────────────────────
+    print("56: drag-to-reorder compare panels")
+    _goto_compare(page, base, sid2d, sid2d_b, wait=1500)
+    _focus(page)
+    # Record the initial title texts for pane 0 and pane 1
+    title_before_left = page.evaluate(
+        "() => document.getElementById('compare-left-title')?.textContent?.trim() || ''"
+    )
+    title_before_right = page.evaluate(
+        "() => document.getElementById('compare-right-title')?.textContent?.trim() || ''"
+    )
+    _shot(page, "56a_compare_before_drag")
+    # HTML5 drag-and-drop doesn't fire reliably in headless Chromium via mouse events.
+    # Dispatch synthetic DragEvents via JS to exercise the swap logic directly.
+    page.evaluate("""() => {
+        const src = document.getElementById('compare-left-title');
+        const dst = document.getElementById('compare-right-title');
+        if (!src || !dst) return;
+        const dt = new DataTransfer();
+        src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        dst.dispatchEvent(new DragEvent('dragover',  { bubbles: true, cancelable: true, dataTransfer: dt }));
+        dst.dispatchEvent(new DragEvent('drop',      { bubbles: true, cancelable: true, dataTransfer: dt }));
+        src.dispatchEvent(new DragEvent('dragend',   { bubbles: true, cancelable: true, dataTransfer: dt }));
+    }""")
+    page.wait_for_timeout(800)
+    _shot(page, "56b_compare_after_drag")
+    title_after_left = page.evaluate(
+        "() => document.getElementById('compare-left-title')?.textContent?.trim() || ''"
+    )
+    title_after_right = page.evaluate(
+        "() => document.getElementById('compare-right-title')?.textContent?.trim() || ''"
+    )
+    if (
+        title_before_left
+        and title_before_right
+        and title_before_left != title_before_right
+    ):
+        if (
+            title_after_left == title_before_right
+            and title_after_right == title_before_left
+        ):
+            print("  OK: pane titles swapped correctly after drag")
+        else:
+            print(
+                f"  WARN: titles did not swap — before=({title_before_left!r}, {title_before_right!r})"
+                f" after=({title_after_left!r}, {title_after_right!r})"
+            )
+    else:
+        print(
+            f"  INFO: titles — before=({title_before_left!r}, {title_before_right!r}), after=({title_after_left!r}, {title_after_right!r})"
+        )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
