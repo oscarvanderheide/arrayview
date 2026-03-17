@@ -19,6 +19,7 @@ from arrayview._platform import (
     _find_vscode_ipc_hook,
     _in_vscode_terminal,
     _is_vscode_remote,
+    _in_vscode_tunnel,
 )
 
 # Whether the "set port to Public" message has been printed this session.
@@ -396,21 +397,26 @@ def _schedule_remote_open_retries(
 def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
     """Write a versioned control payload for the VS Code opener extension.
 
-    Per-window targeting: when VSCODE_IPC_HOOK_CLI can be found (directly or
-    via parent-process walk), Python computes hookTag = SHA-256(ipc_hook)[:16]
-    and writes *only* to the targeted file
-    ``~/.arrayview/open-request-ipc-<hookTag>.json``.  The extension in the
-    correct VS Code window checks that same file and claims it exclusively.
+    Signal-file targeting strategy:
 
-    The registration-file check (window-<tag>.json) has been intentionally
-    removed: writing to the targeted file is safe even before the extension
-    has activated, because the extension calls tryOpenSignalFile() immediately
-    on activate and will find the file.  Removing the check eliminates the
-    race window where Python fell back to the shared file (claimable by any
-    window) just because the extension hadn't written its registration yet.
+    LOCAL VS Code (not remote):
+      When VSCODE_IPC_HOOK_CLI can be found (directly or via parent-process
+      walk), Python computes hookTag = SHA-256(ipc_hook)[:16] and writes *only*
+      to the per-window targeted file
+      ``~/.arrayview/open-request-ipc-<hookTag>.json``.  The extension in the
+      correct VS Code window checks that same file and claims it exclusively.
+      This prevents multi-window races.
 
-    Falls back to the shared signal file only when ipc_hook is not found at
-    all (e.g. non-VS Code environment or fully-stripped env).
+    REMOTE / TUNNEL VS Code:
+      The extension host process is spawned by VS Code Server, not from the
+      user's terminal, so it does NOT inherit VSCODE_IPC_HOOK_CLI.  Therefore
+      OWN_HOOK_TAG is "" in the extension and TARGETED_SIGNAL_FILE is null —
+      the extension only polls the shared fallback file.  Python must write to
+      the shared fallback in this case.  On a tunnel there is only one VS Code
+      session per remote, so there is no multi-window race concern.
+
+    Falls back to the shared signal file when ipc_hook is not found at all
+    (e.g. non-VS Code environment or fully-stripped env).
     """
     import hashlib
     from arrayview._platform import _find_vscode_ipc_hook
@@ -425,18 +431,23 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
         data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
         data.setdefault("requestId", uuid.uuid4().hex)
 
-        # Always use the targeted file when we have an IPC hook — no
-        # registration-file check.  This prevents any other VS Code window
-        # from racing to claim the shared fallback file.
         ipc_hook = _find_vscode_ipc_hook()
-        if ipc_hook:
+        if ipc_hook and not _is_vscode_remote():
+            # Local VS Code (multi-window safe): write to per-window targeted file.
+            # No registration-file check — writing to the targeted file is safe
+            # even before the extension activates; it will claim the file on activate.
             own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
             data["hookTag"] = (
                 own_tag  # extension verifies this on shared-fallback claims
             )
             filenames: tuple[str, ...] = (f"open-request-ipc-{own_tag}.json",)
         else:
-            # Fallback: shared signal file (any window's extension may claim it)
+            # Remote/tunnel OR no IPC hook found:
+            # On remote, the extension host does not inherit VSCODE_IPC_HOOK_CLI
+            # (different process tree: VS Code Server), so OWN_HOOK_TAG="" and
+            # TARGETED_SIGNAL_FILE=null in the extension — it only polls the shared
+            # fallback.  On tunnel there is only one VS Code session, so no
+            # multi-window race.
             filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
 
         for filename in filenames:
@@ -466,8 +477,16 @@ def _print_viewer_location(url: str) -> None:
         print(f"[ArrayView] {url}", flush=True)
 
 
-def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) -> None:
+def _open_browser(
+    url: str,
+    blocking: bool = False,
+    force_vscode: bool = False,
+    title: str | None = None,
+) -> None:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
+
+    *title* is shown as the VS Code tab label (e.g. "ArrayView: sample.npy").
+    Passed through to _open_via_signal_file → extension createWebviewPanel.
 
     Strategy (see log.txt for what was tried and why):
     1. Remote VS Code terminal:
@@ -516,11 +535,10 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
             # Always write the signal file: the extension may already be
             # installed from a prior session even if _ensure failed (e.g.
             # `code` CLI not in PATH, Julia stripped env, etc.).
-            _open_via_signal_file(url)
-            # Note: retries deliberately omitted. simpleBrowser.show() opens a
-            # NEW tab on every call (not idempotent). If the port was Private and
-            # shows an auth page, the user should make the port Public and reload
-            # the Simple Browser tab manually.
+            # createWebviewPanel is idempotent (reuses panel by URL), so retries
+            # are safe. Schedule 2 retries to survive any extension-host reload gap.
+            _open_via_signal_file(url, title=title)
+            _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:
                 _vprint(
                     "[ArrayView] extension install could not be verified — signal file written anyway",
@@ -536,7 +554,7 @@ def _open_browser(url: str, blocking: bool = False, force_vscode: bool = False) 
                 time.sleep(1.5)
             # Always write the signal file: the extension may already be
             # installed even if _ensure failed (e.g. `code` CLI not found).
-            _open_via_signal_file(url)
+            _open_via_signal_file(url, title=title)
             # Schedule a retry in case the extension was mid-reload when the
             # first signal was written (e.g. first run with old version removed).
             _schedule_remote_open_retries(url, interval=10.0, count=2)
