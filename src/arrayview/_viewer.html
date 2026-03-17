@@ -398,7 +398,8 @@
         .compare-pane.compare-secondary { order: 2; }
         #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { order: 2; }
         #compare-view-wrap.registration-mode .compare-pane.compare-secondary { order: 3; }
-        .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
+        .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; }
+        .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center;
             padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
@@ -505,7 +506,7 @@
         <div id="compare-view-wrap">
             <div id="compare-panes">
                 <div class="compare-pane compare-primary">
-                    <div id="compare-left-title" class="compare-title"></div>
+                    <div id="compare-left-title" class="compare-title" draggable="true" data-pane-idx="0"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -540,7 +541,7 @@
                     </div>
                 </div>
                 <div class="compare-pane compare-secondary">
-                    <div id="compare-right-title" class="compare-title"></div>
+                    <div id="compare-right-title" class="compare-title" draggable="true" data-pane-idx="1"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -562,7 +563,7 @@
                     </div>
                 </div>
                 <div class="compare-pane compare-tertiary">
-                    <div id="compare-third-title" class="compare-title"></div>
+                    <div id="compare-third-title" class="compare-title" draggable="true" data-pane-idx="2"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -588,7 +589,7 @@
                     </div>
                 </div>
                 <div class="compare-pane compare-quaternary">
-                    <div id="compare-fourth-title" class="compare-title"></div>
+                    <div id="compare-fourth-title" class="compare-title" draggable="true" data-pane-idx="3"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -610,7 +611,7 @@
                     </div>
                 </div>
                 <div class="compare-pane compare-quinary">
-                    <div id="compare-fifth-title" class="compare-title"></div>
+                    <div id="compare-fifth-title" class="compare-title" draggable="true" data-pane-idx="4"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -632,7 +633,7 @@
                     </div>
                 </div>
                 <div class="compare-pane compare-senary">
-                    <div id="compare-sixth-title" class="compare-title"></div>
+                    <div id="compare-sixth-title" class="compare-title" draggable="true" data-pane-idx="5"></div>
                     <div class="compare-canvas-area">
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
@@ -748,7 +749,8 @@
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
-                <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
+                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
+                 <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus diff/overlay pane (in X or R mode)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
@@ -984,6 +986,54 @@
             document.getElementById('compare-fifth-title'),
             document.getElementById('compare-sixth-title'),
         ];
+        // ── compare-title drag-to-reorder ──────────────────────────────────────
+        let _cmpDragSrcIdx = null;
+        compareTitles.forEach((titleEl, idx) => {
+            if (!titleEl) return;
+            titleEl.addEventListener('dragstart', (e) => {
+                if (!compareActive || registrationMode) { e.preventDefault(); return; }
+                _cmpDragSrcIdx = idx;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(idx));
+            });
+            titleEl.addEventListener('dragover', (e) => {
+                if (_cmpDragSrcIdx === null || _cmpDragSrcIdx === idx) return;
+                if (!compareActive || registrationMode) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                titleEl.classList.add('drag-over');
+            });
+            titleEl.addEventListener('dragleave', () => {
+                titleEl.classList.remove('drag-over');
+            });
+            titleEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                titleEl.classList.remove('drag-over');
+                const srcIdx = _cmpDragSrcIdx;
+                _cmpDragSrcIdx = null;
+                if (srcIdx === null || srcIdx === idx) return;
+                if (!compareActive || registrationMode) return;
+                // Swap compareDisplaySids
+                [compareDisplaySids[srcIdx], compareDisplaySids[idx]] =
+                    [compareDisplaySids[idx], compareDisplaySids[srcIdx]];
+                // Swap compareFrames
+                [compareFrames[srcIdx], compareFrames[idx]] =
+                    [compareFrames[idx], compareFrames[srcIdx]];
+                // Swap per-pane manual vmin/vmax
+                [cmpManualVmin[srcIdx], cmpManualVmin[idx]] =
+                    [cmpManualVmin[idx], cmpManualVmin[srcIdx]];
+                [cmpManualVmax[srcIdx], cmpManualVmax[idx]] =
+                    [cmpManualVmax[idx], cmpManualVmax[srcIdx]];
+                applyCompareLayout();
+                drawCompareFramesFromCache();
+                drawAllComparePaneCbs();
+                showStatus(`compare: swapped pane ${srcIdx + 1} ↔ ${idx + 1}`);
+            });
+            titleEl.addEventListener('dragend', () => {
+                _cmpDragSrcIdx = null;
+                compareTitles.forEach(t => t && t.classList.remove('drag-over'));
+            });
+        });
         const compareCbCanvas = document.getElementById('compare-cb');
         const compareCbLabels = document.getElementById('compare-cb-labels');
         // Per-pane colorbar elements (one per compare canvas)
