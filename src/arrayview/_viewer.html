@@ -756,8 +756,8 @@
                 <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
                 <div class="help-row"><span class="key">H</span><span class="desc">toggle pixel hover tooltip</span></div>
                 <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
-                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG)</span></div>
-                <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy</span></div>
+                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG → Downloads)</span></div>
+                <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy (→ Downloads)</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
                 <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
                 <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
@@ -3162,7 +3162,7 @@
             link.download = filename;
             link.href = dataUrl;
             link.click();
-            setStatus('Screenshot saved.');
+            setStatus('Screenshot saved to Downloads.');
             setTimeout(() => setStatus(''), 2000);
         }
 
@@ -3614,7 +3614,7 @@
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                showStatus('slice exported as .npy');
+                showStatus('slice saved to Downloads (.npy)');
             } else if (e.key === 'g') {
                 saveGif();
             } else if (e.key === 'm') {
