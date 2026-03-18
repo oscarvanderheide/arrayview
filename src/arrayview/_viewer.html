@@ -484,6 +484,7 @@
                 <canvas id="viewer" tabindex="0"></canvas>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
+                <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                     <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -734,6 +735,7 @@
                 <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">Lebesgue mode — hover colorbar to highlight pixels in that value bin</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
@@ -856,6 +858,11 @@
         let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
         let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
         let _histVminX = null, _histVmaxX = null; // last-drawn clim line X in CSS px (for drag hit-testing)
+        let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
+        let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
+        let _lebesgueVersion = null;    // version key for cached _lebesgueSlice
+        let _lebesgueFetching = false;  // prevents concurrent fetches
+        let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
@@ -1830,6 +1837,117 @@
             }
         }
 
+        // ── Lebesgue integral mode ──────────────────────────────────────────
+        const lebesgueCanvas = document.getElementById('lebesgue-canvas');
+        const lebesgueCtx = lebesgueCanvas ? lebesgueCanvas.getContext('2d') : null;
+
+        async function _fetchLebesgueSlice() {
+            if (!sid || !indices.length || _lebesgueFetching) return;
+            _lebesgueFetching = true;
+            const params = new URLSearchParams({
+                dim_x, dim_y,
+                indices: indices.join(','),
+                complex_mode: complexMode,
+                log_scale: logScale,
+            });
+            try {
+                const resp = await fetch(`/lebesgue/${sid}?${params}`);
+                if (!resp.ok) { _lebesgueFetching = false; return; }
+                _lebesgueSliceW = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
+                _lebesgueSliceH = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
+                const buf = await resp.arrayBuffer();
+                _lebesgueSlice = new Float32Array(buf);
+                _lebesgueVersion = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
+            } catch (_) { _lebesgueSlice = null; }
+            _lebesgueFetching = false;
+        }
+
+        function _clearLebesgueOverlay() {
+            if (!lebesgueCanvas) return;
+            lebesgueCanvas.style.display = 'none';
+            if (lebesgueCtx) lebesgueCtx.clearRect(0, 0, lebesgueCanvas.width, lebesgueCanvas.height);
+        }
+
+        /** Highlight a single histogram bin on the colorbar with a bright outline. */
+        function _highlightHistBin(binIdx) {
+            if (!_histData || !_histData.counts || !_histData.counts.length) return;
+            const nBins = _histData.counts.length;
+            if (binIdx < 0 || binIdx >= nBins) return;
+            const sCtx = slimCbCanvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = parseInt(slimCbCanvas.style.width) || slimCbCanvas.width / dpr;
+            const stripH = CB_EXPANDED_H;
+            const histAreaH = stripH - CB_COLLAPSED_H;
+            const binW = cssW / nBins;
+            const maxCount = Math.max(..._histData.counts, 1);
+            const barH = Math.max(0.5, (_histData.counts[binIdx] / maxCount) * (histAreaH - 2));
+            const x = binIdx * binW;
+            const y = histAreaH - barH;
+            sCtx.save();
+            sCtx.scale(dpr, dpr);
+            sCtx.strokeStyle = 'rgba(255,255,100,0.95)';
+            sCtx.lineWidth = 1.5;
+            sCtx.strokeRect(x + 0.5, y + 0.5, binW - 1, barH - 1);
+            sCtx.restore();
+        }
+
+        function _drawLebesgueHighlight(binLow, binHigh) {
+            if (!lebesgueCanvas || !lebesgueCtx || !_lebesgueSlice || !_lebesgueSliceW || !_lebesgueSliceH) return;
+            const sliceW = _lebesgueSliceW;
+            const sliceH = _lebesgueSliceH;
+            // Size the overlay to match the main canvas backing store
+            const cw = canvas.width, ch = canvas.height;
+            if (lebesgueCanvas.width !== cw || lebesgueCanvas.height !== ch) {
+                lebesgueCanvas.width = cw;
+                lebesgueCanvas.height = ch;
+            }
+            lebesgueCanvas.style.width  = canvas.style.width;
+            lebesgueCanvas.style.height = canvas.style.height;
+
+            // Build a highlight ImageData: for each pixel in the raw slice,
+            // if the value falls in [binLow, binHigh) paint it with the
+            // corresponding colormap color at reduced alpha; otherwise dim it.
+            const imgData = lebesgueCtx.createImageData(cw, ch);
+            const out = imgData.data;
+            const nPx = sliceW * sliceH;
+            // Scale factors from slice coords to canvas backing store
+            const sx = cw / sliceW;
+            const sy = ch / sliceH;
+            // Account for flips
+            const fx = flip_x, fy = flip_y;
+
+            // Dim everything first (semi-transparent black overlay)
+            for (let i = 0; i < out.length; i += 4) {
+                out[i] = 0; out[i+1] = 0; out[i+2] = 0; out[i+3] = 140;
+            }
+
+            // Now clear (make transparent) the pixels that match the bin
+            for (let py = 0; py < sliceH; py++) {
+                for (let px = 0; px < sliceW; px++) {
+                    const val = _lebesgueSlice[py * sliceW + px];
+                    if (val >= binLow && val < binHigh) {
+                        // This pixel matches — make it transparent in the overlay
+                        const dx = fx ? (sliceW - 1 - px) : px;
+                        const dy = fy ? (sliceH - 1 - py) : py;
+                        // Fill the rectangle in canvas backing store that corresponds to this slice pixel
+                        const x0 = Math.floor(dx * sx);
+                        const y0 = Math.floor(dy * sy);
+                        const x1 = Math.min(cw, Math.ceil((dx + 1) * sx));
+                        const y1 = Math.min(ch, Math.ceil((dy + 1) * sy));
+                        for (let cy = y0; cy < y1; cy++) {
+                            const rowOff = cy * cw * 4;
+                            for (let cx = x0; cx < x1; cx++) {
+                                out[rowOff + cx * 4 + 3] = 0; // fully transparent
+                            }
+                        }
+                    }
+                }
+            }
+
+            lebesgueCtx.putImageData(imgData, 0, 0);
+            lebesgueCanvas.style.display = '';
+        }
+
         // ── Colorbar hover expand/collapse + histogram interaction ───────────
         (function _initCbHistInteraction() {
             const cbTooltip = document.getElementById('slim-cb-tooltip');
@@ -1837,6 +1955,7 @@
 
             let _dragTarget = null; // 'vmin' | 'vmax' | null
             let _renderTimer = null;
+            let _lastLebesgueBin = -1; // tracks which bin is currently highlighted
 
             function _xToValue(x, cssW) {
                 if (!_histData) return null;
@@ -1864,15 +1983,23 @@
                 if (!_histData || _histDataVersion !== curVersion) {
                     await _fetchHistogram();
                 }
+                // Also fetch raw slice for Lebesgue mode
+                if (lebesgueMode) {
+                    const lbVer = curVersion + ':' + complexMode + ':' + logScale;
+                    if (!_lebesgueSlice || _lebesgueVersion !== lbVer) {
+                        await _fetchLebesgueSlice();
+                    }
+                }
                 _cbExpanded = true;
                 drawSlimColorbar(cbMarkerFrac);
             }
 
             function _collapseColorbar() {
-                if (!_cbExpanded || _dragTarget) return;
+                if (!_cbExpanded || _dragTarget || lebesgueMode) return;
                 _cbExpanded = false;
                 _histVminX = null; _histVmaxX = null;
                 cbTooltip.style.display = 'none';
+                _clearLebesgueOverlay();
                 drawSlimColorbar(cbMarkerFrac);
             }
 
@@ -1884,6 +2011,8 @@
 
             slimCbWrap.addEventListener('mouseleave', () => {
                 if (_dragTarget) return; // don't collapse while dragging
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
                 clearTimeout(_cbHoverTimer);
                 _cbHoverTimer = setTimeout(_collapseColorbar, 200);
             });
@@ -1921,7 +2050,7 @@
                 } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
                            rect.top <= e.clientY && e.clientY <= rect.bottom) {
                     // Hover: show single value at cursor position
-                    const { vmin: dmin, vmax: dmax } = _histData;
+                    const { vmin: dmin, vmax: dmax, edges, counts } = _histData;
                     const range = dmax - dmin || 1;
                     const val = dmin + (x / cssW) * range;
                     cbTooltip.textContent = _cbFmt(val);
@@ -1929,9 +2058,24 @@
                     cbTooltip.style.top  = '-16px';
                     cbTooltip.style.display = 'block';
                     // Update cursor near clim lines
-                    slimCbCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : 'ew-resize';
+                    slimCbCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : (lebesgueMode ? 'crosshair' : 'default');
+                    // Lebesgue integral: highlight matching pixels
+                    if (lebesgueMode && _lebesgueSlice && edges && counts && counts.length) {
+                        const nBins = counts.length;
+                        const binIdx = Math.max(0, Math.min(nBins - 1, Math.floor((x / cssW) * nBins)));
+                        if (binIdx !== _lastLebesgueBin) {
+                            _lastLebesgueBin = binIdx;
+                            const binLow = edges[binIdx];
+                            const binHigh = edges[binIdx + 1] + (binIdx === nBins - 1 ? 1e-9 : 0);
+                            _drawLebesgueHighlight(binLow, binHigh);
+                            // Redraw colorbar + highlight the hovered bin
+                            drawSlimColorbar(cbMarkerFrac);
+                            _highlightHistBin(binIdx);
+                        }
+                    }
                 } else {
                     cbTooltip.style.display = 'none';
+                    if (lebesgueMode) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; }
                 }
             });
 
@@ -3149,6 +3293,12 @@
             renderInfo();
             // Invalidate cached histogram data so next colorbar hover re-fetches
             _histDataVersion = null;
+            // Invalidate and clear Lebesgue overlay (slice changed)
+            _lebesgueVersion = null;
+            if (lebesgueMode) {
+                _clearLebesgueOverlay();
+                _fetchLebesgueSlice();
+            }
             if (compareActive) {
                 compareRender();
                 return;
@@ -3726,6 +3876,37 @@
                 if (!wasMosaic) dim_z = -1;
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
+            } else if (e.key === 'w') {
+                // Toggle Lebesgue integral mode
+                if (compareActive || rgbMode) {
+                    showStatus('Lebesgue mode: not available in this mode'); return;
+                }
+                lebesgueMode = !lebesgueMode;
+                if (lebesgueMode) {
+                    // Force colorbar expansion and fetch raw slice
+                    if (!_cbExpanded) {
+                        const curVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
+                        if (!_histData || _histDataVersion !== curVersion) {
+                            _fetchHistogram().then(() => {
+                                _cbExpanded = true;
+                                drawSlimColorbar(cbMarkerFrac);
+                            });
+                        } else {
+                            _cbExpanded = true;
+                            drawSlimColorbar(cbMarkerFrac);
+                        }
+                    }
+                    _fetchLebesgueSlice();
+                    showStatus('Lebesgue mode: hover colorbar to highlight matching pixels');
+                } else {
+                    _clearLebesgueOverlay();
+                    _lebesgueSlice = null; _lebesgueVersion = null;
+                    // Allow colorbar to collapse
+                    _cbExpanded = false;
+                    _histVminX = null; _histVmaxX = null;
+                    drawSlimColorbar(cbMarkerFrac);
+                    showStatus('Lebesgue mode: off');
+                }
             } else if (e.key === 'b') {
                 canvasBorders = !canvasBorders;
                 if (multiViewActive) {

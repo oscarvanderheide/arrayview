@@ -56,6 +56,7 @@ DISPLAY
     (cb hover)      expand colorbar + hist    ✓ 54 (hover expands colorbar with histogram bars)
     (cb drag-clim)  drag vmin/vmax lines      ✓ 55 (drag vertical clim lines on expanded colorbar)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
+   w               Lebesgue integral mode    ✓ 61 (w toggles, hover colorbar highlights matching pixels)
 
 INFO & EXPORT
   hover           pixel value + cb marker   ✓ 15, 43 (tooltip follows cursor; H enables first)
@@ -1187,6 +1188,82 @@ def run_smoke(page, base, client, tmp):
     # (covered by scenario 54 — expand + cycle colormap; this scenario is now a no-op)
     print("60: histogram colormap coloring (covered by scenario 54)")
     print("  OK: covered by 54a/54b screenshots")
+
+    # ── 61: Lebesgue integral mode (w key) ───────────────────────────────────────
+    _goto(page, base, sid3d)
+    _focus(page)
+    # 61a: Press w to enable Lebesgue mode — colorbar should expand and stay expanded
+    _press(page, "w")
+    time.sleep(0.6)
+    status_text = page.locator("#status").text_content() or ""
+    if "Lebesgue" in status_text:
+        print("61: Lebesgue mode toggle (w key)")
+        print("  OK: status shows Lebesgue mode enabled")
+    else:
+        print(f"61: Lebesgue mode toggle (w key)")
+        print(f"  WARN: expected 'Lebesgue' in status, got: {status_text!r}")
+    # Colorbar should be expanded (40px)
+    cb = page.locator("#slim-cb")
+    cb_h = int(cb.evaluate("el => el.style.height.replace('px','')") or "0")
+    if cb_h >= 30:
+        print(f"  OK: colorbar expanded to {cb_h}px in Lebesgue mode")
+    else:
+        print(f"  WARN: colorbar height {cb_h}px, expected >=30 (expanded)")
+    _shot(page, "61a_lebesgue_mode_on")
+
+    # 61b: Hover over the colorbar — should show Lebesgue overlay on canvas
+    cb_box = cb.bounding_box()
+    if cb_box:
+        # Move to center of colorbar
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
+        )
+        time.sleep(0.5)
+        # Check that the lebesgue overlay canvas is visible
+        lb_cv = page.locator("#lebesgue-canvas")
+        lb_display = (
+            lb_cv.evaluate("el => getComputedStyle(el).display")
+            if lb_cv.count()
+            else "none"
+        )
+        if lb_display != "none":
+            print("  OK: Lebesgue overlay visible on hover")
+        else:
+            print("  WARN: Lebesgue overlay not visible on hover")
+        _shot(page, "61b_lebesgue_hover")
+
+        # 61c: Move to a different position on the colorbar
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] * 0.2, cb_box["y"] + cb_box["height"] / 2
+        )
+        time.sleep(0.3)
+        _shot(page, "61c_lebesgue_hover_left")
+
+        # Move mouse away from colorbar
+        page.mouse.move(100, 100)
+        time.sleep(0.4)
+        lb_display2 = (
+            lb_cv.evaluate("el => getComputedStyle(el).display")
+            if lb_cv.count()
+            else "block"
+        )
+        if lb_display2 == "none":
+            print("  OK: Lebesgue overlay hidden when not hovering colorbar")
+        else:
+            print(
+                f"  WARN: Lebesgue overlay still visible after moving away (display={lb_display2!r})"
+            )
+
+    # 61d: Press w again to disable
+    _focus(page)
+    _press(page, "w")
+    time.sleep(0.4)
+    status_text2 = page.locator("#status").text_content() or ""
+    if "off" in status_text2.lower():
+        print("  OK: Lebesgue mode disabled")
+    else:
+        print(f"  WARN: expected 'off' in status, got: {status_text2!r}")
+    _shot(page, "61d_lebesgue_mode_off")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
