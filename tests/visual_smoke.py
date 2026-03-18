@@ -792,7 +792,7 @@ def run_smoke(page, base, client, tmp):
     eggs_text = page.locator("#mode-eggs").inner_text()
     if "RGB" not in eggs_text:
         print("  WARNING: RGB egg not visible in demo plasma scenario")
-    # welcome-hint ("⌘O open · drop file to load") must be visible on welcome screen
+    # welcome-hint ("{cmd,ctrl,shift}+o · drop to open array") must be visible on welcome screen
     hint_visible = page.evaluate(
         "() => document.getElementById('welcome-hint').classList.contains('visible')"
     )
