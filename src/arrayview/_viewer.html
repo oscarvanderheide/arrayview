@@ -503,7 +503,7 @@
                 <canvas id="hist-canvas"></canvas>
                 <div id="hist-tooltip"></div>
             </div>
-            <div id="welcome-hint"><span id="welcome-hint-open">⌘O</span> / Shift+O &nbsp;·&nbsp; drop array in window</div>
+            <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -660,7 +660,7 @@
         <div id="loading-overlay"></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
-                <div><kbd id="open-shortcut-hint">Cmd+O</kbd> / Shift+O &nbsp;·&nbsp; drop array in window</div>
+                <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
             </div>
         </div>
     </div>
@@ -741,7 +741,7 @@
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
-                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
+                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
@@ -828,10 +828,8 @@
         const openShortcutText = isMac ? 'Cmd+O' : 'Ctrl+O';
         const hintEl = document.getElementById('open-shortcut-hint');
         const helpEl = document.getElementById('open-shortcut-help');
-        const welcomeOpenEl = document.getElementById('welcome-hint-open');
-        if (hintEl) hintEl.textContent = openShortcutText;
+        if (hintEl) hintEl.textContent = '{cmd,ctrl,shift}+o';
         if (helpEl) helpEl.textContent = openShortcutText;
-        if (welcomeOpenEl) welcomeOpenEl.textContent = isMac ? '⌘O' : 'Ctrl+O';
 
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
