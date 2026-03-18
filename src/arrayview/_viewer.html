@@ -1014,6 +1014,11 @@
                 // Swap compareDisplaySids
                 [compareDisplaySids[srcIdx], compareDisplaySids[idx]] =
                     [compareDisplaySids[idx], compareDisplaySids[srcIdx]];
+                // Keep _compareExplicitSids in sync (used by updateCompareTitles)
+                if (_compareExplicitSids && _compareExplicitSids.length > Math.max(srcIdx, idx)) {
+                    [_compareExplicitSids[srcIdx], _compareExplicitSids[idx]] =
+                        [_compareExplicitSids[idx], _compareExplicitSids[srcIdx]];
+                }
                 // Swap compareFrames
                 [compareFrames[srcIdx], compareFrames[idx]] =
                     [compareFrames[idx], compareFrames[srcIdx]];
@@ -1424,6 +1429,9 @@
             document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
             comparePaneEls.forEach((pane, idx) => {
                 pane.classList.toggle('active', compareActive && idx < count);
+                // Explicitly set CSS order so panes always appear in index order
+                // regardless of .compare-primary / .compare-secondary class overrides.
+                pane.style.order = String(idx);
             });
             compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
             updateCompareTitles();
