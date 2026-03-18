@@ -913,6 +913,41 @@ def get_histogram(
     }
 
 
+@app.get("/lebesgue/{sid}")
+def get_lebesgue_slice(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+):
+    """Return the raw 2-D slice as float32 binary for Lebesgue integral mode.
+
+    The response is a raw byte buffer of ``height * width`` float32 values in
+    row-major (C) order.  Non-finite values are preserved.  If *log_scale* is
+    True the values are ``log10(|x| + 1)``.  The client uses this to do
+    per-pixel bin lookups without a server round-trip on each hover.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode).astype(np.float32)
+    if log_scale:
+        data = np.log10(np.abs(data) + 1).astype(np.float32)
+    return Response(
+        content=data.tobytes(),
+        media_type="application/octet-stream",
+        headers={
+            "X-ArrayView-Width": str(data.shape[1]),
+            "X-ArrayView-Height": str(data.shape[0]),
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 @app.get("/export_slice/{sid}")
 def export_slice(
     sid: str,
