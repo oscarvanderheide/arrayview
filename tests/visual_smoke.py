@@ -51,7 +51,7 @@ DISPLAY
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
     W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
-    W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag left clim line)
+    W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag clim line vertically on left-side hist)
     W (colormap)    bars colored by colormap  ✓ 60 (colormap-colored histogram bars)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
 
@@ -995,13 +995,14 @@ def run_smoke(page, base, client, tmp):
     hist_canvas = page.locator("#hist-canvas")
     hist_box = hist_canvas.bounding_box()
     if hist_box:
-        # Drag from left-quarter to center (simulates dragging vmin line right)
-        start_x = hist_box["x"] + hist_box["width"] * 0.1
-        end_x = hist_box["x"] + hist_box["width"] * 0.4
-        mid_y = hist_box["y"] + hist_box["height"] / 2
-        page.mouse.move(start_x, mid_y)
+        # Histogram is now a vertical sidebar; drag vertically (up = increase value).
+        # Drag from lower-quarter upward to simulate moving vmin line up.
+        mid_x = hist_box["x"] + hist_box["width"] / 2
+        start_y = hist_box["y"] + hist_box["height"] * 0.9
+        end_y = hist_box["y"] + hist_box["height"] * 0.6
+        page.mouse.move(mid_x, start_y)
         page.mouse.down()
-        page.mouse.move(end_x, mid_y, steps=10)
+        page.mouse.move(mid_x, end_y, steps=10)
         page.mouse.up()
         page.wait_for_timeout(400)
         _shot(page, "55_histogram_drag_clim")
