@@ -843,11 +843,22 @@ def view(
         try:
             wp = _session_mod._window_process
             if wp is not None and wp.poll() is None:
-                # Webview already open — inject new tab
-                asyncio.run_coroutine_threadsafe(
+                # Webview process is alive — try to inject a new tab.
+                # Wait up to 2 s for the shell WebSocket to respond (wait=True).
+                future = asyncio.run_coroutine_threadsafe(
                     _server_mod()._notify_shells(session.sid, name),
                     _session_mod.SERVER_LOOP,
                 )
+                try:
+                    notified = future.result(timeout=3.0)
+                except Exception:
+                    notified = False
+                if not notified:
+                    # Shell WebSocket not connected (window closed/crashed).
+                    # Open a fresh native window.
+                    _session_mod._window_process = _open_webview_with_fallback(
+                        url_shell, win_w, win_h
+                    )
             else:
                 _session_mod._window_process = _open_webview_with_fallback(
                     url_shell, win_w, win_h
@@ -1006,10 +1017,15 @@ def _view_subprocess(
         tmp_path = tmp.name
     np.save(tmp_path, data)
 
+    tab_injected = False  # True when an existing shell window received the new tab
     if _server_alive(port):
         # Existing subprocess server — register the new array via /load.
+        # Pass notify=True so the server injects a new tab into any open shell
+        # window rather than requiring the caller to open a new native window.
         try:
-            body = json.dumps({"filepath": tmp_path, "name": name, "rgb": rgb}).encode()
+            body = json.dumps(
+                {"filepath": tmp_path, "name": name, "rgb": rgb, "notify": True}
+            ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/load",
                 data=body,
@@ -1026,6 +1042,7 @@ def _view_subprocess(
             except Exception:
                 pass
             sid = result["sid"]
+            tab_injected = bool(result.get("notified", False))
         except Exception as e:
             _vprint(
                 f"[ArrayView] Failed to register with existing server: {e}", flush=True
@@ -1090,6 +1107,11 @@ def _view_subprocess(
         except Exception:
             pass
         return url_viewer
+
+    if tab_injected:
+        # Tab was injected into the existing native shell window — no new window needed.
+        _vprint("[ArrayView] New tab injected into existing window", flush=True)
+        return ViewHandle(url_viewer, sid, port)
 
     can_native = _can_native_window()
     if window and can_native:
