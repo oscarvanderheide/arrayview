@@ -97,9 +97,11 @@ VIEW MODES (colorbar visible in all)
   single 3d                                 ✓ 06
   mosaic (grid)                             ✓ 09
   multiview (3-plane)                       ✓ 08
-  qmri 3-panel                              ✓ 12
-  qmri 5-panel                              ✓ 10-11
-  compare 2-array                           ✓ 13-14
+   qmri 3-panel                              ✓ 12
+   qmri 5-panel                              ✓ 10-11
+   compare 2-array                           ✓ 13-14
+   compare-qMRI (q in compare)              ✓ 62 (2 arrays × 5 maps; compact toggle)
+   compare-multiview (v in compare)          ✓ 63 (2 arrays × 3 planes; scroll + exit)
 
 MEDICAL IMAGE SIZES (canvas fill / sizing check)
   3D volume 192×192×96                      ✓ 29 (default + scrolled)
@@ -279,6 +281,12 @@ def run_smoke(page, base, client, tmp):
     sid_reg_b = _load(client, arr_reg_b, "reg_b", tmp)
     arr3d_qmri3 = rng.standard_normal((3, 20, 32, 32)).astype(np.float32)
     sid_qmri3 = _load(client, arr3d_qmri3, "qmri3", tmp)
+    # Second 4D qMRI array for compare-qMRI and compare-multiview tests
+    arr4d_b = rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.8 + 0.1
+    sid4d_b = _load(client, arr4d_b, "arr4d_b", tmp)
+    # A 3D array with same spatial dims as arr3d for compare-multiview
+    arr3d_b = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.7 + 0.2
+    sid3d_b = _load(client, arr3d_b, "arr3d_b", tmp)
 
     # ── 01: 2D default view ──────────────────────────────────────────────────
     _goto(page, base, sid2d)
@@ -1264,6 +1272,107 @@ def run_smoke(page, base, client, tmp):
     else:
         print(f"  WARN: expected 'off' in status, got: {status_text2!r}")
     _shot(page, "61d_lebesgue_mode_off")
+
+    # ── 62: compare-qMRI (q key in compare mode) ────────────────────────────────
+    print("62: compare-qMRI mode (q in compare)")
+    # Navigate to compare mode with two qMRI-compatible 4D arrays
+    page.evaluate("() => sessionStorage.clear()")
+    page.goto(f"{base}/?sid={sid4d}&compare_sids={sid4d_b}")
+    page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+    page.wait_for_timeout(1500)
+    _focus(page)
+
+    # 62a: Enter compare-qMRI by pressing q
+    _press(page, "q", wait=2500)
+    qv_rows = page.locator("#qmri-view-wrap .qv-row")
+    row_count = qv_rows.count()
+    if row_count >= 2:
+        print(f"  OK: {row_count} array rows visible in compare-qMRI")
+    else:
+        print(f"  WARN: expected >=2 qv-row elements, got {row_count}")
+    qv_canvases = page.locator("#qmri-view-wrap .qv-canvas")
+    canvas_count = qv_canvases.count()
+    if canvas_count >= 2:
+        print(f"  OK: {canvas_count} canvases rendered (rows × maps)")
+    else:
+        print(f"  WARN: expected >=2 canvases, got {canvas_count}")
+    _shot(page, "62a_compare_qmri_full")
+
+    # 62b: Toggle compact mode (q again, n=5 so compact is available)
+    _press(page, "q", wait=1500)
+    canvas_count_compact = page.locator("#qmri-view-wrap .qv-canvas").count()
+    if canvas_count_compact < canvas_count:
+        print(
+            f"  OK: compact mode has fewer canvases ({canvas_count_compact} vs {canvas_count})"
+        )
+    else:
+        print(
+            f"  WARN: compact mode canvas count {canvas_count_compact} not less than full {canvas_count}"
+        )
+    _shot(page, "62b_compare_qmri_compact")
+
+    # 62c: Scroll a slice
+    _press(page, "ArrowRight", wait=500)
+    _shot(page, "62c_compare_qmri_scrolled")
+
+    # 62d: Exit compare-qMRI (q again exits from compact)
+    _press(page, "q", wait=800)
+    wrap_class = page.locator("#qmri-view-wrap").get_attribute("class") or ""
+    if "active" not in wrap_class:
+        print("  OK: compare-qMRI exited (qmri-view-wrap not active)")
+    else:
+        print(f"  WARN: qmri-view-wrap still active after exit (class={wrap_class!r})")
+    _shot(page, "62d_compare_qmri_exited")
+
+    # ── 63: compare-multiview (v key in compare mode) ───────────────────────────
+    print("63: compare-multiview mode (v in compare)")
+    page.evaluate("() => sessionStorage.clear()")
+    page.goto(f"{base}/?sid={sid3d}&compare_sids={sid3d_b}")
+    page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+    page.wait_for_timeout(1500)
+    _focus(page)
+
+    # 63a: Enter compare-multiview with v key
+    _press(page, "v", wait=2500)
+    mv_rows = page.locator("#qmri-view-wrap .qv-row")
+    mv_row_count = mv_rows.count()
+    if mv_row_count >= 2:
+        print(f"  OK: {mv_row_count} array rows visible in compare-multiview")
+    else:
+        print(f"  WARN: expected >=2 qv-row elements, got {mv_row_count}")
+    mv_canvases = page.locator("#qmri-view-wrap .qv-canvas")
+    mv_canvas_count = mv_canvases.count()
+    expected_mv = 6  # 2 arrays × 3 planes
+    if mv_canvas_count == expected_mv:
+        print(f"  OK: {mv_canvas_count} canvases (2 arrays × 3 planes)")
+    else:
+        print(
+            f"  WARN: expected {expected_mv} canvases for 2 arrays × 3 planes, got {mv_canvas_count}"
+        )
+    _shot(page, "63a_compare_multiview")
+
+    # 63b: Scroll a slice via ArrowRight
+    _press(page, "ArrowRight", wait=500)
+    _shot(page, "63b_compare_multiview_scrolled")
+
+    # 63c: Zoom in
+    _press(page, "+", wait=400)
+    _shot(page, "63c_compare_multiview_zoom")
+    _press(page, "0", wait=300)  # reset zoom
+
+    # 63d: Exit compare-multiview with v key
+    _press(page, "v", wait=800)
+    wrap_class2 = page.locator("#qmri-view-wrap").get_attribute("class") or ""
+    if "active" not in wrap_class2:
+        print("  OK: compare-multiview exited (qmri-view-wrap not active)")
+    else:
+        print(f"  WARN: qmri-view-wrap still active after exit (class={wrap_class2!r})")
+    cmp_active = page.locator("#compare-view-wrap.active").count()
+    if cmp_active:
+        print("  OK: compare mode restored after exit")
+    else:
+        print("  WARN: compare-view-wrap not active after exiting compare-multiview")
+    _shot(page, "63d_compare_multiview_exited")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
