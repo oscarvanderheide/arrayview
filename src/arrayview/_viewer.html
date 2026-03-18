@@ -2706,21 +2706,42 @@
             renderEggs();
         }
 
+        // Lookup table: colormap name → a Nord/pastel color NOT present in that colormap.
+        // For 'gray': use the theme active-dim yellow (CSS var).
+        // For custom/unknown: white.
+        const _AXES_COLORMAP_COLORS = {
+            'gray':     null,           // sentinel: use var(--active-dim)
+            'viridis':  '#ebcb8b',      // Nord warm sand — not in blue/green/yellow viridis
+            'plasma':   '#a3be8c',      // Nord green — not in purple/orange plasma
+            'magma':    '#88c0d0',      // Nord frost blue — not in dark/purple magma
+            'inferno':  '#88c0d0',      // Nord frost blue — not in dark/red inferno
+            'hot':      '#81a1c1',      // Nord steel blue — not in black/red/yellow hot
+            'cool':     '#d08770',      // Nord orange — not in cyan/magenta cool
+            'RdBu_r':   '#a3be8c',      // Nord green — not in red/white/blue
+            'RdBu':     '#a3be8c',
+            'bwr':      '#a3be8c',
+            'seismic':  '#a3be8c',
+            'coolwarm': '#a3be8c',
+            'jet':      '#ebcb8b',      // Nord sand — readable over jet's rainbow
+            'turbo':    '#ebcb8b',
+            'PiYG':     '#88c0d0',      // Nord frost blue — not in pink/green
+            'PRGn':     '#d08770',      // Nord orange — not in purple/green
+        };
+
+        function _axesColorForColormap() {
+            const name = colormap_idx === -1 ? null : COLORMAPS[colormap_idx];
+            if (name === null || name === undefined) return 'rgba(255,255,255,0.85)'; // custom
+            if (name === 'gray') {
+                // Use CSS var — read computed value from :root
+                const v = getComputedStyle(document.documentElement).getPropertyValue('--active-dim').trim();
+                return v || '#f5c842';
+            }
+            return _AXES_COLORMAP_COLORS[name] || 'rgba(255,255,255,0.85)';
+        }
+
         function refreshAxesColor() {
-            // Sample canvas bottom-left corner to pick a contrasting color for the axes SVG.
-            const canvas = document.getElementById('viewer');
-            if (!canvas || !canvas.width || !canvas.height) return;
-            try {
-                const ctx = canvas.getContext('2d');
-                const sz = 12;
-                const d = ctx.getImageData(0, Math.max(0, canvas.height - sz), sz, sz).data;
-                let brightness = 0;
-                for (let i = 0; i < d.length; i += 4)
-                    brightness += (d[i] * 299 + d[i+1] * 587 + d[i+2] * 114) / 1000;
-                brightness /= (d.length / 4);
-                const color = brightness > 140 ? 'rgba(30,30,30,0.85)' : 'rgba(210,210,210,0.85)';
-                document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
-            } catch(e) {}
+            const color = _axesColorForColormap();
+            document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
         }
 
         function flashAxesIndicators() {
@@ -3796,6 +3817,7 @@
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showStatus(`colormap: ${currentColormap()}`);
+                refreshAxesColor();
                 saveState();
             } else if (e.key === 'C') {
                 if (rgbMode) return;
@@ -3809,6 +3831,7 @@
                         customGradientStops = d.gradient_stops;
                         colormap_idx = -1;
                         fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        refreshAxesColor();
                         showStatus(`colormap: ${customColormap}`);
                         saveState();
                     });

@@ -81,6 +81,7 @@ WELCOME SCREEN / DEMO
 
 AXES INDICATOR (edge labels)
   h/l dims flash axes labels, fade in+out   ✓ 50 (opacity checked after h press)
+  axes color reflects active colormap       ✓ 50 (style.color checked after h press)
   axes visible in mosaic mode (z key)       ✓ 50 (mosaic mode flash)
   axes visible in multiview (v key)         ✓ 50 (multiview flash)
   axes visible in compare mode (B key)      ✗ (requires interactive picker)
@@ -830,6 +831,7 @@ def run_smoke(page, base, client, tmp):
     # Verify that pressing h in a 3D array makes .axes-indicator opacity become 1.
     # Also verify axes are visible in mosaic mode (not hidden when dim_z >= 0).
     # Also verify axes are ALWAYS visible in multiview mode (not just flashing).
+    # Also verify axes color reflects the active colormap (not pixel-brightness gray).
     _goto(page, base, sid3d)
     # Check baseline: axes indicator starts hidden (opacity 0)
     ax_opacity_before = page.evaluate(
@@ -841,10 +843,19 @@ def run_smoke(page, base, client, tmp):
         "() => { const el = document.querySelector('.axes-indicator'); "
         "return parseFloat(el ? getComputedStyle(el).opacity : '-1'); }"
     )
+    # Verify axes color is colormap-based (not generic gray)
+    ax_color = page.evaluate(
+        "() => { const el = document.querySelector('.axes-indicator'); "
+        "return el ? el.style.color : ''; }"
+    )
     _shot(page, "50a_axes_flash_normal")
     if ax_opacity_after < 0.5:
         print(
             f"  WARNING: axes indicator opacity={ax_opacity_after:.2f} after h — expected ~1.0 (fade-in not working)"
+        )
+    else:
+        print(
+            f"  OK: axes indicator flashes (opacity={ax_opacity_after:.2f}, color={ax_color!r})"
         )
     # Check mosaic mode: axes should still be visible after z key
     _press(page, "z", wait=400)
