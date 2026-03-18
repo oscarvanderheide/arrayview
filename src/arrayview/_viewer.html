@@ -72,11 +72,9 @@
             color: rgba(190, 190, 190, 0.8);
         }
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
-        #slim-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
+        #slim-cb { display: block; margin: 0 auto; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; }
         #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
-        #hist-wrap { display: none; position: fixed; z-index: 2; text-align: center; }
-        #hist-canvas { display: block; margin: 0 auto; border-radius: 3px; cursor: default; }
-        #hist-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; }
+        #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -498,10 +496,7 @@
             <div id="slim-cb-wrap" style="display:none">
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-labels"></div>
-            </div>
-            <div id="hist-wrap">
-                <canvas id="hist-canvas"></canvas>
-                <div id="hist-tooltip"></div>
+                <div id="slim-cb-tooltip"></div>
             </div>
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
@@ -731,7 +726,6 @@
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
-                 <div class="help-row"><span class="key">W</span><span class="desc">toggle histogram strip (pixel value distribution)</span></div>
                  <div class="help-row"><span class="key">A</span><span class="desc">toggle rectangle ROI mode — drag canvas to select region and show stats</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
@@ -856,11 +850,12 @@
         let customColormap = null, customGradientStops = null;
 
         let cbVisible = true;
-        let histVisible = false;
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
-        let _histRefreshTimer = null;
-        let _histVminX = null, _histVmaxX = null; // kept for compat (unused)
-        let _histVminY = null, _histVmaxY = null; // last-drawn line y in CSS px (for hit-testing)
+        let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
+        let _histFetching = false; // prevents concurrent fetches
+        let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
+        let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
+        let _histVminX = null, _histVmaxX = null; // last-drawn clim line X in CSS px (for drag hit-testing)
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
@@ -1152,6 +1147,7 @@
         }, { passive: false });
         slimCbCanvas.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
+            if (_cbExpanded) return; // expanded mode handles its own drag
             _cbDragX = e.clientX;
             e.preventDefault();
         });
@@ -1688,13 +1684,13 @@
             const rawW = parseInt(canvas.style.width) || Math.round(canvasRect.width);
             const cssW = Math.min(rawW, window.innerWidth - 40);
             if (!cssW || cssW < 10) return;
-            const cbTop = Math.min(canvasRect.bottom + 4, window.innerHeight - 38);
+            const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
+            const cbTop = Math.min(canvasRect.bottom + 4, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 wrap.style.left = ((window.innerWidth - cssW) / 2) + 'px';
                 wrap.style.width = cssW + 'px';
             }
-            const stripH = 8;
             const dpr = window.devicePixelRatio || 1;
             slimCbCanvas.width = Math.round(cssW * dpr);
             slimCbCanvas.height = Math.round(stripH * dpr);
@@ -1706,6 +1702,8 @@
             sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
             sCtx.save();
             sCtx.scale(dpr, dpr);
+            // Draw colormap gradient as the bottom strip (always visible)
+            const gradY = stripH - CB_COLLAPSED_H;
             const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
             const n = stops.length;
             for (let i = 0; i < n; i++) {
@@ -1714,7 +1712,21 @@
                 grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
             }
             sCtx.fillStyle = grad;
-            sCtx.fillRect(0, 0, cssW, stripH);
+            sCtx.fillRect(0, gradY, cssW, CB_COLLAPSED_H);
+            // Draw histogram bars when expanded and data is available
+            if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
+                _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops);
+            }
+            // Auto-refresh histogram when expanded but data is stale
+            if (_cbExpanded && _histDataVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y)) {
+                _fetchHistogram().then(() => {
+                    if (_cbExpanded) drawSlimColorbar(cbMarkerFrac);
+                });
+            }
+            // Draw vmin/vmax vertical lines when expanded
+            if (_cbExpanded && _histData) {
+                _drawClimLines(sCtx, cssW, stripH);
+            }
             // Draw marker line when hovering over main canvas
             if (markerFrac !== null && markerFrac !== undefined) {
                 const mx = Math.round(markerFrac * (cssW - 1));
@@ -1726,161 +1738,117 @@
             slimCbLabels.style.display = '';
             slimCbLabels.style.width = cssW + 'px';
             slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
-            // Refresh histogram position whenever colorbar is redrawn
-            if (histVisible) _positionAndDrawHistogram();
         }
 
-        // ── Histogram strip (W key) ──────────────────────────────────────────
-        const HIST_H = 48; // CSS width of the left-side histogram strip in px (kept as HIST_H for compat)
-        const HIST_W = HIST_H; // alias — the strip is now a vertical sidebar of this width
+        // ── Histogram-in-colorbar ────────────────────────────────────────────
+        const CB_COLLAPSED_H = 8;   // normal colorbar height in CSS px
+        const CB_EXPANDED_H  = 40;  // expanded height when histogram is shown
 
         async function _fetchHistogram() {
-            if (!sid || !indices.length) return;
+            if (!sid || !indices.length || _histFetching) return;
+            _histFetching = true;
             const params = new URLSearchParams({
                 dim_x: dim_x,
                 dim_y: dim_y,
                 indices: indices.join(','),
                 complex_mode: complexMode,
-                bins: 128,
+                bins: 64,
             });
             try {
                 const resp = await fetch(`/histogram/${sid}?${params}`);
-                if (!resp.ok) return;
+                if (!resp.ok) { _histFetching = false; return; }
                 _histData = await resp.json();
+                _histDataVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
             } catch (_) { _histData = null; }
+            _histFetching = false;
         }
 
-        function _renderHistogramCanvas(cssH) {
-            const histCanvas = document.getElementById('hist-canvas');
-            if (!histCanvas || !_histData || !_histData.counts || !_histData.counts.length) return;
+        function _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops) {
             const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-            const dpr = window.devicePixelRatio || 1;
-            histCanvas.width  = Math.round(HIST_W * dpr);
-            histCanvas.height = Math.round(cssH  * dpr);
-            histCanvas.style.width  = HIST_W + 'px';
-            histCanvas.style.height = cssH   + 'px';
-            const hCtx = histCanvas.getContext('2d');
-            hCtx.clearRect(0, 0, histCanvas.width, histCanvas.height);
-            hCtx.save();
-            hCtx.scale(dpr, dpr);
             const maxCount = Math.max(...counts, 1);
-            const n = counts.length;
-            const hlineColor = isDark ? 'rgba(255,255,100,0.8)' : 'rgba(180,100,0,0.8)';
-            // Build a 1-row offscreen canvas with the active colormap gradient for bar coloring
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            const nBins = counts.length;
+            const windowVmin = manualVmin ?? currentVmin;
+            const windowVmax = manualVmax ?? currentVmax;
+            const windowRange = windowVmax - windowVmin || 1;
+            // Build colormap lookup
             let _cmapData = null;
             const _cmapSz = 256;
             if (stops && stops.length >= 2) {
                 const offscreen = document.createElement('canvas');
                 offscreen.width = _cmapSz; offscreen.height = 1;
                 const oCtx = offscreen.getContext('2d');
-                const grad = oCtx.createLinearGradient(0, 0, _cmapSz, 0);
+                const g = oCtx.createLinearGradient(0, 0, _cmapSz, 0);
                 const ns = stops.length;
-                for (let i = 0; i < ns; i++) {
-                    const t = ns <= 1 ? 0 : i / (ns - 1);
-                    const rgb = stops[i];
-                    grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+                for (let si = 0; si < ns; si++) {
+                    const t = ns <= 1 ? 0 : si / (ns - 1);
+                    const rgb = stops[si];
+                    g.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
                 }
-                oCtx.fillStyle = grad;
+                oCtx.fillStyle = g;
                 oCtx.fillRect(0, 0, _cmapSz, 1);
                 _cmapData = oCtx.getImageData(0, 0, _cmapSz, 1).data;
             }
-            // Draw vertical bars: each bin maps to a y-band; bars grow rightward.
-            // Value increases upward: y=0 (top) = dmax, y=cssH (bottom) = dmin.
-            const windowVmin = manualVmin ?? currentVmin;
-            const windowVmax = manualVmax ?? currentVmax;
-            const windowRange = windowVmax - windowVmin || 1;
-            const binH = cssH / n;
-            for (let i = 0; i < n; i++) {
-                const barW = Math.max(1, (counts[i] / maxCount) * (HIST_W - 4));
-                // Bin index 0 = lowest value (bottom of histogram)
-                const y = cssH - (i + 1) * binH; // top y of this bin band
+            // Histogram area is the top portion (above the gradient strip)
+            const histAreaH = stripH - CB_COLLAPSED_H;
+            const binW = cssW / nBins;
+            for (let i = 0; i < nBins; i++) {
+                const barH = Math.max(0.5, (counts[i] / maxCount) * (histAreaH - 2));
+                const x = i * binW;
+                const y = histAreaH - barH; // bars grow upward from the gradient strip
                 let fillStyle;
                 if (_cmapData) {
-                    const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / n;
+                    const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / nBins;
                     const frac = Math.max(0, Math.min(1, (binCenter - windowVmin) / windowRange));
                     const px = Math.min(_cmapSz - 1, Math.round(frac * (_cmapSz - 1))) * 4;
-                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},0.72)`;
+                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},0.85)`;
                 } else {
                     fillStyle = isDark ? 'rgba(180,180,200,0.55)' : 'rgba(80,80,100,0.5)';
                 }
-                hCtx.fillStyle = fillStyle;
-                hCtx.fillRect(0, y + 0.5, barW, binH - 0.5);
+                sCtx.fillStyle = fillStyle;
+                sCtx.fillRect(x, y, binW - 0.5, barH);
             }
-            // Draw vmin/vmax lines (horizontal lines at y positions, value increases upward)
+        }
+
+        function _drawClimLines(sCtx, cssW, stripH) {
+            const { vmin: dmin, vmax: dmax } = _histData;
             const range = dmax - dmin || 1;
-            const vminF = ((manualVmin ?? currentVmin) - dmin) / range; // 0..1 from bottom
+            const vminF = ((manualVmin ?? currentVmin) - dmin) / range; // 0..1 fraction
             const vmaxF = ((manualVmax ?? currentVmax) - dmin) / range;
-            hCtx.strokeStyle = hlineColor;
-            hCtx.lineWidth = 1;
-            _histVminY = null; _histVmaxY = null;
+            const hlineColor = isDark ? 'rgba(255,255,100,0.8)' : 'rgba(180,100,0,0.8)';
+            sCtx.strokeStyle = hlineColor;
+            sCtx.lineWidth = 1.5;
+            _histVminX = null; _histVmaxX = null;
             if (vminF >= 0 && vminF <= 1) {
-                const y = Math.round((1 - vminF) * (cssH - 1)) + 0.5;
-                _histVminY = y - 0.5;
-                hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(HIST_W, y); hCtx.stroke();
+                const x = Math.round(vminF * (cssW - 1)) + 0.5;
+                _histVminX = x - 0.5;
+                sCtx.beginPath(); sCtx.moveTo(x, 0); sCtx.lineTo(x, stripH); sCtx.stroke();
             }
             if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
-                const y = Math.round((1 - vmaxF) * (cssH - 1)) + 0.5;
-                _histVmaxY = y - 0.5;
-                hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(HIST_W, y); hCtx.stroke();
+                const x = Math.round(vmaxF * (cssW - 1)) + 0.5;
+                _histVmaxX = x - 0.5;
+                sCtx.beginPath(); sCtx.moveTo(x, 0); sCtx.lineTo(x, stripH); sCtx.stroke();
             }
-            hCtx.restore();
         }
 
-        function _positionAndDrawHistogram() {
-            const histWrap = document.getElementById('hist-wrap');
-            if (!histWrap || !histVisible) { if (histWrap) histWrap.style.display = 'none'; return; }
-            if (compareActive || rgbMode) { histWrap.style.display = 'none'; return; }
-            // Position left of the main canvas, vertically aligned with it.
-            const canvasEl = document.getElementById('viewer');
-            if (!canvasEl) { histWrap.style.display = 'none'; return; }
-            const canvasRect = canvasEl.getBoundingClientRect();
-            if (!canvasRect.width || !canvasRect.height) { histWrap.style.display = 'none'; return; }
-            const cssH = Math.round(canvasRect.height);
-            histWrap.style.top   = canvasRect.top + 'px';
-            histWrap.style.left  = Math.max(2, canvasRect.left - HIST_W - 6) + 'px';
-            histWrap.style.width  = HIST_W + 'px';
-            histWrap.style.height = cssH + 'px';
-            histWrap.style.display = 'block';
-            _renderHistogramCanvas(cssH);
-        }
-
-        async function toggleHistogram() {
-            histVisible = !histVisible;
-            if (histVisible) {
-                await _fetchHistogram();
-                _positionAndDrawHistogram();
-                showToast('histogram: on');
-            } else {
-                const histWrap = document.getElementById('hist-wrap');
-                if (histWrap) histWrap.style.display = 'none';
-                showToast('histogram: off');
-            }
-             // Update bottomReserve by re-running scaleCanvas
-            scaleCanvas(lastImgW || canvas.width, lastImgH || canvas.height);
-        }
-
-        // ── Histogram drag-clim and hover-bin-value ──────────────────────────
-        (function _initHistInteraction() {
-            const histCanvas = document.getElementById('hist-canvas');
-            const histTooltip = document.getElementById('hist-tooltip');
-            if (!histCanvas || !histTooltip) return;
+        // ── Colorbar hover expand/collapse + histogram interaction ───────────
+        (function _initCbHistInteraction() {
+            const cbTooltip = document.getElementById('slim-cb-tooltip');
+            if (!slimCbWrap || !slimCbCanvas || !cbTooltip) return;
 
             let _dragTarget = null; // 'vmin' | 'vmax' | null
             let _renderTimer = null;
 
-            function _yToValue(y, cssH) {
+            function _xToValue(x, cssW) {
                 if (!_histData) return null;
                 const { vmin: dmin, vmax: dmax } = _histData;
                 const range = dmax - dmin || 1;
-                // y=0 (top) = dmax, y=cssH (bottom) = dmin
-                return dmin + (1 - y / cssH) * range;
+                return dmin + (x / cssW) * range;
             }
 
-            function _hitLine(y) {
+            function _hitLine(x) {
                 const HIT = 7; // px hit radius
-                if (_histVminY !== null && Math.abs(y - _histVminY) <= HIT) return 'vmin';
-                if (_histVmaxY !== null && Math.abs(y - _histVmaxY) <= HIT) return 'vmax';
+                if (_histVminX !== null && Math.abs(x - _histVminX) <= HIT) return 'vmin';
+                if (_histVmaxX !== null && Math.abs(x - _histVmaxX) <= HIT) return 'vmax';
                 return null;
             }
 
@@ -1889,71 +1857,91 @@
                 _renderTimer = setTimeout(() => { updateView(); triggerPreload(); }, 80);
             }
 
-            histCanvas.addEventListener('mousedown', (e) => {
-                if (!histVisible || !_histData) return;
-                const rect = histCanvas.getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const target = _hitLine(y);
+            async function _expandColorbar() {
+                if (_cbExpanded || compareActive || !colorbarVisible()) return;
+                // Fetch histogram data if not already cached for current slice
+                const curVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
+                if (!_histData || _histDataVersion !== curVersion) {
+                    await _fetchHistogram();
+                }
+                _cbExpanded = true;
+                drawSlimColorbar(cbMarkerFrac);
+            }
+
+            function _collapseColorbar() {
+                if (!_cbExpanded || _dragTarget) return;
+                _cbExpanded = false;
+                _histVminX = null; _histVmaxX = null;
+                cbTooltip.style.display = 'none';
+                drawSlimColorbar(cbMarkerFrac);
+            }
+
+            slimCbWrap.addEventListener('mouseenter', () => {
+                if (compareActive || !colorbarVisible()) return;
+                clearTimeout(_cbHoverTimer);
+                _expandColorbar();
+            });
+
+            slimCbWrap.addEventListener('mouseleave', () => {
+                if (_dragTarget) return; // don't collapse while dragging
+                clearTimeout(_cbHoverTimer);
+                _cbHoverTimer = setTimeout(_collapseColorbar, 200);
+            });
+
+            slimCbCanvas.addEventListener('mousedown', (e) => {
+                if (!_cbExpanded || !_histData) return;
+                const rect = slimCbCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const target = _hitLine(x);
                 if (!target) return;
                 _dragTarget = target;
                 // Initialise manualVmin/manualVmax from current display values
                 if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
                 if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
-                histCanvas.style.cursor = 'ns-resize';
+                slimCbCanvas.style.cursor = 'ew-resize';
                 e.preventDefault();
+                e.stopPropagation(); // prevent the existing drag-level handler
             });
 
             window.addEventListener('mousemove', (e) => {
-                if (!histVisible || !_histData) return;
-                const rect = histCanvas.getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const cssH = rect.height || 1;
+                if (!_cbExpanded || !_histData) return;
+                const rect = slimCbCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const cssW = rect.width || 1;
                 if (_dragTarget) {
-                    const val = _yToValue(Math.max(0, Math.min(cssH, y)), cssH);
+                    const val = _xToValue(Math.max(0, Math.min(cssW, x)), cssW);
                     if (val === null) return;
                     if (_dragTarget === 'vmin') {
                         manualVmin = Math.min(val, manualVmax - 1e-10);
                     } else {
                         manualVmax = Math.max(val, manualVmin + 1e-10);
                     }
-                    _positionAndDrawHistogram();
-                    // Update colorbar labels immediately
-                    const slimCbLabels = document.getElementById('slim-cb-labels');
-                    if (slimCbLabels) slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin)}</span><span>${_cbFmt(manualVmax)}</span>`;
+                    drawSlimColorbar(cbMarkerFrac);
                     _scheduleRender();
                 } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
                            rect.top <= e.clientY && e.clientY <= rect.bottom) {
-                    // Hover: show bin value
-                    const { counts, edges } = _histData;
+                    // Hover: show single value at cursor position
                     const { vmin: dmin, vmax: dmax } = _histData;
-                    const binIdx = Math.min(counts.length - 1, Math.floor((1 - y / cssH) * counts.length));
-                    const clampedIdx = Math.max(0, binIdx);
-                    if (clampedIdx >= 0 && clampedIdx < counts.length) {
-                        const lo = edges[clampedIdx], hi = edges[clampedIdx + 1];
-                        histTooltip.textContent = `${_cbFmt(lo)}–${_cbFmt(hi)}: ${counts[clampedIdx]}`;
-                        histTooltip.style.left = (HIST_W + 4) + 'px';
-                        histTooltip.style.top  = Math.max(0, y - 10) + 'px';
-                        histTooltip.style.display = 'block';
-                    }
-                    // Update cursor
-                    histCanvas.style.cursor = _hitLine(y) ? 'ns-resize' : 'default';
+                    const range = dmax - dmin || 1;
+                    const val = dmin + (x / cssW) * range;
+                    cbTooltip.textContent = _cbFmt(val);
+                    cbTooltip.style.left = Math.max(0, x - 15) + 'px';
+                    cbTooltip.style.top  = '-16px';
+                    cbTooltip.style.display = 'block';
+                    // Update cursor near clim lines
+                    slimCbCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : 'ew-resize';
                 } else {
-                    histTooltip.style.display = 'none';
-                    histCanvas.style.cursor = 'default';
+                    cbTooltip.style.display = 'none';
                 }
             });
 
             window.addEventListener('mouseup', () => {
                 if (_dragTarget) {
                     _dragTarget = null;
-                    histCanvas.style.cursor = 'default';
+                    slimCbCanvas.style.cursor = 'ew-resize';
                     clearTimeout(_renderTimer);
                     updateView(); triggerPreload();
                 }
-            });
-
-            histCanvas.addEventListener('mouseleave', () => {
-                if (!_dragTarget) histTooltip.style.display = 'none';
             });
         })();
 
@@ -3159,14 +3147,8 @@
 
         function updateView() {
             renderInfo();
-            // Debounced histogram refresh when visible
-            if (histVisible && !compareActive && !rgbMode) {
-                clearTimeout(_histRefreshTimer);
-                _histRefreshTimer = setTimeout(async () => {
-                    await _fetchHistogram();
-                    _positionAndDrawHistogram();
-                }, 150);
-            }
+            // Invalidate cached histogram data so next colorbar hover re-fetches
+            _histDataVersion = null;
             if (compareActive) {
                 compareRender();
                 return;
@@ -3756,9 +3738,6 @@
                     document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
                 }
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
-            } else if (e.key === 'W') {
-                if (compareActive || rgbMode) { showStatus('histogram: not available in this mode'); return; }
-                toggleHistogram();
             } else if (e.key === 'A') {
                 // Toggle rectangle ROI selection mode
                 if (compareActive || multiViewActive || qmriActive) {

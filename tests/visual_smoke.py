@@ -50,9 +50,11 @@ DISPLAY
    m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
-    W               toggle histogram strip    ✓ 54 (W toggles hist on/off)
-    W (drag lines)  drag vmin/vmax in hist    ✓ 55 (drag clim line vertically on left-side hist)
-    W (colormap)    bars colored by colormap  ✓ 60 (colormap-colored histogram bars)
+    W               toggle histogram strip    ✗ (removed; histogram now auto-shows on colorbar hover)
+    W (drag lines)  drag vmin/vmax in hist    ✗ (removed; drag clim via vertical lines on expanded colorbar)
+    W (colormap)    bars colored by colormap  ✓ 54 (hover colorbar to expand; bars use active colormap)
+    (cb hover)      expand colorbar + hist    ✓ 54 (hover expands colorbar with histogram bars)
+    (cb drag-clim)  drag vmin/vmax lines      ✓ 55 (drag vertical clim lines on expanded colorbar)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
 
 INFO & EXPORT
@@ -967,60 +969,84 @@ def run_smoke(page, base, client, tmp):
         page.wait_for_timeout(300)
     _shot(page, "53_dim_track_drag")
 
-    # ── 54: histogram strip (W key) ──────────────────────────────────────────
-    print("54: W key toggles histogram strip below colorbar")
-    # Navigate away first then back, to ensure fresh JS state (same-URL _goto may reuse state)
-    _goto(page, base, sid2d, wait=600)
+    # ── 54: histogram-in-colorbar (hover to expand) ────────────────────────────
+    print("54: hover colorbar to expand with histogram bars")
+    # Navigate to a fresh 3D session
     _goto(page, base, sid3d, wait=800)
     _focus(page)
-    # Histogram should be hidden initially
-    hist_visible_before = page.evaluate(
-        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
+    # Colorbar should be collapsed initially (8px height)
+    cb_initial_h = page.evaluate(
+        "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
     )
-    _press(page, "W")
-    page.wait_for_timeout(600)
-    hist_visible_after = page.evaluate(
-        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
-    )
-    _shot(page, "54a_histogram_on")
-    # Toggle off
-    _press(page, "W")
-    page.wait_for_timeout(300)
-    hist_hidden = page.evaluate(
-        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display === 'none' : true; }"
-    )
-    _shot(page, "54b_histogram_off")
-    if not hist_visible_before and hist_visible_after and hist_hidden:
-        print("  OK: histogram toggles on/off with W key")
-    else:
-        print(
-            f"  WARN: histogram state unexpected (before={hist_visible_before}, after={hist_visible_after}, hidden={hist_hidden})"
+    # Hover over the colorbar to trigger expansion
+    cb_wrap = page.locator("#slim-cb-wrap")
+    cb_box = cb_wrap.bounding_box()
+    if cb_box:
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
         )
+        page.wait_for_timeout(800)  # wait for histogram fetch + expand
+        cb_expanded_h = page.evaluate(
+            "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
+        )
+        _shot(page, "54a_colorbar_expanded")
+        # Cycle colormap while expanded
+        _press(page, "c", wait=400)
+        # Re-hover to re-expand after redraw
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
+        )
+        page.wait_for_timeout(600)
+        _shot(page, "54b_colorbar_expanded_after_c")
+        # Move mouse away — colorbar should collapse
+        page.mouse.move(10, 10)
+        page.wait_for_timeout(500)
+        cb_collapsed_h = page.evaluate(
+            "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
+        )
+        _shot(page, "54c_colorbar_collapsed")
+        if cb_initial_h <= 10 and cb_expanded_h >= 30 and cb_collapsed_h <= 10:
+            print(
+                f"  OK: colorbar expands on hover ({cb_initial_h}→{cb_expanded_h}→{cb_collapsed_h}px)"
+            )
+        else:
+            print(
+                f"  WARN: colorbar height unexpected (initial={cb_initial_h}, expanded={cb_expanded_h}, collapsed={cb_collapsed_h})"
+            )
+    else:
+        print("  WARN: slim-cb-wrap not found")
 
-    # ── 55: histogram drag-clim ──────────────────────────────────────────────
-    print("55: histogram drag vmin/vmax lines to change clims")
+    # ── 55: histogram-in-colorbar drag-clim ─────────────────────────────────────
+    print("55: drag vmin/vmax clim lines on expanded colorbar")
     _goto(page, base, sid2d, wait=600)
     _focus(page)
-    _press(page, "W")
-    page.wait_for_timeout(600)
-    hist_canvas = page.locator("#hist-canvas")
-    hist_box = hist_canvas.bounding_box()
-    if hist_box:
-        # Histogram is now a vertical sidebar; drag vertically (up = increase value).
-        # Drag from lower-quarter upward to simulate moving vmin line up.
-        mid_x = hist_box["x"] + hist_box["width"] / 2
-        start_y = hist_box["y"] + hist_box["height"] * 0.9
-        end_y = hist_box["y"] + hist_box["height"] * 0.6
-        page.mouse.move(mid_x, start_y)
-        page.mouse.down()
-        page.mouse.move(mid_x, end_y, steps=10)
-        page.mouse.up()
-        page.wait_for_timeout(400)
-        _shot(page, "55_histogram_drag_clim")
-        print("  OK: histogram drag-clim screenshot taken")
+    # Hover colorbar to expand it
+    cb_wrap = page.locator("#slim-cb-wrap")
+    cb_box = cb_wrap.bounding_box()
+    if cb_box:
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
+        )
+        page.wait_for_timeout(800)
+        # Get expanded colorbar canvas bounding box for drag
+        slim_cb = page.locator("#slim-cb")
+        slim_box = slim_cb.bounding_box()
+        if slim_box:
+            # Drag from left side toward center (simulate moving vmin line right)
+            start_x = slim_box["x"] + slim_box["width"] * 0.05
+            mid_y = slim_box["y"] + slim_box["height"] / 2
+            end_x = slim_box["x"] + slim_box["width"] * 0.3
+            page.mouse.move(start_x, mid_y)
+            page.mouse.down()
+            page.mouse.move(end_x, mid_y, steps=10)
+            page.mouse.up()
+            page.wait_for_timeout(400)
+            _shot(page, "55_colorbar_drag_clim")
+            print("  OK: colorbar drag-clim screenshot taken")
+        else:
+            print("  WARN: slim-cb not found")
     else:
-        print("  WARN: hist-canvas not found — W key may not have worked")
-    _press(page, "W")  # close histogram
+        print("  WARN: slim-cb-wrap not found for drag-clim test")
 
     # ── 56: drag-to-reorder compare panels ───────────────────────────────────
     print("56: drag-to-reorder compare panels")
@@ -1157,33 +1183,10 @@ def run_smoke(page, base, client, tmp):
     else:
         print("  WARN: Colormap reason not detected in info overlay DOM")
 
-    # ── 60: histogram bars colored by colormap ───────────────────────────────
-    print("60: histogram bars colored by active colormap")
-    _goto(page, base, sid2d, wait=600)
-    _focus(page)
-    # Enable histogram, verify bars are present
-    _press(page, "W", wait=600)
-    hist_visible = page.evaluate(
-        "() => { const w = document.getElementById('hist-wrap'); return w ? getComputedStyle(w).display !== 'none' : false; }"
-    )
-    _shot(page, "60a_histogram_colormap_default")
-    # Cycle colormap and re-screenshot (should use new colormap colors)
-    _press(page, "c", wait=400)
-    _shot(page, "60b_histogram_colormap_after_c")
-    # Check that hist-canvas has non-zero dimensions (bars drawn)
-    hist_canvas_size = page.evaluate("""() => {
-        const c = document.getElementById('hist-canvas');
-        return c ? { w: c.width, h: c.height } : null;
-    }""")
-    _press(page, "W", wait=300)  # close histogram
-    if hist_visible and hist_canvas_size and hist_canvas_size["w"] > 0:
-        print(
-            f"  OK: colormap-colored histogram drawn ({hist_canvas_size['w']}x{hist_canvas_size['h']})"
-        )
-    else:
-        print(
-            f"  WARN: histogram or canvas issue (visible={hist_visible}, size={hist_canvas_size})"
-        )
+    # ── 60: histogram-in-colorbar uses colormap colors ──────────────────────────
+    # (covered by scenario 54 — expand + cycle colormap; this scenario is now a no-op)
+    print("60: histogram colormap coloring (covered by scenario 54)")
+    print("  OK: covered by 54a/54b screenshots")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
