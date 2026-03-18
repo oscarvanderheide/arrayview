@@ -142,7 +142,90 @@ uv run pytest tests/test_cli.py -x          # CLI entry point
 uv run python -c "from arrayview import view; import numpy as np; view(np.zeros((10,10)))"
 ```
 
-## Red Flags — STOP
+## tmux and VS Code Terminal Detection
+
+tmux is the single most common reason `_find_vscode_ipc_hook()` fails even though the user IS in a VS Code terminal.
+
+### Why the ancestor-walk fails inside tmux
+
+Normal process tree (no tmux):
+```
+VS Code terminal shell (has VSCODE_IPC_HOOK_CLI)
+  └─ uv run python / arrayview   ← walks up, finds it ✓
+```
+
+Process tree inside tmux:
+```
+VS Code terminal shell (has VSCODE_IPC_HOOK_CLI)
+  └─ tmux (client process — also has VSCODE_IPC_HOOK_CLI)
+       ↕ socket IPC (not parent/child)
+tmux-server (independent daemon — does NOT have VSCODE_IPC_HOOK_CLI)
+  └─ pane shell
+       └─ uv run python / arrayview   ← walks up through tmux-server, never finds it ✗
+```
+
+The arrayview process's parent chain goes through `tmux-server`, which is an independent daemon that was started at some point and does NOT inherit the VS Code terminal's environment.
+
+### Why `tmux show-environment` fails
+
+`tmux show-environment VSCODE_IPC_HOOK_CLI` queries tmux's *session* environment. tmux only tracks variables listed in its `update-environment` option. The default list is:
+```
+DISPLAY SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION WINDOWID XAUTHORITY
+```
+`VSCODE_IPC_HOOK_CLI` is **not** in the default list, so it is never copied into tmux's session environment. The command returns `-VSCODE_IPC_HOOK_CLI` (meaning unset) even when every client has it.
+
+### Why `#{client_pid}` alone is unreliable
+
+`tmux display-message -p '#{client_pid}'` returns **one** client PID (the "current" client). This fails when:
+- Multiple clients are attached to the session (e.g., shared session, or user has the session open in both VS Code and a regular terminal)
+- A session was created outside VS Code and then attached from VS Code
+
+### Correct approach: enumerate ALL clients for the current session
+
+```python
+# Get current session ID
+session_id = subprocess.run(["tmux", "display-message", "-p", "#{session_id}"], ...).stdout.strip()
+
+# List ALL clients for this session
+client_pids = subprocess.run(
+    ["tmux", "list-clients", "-t", session_id, "-F", "#{client_pid}"], ...
+).stdout.strip().splitlines()
+
+# Check each client's environment
+for pid_str in client_pids:
+    val = _ipc_from_pid(int(pid_str))
+    if val and os.path.exists(val):
+        return val  # found VSCODE_IPC_HOOK_CLI in one of the VS Code clients ✓
+```
+
+`list-clients -t <session_id>` scopes to the current session only, so we don't accidentally pick up a `VSCODE_IPC_HOOK_CLI` from a completely different VS Code window on another session.
+
+### Detection order in `_find_vscode_ipc_hook()` (when TERM_PROGRAM=tmux)
+
+1. `tmux show-environment VSCODE_IPC_HOOK_CLI` — cheap, works if user set `update-environment`
+2. `tmux list-clients -t <session_id> -F '#{client_pid}'` → `ps ewwww` each — robust, handles all cases
+
+### What `--diagnose` should show when working
+
+```json
+"detection": {
+  "in_vscode_terminal": true,
+  "vscode_ipc_hook_recovered": "/var/folders/.../vscode-ipc-xxx.sock"
+}
+```
+
+If `vscode_ipc_hook_recovered` is `null` despite being in VS Code+tmux, the strategies above both failed. Check:
+- Is the tmux session detached (no clients attached)?
+- Is `ps ewwww -p <client_pid>` working on this OS? (Some Linux distros restrict it)
+- Is the IPC socket path valid (does the `.sock` file exist)?
+
+### Red flags for tmux detection
+
+- "I fixed it with `#{client_pid}`" → only works with one client; use `list-clients` instead
+- "I fixed it with `show-environment`" → only works if user customised `update-environment`; both strategies needed
+- "It works for me but not for the user" → check if they have multiple clients or a session created before VS Code
+
+
 
 - "I changed how the server starts but only tested CLI" → test all paths
 - "The feature works locally but not in tunnel" → check `_is_vscode_remote()` path and port exposure

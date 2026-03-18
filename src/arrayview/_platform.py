@@ -134,23 +134,43 @@ def _find_vscode_ipc_hook() -> str | None:
         except Exception:
             pass
 
-        # Strategy 2: read the environment of the tmux *client* process.
-        # The tmux client runs inside the VS Code terminal shell and inherits
-        # VSCODE_IPC_HOOK_CLI directly, even though tmux pane processes (children
-        # of tmux-server) do not.  `#{client_pid}` gives us that PID.
+        # Strategy 2: enumerate ALL clients attached to the current tmux session
+        # and read VSCODE_IPC_HOOK_CLI from each one's environment.
+        #
+        # Why: tmux pane processes are children of tmux-server, so the ancestor-
+        # walk never reaches the VS Code terminal shell.  But each tmux CLIENT
+        # process (the `tmux` command that attached to the session from a VS Code
+        # terminal) DID inherit VSCODE_IPC_HOOK_CLI directly.  By checking every
+        # client for the current session we handle:
+        #   - single client (most common)
+        #   - multiple clients attached (e.g. shared pairing session)
+        #   - session created outside VS Code then attached from VS Code terminal
         try:
-            r = subprocess.run(
-                ["tmux", "display-message", "-p", "#{client_pid}"],
+            # Get current session ID so we only probe clients for THIS session.
+            r_sid = subprocess.run(
+                ["tmux", "display-message", "-p", "#{session_id}"],
                 capture_output=True,
                 text=True,
                 timeout=2,
             )
-            client_pid = int(r.stdout.strip())
-            if client_pid > 1:
-                val = _ipc_from_pid(client_pid)
-                if val and os.path.exists(val):
-                    _VSCODE_IPC_HOOK_CACHE = val
-                    return val
+            session_id = r_sid.stdout.strip()
+            if session_id:
+                r_clients = subprocess.run(
+                    ["tmux", "list-clients", "-t", session_id, "-F", "#{client_pid}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                for line in r_clients.stdout.strip().splitlines():
+                    try:
+                        client_pid = int(line.strip())
+                    except ValueError:
+                        continue
+                    if client_pid > 1:
+                        val = _ipc_from_pid(client_pid)
+                        if val and os.path.exists(val):
+                            _VSCODE_IPC_HOOK_CACHE = val
+                            return val
         except Exception:
             pass
 
