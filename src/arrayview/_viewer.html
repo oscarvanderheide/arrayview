@@ -429,6 +429,11 @@
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
         .qv-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        /* compare-qMRI: row label (array name) at left of each row */
+        .cq-row-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: horizontal-tb; white-space: nowrap; display: flex; align-items: center; padding-right: 8px; min-width: 40px; }
+        /* compare-qMRI: column header row for map names */
+        .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 48px; }
+        .cq-header-label { font-size: 14px; color: var(--muted); letter-spacing: 0.05em; text-align: center; }
         .q-dim { color: var(--q-dim-color); font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -722,7 +727,7 @@
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2)</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims)</span></div>
                 <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices and crosshair to center (3-plane view)</span></div>
-                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact (T₁, T₂, |PD|) / full view</span></div>
+                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact / full view; also works in compare mode (rows × maps grid)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
@@ -954,6 +959,10 @@
         let qmriDim = -1;
         let qmriViews = [];
         let qmriCompact = false; // false = full view (all maps), true = compact (T₁, T₂, |PD| only)
+        let compareQmriActive = false; // compare + qMRI combined mode
+        let compareQmriViews = [];     // flat array of {sid, colormap, qmriIdx, canvas, ...}
+        let compareQmriSids = [];      // SIDs being compared in compare-qMRI mode
+        let compareQmriDim = -1;       // which dim is qMRI in compare-qMRI mode
         const QMRI_COLORMAPS = {
             3: ['lipari', 'navia', 'gray'],
             4: ['lipari', 'navia', 'gray', 'twilight_shifted'],
@@ -1216,6 +1225,7 @@
         }
 
         function currentViewMode() {
+            if (compareQmriActive) return 'compare-qmri';
             if (qmriActive) return 'qmri';
             if (multiViewActive) return 'multiview';
             if (dim_z >= 0) return 'mosaic';
@@ -1650,6 +1660,7 @@
         }
 
         window.addEventListener('resize', () => {
+            if (compareQmriActive) { compareQmriScaleAllCanvases(); return; }
             if (multiViewActive) { mvScaleAllCanvases(); return; }
             if (compareActive) { compareScaleCanvases(); positionEggs(); return; }
             if (qmriActive) { qvScaleAllCanvases(); return; }
@@ -2707,7 +2718,7 @@
                 html += `<span class="mode-badge mode-badge-fft">FFT</span>`;
             if (logScale)
                 html += `<span class="mode-badge mode-badge-log">LOG</span>`;
-            if (_complexEggVisible && !qmriActive) {
+            if (_complexEggVisible && !qmriActive && !compareQmriActive) {
                 const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
                 html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
             }
@@ -2743,10 +2754,11 @@
                         return; // layout not ready yet — skip, will be called again after first render
                     }
                 }
-            } else if (qmriActive) {
+            } else if (qmriActive || compareQmriActive) {
                 // Find the actual bottom of the lowest canvas row
                 let maxBottom = 0;
-                qmriViews.forEach(v => {
+                const views = compareQmriActive ? compareQmriViews : qmriViews;
+                views.forEach(v => {
                     const r = v.canvas.getBoundingClientRect();
                     if (r.bottom > maxBottom) maxBottom = r.bottom;
                 });
@@ -2790,7 +2802,7 @@
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
                 const d = `data-dim="${i}"`;
-                if (qmriActive && i === qmriDim) {
+                if ((qmriActive && i === qmriDim) || (compareQmriActive && i === compareQmriDim)) {
                     return active ? `<span class="active-dim q-dim dim-label" ${d}>q</span>`
                                   : `<span class="q-dim dim-label" ${d}>q</span>`;
                 }
@@ -3013,7 +3025,7 @@
                 overlayAlpha,
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
-                qmriDim: qmriActive ? qmriDim : null,
+                qmriDim: qmriActive ? qmriDim : (compareQmriActive ? compareQmriDim : null),
                 manualVmin,
                 manualVmax,
             };
@@ -3298,6 +3310,10 @@
             if (lebesgueMode) {
                 _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
+            }
+            if (compareQmriActive) {
+                compareQmriViews.forEach(v => compareQmriRender(v));
+                return;
             }
             if (compareActive) {
                 compareRender();
@@ -3721,7 +3737,8 @@
             if (e.key === '+' || e.key === '=') {
                 userZoom = Math.min(userZoom * 1.1, 10.0);
                 let atMax = false;
-                if (multiViewActive)    { atMax = mvScaleAllCanvases() === 'max'; }
+                if (compareQmriActive)  { atMax = compareQmriScaleAllCanvases() === 'max'; }
+                else if (multiViewActive)    { atMax = mvScaleAllCanvases() === 'max'; }
                 else if (compareActive) { compareScaleCanvases(); }
                 else if (qmriActive)    { atMax = qvScaleAllCanvases() === 'max'; }
                 else                    { atMax = scaleCanvas(canvas.width, canvas.height) === 'max'; }
@@ -3731,7 +3748,8 @@
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
-                if (multiViewActive) mvScaleAllCanvases();
+                if (compareQmriActive) compareQmriScaleAllCanvases();
+                else if (multiViewActive) mvScaleAllCanvases();
                 else if (compareActive) compareScaleCanvases();
                 else if (qmriActive) qvScaleAllCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
@@ -3747,7 +3765,8 @@
                 } else {
                     // No buffered input: reset zoom
                     userZoom = 1.0;
-                    if (multiViewActive) mvScaleAllCanvases();
+                    if (compareQmriActive) compareQmriScaleAllCanvases();
+                    else if (multiViewActive) mvScaleAllCanvases();
                     else if (compareActive) compareScaleCanvases();
                     else if (qmriActive) qvScaleAllCanvases();
                     else scaleCanvas(canvas.width, canvas.height);
@@ -3911,6 +3930,8 @@
                 canvasBorders = !canvasBorders;
                 if (multiViewActive) {
                     mvViews.forEach(v => { if (v.pane) v.pane.classList.toggle('canvas-bordered', canvasBorders); });
+                } else if (compareQmriActive) {
+                    document.querySelectorAll('.qv-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
                 } else if (compareActive) {
                     document.querySelectorAll('.compare-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
                 } else if (qmriActive) {
@@ -4239,8 +4260,21 @@
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 showStatus('origin reset');
             } else if (e.key === 'q') {
-                if (compareActive) { showStatus('compare mode active — press B to exit'); return; }
-                if (qmriActive) {
+                if (compareQmriActive) {
+                    // In compare-qMRI mode: toggle compact or exit
+                    const n = shape[compareQmriDim];
+                    if (n > 3 && !qmriCompact) {
+                        qmriCompact = true;
+                        exitCompareQmri();
+                        enterCompareQmri();
+                    } else {
+                        exitCompareQmri();
+                    }
+                } else if (compareActive) {
+                    // In compare mode: enter compare-qMRI
+                    qmriCompact = false;
+                    enterCompareQmri();
+                } else if (qmriActive) {
                     const n = shape[qmriDim];
                     if (n > 3 && !qmriCompact) {
                         // Full mode → switch to compact mode
@@ -4768,6 +4802,7 @@
         }
 
         function exitCompareMode() {
+            if (compareQmriActive) exitCompareQmri();
             compareActive = false;
             compareFrames = [];
             compareDisplaySids = [];
@@ -5141,6 +5176,317 @@
             updateView();
             renderInfo();
             showStatus('qMRI mode: off');
+        }
+
+        // --------------- Compare + qMRI combined mode ---------------
+        // Layout: rows = compared arrays, columns = parameter maps
+        function enterCompareQmri() {
+            if (!compareActive) return;
+            // Detect qMRI dim
+            const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
+            const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
+            const n = shape[targetDim];
+            if (![3, 4, 5, 6].includes(n)) { showStatus(`qMRI: dim size must be 3–6 (got ${n})`); return; }
+            activeDim = targetDim;
+            compareQmriDim = targetDim;
+            // Collect SIDs being compared
+            const cmpSids = getCompareRenderSids();
+            if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
+            compareQmriSids = [...cmpSids];
+            compareQmriActive = true;
+
+            // Determine which maps to show
+            const allCmaps = QMRI_COLORMAPS[n];
+            const pdIndex = n === 3 ? 2 : (n === 4 ? 2 : (n === 5 ? 3 : 4));
+            const compactIndices = [0, 1, pdIndex];
+            const mapIndices = (qmriCompact && n > 3) ? compactIndices : Array.from({length: n}, (_, i) => i);
+            const cmaps = mapIndices.map(i => allCmaps[i]);
+            const nMaps = cmaps.length;
+
+            // Hide compare panes, show qmri wrap
+            compareWrap.classList.remove('active');
+            document.getElementById('canvas-wrap').style.display = 'none';
+            const wrap = document.getElementById('qmri-view-wrap');
+            wrap.innerHTML = '';
+            wrap.className = 'active';
+
+            // Column header row with map names
+            const headerRow = document.createElement('div');
+            headerRow.className = 'cq-header-row';
+            // Spacer matching row label width
+            const headerSpacer = document.createElement('div');
+            headerSpacer.className = 'cq-row-label';
+            headerSpacer.style.visibility = 'hidden';
+            headerSpacer.textContent = '\u00A0';
+            headerRow.appendChild(headerSpacer);
+            for (let mi = 0; mi < nMaps; mi++) {
+                const hLabel = document.createElement('div');
+                hLabel.className = 'cq-header-label qv-label';
+                hLabel.textContent = QMRI_LABELS[cmaps[mi]] || cmaps[mi];
+                headerRow.appendChild(hLabel);
+            }
+            wrap.appendChild(headerRow);
+
+            compareQmriViews = [];
+            // One row per compared array (SID)
+            for (let si = 0; si < compareQmriSids.length; si++) {
+                const sidVal = compareQmriSids[si];
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'qv-row';
+                // Row label: array name
+                const rowLabel = document.createElement('div');
+                rowLabel.className = 'cq-row-label';
+                rowLabel.textContent = comparePaneLabelForSid(sidVal);
+                rowDiv.appendChild(rowLabel);
+                for (let mi = 0; mi < nMaps; mi++) {
+                    const actualIdx = mapIndices[mi];
+                    const cmap = cmaps[mi];
+                    const pane = document.createElement('div');
+                    pane.className = 'qv-pane';
+                    const area = document.createElement('div');
+                    area.className = 'qv-canvas-area';
+                    const cvWrap = document.createElement('div');
+                    cvWrap.className = 'qv-canvas-wrap';
+                    const cv = document.createElement('canvas');
+                    cv.className = 'qv-canvas';
+                    const cbCv = document.createElement('canvas');
+                    cbCv.className = 'qv-cb';
+                    const cbLabels = document.createElement('div');
+                    cbLabels.className = 'qv-cb-labels';
+                    cvWrap.appendChild(cv);
+                    cvWrap.appendChild(cbCv);
+                    cvWrap.appendChild(cbLabels);
+                    const qvPiEl = document.createElement('div');
+                    qvPiEl.className = 'cv-pixel-info';
+                    cvWrap.appendChild(qvPiEl);
+                    area.appendChild(cvWrap);
+                    pane.appendChild(area);
+                    rowDiv.appendChild(pane);
+                    const view = {
+                        sid: sidVal, colormap: cmap, qmriIdx: actualIdx,
+                        canvas: cv, ctx: cv.getContext('2d'), area,
+                        cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
+                        vmin: 0, vmax: 1,
+                        ws: null, seq: 0, rendering: false, pending: false,
+                        lastW: 0, lastH: 0, lastImageData: null,
+                    };
+                    cv.addEventListener('wheel', (e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY > 0 ? -1 : 1;
+                        indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
+                        renderInfo();
+                        compareQmriViews.forEach(v => compareQmriRender(v));
+                        saveState();
+                    }, { passive: false });
+                    let cqPixelPending = false;
+                    cv.addEventListener('mousemove', (e) => {
+                        if (!view.lastW || !view.lastH) return;
+                        if (cqPixelPending) return;
+                        cqPixelPending = true;
+                        setTimeout(() => { cqPixelPending = false; }, 60);
+                        const rect = cv.getBoundingClientRect();
+                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                        const _mx = e.clientX, _my = e.clientY;
+                        const qIndices = [...indices];
+                        qIndices[compareQmriDim] = view.qmriIdx;
+                        fetch(`/pixel/${view.sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                            .then(r => r.json()).then(d => {
+                                if (d.value !== undefined && isFinite(d.value)) {
+                                    const av = Math.abs(d.value);
+                                    const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
+                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                                } else if (view.pixelInfoEl) {
+                                    view.pixelInfoEl.style.display = 'none';
+                                }
+                            });
+                    });
+                    cv.addEventListener('mouseleave', () => {
+                        compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                    });
+                    if (!httpTransport) {
+                        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        view.ws = new WebSocket(`${proto}//${location.host}/ws/${sidVal}`);
+                        view.ws.binaryType = 'arraybuffer';
+                        view.ws.onopen = () => compareQmriRender(view);
+                        view.ws.onmessage = (event) => compareQmriOnMessage(view, event);
+                        view.ws.onclose = () => { view.rendering = false; };
+                        view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                    }
+                    compareQmriViews.push(view);
+                }
+                wrap.appendChild(rowDiv);
+            }
+            if (httpTransport) {
+                compareQmriViews.forEach(v => compareQmriRender(v));
+            }
+            renderInfo();
+            const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
+            const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
+            showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
+        }
+
+        function exitCompareQmri() {
+            compareQmriActive = false;
+            compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
+            compareQmriViews = [];
+            compareQmriSids = [];
+            compareQmriDim = -1;
+            const wrap = document.getElementById('qmri-view-wrap');
+            wrap.innerHTML = '';
+            wrap.className = '';
+            // Restore compare mode visuals
+            if (compareActive) {
+                compareWrap.classList.add('active');
+                applyCompareLayout();
+                compareRender();
+            } else {
+                document.getElementById('canvas-wrap').style.display = '';
+                updateView();
+            }
+            renderInfo();
+            showStatus('compare qMRI: off');
+        }
+
+        function compareQmriRender(v) {
+            if (httpTransport) {
+                compareQmriRenderHttp(v);
+                return;
+            }
+            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true; v.seq++;
+            const qIndices = [...indices];
+            qIndices[compareQmriDim] = v.qmriIdx;
+            const _qdpr = window.devicePixelRatio || 1;
+            const _qcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _qdpr);
+            const _qch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _qdpr);
+            v.ws.send(JSON.stringify({
+                seq: v.seq, dim_x, dim_y, dim_z: -1,
+                indices: qIndices, colormap: v.colormap,
+                dr: dr_idx, complex_mode: complexMode,
+                log_scale: logScale && v.qmriIdx < 2,
+                slice_dim: current_slice_dim, direction: 1,
+                overlay_sid,
+                overlay_colors,
+                canvas_w: _qcw,
+                canvas_h: _qch,
+            }));
+        }
+
+        async function compareQmriRenderHttp(v) {
+            if (v.rendering) { v.pending = true; return; }
+            v.rendering = true;
+            v.seq++;
+            try {
+                const qIndices = [...indices];
+                qIndices[compareQmriDim] = v.qmriIdx;
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    dim_z: '-1',
+                    indices: qIndices.join(','),
+                    colormap: v.colormap,
+                    dr: String(dr_idx),
+                    complex_mode: String(complexMode),
+                    log_scale: String(logScale && v.qmriIdx < 2),
+                    slice_dim: String(current_slice_dim),
+                });
+                if (overlay_sid) params.set('overlay_sid', overlay_sid);
+                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
+                const frame = await fetchSliceFrame(params, v.sid);
+                v.vmin = frame.vmin;
+                v.vmax = frame.vmax;
+                v.lastImageData = frame.imageData;
+                v.lastW = frame.width;
+                v.lastH = frame.height;
+                compareQmriScaleAllCanvases();
+                compareQmriDrawFrame(v);
+                drawCqSlimCb(v);
+            } finally {
+                v.rendering = false;
+                if (v.pending) { v.pending = false; compareQmriRender(v); }
+                else if (isPlaying && compareQmriViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
+            }
+        }
+
+        function compareQmriDrawFrame(v) {
+            if (!v.lastW || !v.lastH || !v.lastImageData) return;
+            if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
+                v.canvas.width = v.lastW;
+                v.canvas.height = v.lastH;
+            }
+            v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+        }
+
+        function compareQmriScaleAllCanvases() {
+            const ready = compareQmriViews.filter(v => v.lastW && v.lastH);
+            if (!ready.length) return;
+            const nRows = compareQmriSids.length;
+            const nMaps = ready.length / nRows || 1;
+            const cols = Math.ceil(nMaps);
+            const rows = nRows;
+            const colGap = 24;
+            const rowGap = 14;
+            const sidePad = 120; // extra for row labels
+            const labelH = 24;  // column headers
+            const cbH = 30;
+            const bottomPad = 24;
+            const totalH = window.innerHeight - uiReserveV()
+                         - labelH
+                         - rows * cbH
+                         - (rows - 1) * rowGap
+                         - bottomPad;
+            const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
+            const absMaxScaleH = Math.max(10, totalH / rows);
+            const absMaxScale = Math.min(...ready.map(v =>
+                Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
+            const defaultScale = absMaxScale * 0.65;
+            const scaledMin = Math.max(0.01, defaultScale * userZoom);
+            const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
+            for (const v of ready) {
+                v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
+                v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+            }
+            // Size column headers to match pane widths
+            const headerLabels = document.querySelectorAll('.cq-header-label');
+            if (headerLabels.length && ready.length) {
+                const paneW = Math.round(ready[0].lastW * cappedScale);
+                headerLabels.forEach(el => { el.style.width = paneW + 'px'; });
+            }
+            fixWrapperAlignment();
+            requestAnimationFrame(() => {
+                if (compareQmriActive) {
+                    compareQmriViews.forEach(v2 => drawCqSlimCb(v2));
+                    positionEggs();
+                }
+            });
+            return scaledMin > absMaxScale + 0.001 ? 'max' : null;
+        }
+
+        function drawCqSlimCb(v) {
+            // Reuse the same logic as drawQvSlimCb
+            drawQvSlimCb(v);
+        }
+
+        function compareQmriOnMessage(v, event) {
+            const buf = event.data;
+            const h32 = new Uint32Array(buf, 0, 3);
+            const width = h32[1], height = h32[2];
+            if (h32[0] === v.seq) {
+                const f32 = new Float32Array(buf, 12, 2);
+                v.vmin = f32[0]; v.vmax = f32[1];
+                const rgba = new Uint8ClampedArray(buf.slice(20));
+                v.lastImageData = new ImageData(rgba, width, height);
+                v.lastW = width; v.lastH = height;
+                compareQmriScaleAllCanvases();
+                compareQmriDrawFrame(v);
+                drawCqSlimCb(v);
+            }
+            v.rendering = false;
+            if (v.pending) { v.pending = false; compareQmriRender(v); }
+            else if (isPlaying && compareQmriViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
         }
 
         function qvRender(v) {
@@ -5946,7 +6292,8 @@
             } else {
                 indices[d] = Math.round(pct * (shape[d] - 1));
                 renderInfo();
-                if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                if (compareQmriActive) compareQmriViews.forEach(v => compareQmriRender(v));
+                else if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 else if (qmriActive) qmriViews.forEach(v => qvRender(v));
                 else updateView();
             }
@@ -5980,7 +6327,7 @@
             // Only scroll non-display dims (skip x/y/z/q)
             const isSpatialNormal = !multiViewActive && (hoveredDim === dim_x || hoveredDim === dim_y || hoveredDim === dim_z);
             const isSpatialMv = multiViewActive && mvDims.includes(hoveredDim);
-            const isQmriDim = qmriActive && hoveredDim === qmriDim;
+            const isQmriDim = (qmriActive && hoveredDim === qmriDim) || (compareQmriActive && hoveredDim === compareQmriDim);
             if (isSpatialNormal || isSpatialMv || isQmriDim) return;
             e.preventDefault();
             const delta = e.deltaY > 0 ? -1 : 1;
@@ -5988,7 +6335,9 @@
             // Activate the hovered dim (make it yellow)
             if (activeDim !== hoveredDim) { activeDim = hoveredDim; }
             renderInfo();
-            if (multiViewActive) {
+            if (compareQmriActive) {
+                compareQmriViews.forEach(v => compareQmriRender(v));
+            } else if (multiViewActive) {
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
             } else if (qmriActive) {
                 qmriViews.forEach(v => qvRender(v));
