@@ -112,8 +112,10 @@ def _find_vscode_ipc_hook() -> str | None:
             return val
 
     # tmux detaches the process tree from the VS Code terminal that launched it,
-    # so ancestor-walk fails.  But the tmux *server* inherited the VS Code env
-    # vars when it was started, and makes them available via `tmux show-environment`.
+    # so ancestor-walk fails.  Two fallback strategies when TERM_PROGRAM=tmux:
+    #
+    # Strategy 1: tmux show-environment.  Works only if VSCODE_IPC_HOOK_CLI was
+    # explicitly listed in tmux's `update-environment` option (non-default).
     if os.environ.get("TERM_PROGRAM") == "tmux":
         try:
             r = subprocess.run(
@@ -126,6 +128,26 @@ def _find_vscode_ipc_hook() -> str | None:
             line = r.stdout.strip()
             if line.startswith("VSCODE_IPC_HOOK_CLI="):
                 val = line[len("VSCODE_IPC_HOOK_CLI=") :]
+                if val and os.path.exists(val):
+                    _VSCODE_IPC_HOOK_CACHE = val
+                    return val
+        except Exception:
+            pass
+
+        # Strategy 2: read the environment of the tmux *client* process.
+        # The tmux client runs inside the VS Code terminal shell and inherits
+        # VSCODE_IPC_HOOK_CLI directly, even though tmux pane processes (children
+        # of tmux-server) do not.  `#{client_pid}` gives us that PID.
+        try:
+            r = subprocess.run(
+                ["tmux", "display-message", "-p", "#{client_pid}"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            client_pid = int(r.stdout.strip())
+            if client_pid > 1:
+                val = _ipc_from_pid(client_pid)
                 if val and os.path.exists(val):
                     _VSCODE_IPC_HOOK_CACHE = val
                     return val
