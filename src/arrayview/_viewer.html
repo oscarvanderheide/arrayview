@@ -2025,16 +2025,11 @@
                 drawSlimColorbar(cbMarkerFrac);
             }
 
-            slimCbWrap.addEventListener('mouseenter', () => {
-                if (compareActive || !colorbarVisible()) return;
-                clearTimeout(_cbHoverTimer);
-                _expandColorbar();
-            });
-
             slimCbWrap.addEventListener('mouseleave', () => {
                 if (_dragTarget) return; // don't collapse while dragging
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
+                cbTooltip.style.display = 'none';
                 clearTimeout(_cbHoverTimer);
                 _cbHoverTimer = setTimeout(_collapseColorbar, 200);
             });
@@ -2104,7 +2099,7 @@
             window.addEventListener('mouseup', () => {
                 if (_dragTarget) {
                     _dragTarget = null;
-                    slimCbCanvas.style.cursor = 'ew-resize';
+                    slimCbCanvas.style.cursor = 'default';
                     clearTimeout(_renderTimer);
                     updateView(); triggerPreload();
                 }
