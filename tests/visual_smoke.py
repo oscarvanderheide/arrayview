@@ -330,6 +330,21 @@ def run_smoke(page, base, client, tmp):
     # ── 08: multiview (v) ────────────────────────────────────────────────────
     _press(page, "v", wait=1000)
     _shot(page, "08_multiview")
+    # Check first pane axes labels match normal-mode orientation (z=x-axis, y=y-axis for [0,1,2] dims)
+    first_pane_ax_x = page.evaluate(
+        "() => { const els = document.querySelectorAll('.mv-canvas-wrap .axes-lbl-x'); return els.length ? els[0].textContent : ''; }"
+    )
+    first_pane_ax_y = page.evaluate(
+        "() => { const els = document.querySelectorAll('.mv-canvas-wrap .axes-lbl-y'); return els.length ? els[0].textContent : ''; }"
+    )
+    if first_pane_ax_x == "z" and first_pane_ax_y == "y":
+        print(
+            f"  OK: first pane axes correct (x={first_pane_ax_x}, y={first_pane_ax_y}) — matches normal mode"
+        )
+    else:
+        print(
+            f"  WARN: first pane axes unexpected (x={first_pane_ax_x!r}, y={first_pane_ax_y!r}), expected x=z, y=y"
+        )
     _press(page, "v", wait=400)  # exit
 
     # ── 09: mosaic (z key, requires 4D array) ────────────────────────────────
