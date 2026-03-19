@@ -745,7 +745,7 @@
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">overlay transparency (overlay mode), registration blend (R in compare), or arrow density (vector field mode)</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: decrease / increase playback fps; else: overlay transparency, registration blend, or arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                  <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
@@ -3405,6 +3405,7 @@
         }
 
         let playLastFrameTime = 0;
+        let playFps = 15; // playback speed; adjustable with [ / ] while playing
 
         function stopPlay() {
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
@@ -3413,7 +3414,8 @@
 
         function playNext() {
             if (!isPlaying) return;
-            const delay = Math.max(0, 16 - (performance.now() - playLastFrameTime));
+            const targetMs = 1000 / playFps;
+            const delay = Math.max(0, targetMs - (performance.now() - playLastFrameTime));
             playInterval = setTimeout(() => {
                 if (!isPlaying) return;
                 playLastFrameTime = performance.now();
@@ -3436,7 +3438,7 @@
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
-            setStatus('▶ playing  (Space to stop)');
+            setStatus(`▶ playing  (Space to stop · [ / ] fps: ${playFps})`);
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playLastFrameTime = performance.now();
@@ -3843,6 +3845,13 @@
                 if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
                 cycleCompareTarget(1);
             } else if (e.key === '[' || e.key === ']') {
+                if (isPlaying) {
+                    const delta = e.key === ']' ? 5 : -5;
+                    playFps = Math.max(1, Math.min(120, playFps + delta));
+                    setStatus(`▶ playing  (Space to stop · [ / ] fps: ${playFps})`);
+                    showToast(`playback: ${playFps} fps`);
+                    return;
+                }
                 const step = e.key === ']' ? 0.05 : -0.05;
                 if (overlay_sid && !registrationMode) {
                     // Overlay transparency mode
