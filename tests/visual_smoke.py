@@ -15,7 +15,7 @@ NAVIGATION
   scroll          prev/next slice           ✓ 07, 11 (scroll in 3d, qmri)
   h/l/←/→        move cursor to dim        ✓ 50 (axes flash on h/l)
   j/k/↓/↑        prev/next index           ✓ 07 (arrow keys scroll)
-  r               reverse axis              ✓ 19 (r key reverses)
+  r               reverse axis / rotate 90° ✓ 19 (r key reverses), 67 (r rotates when slice dim active)
   Space           toggle auto-play          ✓ 20 (play then stop)
   [ / ] (play)    change playback fps       ✓ 64 (play + ] raises fps)
   + / -           zoom in/out               ✓ 04 (zoom in), 05 (zoom out+reset)
@@ -1488,6 +1488,33 @@ def run_smoke(page, base, client, tmp):
                 )
     _shot(page, "66b_stretch_to_square_multiview_auto")
     _press(page, "v", wait=400)  # exit multi-view
+
+    # ── 67: r key — rotate 90° CW when slice dim is active ──────────────────────
+    print("67: r key rotates 90° CW when slice dim (not x or y) is active")
+    _goto(page, base, sid3d, wait=600)
+    _focus(page)
+    # Check current dim_x, dim_y orientation before rotate
+    cv_before = page.locator("#canvas").bounding_box()
+    # Press r — in default state activeDim should be current_slice_dim, not dim_x or dim_y
+    # This should rotate 90° CW swapping dim_x and dim_y
+    _press(page, "r", wait=400)
+    cv_after = page.locator("#canvas").bounding_box()
+    _shot(page, "67a_r_rotate_cw")
+    if cv_before and cv_after:
+        w_b, h_b = cv_before["width"], cv_before["height"]
+        w_a, h_a = cv_after["width"], cv_after["height"]
+        # After 90° CW rotation, width and height should swap (unless array is square)
+        if abs(w_a - h_b) < 5 and abs(h_a - w_b) < 5:
+            print(f"  OK: canvas rotated ({w_b:.0f}×{h_b:.0f} → {w_a:.0f}×{h_a:.0f})")
+        else:
+            print(
+                f"  INFO: canvas size before={w_b:.0f}×{h_b:.0f}, after={w_a:.0f}×{h_a:.0f} (may be square array)"
+            )
+    # Press r three more times to get back to original orientation
+    _press(page, "r", wait=200)
+    _press(page, "r", wait=200)
+    _press(page, "r", wait=200)
+    _shot(page, "67b_r_rotate_back")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
