@@ -4927,9 +4927,9 @@
             wrap.appendChild(cbWrap);
             // 3 views: each shows a different pair of dims, slicing through the third
             const defs = [
-                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
+                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
+                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
             ];
             mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
@@ -5544,9 +5544,9 @@
             const dims = defaultMultiViewDims();
             // Plane definitions: same as enterMultiView
             const planeDefs = [
-                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
+                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
+                { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
             ];
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
