@@ -78,6 +78,7 @@ LOADING ANIMATION
   logo stops after canvas visible           ✓ 47
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
   loading text absent                       ✓ 47 (#loading-label not in DOM)
+  startup spinner (pywebview)               ✓ 68 (_LOADING_HTML + loading_port param checks)
 
 WELCOME SCREEN / DEMO
   empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
@@ -1515,6 +1516,32 @@ def run_smoke(page, base, client, tmp):
     _press(page, "r", wait=200)
     _press(page, "r", wait=200)
     _shot(page, "67b_r_rotate_back")
+
+    # ── 68: startup animation — _LOADING_HTML spinner in _launcher.py ───────────
+    print("68: startup animation — loading spinner present in _launcher.py")
+    # The spinner lives in the pywebview subprocess and is not visible in the
+    # browser smoke test (native window only).  We verify the implementation is
+    # in place by inspecting the launcher source.
+    import importlib, inspect
+
+    launcher = importlib.import_module("arrayview._launcher")
+    assert hasattr(launcher, "_LOADING_HTML"), (
+        "FAIL: _LOADING_HTML missing from _launcher.py"
+    )
+    html = launcher._LOADING_HTML
+    assert "animation" in html, "FAIL: _LOADING_HTML has no CSS animation"
+    assert "#111" in html or "#111111" in html, (
+        "FAIL: _LOADING_HTML does not use dark background"
+    )
+    assert "#f0c040" in html, "FAIL: _LOADING_HTML does not use ArrayView yellow"
+    # Check that _open_webview accepts loading_port keyword
+    sig = inspect.signature(launcher._open_webview)
+    assert "loading_port" in sig.parameters, (
+        "FAIL: _open_webview missing loading_port parameter"
+    )
+    print(
+        "  OK: _LOADING_HTML present, CSS animation + color checks pass, loading_port parameter present"
+    )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

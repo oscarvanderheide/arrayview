@@ -147,48 +147,104 @@ def _get_icon_png_path() -> str | None:
     return _ICON_PNG_PATH or None
 
 
+_LOADING_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;background:#111111;display:flex;align-items:center;justify-content:center}
+.r{width:52px;height:52px;border:4px solid #222222;border-top-color:#f0c040;border-radius:50%;animation:s .9s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+</style></head><body><div class="r"></div></body></html>"""
+
+
 def _open_webview(
-    url: str, win_w: int, win_h: int, capture_stderr: bool = False
+    url: str,
+    win_w: int,
+    win_h: int,
+    capture_stderr: bool = False,
+    loading_port: int | None = None,
 ) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
-    multiprocessing bootstrap errors when called from a Jupyter kernel."""
+    multiprocessing bootstrap errors when called from a Jupyter kernel.
+
+    When *loading_port* is provided, the window opens immediately showing a
+    spinner on a dark background.  A background thread inside the subprocess
+    polls ``localhost:<loading_port>`` every 50 ms; when the port responds the
+    window navigates to *url*.  This makes the window appear before the server
+    has finished binding, shaving the perceived startup latency.
+    """
     icon_path = _get_icon_png_path() or ""
-    script = "\n".join(
-        [
-            "import sys, webview",
-            "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
-            "webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
-            "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
-            "if icon:",
-            "    if sys.platform == 'darwin':",
-            "        def _set_icon():",
-            "            try:",
-            "                import AppKit",
-            "                from PyObjCTools import AppHelper",
-            "                img = AppKit.NSImage.alloc().initWithContentsOfFile_(icon)",
-            "                AppHelper.callAfter(AppKit.NSApplication.sharedApplication().setApplicationIconImage_, img)",
-            "            except Exception: pass",
-            "        kw['func'] = _set_icon",
-            "    else:",
-            "        kw['icon'] = icon",
-            "webview.start(**kw)",
-        ]
-    )
+    loading_html = _LOADING_HTML.replace("\n", " ").replace('"', '\\"')
+    script_lines = [
+        "import sys, socket, threading, time, webview",
+        "u, w, h, icon, lport_s = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]",
+        "lport = int(lport_s) if lport_s else 0",
+        f'loading_html = "{loading_html}"',
+        "if lport:",
+        "    win = webview.create_window('ArrayView', html=loading_html, width=w, height=h, background_color='#111111')",
+        "else:",
+        "    win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#111111')",
+        "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
+        "def _start_func():",
+        "    if icon:",
+        "        if sys.platform == 'darwin':",
+        "            try:",
+        "                import AppKit",
+        "                from PyObjCTools import AppHelper",
+        "                img = AppKit.NSImage.alloc().initWithContentsOfFile_(icon)",
+        "                AppHelper.callAfter(AppKit.NSApplication.sharedApplication().setApplicationIconImage_, img)",
+        "            except Exception: pass",
+        "        else:",
+        "            pass  # icon handled via kw below for non-darwin",
+        "    if lport:",
+        "        def _poll():",
+        "            for _ in range(600):  # up to 30 s",
+        "                try:",
+        "                    s = socket.create_connection(('127.0.0.1', lport), timeout=0.1)",
+        "                    s.close()",
+        "                    win.load_url(u)",
+        "                    return",
+        "                except OSError:",
+        "                    pass",
+        "                time.sleep(0.05)",
+        "        threading.Thread(target=_poll, daemon=True).start()",
+        "if icon and sys.platform != 'darwin':",
+        "    kw['icon'] = icon",
+        "kw['func'] = _start_func",
+        "webview.start(**kw)",
+    ]
+    script = "\n".join(script_lines)
     return subprocess.Popen(
-        [sys.executable, "-c", script, url, str(win_w), str(win_h), icon_path],
+        [
+            sys.executable,
+            "-c",
+            script,
+            url,
+            str(win_w),
+            str(win_h),
+            icon_path,
+            str(loading_port or ""),
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
     )
 
 
-def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.Popen:
+def _open_webview_with_fallback(
+    url: str,
+    win_w: int,
+    win_h: int,
+    loading_port: int | None = None,
+) -> subprocess.Popen:
     """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
     OR if no viewer WebSocket connects within ~10 s (catches macOS non-framework Python
     zombies that start but show nothing).
 
     Used from view() (Python API) where the host process stays alive.
+
+    When *loading_port* is provided the window opens immediately with a spinner
+    and navigates to *url* once the server is accepting connections.
     """
-    proc = _open_webview(url, win_w, win_h, capture_stderr=True)
+    proc = _open_webview(
+        url, win_w, win_h, capture_stderr=True, loading_port=loading_port
+    )
     _vprint(f"[ArrayView] Launching native window (pid={proc.pid})...", flush=True)
     sockets_before = (
         _session_mod.VIEWER_SOCKETS
@@ -262,16 +318,26 @@ def _open_webview_with_fallback(url: str, win_w: int, win_h: int) -> subprocess.
     return proc
 
 
-def _open_webview_cli(url: str, win_w: int, win_h: int) -> bool:
+def _open_webview_cli(
+    url: str,
+    win_w: int,
+    win_h: int,
+    loading_port: int | None = None,
+) -> bool:
     """Launch pywebview from the CLI and synchronously wait to detect an immediate crash.
 
     Returns True if the window appears to have started (still alive after 2 s).
     Returns False if it crashed; in that case the caller should fall back to browser.
     The CLI process must not exit while the daemon-thread watchdog is still pending,
     so the wait is done synchronously here.
+
+    When *loading_port* is provided the window opens immediately with a spinner
+    and navigates to *url* once the server is accepting connections.
     """
     _vprint("[ArrayView] Launching native window (PyWebView)...", flush=True)
-    proc = _open_webview(url, win_w, win_h, capture_stderr=True)
+    proc = _open_webview(
+        url, win_w, win_h, capture_stderr=True, loading_port=loading_port
+    )
     for _ in range(20):
         time.sleep(0.1)
         if proc.poll() is not None:
@@ -807,6 +873,42 @@ def view(
             daemon=not _script,
             name="arrayview-server",
         ).start()
+
+        # --- Startup animation ---
+        # Open the native window with a spinner NOW, before the server is ready.
+        # The pywebview subprocess polls the port itself and navigates when ready.
+        # We still wait for the server-ready event below so that ViewHandle is
+        # safe to use (SERVER_LOOP is set, session is registered, etc.).
+        can_native_window = _can_native_window() if window else False
+        _early_window_opened = False
+        if (
+            window
+            and can_native_window
+            and not _force_browser
+            and not _force_vscode
+            and not inline
+        ):
+            encoded_name_early = urllib.parse.quote(name)
+            url_shell_early = f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name_early}"
+            if _overlay_sids:
+                _url_viewer_early = f"http://localhost:{port}/?sid={session.sid}"
+                _url_viewer_early += f"&overlay_sid={','.join(_overlay_sids)}"
+                _url_viewer_early += f"&overlay_colors={','.join(_overlay_colors)}"
+            else:
+                _url_viewer_early = f"http://localhost:{port}/?sid={session.sid}"
+            try:
+                wp = _session_mod._window_process
+                if wp is None or wp.poll() is not None:
+                    # No existing window — open a fresh one with the spinner now.
+                    _session_mod._window_process = _open_webview_with_fallback(
+                        url_shell_early, win_w, win_h, loading_port=port
+                    )
+                    _early_window_opened = True
+                # If window is already alive, we'll inject a tab after the server is ready
+                # (same as before — tab injection doesn't need a loading screen).
+            except Exception:
+                pass  # fall through to normal open below
+
         # Wait for the socket to be ready (event-based, much faster than HTTP polling).
         if not _server_ready_event.wait(timeout=10.0):
             if _port_in_use(port) and not _server_alive(port):
@@ -820,6 +922,8 @@ def view(
         _platform_mod._jupyter_server_port = port
     else:
         _platform_mod._jupyter_server_port = port  # server already ours on this port
+        can_native_window = _can_native_window() if window else False
+        _early_window_opened = False
 
     # SERVER_LOOP is set as the first statement of _serve_background, before
     # _server_ready_event fires, so it is guaranteed non-None by this point.
@@ -838,35 +942,39 @@ def view(
 
         return IFrame(src=url_viewer, width="100%", height=height)
 
-    can_native_window = _can_native_window() if window else False
     if window and can_native_window and not _force_browser and not _force_vscode:
-        try:
-            wp = _session_mod._window_process
-            if wp is not None and wp.poll() is None:
-                # Webview process is alive — try to inject a new tab.
-                # Wait up to 2 s for the shell WebSocket to respond (wait=True).
-                future = asyncio.run_coroutine_threadsafe(
-                    _server_mod()._notify_shells(session.sid, name),
-                    _session_mod.SERVER_LOOP,
-                )
-                try:
-                    notified = future.result(timeout=3.0)
-                except Exception:
-                    notified = False
-                if not notified:
-                    # Shell WebSocket not connected (window closed/crashed).
-                    # Open a fresh native window.
+        if _early_window_opened:
+            # Window already opened with loading spinner before server was ready —
+            # no further action needed.
+            pass
+        else:
+            try:
+                wp = _session_mod._window_process
+                if wp is not None and wp.poll() is None:
+                    # Webview process is alive — try to inject a new tab.
+                    # Wait up to 2 s for the shell WebSocket to respond (wait=True).
+                    future = asyncio.run_coroutine_threadsafe(
+                        _server_mod()._notify_shells(session.sid, name),
+                        _session_mod.SERVER_LOOP,
+                    )
+                    try:
+                        notified = future.result(timeout=3.0)
+                    except Exception:
+                        notified = False
+                    if not notified:
+                        # Shell WebSocket not connected (window closed/crashed).
+                        # Open a fresh native window.
+                        _session_mod._window_process = _open_webview_with_fallback(
+                            url_shell, win_w, win_h
+                        )
+                else:
                     _session_mod._window_process = _open_webview_with_fallback(
                         url_shell, win_w, win_h
                     )
-            else:
-                _session_mod._window_process = _open_webview_with_fallback(
-                    url_shell, win_w, win_h
+            except Exception:
+                _open_browser(
+                    url_viewer, force_vscode=_force_vscode, title=f"ArrayView: {name}"
                 )
-        except Exception:
-            _open_browser(
-                url_viewer, force_vscode=_force_vscode, title=f"ArrayView: {name}"
-            )
     else:
         if (
             window
@@ -1018,6 +1126,7 @@ def _view_subprocess(
     np.save(tmp_path, data)
 
     tab_injected = False  # True when an existing shell window received the new tab
+    _early_cli_window_opened = False  # True when window opened early with spinner
     if _server_alive(port):
         # Existing subprocess server — register the new array via /load.
         # Pass notify=True so the server injects a new tab into any open shell
@@ -1072,6 +1181,20 @@ def _view_subprocess(
         subprocess.Popen(
             [sys.executable, "-c", script],
         )
+
+        # --- Startup animation ---
+        # Open the native window with a spinner NOW, before the server is ready.
+        # The pywebview subprocess polls the port independently and navigates when ready.
+        # We still _wait_for_port() below for safety before computing the final URL.
+        can_native = _can_native_window()
+        _early_cli_window_opened = False
+        if window and can_native and not force_vscode and not inline:
+            encoded_name_early = urllib.parse.quote(name)
+            url_shell_early = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name_early}"
+            _early_cli_window_opened = _open_webview_cli(
+                url_shell_early, 1400, 900, loading_port=port
+            )
+
         if not _wait_for_port(port, timeout=15.0, tcp_only=True):
             try:
                 os.unlink(tmp_path)
@@ -1115,7 +1238,11 @@ def _view_subprocess(
 
     can_native = _can_native_window()
     if window and can_native:
-        if not _open_webview_cli(url_shell, 1400, 900):
+        if _early_cli_window_opened:
+            # Window already opened with loading spinner before server was ready —
+            # no further action needed.
+            pass
+        elif not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
             _open_browser(
                 url_viewer,
@@ -1943,6 +2070,19 @@ def arrayview():
     subprocess.Popen(
         [sys.executable, "-c", script],
     )
+
+    # --- Startup animation (CLI path) ---
+    # Open the native window with a spinner NOW, before the server is ready.
+    # The pywebview subprocess polls the port independently and navigates when ready.
+    # compare_sids are not yet loaded at this point — the shell opens with just
+    # init_sid; compare params are injected after the server starts (see below).
+    _cli_early_window = False
+    if use_webview and overlay_sid is None and not is_remote:
+        url_shell_early = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+        _cli_early_window = _open_webview_cli(
+            url_shell_early, 1400, 900, loading_port=args.port
+        )
+
     if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
         print(
             f"Error: ArrayView server failed to start on port {args.port}. "
@@ -1990,23 +2130,28 @@ def arrayview():
         qs += f"&dim_x={dims_override[0]}&dim_y={dims_override[1]}"
 
     if use_webview and overlay_sid is None:
-        init_qs = f"init_sid={sid}&init_name={encoded_name}"
-        if compare_sids:
-            init_qs += (
-                f"&init_compare_sid={compare_sids[0]}"
-                f"&init_compare_sids={','.join(compare_sids)}"
-            )
-        url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
-        if not _open_webview_cli(url_shell, 1400, 900):
-            _vprint("[ArrayView] Falling back to browser", flush=True)
-            url = f"http://localhost:{args.port}/{qs}"
-            _print_viewer_location(url)
-            _open_browser(
-                url,
-                blocking=False,
-                force_vscode=(window_mode == "vscode"),
-                title=f"ArrayView: {name}",
-            )
+        if _cli_early_window:
+            # Window already opened with loading spinner before server was ready —
+            # no further action needed.
+            pass
+        else:
+            init_qs = f"init_sid={sid}&init_name={encoded_name}"
+            if compare_sids:
+                init_qs += (
+                    f"&init_compare_sid={compare_sids[0]}"
+                    f"&init_compare_sids={','.join(compare_sids)}"
+                )
+            url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
+            if not _open_webview_cli(url_shell, 1400, 900):
+                _vprint("[ArrayView] Falling back to browser", flush=True)
+                url = f"http://localhost:{args.port}/{qs}"
+                _print_viewer_location(url)
+                _open_browser(
+                    url,
+                    blocking=False,
+                    force_vscode=(window_mode == "vscode"),
+                    title=f"ArrayView: {name}",
+                )
     else:
         if use_webview and overlay_sid:
             _vprint(
