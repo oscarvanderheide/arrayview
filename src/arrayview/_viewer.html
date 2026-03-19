@@ -732,7 +732,7 @@
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
-                <div class="help-row"><span class="key">p</span><span class="desc">stretch panes to square box (3-plane view)</span></div>
+                <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
                  <div class="help-row"><span class="key">A</span><span class="desc">toggle rectangle ROI mode — drag canvas to select region and show stats</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
@@ -906,6 +906,7 @@
 
         let userZoom = 1.0;
         let _mvPrevZoom = 1.0;
+        let _mvPrevSquareStretch = false;
         let _eggsVisible = true;
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
@@ -929,7 +930,7 @@
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let canvasBorders = false; // toggled by 'b' key
-        let squareStretch = false; // toggled by 'p' — stretch each pane to a square box
+        let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareSidList = compareSidsParam
@@ -1298,8 +1299,9 @@
                 userZoom = capScale / baseScale;
             }
             const finalScale = Math.min(baseScale * userZoom, capScale);
-            const cssW = Math.round(w * finalScale);
-            const cssH = Math.round(h * finalScale);
+            let cssW = Math.round(w * finalScale);
+            let cssH = Math.round(h * finalScale);
+            if (squareStretch) { const sq = Math.max(cssW, cssH); cssW = sq; cssH = sq; }
             canvas.style.width  = cssW + 'px';
             canvas.style.height = cssH + 'px';
             if (hasVectorfield) drawVectorOverlay();
@@ -1361,8 +1363,11 @@
                 const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
                 const base = Math.min(availW / frame.width, availH / frame.height);
                 const scale = Math.max(0.01, base * fitSlack * userZoom);
-                cv.style.width = Math.round(frame.width * scale) + 'px';
-                cv.style.height = Math.round(frame.height * scale) + 'px';
+                let cvW = Math.round(frame.width * scale);
+                let cvH = Math.round(frame.height * scale);
+                if (squareStretch) { const sq = Math.max(cvW, cvH); cvW = sq; cvH = sq; }
+                cv.style.width = cvW + 'px';
+                cv.style.height = cvH + 'px';
             }
             // Keep diff canvas sized to match the first compare canvas
             if (diffMode > 0 && compareCanvases[0] && compareCanvases[0].style.width) {
@@ -3977,12 +3982,13 @@
                     document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
                 }
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
-            } else if (e.key === 'p') {
+            } else if (e.key === 'a') {
                 // Toggle stretch-to-square for thin-dimension slices
-                if (!multiViewActive && !compareMvActive) { showStatus('p (stretch to square): only in 3-plane view'); return; }
                 squareStretch = !squareStretch;
                 if (multiViewActive) mvScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else scaleCanvas(lastImgW, lastImgH);
                 showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
             } else if (e.key === 'A') {
                 // Toggle rectangle ROI selection mode
@@ -4904,6 +4910,8 @@
             if (compareActive) exitCompareMode();
             multiViewActive = true;
             _mvPrevZoom = userZoom;
+            _mvPrevSquareStretch = squareStretch;
+            squareStretch = true;
             userZoom = 1.4;
             mvDims = dims;
             hideLoadingOverlay();
@@ -5062,6 +5070,7 @@
         function exitMultiView() {
             multiViewActive = false;
             userZoom = _mvPrevZoom;
+            squareStretch = _mvPrevSquareStretch;
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
