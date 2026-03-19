@@ -82,6 +82,7 @@ WELCOME SCREEN / DEMO
   empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
   dim-label active no hover highlight       ✓ 52 (hover bg transparent for all labels)
   dim-track drag scrubs index               ✓ 53 (mousedown+move on track)
+  colorbar width clamped [120, 600]px       ✓ 65 (bounding_box check on slim-cb-wrap)
 
 AXES INDICATOR (edge labels)
   h/l dims flash axes labels, fade in+out   ✓ 50 (opacity checked after h press)
@@ -1422,6 +1423,22 @@ def run_smoke(page, base, client, tmp):
     # Stop playback
     _press(page, "Space", wait=300)
     _shot(page, "64d_movie_stopped")
+
+    # ── 65: colorbar width min/max limits ───────────────────────────────────────
+    print("65: colorbar width respects min(120px) and max(600px) limits")
+    _goto(page, base, sid2d, wait=600)
+    _focus(page)
+    cb_wrap = page.locator("#slim-cb-wrap")
+    cb_box = cb_wrap.bounding_box()
+    if cb_box:
+        w = cb_box["width"]
+        if 120 <= w <= 600:
+            print(f"  OK: colorbar width {w:.0f}px within [120, 600] range")
+        else:
+            print(f"  WARN: colorbar width {w:.0f}px outside [120, 600] range")
+    else:
+        print("  WARN: slim-cb-wrap not found")
+    _shot(page, "65_colorbar_width_limits")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
