@@ -73,7 +73,7 @@
         }
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; }
         #slim-cb { display: block; margin: 0 auto; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; }
-        #slim-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; }
+        #slim-cb-labels { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); font-family: monospace; padding-top: 3px; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -112,7 +112,7 @@
         #preload-status { position: fixed; bottom: 20px; left: 20px;
                           font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
         #array-name {
-            font-size: 11px; color: var(--muted); letter-spacing: 0.1em;
+            font-size: 13px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
             margin-bottom: 4px; min-height: 1em; text-align: center;
             display: flex; align-items: center; justify-content: center; gap: 7px;
@@ -359,7 +359,7 @@
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; }
         #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; }
-        #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
+        #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 13px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
@@ -407,7 +407,7 @@
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
-        .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
             max-width: 100%; max-height: 100%;
@@ -421,19 +421,19 @@
         }
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
-        .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-start; }
+        .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
-        .qv-label { font-size: 14px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
+        .qv-label { font-size: 16px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
-        .qv-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .qv-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         /* compare-qMRI: row label (array name) at left of each row */
-        .cq-row-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: horizontal-tb; white-space: nowrap; display: flex; align-items: center; padding-right: 8px; min-width: 40px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+        .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         /* compare-qMRI: column header row for map names */
-        .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 48px; }
-        .cq-header-label { font-size: 14px; color: var(--muted); letter-spacing: 0.05em; text-align: center; }
+        .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
+        .cq-header-label { font-size: 16px; color: var(--muted); letter-spacing: 0.05em; text-align: center; }
         .q-dim { color: var(--q-dim-color); font-weight: bold; }
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
