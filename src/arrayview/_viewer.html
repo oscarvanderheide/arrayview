@@ -430,7 +430,7 @@
         .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
         .qv-cb-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         /* compare-qMRI: row label (array name) at left of each row */
-        .cq-row-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: horizontal-tb; white-space: nowrap; display: flex; align-items: center; padding-right: 8px; min-width: 40px; }
+        .cq-row-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: horizontal-tb; white-space: nowrap; display: flex; align-items: center; padding-right: 8px; min-width: 40px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 48px; }
         .cq-header-label { font-size: 14px; color: var(--muted); letter-spacing: 0.05em; text-align: center; }
@@ -732,6 +732,7 @@
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
+                <div class="help-row"><span class="key">p</span><span class="desc">stretch panes to square box (3-plane view)</span></div>
                  <div class="help-row"><span class="key">A</span><span class="desc">toggle rectangle ROI mode — drag canvas to select region and show stats</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
@@ -921,12 +922,14 @@
         let mvViews = [];
         let mvDims = [];
         let mvDraggingView = null;
+        let cmvDraggingView = null;
         let mvPixelPending = false;
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let canvasBorders = false; // toggled by 'b' key
+        let squareStretch = false; // toggled by 'p' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
         let compareSidList = compareSidsParam
@@ -1726,17 +1729,19 @@
             sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
             sCtx.save();
             sCtx.scale(dpr, dpr);
-            // Draw colormap gradient as the bottom strip (always visible)
+            // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode)
             const gradY = stripH - CB_COLLAPSED_H;
-            const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
-            const n = stops.length;
-            for (let i = 0; i < n; i++) {
-                const t = n <= 1 ? 0 : i / (n - 1);
-                const rgb = stops[i];
-                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+            if (!lebesgueMode) {
+                const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
+                const n = stops.length;
+                for (let i = 0; i < n; i++) {
+                    const t = n <= 1 ? 0 : i / (n - 1);
+                    const rgb = stops[i];
+                    grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+                }
+                sCtx.fillStyle = grad;
+                sCtx.fillRect(0, gradY, cssW, CB_COLLAPSED_H);
             }
-            sCtx.fillStyle = grad;
-            sCtx.fillRect(0, gradY, cssW, CB_COLLAPSED_H);
             // Draw histogram bars when expanded and data is available
             if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
                 _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops);
@@ -2459,7 +2464,7 @@
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
-                    // Per-pane vmin/vmax takes precedence, then global manual range
+                    // Shared global range for fair comparison (per-pane overrides respected for manual adjustments)
                     const pVmin = cmpManualVmin[i] ?? manualVmin;
                     const pVmax = cmpManualVmax[i] ?? manualVmax;
                     if (pVmin !== null && pVmax !== null) {
@@ -2473,6 +2478,24 @@
                     return fetchSliceFrame(reqParams, sidVal);
                 });
                 compareFrames = await Promise.all(requests);
+                // Auto-sync to shared range: if no manual range set and frames have
+                // different ranges, re-render with the union range for fair comparison.
+                if (manualVmin === null && renderSids.length >= 2) {
+                    const allPaneNull = renderSids.every((_, i) => cmpManualVmin[i] === null);
+                    if (allPaneNull) {
+                        const uVmin = Math.min(...compareFrames.map(f => f.vmin));
+                        const uVmax = Math.max(...compareFrames.map(f => f.vmax));
+                        const alreadySync = compareFrames.every(f =>
+                            Math.abs(f.vmin - uVmin) < 1e-10 && Math.abs(f.vmax - uVmax) < 1e-10);
+                        if (!alreadySync) {
+                            manualVmin = uVmin;
+                            manualVmax = uVmax;
+                            compareRendering = false;
+                            await compareRender();
+                            return;
+                        }
+                    }
+                }
                 compareDisplaySids = renderSids;
                 currentVmin = compareFrames[0].vmin;
                 currentVmax = compareFrames[0].vmax;
@@ -2908,8 +2931,8 @@
                 el.style.opacity = '1';
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
-            // In multi-view mode, keep axes indicators always visible
-            if (multiViewActive) return;
+            // In multi-view or compare-mv mode, keep axes indicators always visible
+            if (multiViewActive || compareMvActive) return;
             axesFlashTimer = setTimeout(() => {
                 document.querySelectorAll('.axes-indicator').forEach(el => {
                     el.style.transition = 'opacity 0.6s ease';
@@ -3950,6 +3973,13 @@
                     document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
                 }
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
+            } else if (e.key === 'p') {
+                // Toggle stretch-to-square for thin-dimension slices
+                if (!multiViewActive && !compareMvActive) { showStatus('p (stretch to square): only in 3-plane view'); return; }
+                squareStretch = !squareStretch;
+                if (multiViewActive) mvScaleAllCanvases();
+                else if (compareMvActive) compareMvScaleAllCanvases();
+                showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
             } else if (e.key === 'A') {
                 // Toggle rectangle ROI selection mode
                 if (compareActive || multiViewActive || qmriActive) {
@@ -5514,7 +5544,6 @@
                 { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
             ];
-            const planeLabels = ['Axial', 'Coronal', 'Sagittal'];
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareMvSids = [...cmpSids];
@@ -5528,32 +5557,18 @@
             wrap.innerHTML = '';
             wrap.className = 'active';
 
-            // Column header row: 3 plane labels (with row-label spacer)
-            const headerRow = document.createElement('div');
-            headerRow.className = 'cq-header-row';
-            const headerSpacer = document.createElement('div');
-            headerSpacer.className = 'cq-row-label';
-            headerSpacer.style.visibility = 'hidden';
-            headerSpacer.textContent = '\u00A0';
-            headerRow.appendChild(headerSpacer);
-            for (let pi = 0; pi < planeDefs.length; pi++) {
-                const hLabel = document.createElement('div');
-                hLabel.className = 'cq-header-label qv-label';
-                hLabel.textContent = planeLabels[pi];
-                headerRow.appendChild(hLabel);
-            }
-            wrap.appendChild(headerRow);
-
             compareMvViews = [];
             // One row per compared array (SID)
             for (let si = 0; si < compareMvSids.length; si++) {
                 const sidVal = compareMvSids[si];
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row';
-                // Row label: array name
+                // Row label: array name (basename only)
                 const rowLabel = document.createElement('div');
                 rowLabel.className = 'cq-row-label';
-                rowLabel.textContent = comparePaneLabelForSid(sidVal);
+                const _rawLabel = comparePaneLabelForSid(sidVal);
+                rowLabel.textContent = _rawLabel.split('/').pop().split('\\').pop().replace(/\.[^.]+$/, '') || _rawLabel;
+                rowLabel.title = _rawLabel; // full name on hover
                 rowDiv.appendChild(rowLabel);
                 // 3 planes per row
                 for (let pi = 0; pi < planeDefs.length; pi++) {
@@ -5566,11 +5581,30 @@
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
+                    // Tight box: canvas + axes-indicator positioned relative to canvas
+                    const cvBox = document.createElement('div');
+                    cvBox.style.cssText = 'position:relative;display:inline-flex;';
+                    cvBox.appendChild(cv);
+                    // Axes indicator (same style as regular 3-plane view)
+                    const _axLetters = ['x', 'y', 'z'];
+                    const _axX = _axLetters[compareMvDims.indexOf(def.dimX)] || '?';
+                    const _axY = _axLetters[compareMvDims.indexOf(def.dimY)] || '?';
+                    const _NS = 'http://www.w3.org/2000/svg';
+                    const axDiv = document.createElementNS(_NS, 'svg');
+                    axDiv.setAttribute('class', 'axes-indicator');
+                    axDiv.setAttribute('viewBox', '0 0 40 40');
+                    axDiv.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="26,31 31,34 26,37" fill="currentColor"/>`
+                        + `<line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="3,13 6,8 9,13" fill="currentColor"/>`
+                        + `<text class="axes-lbl-x" x="33" y="38" font-size="9" font-family="monospace" fill="currentColor">${_axX}</text>`
+                        + `<text class="axes-lbl-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">${_axY}</text>`;
+                    cvBox.appendChild(axDiv);
+                    cvWrap.appendChild(cvBox);
                     const cbCv = document.createElement('canvas');
                     cbCv.className = 'qv-cb';
                     const cbLabels = document.createElement('div');
                     cbLabels.className = 'qv-cb-labels';
-                    cvWrap.appendChild(cv);
                     cvWrap.appendChild(cbCv);
                     cvWrap.appendChild(cbLabels);
                     const piEl = document.createElement('div');
@@ -5596,6 +5630,13 @@
                         compareMvViews.forEach(v => compareMvRender(v));
                         saveState();
                     }, { passive: false });
+                    cv.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        if (!view.lastW || !view.lastH) return;
+                        cmvDraggingView = view;
+                        handleCmvPointer(view, e);
+                    });
                     let cmvPixelPending = false;
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
@@ -5618,7 +5659,9 @@
                             });
                     });
                     cv.addEventListener('mouseleave', () => {
-                        compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        if (!cmvDraggingView) {
+                            compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        }
                     });
                     if (!httpTransport) {
                         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -5627,7 +5670,7 @@
                         view.ws.onopen = () => compareMvRender(view);
                         view.ws.onmessage = (event) => compareMvOnMessage(view, event);
                         view.ws.onclose = () => { view.rendering = false; };
-                        view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                        view.ws.onerror = () => { view.rendering = false; if (v.ws) view.ws.close(); };
                     }
                     compareMvViews.push(view);
                 }
@@ -5636,8 +5679,24 @@
             if (httpTransport) {
                 compareMvViews.forEach(v => compareMvRender(v));
             }
+            flashAxesIndicators();
             renderInfo();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
+        }
+
+        function handleCmvPointer(view, e) {
+            if (!view.lastW || !view.lastH) return;
+            const rect = view.canvas.getBoundingClientRect();
+            const px = (e.clientX - rect.left) * view.lastW / rect.width;
+            const py = (e.clientY - rect.top)  * view.lastH / rect.height;
+            const fx = flipDims[view.dimX] || false;
+            const fy = flipDims[view.dimY] || false;
+            indices[view.dimX] = Math.max(0, Math.min(shape[view.dimX] - 1,
+                fx ? shape[view.dimX] - 1 - Math.floor(px) : Math.floor(px)));
+            indices[view.dimY] = Math.max(0, Math.min(shape[view.dimY] - 1,
+                fy ? shape[view.dimY] - 1 - Math.floor(py) : Math.floor(py)));
+            renderInfo();
+            compareMvViews.forEach(v => { compareMvDrawFrame(v); compareMvRender(v); });
         }
 
         function exitCompareMv() {
@@ -5739,7 +5798,24 @@
                 v.canvas.width = v.lastW;
                 v.canvas.height = v.lastH;
             }
-            v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
+            // Draw colored crosshair lines (same colors as regular 3-plane view)
+            v.ctx.save();
+            let _scale = 1;
+            try { const rw = v.canvas.getBoundingClientRect().width; _scale = rw && v.lastW ? rw / v.lastW : 1; } catch (_) {}
+            v.ctx.lineWidth = Math.max(0.5, 1 / _scale);
+            const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+            const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+            const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+            // Color: plane whose sliceDir === v.dimX (vertical line)
+            const firstRow = compareMvViews.slice(0, 3);
+            const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
+            const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
+            v.ctx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
+            v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
+            v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
+            v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            v.ctx.restore();
         }
 
         function compareMvScaleAllCanvases() {
@@ -5766,8 +5842,9 @@
             const scaledMin = Math.max(0.01, defaultScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
             for (const v of ready) {
-                v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
-                v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+                const _sq = Math.round(Math.max(v.lastW, v.lastH) * cappedScale);
+                v.canvas.style.width  = squareStretch ? _sq + 'px' : Math.round(v.lastW * cappedScale) + 'px';
+                v.canvas.style.height = squareStretch ? _sq + 'px' : Math.round(v.lastH * cappedScale) + 'px';
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('#qmri-view-wrap .cq-header-label');
@@ -6470,8 +6547,8 @@
             const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
             const globalScale = T / maxSide;
             for (const v of ready) {
-                const cssW = Math.round(v.lastW * globalScale);
-                const cssH = Math.round(v.lastH * globalScale);
+                const cssW = squareStretch ? T : Math.round(v.lastW * globalScale);
+                const cssH = squareStretch ? T : Math.round(v.lastH * globalScale);
                 v.canvas.style.width  = cssW + 'px';
                 v.canvas.style.height = cssH + 'px';
                 if (v.wrap) {
@@ -6490,7 +6567,7 @@
 
         // Multi-view drag: continue tracking even when mouse leaves the canvas
         document.addEventListener('mousemove', (e) => {
-            if (!multiViewActive) return;
+            if (!multiViewActive && !cmvDraggingView) return;
             if (obliqueDrag) {
                 // Oblique rotation: rotate view j's plane about view i's normal
                 const v = mvViews[obliqueDrag.viewI];
@@ -6518,6 +6595,7 @@
                 return;
             }
             if (mvDraggingView) handleMvPointer(mvDraggingView, e);
+            if (cmvDraggingView) handleCmvPointer(cmvDraggingView, e);
         });
         document.addEventListener('mouseup', () => {
             if (obliqueDrag) {
@@ -6534,6 +6612,7 @@
             }
             mvNavDragPrev = null;
             mvDraggingView = null;
+            cmvDraggingView = null;
         });
 
         helpOverlay.addEventListener('click', (e) => {
@@ -6636,7 +6715,13 @@
         let hoveredDim = -1;
         infoEl.addEventListener('mouseover', (e) => {
             const span = e.target.closest('[data-dim]');
-            hoveredDim = span ? parseInt(span.dataset.dim) : -1;
+            if (span) {
+                hoveredDim = parseInt(span.dataset.dim);
+                // Immediately highlight the hovered dim (turn it yellow)
+                if (activeDim !== hoveredDim) { activeDim = hoveredDim; renderInfo(); }
+            } else {
+                hoveredDim = -1;
+            }
         });
         infoEl.addEventListener('mouseleave', () => { hoveredDim = -1; });
         infoEl.addEventListener('wheel', (e) => {
