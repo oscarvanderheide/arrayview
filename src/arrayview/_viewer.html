@@ -198,6 +198,17 @@
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
         .cp-item-selected { border-color: #4ade80 !important; }
+        .cp-item-cb {
+            flex-shrink: 0; width: 14px; height: 14px; border-radius: 3px;
+            border: 1.5px solid var(--muted); background: transparent;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: border-color 0.1s, background 0.1s;
+        }
+        .cp-item-cb:hover { border-color: var(--picker-accent, var(--active-dim)); }
+        .cp-item-cb.checked {
+            border-color: #4ade80; background: #4ade80;
+            color: #111; font-size: 10px; font-weight: 900; line-height: 1;
+        }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -4597,6 +4608,27 @@
                     overlay.style.setProperty('--picker-accent', n >= 2 ? '#4ade80' : 'var(--active-dim)');
                 }
 
+                function _updateDimming() {
+                    // Find reference shape from first selected item that has a known shape
+                    let refShape = null;
+                    for (const [key] of _selected) {
+                        const el = listEl.querySelector(`[data-key="${CSS.escape(key)}"]`);
+                        const shapeAttr = el && el.dataset.shape;
+                        if (shapeAttr && shapeAttr !== 'null') { refShape = shapeAttr; break; }
+                    }
+                    listEl.querySelectorAll('.cp-item').forEach(el => {
+                        if (_selected.has(el.dataset.key)) {
+                            el.classList.remove('cp-item-dim');
+                        } else if (refShape === null) {
+                            el.classList.remove('cp-item-dim');
+                        } else {
+                            const elShape = el.dataset.shape;
+                            const mismatch = elShape && elShape !== 'null' && elShape !== refShape;
+                            el.classList.toggle('cp-item-dim', mismatch);
+                        }
+                    });
+                }
+
                 function _itemKey(s) { return s.sid || s.filepath || s.path || s.name; }
 
                 function populate(filtSessions, filtFiles) {
@@ -4613,18 +4645,23 @@
                         filtSessions.forEach(s => {
                             const key = _itemKey(s);
                             const shapeStr = Array.isArray(s.shape) ? `[${s.shape.join(', ')}]` : '?';
+                            const shapeKey = Array.isArray(s.shape) ? JSON.stringify(s.shape) : null;
                             const isCurrent = s.sid === sid;
                             const item = document.createElement('div');
                             item.className = 'cp-item'; item.tabIndex = 0;
                             item.dataset.key = key;
-                            const selMark = `<span class="cp-item-sel" style="display:none;color:#4ade80;font-weight:700;margin-right:4px">✓</span>`;
+                            if (shapeKey) item.dataset.shape = shapeKey;
+                            const cbHtml = `<span class="cp-item-cb" title="select for compare"></span>`;
                             const curMark = isCurrent ? `<span class="cp-item-warn">(current)</span>` : '';
-                            item.innerHTML = `${selMark}<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
+                            item.innerHTML = `${cbHtml}<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
                                 + `<span class="cp-item-right">${curMark}<span class="cp-item-shape">${shapeStr}</span></span>`;
 
                             function _refreshSelMark() {
-                                item.querySelector('.cp-item-sel').style.display = _selected.has(key) ? '' : 'none';
-                                item.classList.toggle('cp-item-selected', _selected.has(key));
+                                const cb = item.querySelector('.cp-item-cb');
+                                const sel = _selected.has(key);
+                                cb.classList.toggle('checked', sel);
+                                cb.textContent = sel ? '✓' : '';
+                                item.classList.toggle('cp-item-selected', sel);
                             }
                             function toggleSel(e) {
                                 e && e.preventDefault();
@@ -4638,6 +4675,7 @@
                                 }
                                 _refreshSelMark();
                                 _updateHint();
+                                _updateDimming();
                             }
                             function openItem() {
                                 if (_selCount() <= 1) {
@@ -4654,6 +4692,8 @@
                                     _commitCompare();
                                 }
                             }
+                            // Checkbox click selects; row click opens
+                            item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
                             item.onclick = openItem;
                             item.onkeydown = e => {
                                 if (e.key === ' ') { toggleSel(e); return; }
@@ -4673,22 +4713,27 @@
                             const key = f.path || f.name;
                             const shapeStr = Array.isArray(f.shape) ? `[${f.shape.join(', ')}]`
                                 : `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+                            const shapeKey = Array.isArray(f.shape) ? JSON.stringify(f.shape) : null;
                             const item = document.createElement('div');
                             item.className = 'cp-item'; item.tabIndex = 0;
                             item.dataset.key = key;
-                            const selMark = `<span class="cp-item-sel" style="display:none;color:#4ade80;font-weight:700;margin-right:4px">✓</span>`;
-                            item.innerHTML = `${selMark}<span class="cp-item-name">${f.name}</span>`
+                            if (shapeKey) item.dataset.shape = shapeKey;
+                            const cbHtml = `<span class="cp-item-cb" title="select for compare"></span>`;
+                            item.innerHTML = `${cbHtml}<span class="cp-item-name">${f.name}</span>`
                                 + `<span class="cp-item-right"><span class="cp-item-shape">${shapeStr}</span></span>`;
 
                             function _refreshSelMark() {
-                                item.querySelector('.cp-item-sel').style.display = _selected.has(key) ? '' : 'none';
-                                item.classList.toggle('cp-item-selected', _selected.has(key));
+                                const cb = item.querySelector('.cp-item-cb');
+                                const sel = _selected.has(key);
+                                cb.classList.toggle('checked', sel);
+                                cb.textContent = sel ? '✓' : '';
+                                item.classList.toggle('cp-item-selected', sel);
                             }
                             function toggleSel(e) {
                                 e && e.preventDefault();
                                 if (_selected.has(key)) {
                                     _selected.delete(key);
-                                    _refreshSelMark(); _updateHint();
+                                    _refreshSelMark(); _updateHint(); _updateDimming();
                                 } else if (_selCount() < 4) {
                                     // Need to load the file first to get a sid
                                     item.classList.add('cp-item-loading');
@@ -4699,7 +4744,7 @@
                                         if (data.error) { showToast(`load error: ${data.error}`); item.classList.remove('cp-item-loading'); return; }
                                         item.classList.remove('cp-item-loading');
                                         _selected.set(key, { sid: data.sid, name: data.name || f.name });
-                                        _refreshSelMark(); _updateHint();
+                                        _refreshSelMark(); _updateHint(); _updateDimming();
                                     }).catch(() => { showToast('load failed'); item.classList.remove('cp-item-loading'); });
                                 } else {
                                     showToast('max 4 arrays in compare');
@@ -4735,6 +4780,7 @@
                                     }).catch(() => { showToast('load failed'); });
                                 }
                             }
+                            item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
                             item.onclick = openFile;
                             item.onkeydown = e => {
                                 if (e.key === ' ') { toggleSel(e); return; }

@@ -97,6 +97,10 @@ COMPARE MODE
   drag title to reorder panes               ✓ 56 (drag left title → right title swaps pane order)
   G               cycle layout (h/v/grid)   ✓ 69 (2-pane h↔v; 3-pane h→v→grid→h)
 
+PICKER
+  checkbox (click)  toggle select           ✓ 70 (click checkbox selects; checked class toggled)
+  auto-dim          incompatible shape      ✓ 70 (different-shape item gets cp-item-dim class)
+
 VIEW MODES (colorbar visible in all)
   single 2d                                 ✓ 01
   single 3d                                 ✓ 06
@@ -1602,6 +1606,75 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _press(page, "G", wait=200)
     _shot(page, "69i_g_noop_outside_compare")
+
+    # ── 70: picker-checkboxes — visible checkbox + auto-dim by shape ─────────────
+    print("70: picker-checkboxes — visible checkbox, auto-dim by shape")
+    _goto(page, base, sid2d, wait=600)
+    _focus(page)
+    # Open picker
+    page.keyboard.press("Shift+O")
+    page.wait_for_selector("#uni-picker.visible", timeout=5000)
+    page.wait_for_timeout(500)
+    _shot(page, "70a_picker_open_unselected")
+
+    # All checkboxes should be visible (not hidden)
+    cbs = page.locator(".cp-item-cb").all()
+    assert len(cbs) >= 2, f"FAIL: expected ≥2 checkboxes, got {len(cbs)}"
+    for i, cb in enumerate(cbs):
+        bb = cb.bounding_box()
+        assert bb and bb["width"] > 0, f"FAIL: checkbox {i} is not visible"
+    print(f"  OK: {len(cbs)} visible checkboxes found")
+
+    # Click the checkbox on arr2d_b (same shape as current arr2d, 100×100)
+    items = page.locator(".cp-item").all()
+    b_item = next((it for it in items if "arr2d_b" in it.inner_text()), None)
+    assert b_item is not None, "FAIL: arr2d_b item not found in picker"
+    b_cb = b_item.locator(".cp-item-cb")
+    b_cb.click()
+    page.wait_for_timeout(300)
+    _shot(page, "70b_picker_arr2d_b_checked")
+
+    checked = b_cb.evaluate("el => el.classList.contains('checked')")
+    assert checked, "FAIL: arr2d_b checkbox should be checked after click"
+    hint = page.locator("#uni-picker-tab-hint").inner_text()
+    assert "1 selected" in hint, f"FAIL: expected '1 selected' hint, got {hint!r}"
+    print(f"  OK: checkbox checked, hint={hint!r}")
+
+    # arr3d (shape [20, 64, 64]) should be dimmed — different shape from [100, 100]
+    d_item = next(
+        (
+            it
+            for it in items
+            if "arr3d" in it.inner_text() and "b" not in it.inner_text()
+        ),
+        None,
+    )
+    if d_item is not None:
+        dimmed = d_item.evaluate("el => el.classList.contains('cp-item-dim')")
+        assert dimmed, (
+            "FAIL: arr3d (different shape) should be dimmed when arr2d_b selected"
+        )
+        print("  OK: arr3d (different shape) dimmed")
+
+    # Deselect b — dimming should clear
+    b_cb.click()
+    page.wait_for_timeout(300)
+    _shot(page, "70c_picker_deselected")
+    unchecked = b_cb.evaluate("el => el.classList.contains('checked')")
+    assert not unchecked, (
+        "FAIL: arr2d_b checkbox should be unchecked after second click"
+    )
+    if d_item is not None:
+        still_dimmed = d_item.evaluate("el => el.classList.contains('cp-item-dim')")
+        assert not still_dimmed, (
+            "FAIL: arr3d should NOT be dimmed after deselecting all"
+        )
+    print("  OK: deselect clears dimming")
+
+    # Close picker
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    print("  OK: picker-checkboxes all assertions passed")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
