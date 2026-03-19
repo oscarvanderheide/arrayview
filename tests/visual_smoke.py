@@ -29,6 +29,7 @@ AXES & VIEWS
   V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
   q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full)
+  a               stretch to square (all)   ✓ 66 (a in normal, mv, compare; default on in mv)
 
 DISPLAY
   b               toggle border             ✓ 16
@@ -1454,6 +1455,39 @@ def run_smoke(page, base, client, tmp):
     else:
         print("  WARN: slim-cb-wrap not found")
     _shot(page, "65_colorbar_width_limits")
+
+    # ── 66: axis-modes (a key — stretch to square, all modes) ───────────────────
+    print("66: a key stretch-to-square works in normal, multi-view, and compare modes")
+    # Normal mode: toggle stretch on, canvas should become square
+    _goto(page, base, sid3d, wait=600)
+    _focus(page)
+    cv_box_before = page.locator("#canvas").bounding_box()
+    _press(page, "a", wait=300)
+    cv_box_square = page.locator("#canvas").bounding_box()
+    if cv_box_square:
+        w, h = cv_box_square["width"], cv_box_square["height"]
+        if abs(w - h) <= 2:
+            print(f"  OK: normal mode canvas is square ({w:.0f}×{h:.0f})")
+        else:
+            print(f"  WARN: canvas not square after a key ({w:.0f}×{h:.0f})")
+    _shot(page, "66a_stretch_to_square_normal")
+    _press(page, "a", wait=300)  # toggle off
+
+    # Multi-view mode: enter v → should auto-enable squareStretch
+    _press(page, "v", wait=1000)
+    mv_canvases = page.locator(".mv-canvas").all()
+    if mv_canvases:
+        first_box = mv_canvases[0].bounding_box()
+        if first_box:
+            w, h = first_box["width"], first_box["height"]
+            if abs(w - h) <= 2:
+                print(f"  OK: multi-view auto squareStretch active ({w:.0f}×{h:.0f})")
+            else:
+                print(
+                    f"  WARN: multi-view pane not square ({w:.0f}×{h:.0f}) — squareStretch default may not be working"
+                )
+    _shot(page, "66b_stretch_to_square_multiview_auto")
+    _press(page, "v", wait=400)  # exit multi-view
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
