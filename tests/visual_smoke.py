@@ -51,11 +51,11 @@ DISPLAY
    m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
-    W               toggle histogram strip    ✗ (removed; histogram now auto-shows on colorbar hover)
-    W (drag lines)  drag vmin/vmax in hist    ✗ (removed; drag clim via vertical lines on expanded colorbar)
-    W (colormap)    bars colored by colormap  ✓ 54 (hover colorbar to expand; bars use active colormap)
-    (cb hover)      expand colorbar + hist    ✓ 54 (hover expands colorbar with histogram bars)
-    (cb drag-clim)  drag vmin/vmax lines      ✓ 55 (drag vertical clim lines on expanded colorbar)
+    W               toggle histogram strip    ✗ (removed; histogram only shown in Lebesgue mode)
+    W (drag lines)  drag vmin/vmax in hist    ✗ (removed; hover no longer auto-expands colorbar)
+    W (colormap)    bars colored by colormap  ✓ 54 (Lebesgue mode expands colorbar; bars use active colormap)
+    (cb hover)      no longer auto-expands    ✓ 54 (hover does NOT expand; only Lebesgue mode expands)
+    (cb drag-clim)  drag vmin/vmax lines      ✓ 55 (drag vertical clim lines in Lebesgue mode)
    A               rectangle ROI mode        ✓ 58 (A toggles rect ROI, status message shown)
    w               Lebesgue integral mode    ✓ 61 (w toggles, hover colorbar highlights matching pixels)
 
@@ -979,8 +979,8 @@ def run_smoke(page, base, client, tmp):
         page.wait_for_timeout(300)
     _shot(page, "53_dim_track_drag")
 
-    # ── 54: histogram-in-colorbar (hover to expand) ────────────────────────────
-    print("54: hover colorbar to expand with histogram bars")
+    # ── 54: histogram-in-colorbar (Lebesgue mode expands it) ─────────────────────
+    print("54: w key (Lebesgue mode) expands colorbar with histogram bars")
     # Navigate to a fresh 3D session
     _goto(page, base, sid3d, wait=800)
     _focus(page)
@@ -988,56 +988,68 @@ def run_smoke(page, base, client, tmp):
     cb_initial_h = page.evaluate(
         "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
     )
-    # Hover over the colorbar to trigger expansion
+    # Hover over the colorbar — should NOT expand (hover no longer auto-expands)
     cb_wrap = page.locator("#slim-cb-wrap")
     cb_box = cb_wrap.bounding_box()
     if cb_box:
-        page.mouse.move(
-            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
-        )
-        page.wait_for_timeout(800)  # wait for histogram fetch + expand
-        cb_expanded_h = page.evaluate(
-            "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
-        )
-        _shot(page, "54a_colorbar_expanded")
-        # Cycle colormap while expanded
-        _press(page, "c", wait=400)
-        # Re-hover to re-expand after redraw
         page.mouse.move(
             cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
         )
         page.wait_for_timeout(600)
-        _shot(page, "54b_colorbar_expanded_after_c")
-        # Move mouse away — colorbar should collapse
-        page.mouse.move(10, 10)
-        page.wait_for_timeout(500)
-        cb_collapsed_h = page.evaluate(
+        cb_hover_h = page.evaluate(
             "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
         )
-        _shot(page, "54c_colorbar_collapsed")
-        if cb_initial_h <= 10 and cb_expanded_h >= 30 and cb_collapsed_h <= 10:
-            print(
-                f"  OK: colorbar expands on hover ({cb_initial_h}→{cb_expanded_h}→{cb_collapsed_h}px)"
-            )
+        page.mouse.move(10, 10)
+        page.wait_for_timeout(300)
+        if cb_hover_h <= 10:
+            print(f"  OK: hover does NOT expand colorbar (h={cb_hover_h})")
         else:
             print(
-                f"  WARN: colorbar height unexpected (initial={cb_initial_h}, expanded={cb_expanded_h}, collapsed={cb_collapsed_h})"
+                f"  WARN: colorbar expanded on hover (h={cb_hover_h}) — should not happen"
             )
-    else:
-        print("  WARN: slim-cb-wrap not found")
+    _shot(page, "54a_colorbar_hover_no_expand")
 
-    # ── 55: histogram-in-colorbar drag-clim ─────────────────────────────────────
-    print("55: drag vmin/vmax clim lines on expanded colorbar")
+    # Press w to enable Lebesgue mode → colorbar should expand
+    _press(page, "w", wait=800)
+    cb_expanded_h = page.evaluate(
+        "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
+    )
+    _shot(page, "54b_colorbar_lebesgue_expanded")
+    # Cycle colormap while expanded
+    _press(page, "c", wait=400)
+    _shot(page, "54c_colorbar_expanded_after_c")
+    if cb_initial_h <= 10 and cb_expanded_h >= 30:
+        print(
+            f"  OK: colorbar expands in Lebesgue mode ({cb_initial_h}→{cb_expanded_h}px)"
+        )
+    else:
+        print(
+            f"  WARN: colorbar height unexpected (initial={cb_initial_h}, lebesgue={cb_expanded_h})"
+        )
+    # Exit Lebesgue mode
+    _press(page, "w", wait=400)
+    cb_collapsed_h = page.evaluate(
+        "() => { const c = document.getElementById('slim-cb'); return c ? parseInt(c.style.height) : 0; }"
+    )
+    _shot(page, "54d_colorbar_collapsed")
+    if cb_collapsed_h <= 10:
+        print(
+            f"  OK: colorbar collapses after exiting Lebesgue mode ({cb_collapsed_h}px)"
+        )
+    else:
+        print(
+            f"  WARN: colorbar still expanded after Lebesgue exit ({cb_collapsed_h}px)"
+        )
+
+    # ── 55: histogram-in-colorbar drag-clim (in Lebesgue mode) ──────────────────
+    print("55: drag vmin/vmax clim lines on expanded colorbar (Lebesgue mode)")
     _goto(page, base, sid2d, wait=600)
     _focus(page)
-    # Hover colorbar to expand it
+    # Enable Lebesgue mode to expand colorbar
+    _press(page, "w", wait=800)
     cb_wrap = page.locator("#slim-cb-wrap")
     cb_box = cb_wrap.bounding_box()
     if cb_box:
-        page.mouse.move(
-            cb_box["x"] + cb_box["width"] / 2, cb_box["y"] + cb_box["height"] / 2
-        )
-        page.wait_for_timeout(800)
         # Get expanded colorbar canvas bounding box for drag
         slim_cb = page.locator("#slim-cb")
         slim_box = slim_cb.bounding_box()
@@ -1057,6 +1069,8 @@ def run_smoke(page, base, client, tmp):
             print("  WARN: slim-cb not found")
     else:
         print("  WARN: slim-cb-wrap not found for drag-clim test")
+    # Exit Lebesgue mode
+    _press(page, "w", wait=300)
 
     # ── 56: drag-to-reorder compare panels ───────────────────────────────────
     print("56: drag-to-reorder compare panels")
