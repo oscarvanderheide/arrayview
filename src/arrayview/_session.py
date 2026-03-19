@@ -288,7 +288,7 @@ PREFETCH_BUDGET_BYTES = 16 * 1024 * 1024  # 16 MB max prefetch per request
 # ---------------------------------------------------------------------------
 # Heavy-operation guardrails (Phase 4)
 # ---------------------------------------------------------------------------
-_DEFAULT_HEAVY_OP_MB = 500
+_DEFAULT_HEAVY_OP_MB = 5000
 HEAVY_OP_LIMIT_BYTES = (
     int(os.environ.get("ARRAYVIEW_HEAVY_OP_LIMIT_MB", _DEFAULT_HEAVY_OP_MB))
     * 1024
