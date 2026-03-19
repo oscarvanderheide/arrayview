@@ -166,11 +166,11 @@ print(f"Storage: {npy.nbytes/1e6:.1f} MB  →  zarr on disk (with compression)")
 ## Environment variable reference
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| --- | --- | --- |
 | `ARRAYVIEW_RAW_CACHE_MB` | 5% of RAM | Raw float32 slice cache per session |
 | `ARRAYVIEW_RGBA_CACHE_MB` | 10% of RAM | RGBA rendered slice cache per session |
 | `ARRAYVIEW_MOSAIC_CACHE_MB` | 2.5% of RAM | Mosaic (z-grid) rendered cache per session |
-| `ARRAYVIEW_HEAVY_OP_LIMIT_MB` | 500 | Max array size for FFT / GIF / grid operations |
+| `ARRAYVIEW_HEAVY_OP_LIMIT_MB` | 5000 | Max array size for FFT / GIF / grid operations |
 
 Example — tighten memory on a shared machine:
 ```bash
