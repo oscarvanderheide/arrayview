@@ -17,6 +17,7 @@ NAVIGATION
   j/k/↓/↑        prev/next index           ✓ 07 (arrow keys scroll)
   r               reverse axis              ✓ 19 (r key reverses)
   Space           toggle auto-play          ✓ 20 (play then stop)
+  [ / ] (play)    change playback fps       ✓ 64 (play + ] raises fps)
   + / -           zoom in/out               ✓ 04 (zoom in), 05 (zoom out+reset)
   0               reset zoom                ✓ 05
 
@@ -42,7 +43,7 @@ DISPLAY
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
   X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
   R               registration overlay      ✓ 24, 37 (compare mode + R)
-  [ / ]           registration blend        ✓ 24, 37
+   [ / ]           registration blend        ✓ 24, 37; in movie mode → fps ✓ 64
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
    L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs); no-op in RGB mode (toast shown)
@@ -1373,6 +1374,40 @@ def run_smoke(page, base, client, tmp):
     else:
         print("  WARN: compare-view-wrap not active after exiting compare-multiview")
     _shot(page, "63d_compare_multiview_exited")
+
+    # ── 64: movie-fps — [ / ] change playback fps while playing ─────────────────
+    print("64: movie-fps: [ / ] changes fps in movie mode")
+    page.evaluate("() => sessionStorage.clear()")
+    page.goto(f"{base}/?sid={sid3d}")
+    page.wait_for_selector("#canvas", timeout=10_000)
+    page.wait_for_timeout(800)
+    _focus(page)
+
+    # Start playback
+    _press(page, "Space", wait=400)
+    status_text = page.locator("#status").inner_text()
+    if "playing" in status_text.lower():
+        print("  OK: playback started")
+    else:
+        print(f"  WARN: expected playing status, got {status_text!r}")
+    _shot(page, "64a_movie_playing")
+
+    # Press ] to increase fps — status should update
+    _press(page, "]", wait=200)
+    status_after = page.locator("#status").inner_text()
+    if "fps" in status_after.lower():
+        print(f"  OK: fps shown in status: {status_after!r}")
+    else:
+        print(f"  WARN: expected fps in status, got {status_after!r}")
+    _shot(page, "64b_movie_fps_increased")
+
+    # Press [ to decrease fps
+    _press(page, "[", wait=200)
+    _shot(page, "64c_movie_fps_decreased")
+
+    # Stop playback
+    _press(page, "Space", wait=300)
+    _shot(page, "64d_movie_stopped")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
