@@ -1884,6 +1884,30 @@ def arrayview():
     # Auto-detect: prefer VS Code Simple Browser in VS Code terminal
     if window_mode is None and _in_vscode_terminal():
         window_mode = "vscode"
+    # Explicit vscode requires VS Code terminal
+    if window_mode == "vscode":
+        if not _in_vscode_terminal():
+            print(
+                "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
+                "  Use --window=browser to open in your system browser instead.",
+                flush=True,
+            )
+            sys.exit(1)
+        # Warn if we can't find the IPC hook (multi-window targeting falls back to PID matching)
+        from arrayview._platform import _find_vscode_ipc_hook as _check_ipc_hook
+
+        if not _is_vscode_remote() and not _check_ipc_hook():
+            # IPC hook not available, but we have a fallback mechanism (PID matching)
+            # Only warn if we can't find any VS Code windows at all
+            from arrayview._vscode import _find_current_vscode_window_id
+
+            if not _find_current_vscode_window_id():
+                print(
+                    "[ArrayView] Warning: Cannot detect VS Code window.\n"
+                    "  The viewer may open in a random VS Code window.\n"
+                    "  Workaround: Use --window=browser instead.",
+                    flush=True,
+                )
     # Explicit native is not supported in remote/tunnel environments
     if window_mode == "native" and _is_vscode_remote():
         _vprint(

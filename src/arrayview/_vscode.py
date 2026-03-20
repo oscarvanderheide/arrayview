@@ -19,7 +19,6 @@ from arrayview._platform import (
     _find_vscode_ipc_hook,
     _in_vscode_terminal,
     _is_vscode_remote,
-    _in_vscode_tunnel,
 )
 
 # Whether the "set port to Public" message has been printed this session.
@@ -58,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.16"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.19"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -332,6 +331,131 @@ def _configure_vscode_port_preview(port: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _find_current_vscode_window_id() -> str | None:
+    """Find the current VS Code window's identifier by matching our parent process
+    tree against the extension host PIDs registered in ~/.arrayview/window-*.json.
+
+    Returns the window ID (hookTag or PID) if found, None otherwise.
+    """
+    signal_dir = os.path.expanduser("~/.arrayview")
+    if not os.path.isdir(signal_dir):
+        return None
+
+    # Get all registered extension host PIDs from window-*.json files
+    ext_pids = {}  # window_id -> pid
+    try:
+        for filename in os.listdir(signal_dir):
+            if not (filename.startswith("window-") and filename.endswith(".json")):
+                continue
+            try:
+                with open(os.path.join(signal_dir, filename)) as f:
+                    data = json.load(f)
+                ext_pid = data.get("pid")
+                if ext_pid:
+                    # Extract window ID from filename: window-<ID>.json
+                    window_id = filename[7:-5]  # strip "window-" and ".json"
+                    ext_pids[ext_pid] = window_id
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    if not ext_pids:
+        return None
+
+    # Get our process's ancestor PIDs AND sibling processes
+    # Strategy: Walk up the tree to find VS Code app, then check all its children
+    our_pid = os.getpid()
+    vscode_app_pid = None
+
+    # First, walk up to find a process that might be VS Code
+    # Look for processes with many children (VS Code spawns many child processes)
+    pid = our_pid
+    for _ in range(30):  # increased from 20
+        if pid <= 1:
+            break
+        # Check if any extension host PID is this PID (direct match)
+        if pid in ext_pids:
+            return ext_pids[pid]
+        # Get parent PID
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        pid = int(line.split()[1])
+                        break
+        except Exception:
+            # macOS: use ps
+            try:
+                r = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "ppid="],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                pid = int(r.stdout.strip())
+            except Exception:
+                break
+
+    # Fallback strategies when we can't find a direct ancestor match:
+
+    # Fallback 1: If only one VS Code window is open, use that
+    if len(ext_pids) == 1:
+        return list(ext_pids.values())[0]
+
+    # Fallback 2: When running from VS Code terminal (TERM_PROGRAM=vscode),
+    # find the extension host with the closest start time to our terminal's parent.
+    # The terminal is typically a direct child of a shell that's a child of the
+    # extension host or VS Code app.
+    from arrayview._platform import _in_vscode_terminal
+
+    if _in_vscode_terminal() and len(ext_pids) > 0:
+        try:
+            # Get our terminal's creation time (use PPID as proxy for terminal start)
+            terminal_ppid = os.getppid()
+
+            # Get process start times for all extension hosts
+            closest_pid = None
+            closest_delta = float("inf")
+
+            for ext_pid, window_id in ext_pids.items():
+                try:
+                    # Get process start time (macOS: use ps -o lstart)
+                    r = subprocess.run(
+                        ["ps", "-o", "lstart=", "-p", str(ext_pid)],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                    ext_start = r.stdout.strip()
+
+                    r2 = subprocess.run(
+                        ["ps", "-o", "lstart=", "-p", str(terminal_ppid)],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                    term_start = r2.stdout.strip()
+
+                    # Compare as strings (same format from ps)
+                    # Extension host started before terminal is the likely parent
+                    if ext_start and term_start and ext_start <= term_start:
+                        # This is a candidate; for now just pick the first valid one
+                        # A more sophisticated approach would parse timestamps and find closest
+                        if closest_pid is None:
+                            closest_pid = ext_pid
+                            closest_delta = abs(hash(ext_start) - hash(term_start))
+                except Exception:
+                    continue
+
+            if closest_pid:
+                return ext_pids[closest_pid]
+        except Exception:
+            pass
+
+    return None
+
+
 def _open_via_signal_file(
     url: str, delay: float = 0.0, title: str | None = None
 ) -> bool:
@@ -441,6 +565,54 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
                 own_tag  # extension verifies this on shared-fallback claims
             )
             filenames: tuple[str, ...] = (f"open-request-ipc-{own_tag}.json",)
+        elif not _is_vscode_remote():
+            # Local VS Code but no IPC hook found: try to find the current window
+            # by matching our parent process tree against extension host PIDs.
+            window_id = _find_current_vscode_window_id()
+            if window_id:
+                # Found a match! Write to the window-specific signal file.
+                # The window_id is either a hookTag or a PID string.
+                filenames = (
+                    f"open-request-pid-{window_id}.json"
+                    if window_id.isdigit()
+                    else f"open-request-ipc-{window_id}.json",
+                )
+            else:
+                # No window match found: check if we're in a VS Code terminal.
+                # If so, write to ALL registered windows and let the extension that
+                # has the active terminal claim it. If not in VS Code terminal,
+                # fall back to shared file with a warning.
+                from arrayview._platform import _in_vscode_terminal as _in_vsc_term
+
+                if _in_vsc_term():
+                    # Write to all registered window-specific files
+                    signal_dir_temp = os.path.expanduser("~/.arrayview")
+                    window_files = []
+                    try:
+                        for fname in os.listdir(signal_dir_temp):
+                            if fname.startswith("window-") and fname.endswith(".json"):
+                                wid = fname[7:-5]  # extract ID
+                                window_files.append(
+                                    f"open-request-pid-{wid}.json"
+                                    if wid.isdigit()
+                                    else f"open-request-ipc-{wid}.json"
+                                )
+                    except Exception:
+                        pass
+                    if len(window_files) > 1:
+                        # Mark as broadcast so extensions check focus before opening
+                        data["broadcast"] = True
+                    filenames = (
+                        tuple(window_files)
+                        if window_files
+                        else (_VSCODE_SIGNAL_FILENAME,)
+                    )
+                else:
+                    # Not in VS Code terminal: use shared file
+                    filenames = (
+                        _VSCODE_SIGNAL_FILENAME,
+                        *_VSCODE_COMPAT_SIGNAL_FILENAMES,
+                    )
         else:
             # Remote/tunnel OR no IPC hook found:
             # On remote, the extension host does not inherit VSCODE_IPC_HOOK_CLI

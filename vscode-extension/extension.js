@@ -43,9 +43,11 @@ const OWN_IPC_HOOK = _findVscodeIpcHook();
 const OWN_HOOK_TAG = OWN_IPC_HOOK
     ? crypto.createHash('sha256').update(OWN_IPC_HOOK).digest('hex').slice(0, 16)
     : '';
+// Targeted signal file: prefer IPC hook-based, fallback to PID-based for local desktop.
+// This enables multi-window targeting even when VSCODE_IPC_HOOK_CLI isn't available.
 const TARGETED_SIGNAL_FILE = OWN_HOOK_TAG
     ? path.join(SIGNAL_DIR, `open-request-ipc-${OWN_HOOK_TAG}.json`)
-    : null;
+    : path.join(SIGNAL_DIR, `open-request-pid-${process.pid}.json`);
 
 let version = 'unknown';
 let isProcessingSignal = false;
@@ -114,7 +116,7 @@ async function tryOpenSignalFile() {
     // in-memory queues that can be lost when the extension host reloads.
     if (isProcessingSignal) return;
 
-    // Check targeted file first (matches our window's IPC hook), then primary,
+    // Check targeted file first (matches our window's IPC hook or PID), then primary,
     // then compat signal files for older/published arrayview Python versions.
     const candidates = [];
     if (TARGETED_SIGNAL_FILE) candidates.push(TARGETED_SIGNAL_FILE);
@@ -124,7 +126,17 @@ async function tryOpenSignalFile() {
         path.join(SIGNAL_DIR, 'open-request-v0400.json'),
     );
 
+    // Multi-window race mitigation: if this window is not focused, add a small delay
+    // before claiming shared files. This gives the focused window a chance to claim first.
+    const isFocused = vscode.window.state.focused;
+    const isOwnTargetedFile = (f) => TARGETED_SIGNAL_FILE && f === TARGETED_SIGNAL_FILE;
+
     for (const signalFile of candidates) {
+        // If not our targeted file and window not focused, delay briefly
+        if (!isOwnTargetedFile(signalFile) && !isFocused) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
         const claimedFile = signalFile + '.claimed-' + process.pid;
         let raw;
         try {
@@ -162,6 +174,16 @@ async function tryOpenSignalFile() {
                 fs.renameSync(tmp, targetedFile);
                 log(`SIGNAL: forwarded to ${path.basename(targetedFile)}`);
             } catch (_) {}
+            try { fs.unlinkSync(claimedFile); } catch (_) {}
+            continue;
+        }
+
+        // --- Broadcast guard ---
+        // If this signal is marked as broadcast (Python couldn't determine which window
+        // to target), only process it if this window is currently focused. This ensures
+        // only the active window opens the viewer when multiple windows are open.
+        if (data.broadcast === true && !isFocused) {
+            log(`SIGNAL: broadcast signal skipped (window not focused)`);
             try { fs.unlinkSync(claimedFile); } catch (_) {}
             continue;
         }
@@ -315,21 +337,26 @@ function activate(context) {
 
     try { fs.mkdirSync(SIGNAL_DIR, { recursive: true }); } catch (_) {}
 
-    // Write registration so Python can find this window's hookTag.
+    // Write registration so Python can find this window's hookTag or PID.
     // Python reads ~/.arrayview/window-<hookTag>.json to know which targeted
     // signal file to write for this specific VS Code window.
-    if (OWN_HOOK_TAG) {
-        const regFile = path.join(SIGNAL_DIR, `window-${OWN_HOOK_TAG}.json`);
-        try {
-            fs.writeFileSync(regFile, JSON.stringify({ hookTag: OWN_HOOK_TAG, pid: process.pid, ts: Date.now() }));
-            log(`REGISTER: wrote ${path.basename(regFile)}`);
-            context.subscriptions.push({ dispose: () => {
-                try { fs.unlinkSync(regFile); } catch (_) {}
-                log(`REGISTER: deleted ${path.basename(regFile)}`);
-            }});
-        } catch (e) {
-            log(`REGISTER: failed to write: ${e.message}`);
-        }
+    // Fallback: use PID when IPC hook isn't available (local macOS/Windows).
+    const windowId = OWN_HOOK_TAG || String(process.pid);
+    const regFile = path.join(SIGNAL_DIR, `window-${windowId}.json`);
+    try {
+        fs.writeFileSync(regFile, JSON.stringify({ 
+            hookTag: OWN_HOOK_TAG || '', 
+            pid: process.pid, 
+            ts: Date.now(),
+            fallbackId: !OWN_HOOK_TAG  // true if using PID fallback
+        }));
+        log(`REGISTER: wrote ${path.basename(regFile)} (${OWN_HOOK_TAG ? 'hookTag' : 'PID fallback'})`);
+        context.subscriptions.push({ dispose: () => {
+            try { fs.unlinkSync(regFile); } catch (_) {}
+            log(`REGISTER: deleted ${path.basename(regFile)}`);
+        }});
+    } catch (e) {
+        log(`REGISTER: failed to write: ${e.message}`);
     }
 
     cleanupStaleFiles();
