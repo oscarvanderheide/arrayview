@@ -4260,7 +4260,6 @@
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                showStatus(`colormap: ${currentColormap()}`);
                 refreshAxesColor();
                 showColormapStrip();
                 saveState();
