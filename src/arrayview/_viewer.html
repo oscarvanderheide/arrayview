@@ -353,12 +353,19 @@
             position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
             background: var(--roi-bg); border: 1px solid var(--border);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-            border-radius: var(--radius); padding: 12px 20px;
-            font-size: 14px; color: var(--text); font-family: inherit;
-            line-height: 2.2; display: none; white-space: nowrap; z-index: 5;
+            border-radius: var(--radius); padding: 10px 14px;
+            font-size: 12px; color: var(--text); font-family: monospace;
+            line-height: 1.8; display: none; white-space: nowrap; z-index: 5;
+            max-height: 80vh; overflow-y: auto;
         }
-        #roi-panel table { border-collapse: collapse; }
-        #roi-panel td:first-child { color: var(--muted); padding-right: 14px; }
+        #roi-panel table { border-collapse: collapse; width: 100%; }
+        #roi-panel td:first-child { color: var(--muted); padding-right: 10px; }
+        #roi-panel .roi-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+        #roi-panel .roi-header span { font-weight: bold; color: var(--active-dim); }
+        #roi-panel .roi-section { margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+        #roi-panel .roi-section:last-of-type { border-bottom: none; margin-bottom: 2px; }
+        #roi-export-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 11px; padding: 3px 10px; cursor: pointer; margin-top: 4px; }
+        #roi-export-btn:hover { border-color: var(--active-dim); color: var(--active-dim); }
         #mv-orientation {
             display: none; position: fixed; top: 14px; right: 14px; z-index: 4;
             width: 120px; height: 120px;
@@ -843,7 +850,7 @@
     </div>
     <div id="help-hint">?</div>
     <canvas id="mv-orientation"></canvas>
-    <div id="roi-panel"><table id="roi-table"></table></div>
+    <div id="roi-panel"><div id="roi-content"></div><button id="roi-export-btn" title="Export ROI stats to CSV">export CSV</button></div>
     <div id="info-overlay">
         <div id="info-box"><table id="info-table"></table></div>
     </div>
@@ -885,7 +892,7 @@
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
-                 <div class="help-row"><span class="key">A</span><span class="desc">toggle rectangle ROI mode — drag canvas to select region and show stats</span></div>
+                 <div class="help-row"><span class="key">A</span><span class="desc">toggle ROI mode — drag to draw multiple regions, stats panel + CSV export</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -1036,7 +1043,8 @@
         const cmpManualVmax = Array(6).fill(null);
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
-        let rectRoiMode = true; // A key toggles rectangle ROI selection mode; true = on by default
+        let rectRoiMode = false; // A key toggles rectangle ROI selection mode
+        let _rois = []; // array of {x0,y0,x1,y1,stats} for multi-ROI
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
@@ -3920,6 +3928,69 @@
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
         });
+        const _roiColors = [
+            {fill:'rgba(255,255,100,0.10)', stroke:'rgba(255,255,100,0.85)'},
+            {fill:'rgba(100,200,255,0.10)', stroke:'rgba(100,200,255,0.85)'},
+            {fill:'rgba(255,120,180,0.10)', stroke:'rgba(255,120,180,0.85)'},
+            {fill:'rgba(120,255,180,0.10)', stroke:'rgba(120,255,180,0.85)'},
+            {fill:'rgba(200,150,255,0.10)', stroke:'rgba(200,150,255,0.85)'},
+        ];
+        function _drawAllRois() {
+            if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            for (let i = 0; i < _rois.length; i++) {
+                const r = _rois[i];
+                const c = _roiColors[i % _roiColors.length];
+                const rx = r.x0, ry = r.y0, rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+                ctx.fillStyle = c.fill; ctx.fillRect(rx, ry, rw, rh);
+                ctx.strokeStyle = c.stroke; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh);
+                ctx.fillStyle = c.stroke; ctx.font = '11px monospace';
+                ctx.fillText(String(i + 1), rx + 3, ry + 12);
+            }
+        }
+        function _updateRoiPanel() {
+            const panel = document.getElementById('roi-panel');
+            const content = document.getElementById('roi-content');
+            if (!_rois.length) { panel.style.display = 'none'; return; }
+            const fmt = v => {
+                const a = Math.abs(v);
+                if (a === 0) return '0';
+                if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
+                return parseFloat(v.toPrecision(4)).toString();
+            };
+            let html = '';
+            for (let i = 0; i < _rois.length; i++) {
+                const r = _rois[i];
+                const c = _roiColors[i % _roiColors.length];
+                const s = r.stats;
+                if (!s) continue;
+                html += `<div class="roi-section"><div class="roi-header"><span style="color:${c.stroke}">ROI ${i + 1}</span></div>`;
+                html += '<table>';
+                html += `<tr><td>n</td><td>${s.n.toLocaleString()} px</td></tr>`;
+                html += `<tr><td>min</td><td>${fmt(s.min)}</td></tr>`;
+                html += `<tr><td>max</td><td>${fmt(s.max)}</td></tr>`;
+                html += `<tr><td>mean</td><td>${fmt(s.mean)}</td></tr>`;
+                html += `<tr><td>std</td><td>${fmt(s.std)}</td></tr>`;
+                html += '</table></div>';
+            }
+            content.innerHTML = html;
+            panel.style.display = 'block';
+        }
+        function _exportRoisCsv() {
+            if (!_rois.length) return;
+            const rows = [['roi','n','min','max','mean','std'].join(',')];
+            for (let i = 0; i < _rois.length; i++) {
+                const s = _rois[i].stats;
+                if (!s) continue;
+                rows.push([i + 1, s.n, s.min, s.max, s.mean, s.std].join(','));
+            }
+            const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'roi_stats.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+        document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
         canvas.addEventListener('mousemove', e => {
             if (!roiDragging) return;
             const rect = canvas.getBoundingClientRect();
@@ -3927,16 +3998,15 @@
                 x: (e.clientX - rect.left) * canvas.width / rect.width,
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
-            if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            _drawAllRois();
             if (rectRoiMode) {
                 const rx = Math.min(roiStart.x, roiEnd.x);
                 const ry = Math.min(roiStart.y, roiEnd.y);
                 const rw = Math.abs(roiEnd.x - roiStart.x);
                 const rh = Math.abs(roiEnd.y - roiStart.y);
-                ctx.fillStyle = 'rgba(255,255,100,0.10)';
-                ctx.fillRect(rx, ry, rw, rh);
-                ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
-                ctx.strokeRect(rx, ry, rw, rh);
+                const c = _roiColors[_rois.length % _roiColors.length];
+                ctx.fillStyle = c.fill; ctx.fillRect(rx, ry, rw, rh);
+                ctx.strokeStyle = c.stroke; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh);
             }
         });
         canvas.addEventListener('mouseup', e => {
@@ -3946,33 +4016,21 @@
                 const rw = Math.abs(roiEnd.x - roiStart.x);
                 const rh = Math.abs(roiEnd.y - roiStart.y);
                 if (rw < 3 || rh < 3) {
-                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                    document.getElementById('roi-panel').style.display = 'none';
+                    _drawAllRois();
                     return;
                 }
                 const x0 = Math.round(Math.min(roiStart.x, roiEnd.x));
                 const y0 = Math.round(Math.min(roiStart.y, roiEnd.y));
                 const x1 = Math.round(Math.max(roiStart.x, roiEnd.x));
                 const y1 = Math.round(Math.max(roiStart.y, roiEnd.y));
+                const roiIdx = _rois.length;
+                _rois.push({x0, y0, x1, y1, stats: null});
+                _drawAllRois();
                 fetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&complex_mode=${complexMode}`)
                     .then(res => res.json()).then(d => {
                         if (d.error) return;
-                        const fmt = v => {
-                            const a = Math.abs(v);
-                            if (a === 0) return '0';
-                            if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
-                            return parseFloat(v.toPrecision(4)).toString();
-                        };
-                        const rows = [
-                            ['n', d.n.toLocaleString() + ' px'],
-                            ['min', fmt(d.min)],
-                            ['max', fmt(d.max)],
-                            ['mean', fmt(d.mean)],
-                            ['std', fmt(d.std)],
-                        ];
-                        document.getElementById('roi-table').innerHTML =
-                            rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
-                        document.getElementById('roi-panel').style.display = 'block';
+                        _rois[roiIdx].stats = d;
+                        _updateRoiPanel();
                     });
             }
         });
@@ -4298,15 +4356,16 @@
             } else if (e.key === 'A') {
                 // Toggle rectangle ROI selection mode
                 if (compareActive || multiViewActive || qmriActive) {
-                    showStatus('rect ROI: not available in this mode'); return;
+                    showStatus('ROI mode: not available in this mode'); return;
                 }
                 rectRoiMode = !rectRoiMode;
                 if (!rectRoiMode) {
+                    _rois = [];
                     document.getElementById('roi-panel').style.display = 'none';
                     if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                 }
                 canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
-                showStatus(rectRoiMode ? 'rect ROI: drag to select region' : 'rect ROI: off');
+                showStatus(rectRoiMode ? 'ROI mode: drag to draw regions · A to exit' : 'ROI mode: off');
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'N') {
