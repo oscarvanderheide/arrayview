@@ -976,6 +976,7 @@
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
         let indices = [];
+        let _sessionName = ''; // set from metadata; restored when leaving compare mode
         let colormap_idx = 0, dr_idx = 1;
         let isPlaying = false, playInterval = null, playingVfieldT = false;
         let dim_z = -1;
@@ -1593,6 +1594,17 @@
             return compareNameBySid[sidVal] || sidVal.slice(0, 8);
         }
 
+        function _updateHeaderNameForCompare() {
+            const el = document.getElementById('array-name-text');
+            if (!el) return;
+            if (!compareActive) {
+                el.textContent = _sessionName;
+                return;
+            }
+            const n = (_compareExplicitSids ? _compareExplicitSids.length : Math.max(1, compareDisplaySids.length));
+            el.textContent = `comparing ${n} array${n === 1 ? '' : 's'}`;
+        }
+
         function updateCompareTitles() {
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
@@ -1628,6 +1640,7 @@
             });
             compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
             updateCompareTitles();
+            _updateHeaderNameForCompare();
         }
 
         function drawCompareFramesFromCache() {
@@ -2866,7 +2879,10 @@
             vfieldT = 0;
             rgbMode = data.is_rgb || false;
             if (rgbMode) cbVisible = false;
-            if (data.name) document.getElementById('array-name-text').textContent = data.name;
+            if (data.name) {
+                _sessionName = data.name;
+                document.getElementById('array-name-text').textContent = data.name;
+            }
             _isWelcomeScreen = data.name === 'welcome';
             if (_isWelcomeScreen) {
                 document.body.classList.add('welcome-mode');
@@ -5135,6 +5151,7 @@
             }
             drawSlimColorbar(cbMarkerFrac);
             renderEggs();
+            _updateHeaderNameForCompare();
             updateView();
             showStatus('compare: off');
         }
