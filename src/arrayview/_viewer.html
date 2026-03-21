@@ -1781,38 +1781,9 @@
         }
 
         function drawCompareColorbar() {
-            if (!compareActive || !colorbarVisible()) {
-                compareCbCanvas.style.display = 'none';
-                compareCbLabels.textContent = '';
-                return;
-            }
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-            if (!stops) return;
-            const wrap = document.getElementById('compare-cb-wrap');
-            const widthCss = Math.max(160, Math.min(920, (wrap?.clientWidth || 600) - 100));
-            const heightCss = 8;
-            const dpr = window.devicePixelRatio || 1;
-            compareCbCanvas.width = Math.round(widthCss * dpr);
-            compareCbCanvas.height = Math.round(heightCss * dpr);
-            compareCbCanvas.style.width = `${widthCss}px`;
-            compareCbCanvas.style.height = `${heightCss}px`;
-            compareCbCanvas.style.display = '';
-            const c2 = compareCbCanvas.getContext('2d');
-            c2.clearRect(0, 0, compareCbCanvas.width, compareCbCanvas.height);
-            c2.save();
-            c2.scale(dpr, dpr);
-            const grad = c2.createLinearGradient(0, 0, widthCss, 0);
-            const n = stops.length;
-            for (let i = 0; i < n; i++) {
-                const t = n <= 1 ? 0 : i / (n - 1);
-                const rgb = stops[i];
-                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-            }
-            c2.fillStyle = grad;
-            c2.fillRect(0, 0, widthCss, heightCss);
-            c2.restore();
-            compareCbLabels.style.width = `${widthCss}px`;
-            compareCbLabels.innerHTML = `<span>${_cbFmt(currentVmin)}</span><span style="flex:1"></span><span>${_cbFmt(currentVmax)}</span>`;
+            // Per-pane colorbars are used; hide the shared compare colorbar
+            compareCbCanvas.style.display = 'none';
+            compareCbLabels.textContent = '';
         }
 
         function drawComparePaneCb(idx) {
