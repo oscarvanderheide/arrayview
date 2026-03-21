@@ -2021,11 +2021,16 @@
                 sCtx.fillStyle = fillStyle;
                 sCtx.fillRect(x, y, binW - 0.5, barH);
             }
-            // Show a subtle "log" label when auto log-scale is active
+            // Show a subtle vertical "log" label when auto log-scale is active
             if (useLogScale) {
+                sCtx.save();
                 sCtx.fillStyle = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                 sCtx.font = '8px sans-serif';
-                sCtx.fillText('log', 2, histAreaH - 2);
+                // Rotate 90° CCW so text reads bottom-to-top along the left edge
+                sCtx.translate(7, histAreaH - 2);
+                sCtx.rotate(-Math.PI / 2);
+                sCtx.fillText('log', 0, 0);
+                sCtx.restore();
             }
         }
 
