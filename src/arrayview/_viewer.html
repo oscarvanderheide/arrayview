@@ -7674,8 +7674,8 @@
             if (e.touches.length === 2 && _pinchDist0 !== null) {
                 e.preventDefault();
                 const d = _pinchDist(e.touches);
-                // Dampen with ^0.6 to avoid over-sensitive zoom on small pinch movements
-                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * Math.pow(d / _pinchDist0, 0.6)));
+                // Dampen with ^0.35 to avoid over-sensitive zoom on small pinch movements
+                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * Math.pow(d / _pinchDist0, 0.35)));
                 if (compareQmriActive) compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
                 else if (multiViewActive) mvScaleAllCanvases();
