@@ -5399,10 +5399,11 @@
             cbWrap.appendChild(mvCbLabels);
             wrap.appendChild(cbWrap);
             // 3 views: each shows a different pair of dims, slicing through the third
+            // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
             const defs = [
-                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
+                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
+                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
             ];
             mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
@@ -6017,10 +6018,11 @@
             if (shape.length < 3) { showStatus('Need at least 3 dimensions for 3-plane view'); return; }
             const dims = defaultMultiViewDims();
             // Plane definitions: same as enterMultiView
+            // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
             const planeDefs = [
-                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
-                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
                 { dimX: dims[1], dimY: dims[0], sliceDir: dims[2] },
+                { dimX: dims[2], dimY: dims[0], sliceDir: dims[1] },
+                { dimX: dims[2], dimY: dims[1], sliceDir: dims[0] },
             ];
             const cmpSids = getCompareRenderSids();
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
