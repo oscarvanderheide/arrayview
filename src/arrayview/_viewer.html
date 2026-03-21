@@ -269,11 +269,14 @@
                               border: 1px solid rgba(200,80,80,0.25); }
         .mode-badge-rgb     { background: rgba(210,90,200,0.15); color: #da7fd8;
                               border: 1px solid rgba(210,90,200,0.25); }
+        .mode-badge-diff    { background: rgba(255,130,90,0.15); color: #ff8a5c;
+                              border: 1px solid rgba(255,130,90,0.25); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
         :root.light .mode-badge-rgb  { background: rgba(170,50,160,0.1); color: #a030a0; border-color: rgba(170,50,160,0.25); }
+        :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
@@ -1690,6 +1693,7 @@
                 _drawWipe();
                 showStatus('wipe: drag slider · X to cycle');
             }
+            renderEggs();
             saveState();
         }
 
@@ -3054,6 +3058,10 @@
             }
             if (maskLevel > 0)
                 html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
+            if (compareActive && compareCenterMode > 0) {
+                const diffLabel = COMPARE_CENTER_LABELS[compareCenterMode] || '';
+                html += `<span class="mode-badge mode-badge-diff">${diffLabel.toUpperCase()}</span>`;
+            }
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
