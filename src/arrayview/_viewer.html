@@ -1104,6 +1104,9 @@
         let comparePending = false;
         let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A| (derived from compareCenterMode)
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
+        let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
+        let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
+        let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
         let compareFrames = [];
         let compareDisplaySids = [];
         let _compareExplicitSids = null; // when set, getCompareRenderSids() returns this directly
@@ -1900,8 +1903,7 @@
                 if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
                 return;
             }
-            const colormap = diffMode === 1 ? 'RdBu_r' : 'viridis';
-            const stops = COLORMAP_GRADIENT_STOPS[colormap];
+            const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r_black' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
             if (!stops) return;
             const stripH = 8;
             const dpr = window.devicePixelRatio || 1;
@@ -2811,11 +2813,13 @@
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
             });
+            if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
             try {
                 const resp = await fetch(`/diff/${sid_a}/${sid_b}?${params}`);
                 if (!resp.ok) return;
                 const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
                 const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
+                const usedCmap = resp.headers.get('X-ArrayView-Colormap') || '';
                 const blob = await resp.blob();
                 const bmp = await createImageBitmap(blob);
                 const diffCanvas = document.getElementById('compare-diff-canvas');
@@ -2833,6 +2837,20 @@
                 if (titleEl) titleEl.textContent = titles[diffMode];
                 _lastDiffVmin = isNaN(hdrVmin) ? 0 : hdrVmin;
                 _lastDiffVmax = isNaN(hdrVmax) ? 1 : hdrVmax;
+                // Cache gradient stops for the colormap used by the server
+                if (usedCmap && COLORMAP_GRADIENT_STOPS[usedCmap]) {
+                    _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[usedCmap];
+                } else if (usedCmap) {
+                    // Fetch stops from server for unknown colormaps
+                    try {
+                        const cmResp = await fetch(`/colormap/${encodeURIComponent(usedCmap)}`);
+                        if (cmResp.ok) {
+                            const cmData = await cmResp.json();
+                            COLORMAP_GRADIENT_STOPS[usedCmap] = cmData.gradient_stops;
+                            _diffCenterColormapStops = cmData.gradient_stops;
+                        }
+                    } catch (_) {}
+                }
                 drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
             } catch (e) { /* silently ignore transient errors */ }
         }
@@ -4359,6 +4377,16 @@
                 saveState();
             } else if (e.key === 'c') {
                 if (rgbMode) return;
+                // If hovering over center pane, cycle its colormap instead
+                if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive)) {
+                    const idx = COLORMAPS.indexOf(_diffCenterColormap);
+                    const next = (idx + 1) % COLORMAPS.length;
+                    _diffCenterColormap = COLORMAPS[next];
+                    _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
+                    if (diffMode > 0) fetchAndDrawDiff();
+                    showColormapStrip();
+                    return;
+                }
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
@@ -5228,6 +5256,8 @@
             diffMode = 0;
             registrationMode = false;
             _wipeActive = false;
+            _diffCenterColormap = '';
+            _diffCenterColormapStops = null;
             document.getElementById('compare-diff-pane').style.display = 'none';
             const _wp = document.getElementById('compare-wipe-pane');
             if (_wp) _wp.style.display = 'none';
@@ -7672,6 +7702,15 @@
             el.addEventListener('touchstart', _onTouchStart, { passive: false });
             el.addEventListener('touchmove',  _onTouchMove,  { passive: false });
             el.addEventListener('touchend',   _onTouchEnd,   { passive: false });
+        });
+
+        // Track mouse-over center pane (diff / wipe) for 'c' colormap cycling
+        ['compare-diff-pane', 'compare-wipe-pane'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('mouseenter', () => { _mouseOverCenterPane = true; });
+                el.addEventListener('mouseleave', () => { _mouseOverCenterPane = false; });
+            }
         });
 
         init();

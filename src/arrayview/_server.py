@@ -1315,6 +1315,7 @@ def get_diff(
     complex_mode: int = 0,
     log_scale: bool = False,
     diff_mode: int = 1,
+    diff_colormap: str = "",
 ):
     session_a = SESSIONS.get(sid_a)
     session_b = SESSIONS.get(sid_b)
@@ -1358,18 +1359,21 @@ def get_diff(
     if diff_mode == 1:
         raw = a - b
         vmin, vmax = -1.0, 1.0
-        colormap = "RdBu_r"
+        colormap = "RdBu_r_black"
     elif diff_mode == 2:
         raw = np.abs(a - b)
         vmax = float(raw.max()) or 1.0
         vmin = 0.0
-        colormap = "viridis"
+        colormap = "afmhot"
     else:  # diff_mode == 3
         raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
         raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
         vmax = float(raw.max()) or 1.0
         vmin = 0.0
-        colormap = "viridis"
+        colormap = "afmhot"
+    # Allow frontend to override the colormap
+    if diff_colormap and _ensure_lut(diff_colormap):
+        colormap = diff_colormap
     if vmax > vmin:
         normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
     else:
@@ -1389,6 +1393,7 @@ def get_diff(
             "Cache-Control": "no-cache",
             "X-ArrayView-Vmin": str(vmin),
             "X-ArrayView-Vmax": str(vmax),
+            "X-ArrayView-Colormap": colormap,
         },
     )
 
