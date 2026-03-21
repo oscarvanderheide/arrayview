@@ -733,6 +733,56 @@ class TestColormap:
         assert r.status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# /diff
+# ---------------------------------------------------------------------------
+
+
+class TestDiff:
+    """Tests for the /diff/{sid_a}/{sid_b} compare-diff endpoint."""
+
+    def _make_pair(self, client, tmp_path):
+        arr_a = np.linspace(0, 1, 64 * 64, dtype=np.float32).reshape(64, 64)
+        arr_b = np.linspace(1, 0, 64 * 64, dtype=np.float32).reshape(64, 64)
+        np.save(tmp_path / "da.npy", arr_a)
+        np.save(tmp_path / "db.npy", arr_b)
+        sid_a = client.post("/load", json={"filepath": str(tmp_path / "da.npy")}).json()["sid"]
+        sid_b = client.post("/load", json={"filepath": str(tmp_path / "db.npy")}).json()["sid"]
+        return sid_a, sid_b
+
+    def test_diff_mode1_returns_image_with_headers(self, client, tmp_path):
+        sid_a, sid_b = self._make_pair(client, tmp_path)
+        r = client.get(f"/diff/{sid_a}/{sid_b}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0", "diff_mode": 1,
+        })
+        assert r.status_code == 200
+        assert "image/jpeg" in r.headers["content-type"]
+        assert r.headers.get("X-ArrayView-Colormap") == "RdBu_r_black"
+
+    def test_diff_mode2_uses_afmhot(self, client, tmp_path):
+        sid_a, sid_b = self._make_pair(client, tmp_path)
+        r = client.get(f"/diff/{sid_a}/{sid_b}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0", "diff_mode": 2,
+        })
+        assert r.status_code == 200
+        assert r.headers.get("X-ArrayView-Colormap") == "afmhot"
+
+    def test_diff_colormap_override(self, client, tmp_path):
+        sid_a, sid_b = self._make_pair(client, tmp_path)
+        r = client.get(f"/diff/{sid_a}/{sid_b}", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0", "diff_mode": 1,
+            "diff_colormap": "viridis",
+        })
+        assert r.status_code == 200
+        assert r.headers.get("X-ArrayView-Colormap") == "viridis"
+
+    def test_unknown_sid_returns_404(self, client):
+        r = client.get("/diff/nosid1/nosid2", params={
+            "dim_x": 1, "dim_y": 0, "indices": "0,0", "diff_mode": 1,
+        })
+        assert r.status_code == 404
+
+
 class TestMemoryAwareCache:
     def test_byte_counters_reset_on_clearcache(self, client, sid_2d):
         """After clearcache, byte counters should be 0."""
