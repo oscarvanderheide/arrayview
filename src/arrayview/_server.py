@@ -796,6 +796,31 @@ def get_pixel(
     return {"value": val}
 
 
+@app.get("/profile/{sid}")
+def get_profile(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    px: int,
+    py: int,
+    complex_mode: int = 0,
+):
+    """Return row and column intensity profiles through a pixel for the 1D overlay."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"row": [], "col": []}
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    row_line = [_safe_float(v) for v in data[py, :]] if 0 <= py < h else []
+    col_line = [_safe_float(v) for v in data[:, px]] if 0 <= px < w else []
+    return {"row": row_line, "col": col_line}
+
+
 @app.get("/roi_circle/{sid}")
 def get_roi_circle(
     sid: str,
