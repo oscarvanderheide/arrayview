@@ -864,6 +864,7 @@
                 <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
                 <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
                 <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
+                <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
                 <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="axes">
@@ -1386,7 +1387,11 @@
             _cbApplyAndRender();
         });
         window.addEventListener('mouseup', (e) => {
-            if (e.button === 2) { _scrubDrag = null; _panDrag = null; }
+            if (_panDrag !== null) {
+                _panDrag = null;
+                canvas.style.cursor = _isCanvasOverflowing() ? 'grab' : '';
+            }
+            if (e.button === 2) { _scrubDrag = null; }
             _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null;
         });
         slimCbCanvas.addEventListener('dblclick', () => {
@@ -3922,6 +3927,12 @@
                 return;
             }
             roiDragging = rectRoiMode; // only start ROI drag when mode is active
+            // Left-click pan when zoomed in and not in ROI mode
+            if (!rectRoiMode && _isCanvasOverflowing()) {
+                _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
             const rect = canvas.getBoundingClientRect();
             roiStart = roiEnd = {
                 x: (e.clientX - rect.left) * canvas.width / rect.width,
