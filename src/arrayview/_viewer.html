@@ -424,7 +424,7 @@
             max-width: 100%; max-height: 100%;
         }
         #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
-        #compare-view-wrap.active #compare-cb-wrap { display: none; } /* hidden; per-pane colorbars are used instead */
+        #compare-view-wrap.active #compare-cb-wrap { display: flex; justify-content: center; }
         #compare-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
         #compare-cb-labels {
             display: flex; justify-content: center; gap: 0; font-size: 11px;
@@ -474,6 +474,105 @@
         body.welcome-mode #info { visibility: hidden; }
         body.welcome-mode #array-name { visibility: hidden; }
         body.welcome-mode #slim-cb-wrap { display: none !important; }
+
+        /* ── Cross-fade overlay ──────────────────────────────────── */
+        #viewer-fade { position:absolute; top:0; left:0; pointer-events:none; opacity:0;
+            background:transparent; transition:opacity 0.09s ease; image-rendering:pixelated; }
+
+        /* ── Zen / focus mode ────────────────────────────────────── */
+        body.zen-mode #array-name, body.zen-mode #info,
+        body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
+        body.zen-mode #help-hint, body.zen-mode #status,
+        body.zen-mode #preload-status { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+
+        /* ── Colormap preview strip ──────────────────────────────── */
+        #colormap-strip {
+            position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+            display:flex; flex-direction:row; align-items:flex-end; gap:6px;
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:var(--radius); padding:6px 10px 8px;
+            opacity:0; pointer-events:none; transition:opacity 0.25s ease;
+            z-index:8; max-width:90vw; overflow:visible;
+        }
+        #colormap-strip.visible { opacity:1; }
+        .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; }
+        .cmap-thumb canvas { display:block; width:44px; height:8px; border-radius:2px; border:1.5px solid transparent; }
+        .cmap-thumb.active canvas { border-color:var(--active-dim); box-shadow:0 0 0 1px var(--active-dim); }
+        .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:50px; overflow:hidden; text-overflow:ellipsis; }
+        .cmap-thumb.active span { color:var(--active-dim); }
+
+        /* ── Wipe comparator (center pane + range slider) ────────── */
+        .compare-wipe { order: 1; }
+        #compare-view-wrap.wipe-mode .compare-wipe { display: flex !important; }
+        /* Wipe range control that sits below the center canvas */
+        #wipe-range-wrap {
+            width: 100%; padding: 2px 4px 0;
+            display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+        }
+        #wipe-range {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; border-radius: 3px;
+            background: linear-gradient(
+                to right,
+                var(--surface) 0%, var(--surface) calc(var(--wipe-pct, 50%) - 0.5px),
+                var(--active-dim) calc(var(--wipe-pct, 50%) - 0.5px), var(--active-dim) calc(var(--wipe-pct, 50%) + 0.5px),
+                var(--surface) calc(var(--wipe-pct, 50%) + 0.5px), var(--surface) 100%
+            );
+            outline: none; cursor: ew-resize; border: 1px solid var(--border);
+        }
+        #wipe-range::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: var(--active-dim);
+            border: 2px solid var(--bg); cursor: ew-resize;
+        }
+        #wipe-range::-moz-range-thumb {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--active-dim); border: 2px solid var(--bg); cursor: ew-resize;
+        }
+        #wipe-range-labels {
+            display: flex; justify-content: space-between;
+            font-size: 9px; color: var(--muted); font-family: monospace;
+        }
+
+        /* ── Ruler overlay ───────────────────────────────────────── */
+        #ruler-svg { position:absolute; top:0; left:0; pointer-events:none; overflow:visible; display:none; }
+        #ruler-svg.active { display:block; }
+        body.ruler-mode canvas { cursor:crosshair !important; }
+        .ruler-line { stroke:var(--active-dim); stroke-width:1.5px; stroke-dasharray:5,3; fill:none; }
+        .ruler-dot { fill:var(--active-dim); }
+        .ruler-lbl { font-family:monospace; font-size:11px; fill:var(--active-dim); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+
+        /* ── 1D Intensity profile ────────────────────────────────── */
+        #profile-popup {
+            position:fixed; pointer-events:none; z-index:12;
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:var(--radius); padding:5px 7px; display:none;
+            font-size:9px; color:var(--muted); font-family:monospace;
+        }
+        #profile-popup.visible { display:block; }
+        #profile-line-h, #profile-line-v {
+            position:fixed; pointer-events:none; z-index:7; display:none;
+            background:rgba(245,200,66,0.3);
+        }
+        #profile-line-h { height:1px; left:0; right:0; }
+        #profile-line-v { width:1px; top:0; bottom:0; }
+        #profile-line-h.visible, #profile-line-v.visible { display:block; }
+
+        /* ── Mini-map ────────────────────────────────────────────── */
+        #mini-map {
+            position:fixed; bottom:80px; right:12px; z-index:4;
+            width:100px; height:100px; overflow:hidden; display:none;
+            background:var(--bg); border:1px solid var(--border); border-radius:var(--radius);
+            cursor:crosshair;
+        }
+        #mini-map.visible { display:block; }
+        #mini-map canvas { position:absolute; top:0; left:0; width:100%; height:100%; image-rendering:pixelated; }
+        #mini-viewport { position:absolute; box-sizing:border-box; border:1.5px solid var(--active-dim); pointer-events:none; }
+
+        /* ── Compare crosshair ───────────────────────────────────── */
+        .cmp-xhair-h, .cmp-xhair-v { position:absolute; pointer-events:none; z-index:5; display:none; }
+        .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
+        .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
     </style>
 </head>
 <body>
@@ -501,6 +600,8 @@
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
+                <canvas id="viewer-fade"></canvas>
+                <svg id="ruler-svg" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
                 <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
                     <line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>
                     <polygon points="26,31 31,34 26,37" fill="currentColor"/>
@@ -549,6 +650,20 @@
                             </div>
                             <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="compare-pane compare-wipe" id="compare-wipe-pane" style="display:none">
+                    <div class="compare-title" id="compare-wipe-title">A ◁▷ B</div>
+                    <div class="compare-canvas-area">
+                        <div class="compare-canvas-wrap">
+                            <div class="compare-canvas-inner">
+                                <canvas id="compare-wipe-canvas" class="compare-canvas"></canvas>
+                            </div>
+                            <div id="wipe-range-wrap">
+                                <input id="wipe-range" type="range" min="0" max="100" value="50">
+                                <div id="wipe-range-labels"><span>A</span><span>B</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -680,7 +795,13 @@
               style="position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0;border:none;padding:0;margin:0;resize:none;overflow:hidden;"></textarea>
     <div id="mode-eggs"></div>
     <div id="status"></div>
+    <div id="toast"></div>
     <div id="preload-status"></div>
+    <div id="colormap-strip"></div>
+    <div id="profile-popup"><canvas id="profile-canvas" width="140" height="40"></canvas></div>
+    <div id="profile-line-h"></div>
+    <div id="profile-line-v"></div>
+    <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
     <div id="inline-prompt">
         <div id="inline-prompt-box">
             <div id="inline-prompt-msg"></div>
@@ -728,6 +849,8 @@
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle RGB mode on active dim (size 3 or 4)</span></div>
                 <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
                 <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
+                <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
+                <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
                 <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="axes">
@@ -767,6 +890,10 @@
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
+                <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
+                <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
+                <div class="help-row"><span class="key">W</span><span class="desc">A/B wipe — shows a center pane with a split-slider to compare two arrays side-by-side (compare mode)</span></div>
+                <div class="help-row"><span class="key">Alt+hover</span><span class="desc">1D intensity profile at cursor row/col</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
                 <div class="help-panel-title">Info &amp; Export</div>
@@ -891,7 +1018,7 @@
         const cmpManualVmax = Array(6).fill(null);
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
-        let rectRoiMode = false; // A key toggles rectangle ROI selection mode
+        let rectRoiMode = true; // A key toggles rectangle ROI selection mode; true = on by default
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
@@ -998,7 +1125,7 @@
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const compareWrap = document.getElementById('compare-view-wrap');
-        const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane:not(.compare-diff)'));
+        const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane:not(.compare-diff):not(.compare-wipe)'));
         const compareCanvases = [
             document.getElementById('compare-left-canvas'),
             document.getElementById('compare-right-canvas'),
@@ -1189,6 +1316,24 @@
             e.preventDefault();
         });
         window.addEventListener('mousemove', (e) => {
+            // Right-click scrub drag
+            if (_scrubDrag !== null && !compareActive && !multiViewActive && !qmriActive) {
+                const dy = e.clientY - _scrubDrag.y;
+                const n = shape[current_slice_dim];
+                const pxPerSlice = Math.max(2, Math.round(Math.max(80, window.innerHeight * 0.6) / n));
+                const delta = -Math.round(dy / pxPerSlice);
+                indices[current_slice_dim] = Math.max(0, Math.min(n - 1, _scrubDrag.idx0 + delta));
+                updateView();
+                return;
+            }
+            // Right-click pan drag (when zoomed)
+            if (_panDrag !== null) {
+                _panX = _panDrag.panX0 + (e.clientX - _panDrag.x);
+                _panY = _panDrag.panY0 + (e.clientY - _panDrag.y);
+                _applyCanvasPan();
+                updateMiniMapViewport();
+                return;
+            }
             // Compare-mode per-pane colorbar drag
             if (_cmpCbDragPane !== null && _cmpCbDragX !== null && compareActive) {
                 const i = _cmpCbDragPane;
@@ -1221,7 +1366,10 @@
             drawSlimColorbar(cbMarkerFrac);
             _cbApplyAndRender();
         });
-        window.addEventListener('mouseup', () => { _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null; });
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 2) { _scrubDrag = null; _panDrag = null; }
+            _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null;
+        });
         slimCbCanvas.addEventListener('dblclick', () => {
             if (compareActive || qmriActive) return;
             manualVmin = null; manualVmax = null;
@@ -1501,7 +1649,7 @@
                 }
             }
             compareScaleCanvases();
-            requestAnimationFrame(() => compareScaleCanvases());
+            requestAnimationFrame(() => { compareScaleCanvases(); _maybeRedrawWipe(); });
         }
 
         function getCompareRenderSids() {
@@ -1700,7 +1848,11 @@
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
 
-        function showToast(msg) { showStatus(msg); }
+        function showToast(msg) {
+            showStatus(msg);
+            const t = document.getElementById('toast');
+            if (t) { t.textContent = msg; setTimeout(() => { if (t.textContent === msg) t.textContent = ''; }, 3000); }
+        }
 
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
@@ -1716,8 +1868,7 @@
             if (compareActive) {
                 // Per-pane colorbars replace the shared one in compare mode
                 drawAllComparePaneCbs();
-                compareCbCanvas.style.display = 'none';
-                compareCbLabels.textContent = '';
+                drawCompareColorbar();
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
                 if (wrap) wrap.style.display = 'none';
@@ -1823,6 +1974,16 @@
             const windowVmin = manualVmin ?? currentVmin;
             const windowVmax = manualVmax ?? currentVmax;
             const windowRange = windowVmax - windowVmin || 1;
+
+            // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
+            // zeros / flat background) use log(count+1) for bar heights so the
+            // non-dominant bins are still visible.
+            const sorted = [...counts].sort((a, b) => a - b);
+            const medianCount = sorted[Math.floor(sorted.length / 2)] || 1;
+            const useLogScale = maxCount > 20 * medianCount;
+            const barFrac = useLogScale
+                ? (c) => Math.log1p(c) / Math.log1p(maxCount)
+                : (c) => c / maxCount;
             // Build colormap lookup
             let _cmapData = null;
             const _cmapSz = 256;
@@ -1845,7 +2006,7 @@
             const histAreaH = stripH - CB_COLLAPSED_H;
             const binW = cssW / nBins;
             for (let i = 0; i < nBins; i++) {
-                const barH = Math.max(0.5, (counts[i] / maxCount) * (histAreaH - 2));
+                const barH = Math.max(0.5, barFrac(counts[i]) * (histAreaH - 2));
                 const x = i * binW;
                 const y = histAreaH - barH; // bars grow upward from the gradient strip
                 let fillStyle;
@@ -1859,6 +2020,12 @@
                 }
                 sCtx.fillStyle = fillStyle;
                 sCtx.fillRect(x, y, binW - 0.5, barH);
+            }
+            // Show a subtle "log" label when auto log-scale is active
+            if (useLogScale) {
+                sCtx.fillStyle = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+                sCtx.font = '8px sans-serif';
+                sCtx.fillText('log', 2, histAreaH - 2);
             }
         }
 
@@ -1950,47 +2117,39 @@
             lebesgueCanvas.style.width  = canvas.style.width;
             lebesgueCanvas.style.height = canvas.style.height;
 
-            // Build a highlight ImageData: for each pixel in the raw slice,
-            // if the value falls in [binLow, binHigh) paint it with the
-            // corresponding colormap color at reduced alpha; otherwise dim it.
-            const imgData = lebesgueCtx.createImageData(cw, ch);
-            const out = imgData.data;
-            const nPx = sliceW * sliceH;
             // Scale factors from slice coords to canvas backing store
             const sx = cw / sliceW;
             const sy = ch / sliceH;
-            // Account for flips
             const fx = flip_x, fy = flip_y;
 
-            // Dim everything first (semi-transparent black overlay)
-            for (let i = 0; i < out.length; i += 4) {
-                out[i] = 0; out[i+1] = 0; out[i+2] = 0; out[i+3] = 140;
-            }
+            // Step 1: fill entire overlay with a semi-transparent dim (GPU draw,
+            // avoids the O(cw*ch) pixel loop that hangs for large images).
+            lebesgueCtx.clearRect(0, 0, cw, ch);
+            lebesgueCtx.fillStyle = 'rgba(0,0,0,0.55)';
+            lebesgueCtx.fillRect(0, 0, cw, ch);
 
-            // Now clear (make transparent) the pixels that match the bin
+            // Step 2: punch transparent holes for bin-matching pixels using a
+            // single batched path + destination-out composite (no pixel writes).
+            lebesgueCtx.globalCompositeOperation = 'destination-out';
+            lebesgueCtx.fillStyle = 'rgba(0,0,0,1)';
+            lebesgueCtx.beginPath();
             for (let py = 0; py < sliceH; py++) {
                 for (let px = 0; px < sliceW; px++) {
                     const val = _lebesgueSlice[py * sliceW + px];
                     if (val >= binLow && val < binHigh) {
-                        // This pixel matches — make it transparent in the overlay
                         const dx = fx ? (sliceW - 1 - px) : px;
                         const dy = fy ? (sliceH - 1 - py) : py;
-                        // Fill the rectangle in canvas backing store that corresponds to this slice pixel
                         const x0 = Math.floor(dx * sx);
                         const y0 = Math.floor(dy * sy);
                         const x1 = Math.min(cw, Math.ceil((dx + 1) * sx));
                         const y1 = Math.min(ch, Math.ceil((dy + 1) * sy));
-                        for (let cy = y0; cy < y1; cy++) {
-                            const rowOff = cy * cw * 4;
-                            for (let cx = x0; cx < x1; cx++) {
-                                out[rowOff + cx * 4 + 3] = 0; // fully transparent
-                            }
-                        }
+                        lebesgueCtx.rect(x0, y0, x1 - x0, y1 - y0);
                     }
                 }
             }
+            lebesgueCtx.fill();
+            lebesgueCtx.globalCompositeOperation = 'source-over';
 
-            lebesgueCtx.putImageData(imgData, 0, 0);
             lebesgueCanvas.style.display = '';
         }
 
@@ -2303,11 +2462,8 @@
                     }
 
                     const rgba = new Uint8ClampedArray(buf.slice(20));
-                    lastImageData = new ImageData(rgba, width, height);
-                    lastImgW = width; lastImgH = height;
-                    canvas.width  = width;
-                    canvas.height = height;
-                    ctx.putImageData(applyFlips(lastImageData, width, height), 0, 0);
+                    const newImageData = new ImageData(rgba, width, height);
+                    crossFadeIn(newImageData, width, height);
                     // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
                     // sees the real childrenH and computes the correct paddingTop.
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
@@ -2317,6 +2473,7 @@
                     }
                     scaleCanvas(width, height);
                     drawVectorOverlay();
+                    updateMiniMap();
                     if (!_reportedFirstFrame) {
                         _reportedFirstFrame = true;
                         reportParent('frame-rendered', {
@@ -2429,14 +2586,13 @@
                 lastImageData = frame.imageData;
                 lastImgW = frame.width;
                 lastImgH = frame.height;
-                canvas.width = frame.width;
-                canvas.height = frame.height;
-                ctx.putImageData(applyFlips(lastImageData, frame.width, frame.height), 0, 0);
+                crossFadeIn(frame.imageData, frame.width, frame.height);
                 document.getElementById('loading-overlay').style.display = 'none';
                 document.getElementById('canvas-wrap').style.display = '';
                 scaleCanvas(frame.width, frame.height);
                 drawVectorOverlay();
                 drawSlimColorbar(cbMarkerFrac);
+                updateMiniMap();
                 if (!_reportedFirstFrame) {
                     _reportedFirstFrame = true;
                     reportParent('frame-rendered', {
@@ -2946,7 +3102,7 @@
         function flashAxesIndicators() {
             refreshAxesColor();
             document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.transition = 'opacity 0.35s ease';
+                el.style.transition = 'none';  // snap to visible immediately
                 el.style.opacity = '1';
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
@@ -3425,8 +3581,10 @@
 
         let playLastFrameTime = 0;
         let playFps = 15; // playback speed; adjustable with [ / ] while playing
+        let _playRafId = null;
 
         function stopPlay() {
+            if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
             isPlaying = false; playingVfieldT = false; setStatus('');
         }
@@ -3434,13 +3592,18 @@
         function playNext() {
             if (!isPlaying) return;
             const targetMs = 1000 / playFps;
-            const delay = Math.max(0, targetMs - (performance.now() - playLastFrameTime));
-            playInterval = setTimeout(() => {
+            function _rafTick(ts) {
                 if (!isPlaying) return;
-                playLastFrameTime = performance.now();
-                indices[current_slice_dim] = (indices[current_slice_dim] + 1) % shape[current_slice_dim];
-                updateView();
-            }, delay);
+                if (ts - playLastFrameTime >= targetMs) {
+                    playLastFrameTime = ts;
+                    indices[current_slice_dim] = (indices[current_slice_dim] + 1) % shape[current_slice_dim];
+                    updateView();
+                    // updateView will call playNext() again after render completes
+                } else {
+                    _playRafId = requestAnimationFrame(_rafTick);
+                }
+            }
+            _playRafId = requestAnimationFrame(_rafTick);
         }
 
         async function playNextVfieldT() {
@@ -3596,9 +3759,28 @@
         }
 
         // Canvas mouse handling: click to focus, drag to draw circular ROI or rect ROI
+        // Right-click drag: scrub (fit zoom) or pan (zoomed in)
+        let _scrubDrag = null; // {y, idx0} for right-click scrub
+        let _panDrag = null;   // {x, y, panX0, panY0} for right-click pan when zoomed
+        let _panX = 0, _panY = 0; // current canvas pan offsets (px)
+        function _applyCanvasPan() {
+            const ci = document.getElementById('canvas-inner');
+            if (ci) ci.style.transform = (_panX || _panY) ? `translate(${_panX}px,${_panY}px)` : '';
+        }
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
         canvas.addEventListener('mousedown', e => {
             sink.focus();
-            roiDragging = true;
+            // Right-click drag: scrub slices (fit) or pan (zoomed)
+            if (e.button === 2) {
+                e.preventDefault();
+                if (userZoom > 1.05) {
+                    _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
+                } else {
+                    _scrubDrag = { y: e.clientY, idx0: indices[current_slice_dim] };
+                }
+                return;
+            }
+            roiDragging = rectRoiMode; // only start ROI drag when mode is active
             const rect = canvas.getBoundingClientRect();
             roiStart = roiEnd = {
                 x: (e.clientX - rect.left) * canvas.width / rect.width,
@@ -3622,14 +3804,6 @@
                 ctx.fillRect(rx, ry, rw, rh);
                 ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
                 ctx.strokeRect(rx, ry, rw, rh);
-            } else {
-                const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
-                ctx.beginPath();
-                ctx.arc(roiStart.x, roiStart.y, r, 0, 2 * Math.PI);
-                ctx.fillStyle = 'rgba(255,255,100,0.10)';
-                ctx.fill();
-                ctx.strokeStyle = 'rgba(255,255,100,0.85)'; ctx.lineWidth = 1;
-                ctx.stroke();
             }
         });
         canvas.addEventListener('mouseup', e => {
@@ -3667,34 +3841,6 @@
                             rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
                         document.getElementById('roi-panel').style.display = 'block';
                     });
-            } else {
-                const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y);
-                if (r < 3) {
-                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                    document.getElementById('roi-panel').style.display = 'none';
-                    return;
-                }
-                const cx = roiStart.x, cy = roiStart.y;
-                fetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&cx=${cx}&cy=${cy}&r=${r}&complex_mode=${complexMode}`)
-                    .then(res => res.json()).then(d => {
-                        if (d.error) return;
-                        const fmt = v => {
-                            const a = Math.abs(v);
-                            if (a === 0) return '0';
-                            if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
-                            return parseFloat(v.toPrecision(4)).toString();
-                        };
-                        const rows = [
-                            ['n', d.n.toLocaleString() + ' px'],
-                            ['min', fmt(d.min)],
-                            ['max', fmt(d.max)],
-                            ['mean', fmt(d.mean)],
-                            ['std', fmt(d.std)],
-                        ];
-                        document.getElementById('roi-table').innerHTML =
-                            rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
-                        document.getElementById('roi-panel').style.display = 'block';
-                    });
             }
         });
         document.getElementById('info-overlay').addEventListener('click', e => {
@@ -3702,11 +3848,13 @@
                 document.getElementById('info-overlay').classList.remove('visible');
         });
         document.addEventListener('click', () => {
-            if (document.getElementById('uni-picker').classList.contains('visible')) return;
+            const _pkr = document.getElementById('uni-picker') || document.getElementById('compare-picker');
+            if (_pkr && _pkr.classList.contains('visible')) return;
             sink.focus();
         });
         window.addEventListener('focus', () => {
-            if (document.getElementById('uni-picker').classList.contains('visible')) return;
+            const _pkr = document.getElementById('uni-picker') || document.getElementById('compare-picker');
+            if (_pkr && _pkr.classList.contains('visible')) return;
             sink.focus();
         });
 
@@ -3714,6 +3862,13 @@
             if (dim_z >= 0) return;
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
+            // Alt+hover: show 1D intensity profile
+            if (e.altKey && !compareActive && !multiViewActive && !qmriActive) {
+                showProfileOverlay(e);
+                return;
+            } else {
+                hideProfileOverlay();
+            }
             if (pixelHoverPending) return;
             pixelHoverPending = true;
             setTimeout(() => { pixelHoverPending = false; }, 50);
@@ -3827,7 +3982,7 @@
                     showStatus(`zoom: fit`);
                     saveState();
                 }
-            } else if (e.key === 'P') {
+            } else if (e.key === 'B') {
                 if (isInlineEmbed) return;
                 toggleCompareMode();
             } else if (((e.key === 'o' || e.key === 'O') && modKey) || (e.key === 'O' && e.shiftKey && !modKey)) {
@@ -4102,6 +4257,7 @@
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 showStatus(`colormap: ${currentColormap()}`);
                 refreshAxesColor();
+                showColormapStrip();
                 saveState();
             } else if (e.key === 'C') {
                 if (rgbMode) return;
@@ -4399,41 +4555,41 @@
                 }, 2000);
                 showStatus(`jump to slice: ${sliceJumpBuffer}_`);
             } else if (e.key === 'Enter') {
-                // Enter key: jump to buffered slice index
+                // Enter key: jump to buffered slice index (1-based input)
                 if (sliceJumpBuffer.length > 0) {
-                    const targetIndex = parseInt(sliceJumpBuffer, 10);
+                    const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
                     sliceJumpBuffer = '';
                     if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
                     if (activeDim === VFIELD_T_DIM) {
                         if (targetIndex >= 0 && targetIndex < vfieldNTimes) {
                             vfieldT = targetIndex;
                             drawVectorOverlay(); renderInfo(); saveState();
-                            showStatus(`vfield time: ${vfieldT} / ${vfieldNTimes - 1}`);
+                            showStatus(`vfield time: ${targetIndex + 1} / ${vfieldNTimes}`);
                         } else {
-                            showStatus(`invalid vfield time index: ${targetIndex} (max ${vfieldNTimes - 1})`);
+                            showStatus(`invalid vfield time: ${targetIndex + 1} (valid range 1–${vfieldNTimes})`);
                         }
                     } else if (multiViewActive) {
-                        const maxIndex = shape[activeDim] - 1;
-                        if (targetIndex >= 0 && targetIndex <= maxIndex) {
+                        const n = shape[activeDim];
+                        if (targetIndex >= 0 && targetIndex < n) {
                             indices[activeDim] = targetIndex;
                             renderInfo();
                             mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                             saveState();
-                            showStatus(`slice: ${targetIndex} / ${maxIndex}`);
+                            showStatus(`slice: ${targetIndex + 1} / ${n}`);
                         } else {
-                            showStatus(`invalid slice index: ${targetIndex} (max ${maxIndex})`);
+                            showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
                         }
                     } else if (activeDim === dim_x || activeDim === dim_y) {
                         showStatus('cannot jump on display dimension (x/y)');
                     } else {
-                        const maxIndex = shape[activeDim] - 1;
-                        if (targetIndex >= 0 && targetIndex <= maxIndex) {
+                        const n = shape[activeDim];
+                        if (targetIndex >= 0 && targetIndex < n) {
                             indices[activeDim] = targetIndex;
                             updateView();
                             saveState();
-                            showStatus(`slice: ${targetIndex} / ${maxIndex}`);
+                            showStatus(`slice: ${targetIndex + 1} / ${n}`);
                         } else {
-                            showStatus(`invalid slice index: ${targetIndex} (max ${maxIndex})`);
+                            showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
                         }
                     }
                 }
@@ -4444,6 +4600,15 @@
                     if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
                     showStatus('');
                 }
+            } else if (e.key === 'F') {
+                // Zen / fullscreen mode
+                toggleZenMode();
+            } else if (e.key === 'u') {
+                // Ruler mode: click A→B to measure pixel distance
+                toggleRulerMode();
+            } else if (e.key === 'W') {
+                // A/B wipe comparator (2-pane compare only)
+                toggleWipeMode();
             }
         });
 
@@ -4562,12 +4727,13 @@
             return { sessions, fileEntries };
         }
 
-        function showUnifiedPicker(_ignored) {
+        function showUnifiedPicker(mode) {
             return new Promise(async resolve => {
                 const { sessions, fileEntries } = await _fetchPickerData();
                 for (const s of sessions) { if (s.name) compareNameBySid[s.sid] = s.name; }
 
                 const overlay   = document.getElementById('uni-picker');
+                if (mode === 'compare') overlay.id = 'compare-picker';
                 const listEl    = document.getElementById('uni-picker-list');
                 const pilEl     = document.getElementById('uni-picker-mode-pill');
                 const hintEl    = document.getElementById('uni-picker-tab-hint');
@@ -4581,6 +4747,7 @@
 
                 function cleanup() {
                     overlay.classList.remove('visible');
+                    overlay.id = 'uni-picker'; // restore original id
                     cancelBtn.onclick = null;
                     overlay.onkeydown = null;
                     searchEl.oninput = null;
@@ -4678,7 +4845,13 @@
                                 _updateDimming();
                             }
                             function openItem() {
-                                if (_selCount() <= 1) {
+                                if (mode === 'compare') {
+                                    // In compare mode, clicking a row triggers compare directly
+                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: s.sid, name: s.name || '' });
+                                    const sids  = [..._selected.values()].map(i => i.sid).filter(Boolean);
+                                    const names = [..._selected.values()].map(i => i.name);
+                                    finish({ action: 'compare', sids, names });
+                                } else if (_selCount() <= 1) {
                                     // open / navigate
                                     finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
                                     if (window.parent !== window && window.parent.__arrayviewShell) {
@@ -6859,6 +7032,20 @@
 
         function onSliceWheel(e) {
             e.preventDefault();
+            // Ctrl / Cmd + scroll → zoom
+            if (e.ctrlKey || e.metaKey) {
+                userZoom = e.deltaY > 0
+                    ? Math.max(userZoom / 1.12, 0.1)
+                    : Math.min(userZoom * 1.12, 10.0);
+                if (compareQmriActive)  compareQmriScaleAllCanvases();
+                else if (compareMvActive) compareMvScaleAllCanvases();
+                else if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive)    qvScaleAllCanvases();
+                else                    scaleCanvas(canvas.width, canvas.height);
+                saveState();
+                return;
+            }
             if (multiViewActive) return;
             if (e.deltaY > 0) {
                 lastDirection = -1;
@@ -6872,12 +7059,21 @@
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
         compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
         let comparePixelPending = false;
+        // Dynamically create crosshair elements in compare panes
+        compareCanvases.forEach((cv) => {
+            const inner = cv.closest('.compare-canvas-inner');
+            if (!inner) return;
+            const xh = document.createElement('div'); xh.className = 'cmp-xhair-h'; inner.appendChild(xh);
+            const xv = document.createElement('div'); xv.className = 'cmp-xhair-v'; inner.appendChild(xv);
+        });
         compareCanvases.forEach((cv, i) => {
             const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
             cv.addEventListener('mousemove', (e) => {
                 if (!compareActive) return;
                 const cvSid = compareDisplaySids[i];
                 if (!cvSid) return;
+                // Crosshair sync across all active compare panes
+                updateCompareCrosshairs(i, e);
                 if (comparePixelPending) return;
                 comparePixelPending = true;
                 setTimeout(() => { comparePixelPending = false; }, 60);
@@ -6898,6 +7094,7 @@
             });
             cv.addEventListener('mouseleave', () => {
                 if (piEl) piEl.style.display = 'none';
+                hideCompareCrosshairs();
             });
          });
 
@@ -6926,6 +7123,446 @@
             new MutationObserver(updateLogoAnim).observe(overlay, { attributes: true, attributeFilter: ['style'] });
             updateLogoAnim();
         })();
+
+        // ═══════════════════════════════════════════════════════════════
+        // NEW FEATURES BLOCK
+        // ═══════════════════════════════════════════════════════════════
+
+        // ── 1. Cross-fade ─────────────────────────────────────────────
+        const _fadeCanvas = document.getElementById('viewer-fade');
+        const _fadeCtx = _fadeCanvas ? _fadeCanvas.getContext('2d') : null;
+        function crossFadeIn(newImageData, width, height) {
+            // Snapshot old frame to fade canvas, then immediately draw new frame underneath
+            if (_fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
+                _fadeCanvas.width = width;
+                _fadeCanvas.height = height;
+                _fadeCanvas.style.width = canvas.style.width;
+                _fadeCanvas.style.height = canvas.style.height;
+                _fadeCtx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                _fadeCanvas.style.transition = 'none';
+                _fadeCanvas.style.opacity = '1';
+                // Draw new frame to main canvas
+                lastImageData = newImageData;
+                lastImgW = width; lastImgH = height;
+                canvas.width = width; canvas.height = height;
+                ctx.putImageData(applyFlips(newImageData, width, height), 0, 0);
+                // Trigger fade-out of old-frame overlay
+                requestAnimationFrame(() => {
+                    _fadeCanvas.style.transition = 'opacity 0.09s ease';
+                    _fadeCanvas.style.opacity = '0';
+                });
+            } else {
+                lastImageData = newImageData;
+                lastImgW = width; lastImgH = height;
+                canvas.width = width; canvas.height = height;
+                ctx.putImageData(applyFlips(newImageData, width, height), 0, 0);
+            }
+            // Keep fade canvas sized to match
+            if (_fadeCanvas) {
+                _fadeCanvas.style.width = canvas.style.width || '';
+                _fadeCanvas.style.height = canvas.style.height || '';
+            }
+        }
+
+        // ── 2. Zen / focus mode ───────────────────────────────────────
+        let _zenActive = false;
+        let _zenInactivityTimer = null;
+        function _zenShowChrome() {
+            clearTimeout(_zenInactivityTimer);
+            if (!_zenActive) return;
+            document.getElementById('array-name').style.opacity = '';
+            document.getElementById('info').style.opacity = '';
+            const cbw = document.getElementById('slim-cb-wrap');
+            if (cbw) cbw.style.opacity = '';
+            const eggs = document.getElementById('mode-eggs');
+            if (eggs) eggs.style.opacity = '';
+            const hint = document.getElementById('help-hint');
+            if (hint) hint.style.opacity = '';
+            _zenInactivityTimer = setTimeout(_zenHideChrome, 2500);
+        }
+        function _zenHideChrome() {
+            // Already hidden via body.zen-mode CSS; just let the CSS class do the work
+        }
+        function toggleZenMode() {
+            _zenActive = !_zenActive;
+            if (_zenActive) {
+                document.body.classList.add('zen-mode');
+                const req = document.documentElement.requestFullscreen
+                    || document.documentElement.webkitRequestFullscreen
+                    || document.documentElement.mozRequestFullScreen;
+                if (req) req.call(document.documentElement).catch(() => {});
+                document.addEventListener('mousemove', _zenShowChrome);
+                showToast('zen mode — move mouse to reveal chrome · F to exit');
+            } else {
+                document.body.classList.remove('zen-mode');
+                clearTimeout(_zenInactivityTimer);
+                document.removeEventListener('mousemove', _zenShowChrome);
+                if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+        }
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && _zenActive) {
+                _zenActive = false;
+                document.body.classList.remove('zen-mode');
+                clearTimeout(_zenInactivityTimer);
+                document.removeEventListener('mousemove', _zenShowChrome);
+            }
+        });
+
+        // ── 3. Colormap preview strip ─────────────────────────────────
+        const _cmapStrip = document.getElementById('colormap-strip');
+        let _cmapStripTimer = null;
+        function showColormapStrip() {
+            if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
+            const ci = colormap_idx === -1 ? 0 : colormap_idx;
+            const WINDOW = 4; // show 4 before and 4 after current
+            _cmapStrip.innerHTML = '';
+            for (let offs = -WINDOW; offs <= WINDOW; offs++) {
+                const idx = ((ci + offs) % COLORMAPS.length + COLORMAPS.length) % COLORMAPS.length;
+                const name = COLORMAPS[idx];
+                const stops = COLORMAP_GRADIENT_STOPS[name];
+                const thumb = document.createElement('div');
+                thumb.className = 'cmap-thumb' + (offs === 0 ? ' active' : '');
+                const cv = document.createElement('canvas');
+                cv.width = 44; cv.height = 8;
+                if (stops) {
+                    const g = cv.getContext('2d');
+                    const grad = g.createLinearGradient(0, 0, 44, 0);
+                    stops.forEach(([r, gv, b], i) => {
+                        grad.addColorStop(i / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                    });
+                    g.fillStyle = grad;
+                    g.fillRect(0, 0, 44, 8);
+                }
+                const lbl = document.createElement('span');
+                lbl.textContent = name.length > 10 ? name.slice(0, 9) + '…' : name;
+                thumb.appendChild(cv);
+                thumb.appendChild(lbl);
+                _cmapStrip.appendChild(thumb);
+            }
+            _cmapStrip.classList.add('visible');
+            clearTimeout(_cmapStripTimer);
+            _cmapStripTimer = setTimeout(() => _cmapStrip.classList.remove('visible'), 2200);
+        }
+
+        // ── 4. A/B wipe comparator (center pane + range slider) ──────
+        let _wipeActive = false;
+        let _wipeFrac = 0.5;
+        const _wipeCanvas = document.getElementById('compare-wipe-canvas');
+        const _wipeCtx = _wipeCanvas ? _wipeCanvas.getContext('2d') : null;
+        const _wipeRange = document.getElementById('wipe-range');
+
+        function _drawWipe() {
+            if (!_wipeActive || !_wipeCtx || compareFrames.length < 2) return;
+            const f0 = compareFrames[0], f1 = compareFrames[1];
+            if (!f0 || !f1) return;
+            const W = f0.width, H = f0.height;
+            _wipeCanvas.width = W; _wipeCanvas.height = H;
+            // Match CSS size of the reference compare canvas
+            const refCv = compareCanvases[0];
+            const cssW = parseInt(refCv.style.width)  || refCv.offsetWidth  || W;
+            const cssH = parseInt(refCv.style.height) || refCv.offsetHeight || H;
+            _wipeCanvas.style.width  = cssW + 'px';
+            _wipeCanvas.style.height = cssH + 'px';
+            const xSplit = Math.round(_wipeFrac * W);
+            const d0 = applyFlips(f0.imageData, f0.width, f0.height);
+            const d1 = applyFlips(f1.imageData, f1.width, f1.height);
+            _wipeCtx.putImageData(d0, 0, 0, 0, 0, xSplit, H);
+            _wipeCtx.putImageData(d1, 0, 0, xSplit, 0, W - xSplit, H);
+            // Draw 1 CSS-pixel divider line
+            _wipeCtx.save();
+            _wipeCtx.strokeStyle = 'rgba(245,200,66,0.9)';
+            _wipeCtx.lineWidth = Math.max(1, W / cssW);
+            _wipeCtx.beginPath(); _wipeCtx.moveTo(xSplit, 0); _wipeCtx.lineTo(xSplit, H);
+            _wipeCtx.stroke(); _wipeCtx.restore();
+            // Sync range thumb and track gradient
+            if (_wipeRange) {
+                _wipeRange.value = Math.round(_wipeFrac * 100);
+                _wipeRange.style.setProperty('--wipe-pct', (_wipeFrac * 100).toFixed(1) + '%');
+            }
+            // Update pane title to show short names
+            const wipeTitle = document.getElementById('compare-wipe-title');
+            const tA = document.getElementById('compare-left-title');
+            const tB = document.getElementById('compare-right-title');
+            if (wipeTitle && tA && tB) {
+                const shorten = s => (s || '').trim().split('/').pop().replace(/\.(npy|nii|zarr).*/, '').slice(0, 10);
+                wipeTitle.textContent = `${shorten(tA.textContent)} ◁▷ ${shorten(tB.textContent)}`;
+            }
+        }
+
+        function toggleWipeMode() {
+            if (!compareActive) { showToast('wipe: only in 2-pane compare (P)'); return; }
+            const nPanes = (_compareExplicitSids || compareDisplaySids).length;
+            if (nPanes < 2) { showToast('wipe: needs at least 2 panes'); return; }
+            _wipeActive = !_wipeActive;
+            compareWrap.classList.toggle('wipe-mode', _wipeActive);
+            const wipePaneEl = document.getElementById('compare-wipe-pane');
+            if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
+            if (_wipeActive) {
+                compareScaleCanvases();
+                _drawWipe();
+                showStatus('wipe: drag slider · W to exit');
+            } else {
+                showStatus('wipe: off');
+            }
+        }
+
+        if (_wipeRange) {
+            _wipeRange.addEventListener('input', () => {
+                _wipeFrac = _wipeRange.valueAsNumber / 100;
+                _wipeRange.style.setProperty('--wipe-pct', (_wipeFrac * 100).toFixed(1) + '%');
+                _drawWipe();
+            });
+        }
+        // Re-draw wipe whenever compare frames update
+        function _maybeRedrawWipe() { if (_wipeActive) _drawWipe(); }
+
+        // ── 5. Distance measurement ruler ────────────────────────────
+        let _rulerMode = false;
+        let _rulerPtA = null, _rulerPtB = null;
+        const _rulerSvg = document.getElementById('ruler-svg');
+
+        function toggleRulerMode() {
+            _rulerMode = !_rulerMode;
+            document.body.classList.toggle('ruler-mode', _rulerMode);
+            if (_rulerSvg) _rulerSvg.classList.toggle('active', _rulerMode);
+            if (!_rulerMode) { _rulerPtA = null; _rulerPtB = null; _clearRuler(); }
+            showStatus(_rulerMode ? 'ruler: click two points to measure · u to exit' : 'ruler: off');
+        }
+        function _clearRuler() {
+            if (_rulerSvg) _rulerSvg.innerHTML = '';
+        }
+        function _drawRuler(ax, ay, bx, by) {
+            if (!_rulerSvg) return;
+            const dist = Math.hypot(bx - ax, by - ay).toFixed(1);
+            const mx = (ax + bx) / 2, my = (ay + by) / 2;
+            _rulerSvg.innerHTML = `
+                <circle class="ruler-dot" cx="${ax}" cy="${ay}" r="3"/>
+                <circle class="ruler-dot" cx="${bx}" cy="${by}" r="3"/>
+                <line class="ruler-line" x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"/>
+                <text class="ruler-lbl" x="${mx + 4}" y="${my - 4}">${dist} px</text>`;
+        }
+        function _updateRulerSize() {
+            if (!_rulerSvg || !canvas) return;
+            // viewBox maps SVG coordinates to image-pixel space so dots drawn at
+            // canvas pixel positions align correctly regardless of CSS display size.
+            _rulerSvg.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
+            _rulerSvg.removeAttribute('width');
+            _rulerSvg.removeAttribute('height');
+            _rulerSvg.style.width = canvas.style.width;
+            _rulerSvg.style.height = canvas.style.height;
+        }
+        canvas.addEventListener('click', (e) => {
+            if (!_rulerMode || e.button !== 0) return;
+            const rect = canvas.getBoundingClientRect();
+            const px = (e.clientX - rect.left) * canvas.width / rect.width;
+            const py = (e.clientY - rect.top) * canvas.height / rect.height;
+            if (!_rulerPtA) {
+                _rulerPtA = [px, py];
+                _clearRuler();
+                if (_rulerSvg) {
+                    _updateRulerSize();
+                    _rulerSvg.innerHTML = `<circle class="ruler-dot" cx="${px}" cy="${py}" r="3"/>`;
+                }
+                showStatus('ruler: click second point');
+            } else {
+                _rulerPtB = [px, py];
+                _updateRulerSize();
+                _drawRuler(_rulerPtA[0], _rulerPtA[1], px, py);
+                // Reset for next measurement
+                _rulerPtA = null; _rulerPtB = null;
+            }
+        });
+
+        // ── 6. 1D intensity profile (Alt+hover) ──────────────────────
+        const _profilePopup = document.getElementById('profile-popup');
+        const _profileCanvas = document.getElementById('profile-canvas');
+        const _profileCtx = _profileCanvas ? _profileCanvas.getContext('2d') : null;
+        const _profileLineH = document.getElementById('profile-line-h');
+        const _profileLineV = document.getElementById('profile-line-v');
+        let _profilePending = false;
+
+        function hideProfileOverlay() {
+            if (_profilePopup) _profilePopup.classList.remove('visible');
+            if (_profileLineH) _profileLineH.classList.remove('visible');
+            if (_profileLineV) _profileLineV.classList.remove('visible');
+        }
+        function showProfileOverlay(e) {
+            const rect = canvas.getBoundingClientRect();
+            const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
+            const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+            // Show crosshair lines
+            if (_profileLineH) {
+                _profileLineH.style.top = e.clientY + 'px';
+                _profileLineH.style.left = rect.left + 'px';
+                _profileLineH.style.width = rect.width + 'px';
+                _profileLineH.classList.add('visible');
+            }
+            if (_profileLineV) {
+                _profileLineV.style.left = e.clientX + 'px';
+                _profileLineV.style.top = rect.top + 'px';
+                _profileLineV.style.height = rect.height + 'px';
+                _profileLineV.classList.add('visible');
+            }
+            if (_profilePending) return;
+            _profilePending = true;
+            setTimeout(() => { _profilePending = false; }, 80);
+            fetch(`/profile/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (!d || !_profileCanvas || !_profileCtx) return;
+                    const W = 140, H = 40;
+                    _profileCanvas.width = W; _profileCanvas.height = H;
+                    _profileCtx.clearRect(0, 0, W, H);
+                    const drawLine = (vals, color) => {
+                        if (!vals || !vals.length) return;
+                        const mn = Math.min(...vals), mx = Math.max(...vals);
+                        const range = mx - mn || 1;
+                        _profileCtx.strokeStyle = color; _profileCtx.lineWidth = 1;
+                        _profileCtx.beginPath();
+                        vals.forEach((v, i) => {
+                            const x = i / (vals.length - 1) * (W - 1);
+                            const y = H - 1 - ((v - mn) / range) * (H - 3);
+                            i === 0 ? _profileCtx.moveTo(x, y) : _profileCtx.lineTo(x, y);
+                        });
+                        _profileCtx.stroke();
+                    };
+                    _profileCtx.fillStyle = 'var(--bg)';
+                    _profileCtx.fillRect(0, 0, W, H);
+                    drawLine(d.row, 'rgba(245,200,66,0.9)');
+                    drawLine(d.col, 'rgba(100,180,255,0.6)');
+                    if (_profilePopup) {
+                        const popX = Math.min(e.clientX + 14, window.innerWidth - 160);
+                        const popY = Math.max(e.clientY - 60, 4);
+                        _profilePopup.style.left = popX + 'px';
+                        _profilePopup.style.top = popY + 'px';
+                        _profilePopup.classList.add('visible');
+                    }
+                })
+                .catch(() => {});
+        }
+        canvas.addEventListener('mouseleave', () => hideProfileOverlay());
+
+        // ── 7. Mini-map (when zoomed) ─────────────────────────────────
+        const _miniMap = document.getElementById('mini-map');
+        const _miniMapCanvas = document.getElementById('mini-map-canvas');
+        const _miniMapCtx = _miniMapCanvas ? _miniMapCanvas.getContext('2d') : null;
+        const _miniViewport = document.getElementById('mini-viewport');
+
+        function updateMiniMap() {
+            if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
+            const shouldShow = userZoom > 1.05 && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            _miniMap.classList.toggle('visible', !!shouldShow);
+            if (!shouldShow) return;
+            const W = 100, H = 100;
+            _miniMapCanvas.width = W; _miniMapCanvas.height = H;
+            // Downscale current image to thumbnail
+            const tmp = document.createElement('canvas');
+            tmp.width = lastImgW; tmp.height = lastImgH;
+            tmp.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            _miniMapCtx.drawImage(tmp, 0, 0, W, H);
+            updateMiniMapViewport();
+        }
+        function updateMiniMapViewport() {
+            if (!_miniMap || !_miniViewport || !lastImageData || userZoom <= 1.05) return;
+            // Estimate visible fraction from CSS sizes
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            const viewableW = Math.min(cssW, window.innerWidth);
+            const viewableH = Math.min(cssH, window.innerHeight);
+            const fx = viewableW / cssW, fy = viewableH / cssH;
+            // Pan offset as fraction
+            const offFx = _panX / cssW, offFy = _panY / cssH;
+            const vpW = Math.round(fx * 100), vpH = Math.round(fy * 100);
+            const vpX = Math.max(0, Math.min(100 - vpW, -offFx * 100));
+            const vpY = Math.max(0, Math.min(100 - vpH, -offFy * 100));
+            _miniViewport.style.width = vpW + 'px';
+            _miniViewport.style.height = vpH + 'px';
+            _miniViewport.style.left = vpX + 'px';
+            _miniViewport.style.top = vpY + 'px';
+        }
+        // Mini-map click to jump pan position
+        if (_miniMap) {
+            _miniMap.addEventListener('mousedown', (e) => {
+                if (!lastImageData || userZoom <= 1.05) return;
+                const rect = _miniMap.getBoundingClientRect();
+                const fx = (e.clientX - rect.left) / rect.width;
+                const fy = (e.clientY - rect.top) / rect.height;
+                const cssW = parseInt(canvas.style.width) || canvas.width;
+                const cssH = parseInt(canvas.style.height) || canvas.height;
+                const vfx = Math.min(cssW, window.innerWidth) / cssW;
+                const vfy = Math.min(cssH, window.innerHeight) / cssH;
+                _panX = -Math.max(0, fx - vfx / 2) * cssW;
+                _panY = -Math.max(0, fy - vfy / 2) * cssH;
+                _applyCanvasPan();
+                updateMiniMapViewport();
+            });
+        }
+
+        // ── 8. Compare crosshair sync ─────────────────────────────────
+        function updateCompareCrosshairs(srcIdx, e) {
+            const srcCv = compareCanvases[srcIdx];
+            if (!srcCv) return;
+            const srcRect = srcCv.getBoundingClientRect();
+            const fx = (e.clientX - srcRect.left) / srcRect.width;
+            const fy = (e.clientY - srcRect.top) / srcRect.height;
+            compareCanvases.forEach((cv, j) => {
+                const inner = cv.closest('.compare-canvas-inner');
+                if (!inner) return;
+                const xh = inner.querySelector('.cmp-xhair-h');
+                const xv = inner.querySelector('.cmp-xhair-v');
+                const cvRect = cv.getBoundingClientRect();
+                const h = cvRect.height || parseInt(cv.style.height) || 0;
+                const w = cvRect.width  || parseInt(cv.style.width)  || 0;
+                if (xh) { xh.style.top = Math.round(fy * h) + 'px'; xh.style.display = 'block'; }
+                if (xv) { xv.style.left = Math.round(fx * w) + 'px'; xv.style.display = 'block'; }
+            });
+        }
+        function hideCompareCrosshairs() {
+            compareCanvases.forEach(cv => {
+                const inner = cv.closest('.compare-canvas-inner');
+                if (!inner) return;
+                inner.querySelectorAll('.cmp-xhair-h,.cmp-xhair-v').forEach(el => { el.style.display = 'none'; });
+            });
+        }
+
+        // ── 9. Pinch to zoom ──────────────────────────────────────────
+        let _pinchDist0 = null, _pinchZoom0 = null;
+        function _pinchDist(touches) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.hypot(dx, dy);
+        }
+        function _onTouchStart(e) {
+            if (e.touches.length === 2) {
+                _pinchDist0 = _pinchDist(e.touches);
+                _pinchZoom0 = userZoom;
+                e.preventDefault();
+            }
+        }
+        function _onTouchMove(e) {
+            if (e.touches.length === 2 && _pinchDist0 !== null) {
+                e.preventDefault();
+                const d = _pinchDist(e.touches);
+                // Dampen with ^0.6 to avoid over-sensitive zoom on small pinch movements
+                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * Math.pow(d / _pinchDist0, 0.6)));
+                if (compareQmriActive) compareQmriScaleAllCanvases();
+                else if (compareMvActive) compareMvScaleAllCanvases();
+                else if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive) qvScaleAllCanvases();
+                else scaleCanvas(canvas.width, canvas.height);
+            }
+        }
+        function _onTouchEnd(e) {
+            if (e.touches.length < 2) { _pinchDist0 = null; _pinchZoom0 = null; saveState(); }
+        }
+        [canvas, ...compareCanvases].forEach(el => {
+            el.addEventListener('touchstart', _onTouchStart, { passive: false });
+            el.addEventListener('touchmove',  _onTouchMove,  { passive: false });
+            el.addEventListener('touchend',   _onTouchEnd,   { passive: false });
+        });
 
         init();
     </script>
