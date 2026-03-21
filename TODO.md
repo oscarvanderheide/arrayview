@@ -15,7 +15,11 @@
 - right now i get the minimap when zooming to 105%. i like it but its not useful at the moment. the reason is that when i zoom, the canvas increases in size and when its about to push other ui elements out of the window, further zooming is no longer allowed. what i want is to then continue to zoom but without increasing the canvas, resulting in a small array patch being visible. then in the minimap i should see with the yellow square which part of the image is shown in (zoomed) in the canvas.
 - the Alt+hover thing is nice but feels kinda useless
 
+- i have some ui elements (dim bar, logo, name) eabove the canvas in normal mode and some ui elements below (colorbar, eggs). when the screen is little and the window too, this kinda limits zoom too much (i.e. increasing the canvas size). how about being able to move those elements elsewhre. colorbar could be vertical on the side. the other elements i dont have a clear idea. i also dont know if the user experience would be best if this is something the user can toggle, or if it happens automatically when the canvas is restricted from growing further. 
+- when scrolling through some dimension of say size 256, the width of the total dimba changes when i go from 9 to 10 and from 99 to 100. there should be padding s.t. everything stays in place when scrolling. 
+
 make a plan first and write it down. make each finished item a separate commit. no need for separate branches unless you work on things in parallel. in that case, do the merge (no merge commits pls, just rebase) afterwards. remember to use the skill that makes sure auto-open of simplebrowser tab keeps working and that things keep working over the vscode remote tunnel. it happened often already that you broke these things and i had to spend a lot of time to fix it. also make sure to update tests with new functionality
+
 
 
 

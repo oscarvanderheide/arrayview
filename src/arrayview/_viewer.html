@@ -59,6 +59,7 @@
             width: 100%; padding: 8px; box-sizing: border-box;
         }
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
+        #canvas-viewport { position: relative; overflow: hidden; display: inline-block; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         canvas {
             image-rendering: pixelated; outline: none; cursor: crosshair;
@@ -619,6 +620,7 @@
     <div id="info">Connecting...</div>
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
+            <div id="canvas-viewport">
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
@@ -635,6 +637,7 @@
                     <text class="axes-lbl-y" x="0" y="9" font-size="9" font-family="monospace" fill="currentColor">y</text>
                 </svg>
             </div>
+            </div><!-- #canvas-viewport -->
             <div id="slim-cb-wrap" style="display:none">
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-labels"></div>
@@ -1361,6 +1364,7 @@
             if (_panDrag !== null) {
                 _panX = _panDrag.panX0 + (e.clientX - _panDrag.x);
                 _panY = _panDrag.panY0 + (e.clientY - _panDrag.y);
+                _clampPan();
                 _applyCanvasPan();
                 updateMiniMapViewport();
                 return;
@@ -1480,29 +1484,36 @@
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
             const effectiveMaxH = Math.min(maxH, welcomeCapH);
             const baseScale = getBaseScale(w, h);
-            // Cap the scale: canvas must never exceed available space, so colorbar+eggs
-            // always have room regardless of how far the user has zoomed in.
+            // The viewport (clipping container) never exceeds available layout space
             const capScale = Math.min(maxW / w, effectiveMaxH / h);
-            const atMax = baseScale * userZoom >= capScale;
-            if (atMax) {
-                // Snap userZoom to the exact value that hits the cap so that any
-                // subsequent re-render (L, colormap change, etc.) produces the same
-                // canvas size instead of regressing to the pre-cap zoom level.
-                userZoom = capScale / baseScale;
-            }
-            const finalScale = Math.min(baseScale * userZoom, capScale);
+            // Canvas CSS size grows freely with userZoom (no cap/snap)
+            const finalScale = baseScale * userZoom;
             let cssW = Math.round(w * finalScale);
             let cssH = Math.round(h * finalScale);
             if (squareStretch) { const sq = Math.max(cssW, cssH); cssW = sq; cssH = sq; }
             canvas.style.width  = cssW + 'px';
             canvas.style.height = cssH + 'px';
+            // Set viewport (clipping container) to the lesser of canvas size and available space
+            const vpW = Math.min(cssW, Math.round(maxW));
+            const vpH = Math.min(cssH, Math.round(effectiveMaxH));
+            const vp = document.getElementById('canvas-viewport');
+            if (vp) { vp.style.width = vpW + 'px'; vp.style.height = vpH + 'px'; }
+            // When first overflowing, center the pan so the user sees the middle
+            const overflowing = cssW > vpW + 2 || cssH > vpH + 2;
+            if (overflowing && _panX === 0 && _panY === 0) {
+                _panX = -(cssW - vpW) / 2;
+                _panY = -(cssH - vpH) / 2;
+            }
+            // Clamp pan so visible region stays within image
+            _clampPan();
+            _applyCanvasPan();
             if (hasVectorfield) drawVectorOverlay();
             // fixWrapperAlignment must run before drawSlimColorbar so the canvas
             // is in its final viewport position before we anchor the fixed colorbar.
             fixWrapperAlignment();
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
-            if (atMax) return 'max';
+            updateMiniMap();
         }
 
         function compareScaleCanvases() {
@@ -1991,8 +2002,9 @@
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
-            const canvasRect = canvas.getBoundingClientRect();
-            const rawW = parseInt(canvas.style.width) || Math.round(canvasRect.width);
+            const vpEl = document.getElementById('canvas-viewport');
+            const canvasRect = (vpEl || canvas).getBoundingClientRect();
+            const rawW = vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width));
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
@@ -3904,9 +3916,31 @@
         let _scrubDrag = null; // {y, idx0} for right-click scrub
         let _panDrag = null;   // {x, y, panX0, panY0} for right-click pan when zoomed
         let _panX = 0, _panY = 0; // current canvas pan offsets (px)
+        function _clampPan() {
+            // Clamp pan offsets so the visible viewport stays within the canvas
+            const vp = document.getElementById('canvas-viewport');
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            const vpW = vp ? vp.offsetWidth : cssW;
+            const vpH = vp ? vp.offsetHeight : cssH;
+            // Pan offsets are negative (moving canvas left/up to reveal right/bottom)
+            // Min pan: -(cssW - vpW) (fully scrolled to right edge)
+            // Max pan: 0 (fully scrolled to left edge)
+            if (cssW <= vpW) { _panX = 0; }
+            else { _panX = Math.max(-(cssW - vpW), Math.min(0, _panX)); }
+            if (cssH <= vpH) { _panY = 0; }
+            else { _panY = Math.max(-(cssH - vpH), Math.min(0, _panY)); }
+        }
         function _applyCanvasPan() {
             const ci = document.getElementById('canvas-inner');
             if (ci) ci.style.transform = (_panX || _panY) ? `translate(${_panX}px,${_panY}px)` : '';
+        }
+        function _isCanvasOverflowing() {
+            const vp = document.getElementById('canvas-viewport');
+            if (!vp) return false;
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            return cssW > vp.offsetWidth + 2 || cssH > vp.offsetHeight + 2;
         }
         canvas.addEventListener('contextmenu', e => e.preventDefault());
         canvas.addEventListener('mousedown', e => {
@@ -3914,7 +3948,7 @@
             // Right-click drag: scrub slices (fit) or pan (zoomed)
             if (e.button === 2) {
                 e.preventDefault();
-                if (userZoom > 1.05) {
+                if (_isCanvasOverflowing()) {
                     _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
                 } else {
                     _scrubDrag = { y: e.clientY, idx0: indices[current_slice_dim] };
@@ -4133,15 +4167,12 @@
             }
             if (e.key === '+' || e.key === '=') {
                 userZoom = Math.min(userZoom * 1.1, 10.0);
-                let atMax = false;
-                if (compareQmriActive)  { atMax = compareQmriScaleAllCanvases() === 'max'; }
-                else if (compareMvActive) { atMax = compareMvScaleAllCanvases() === 'max'; }
-                else if (multiViewActive)    { atMax = mvScaleAllCanvases() === 'max'; }
-                else if (compareActive) { compareScaleCanvases(); }
-                else if (qmriActive)    { atMax = qvScaleAllCanvases() === 'max'; }
-                else                    { atMax = scaleCanvas(canvas.width, canvas.height) === 'max'; }
-                // userZoom is already snapped to exact cap inside scaleCanvas when atMax
-                if (atMax) { showStatus('zoom: max'); return; }
+                if (compareQmriActive)  compareQmriScaleAllCanvases();
+                else if (compareMvActive) compareMvScaleAllCanvases();
+                else if (multiViewActive) mvScaleAllCanvases();
+                else if (compareActive) compareScaleCanvases();
+                else if (qmriActive)    qvScaleAllCanvases();
+                else                    scaleCanvas(canvas.width, canvas.height);
                 showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
@@ -4162,8 +4193,9 @@
                     sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; showStatus(''); }, 2000);
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
-                    // No buffered input: reset zoom
+                    // No buffered input: reset zoom and pan
                     userZoom = 1.0;
+                    _panX = 0; _panY = 0; _applyCanvasPan();
                     if (compareQmriActive) compareQmriScaleAllCanvases();
                     else if (compareMvActive) compareMvScaleAllCanvases();
                     else if (multiViewActive) mvScaleAllCanvases();
@@ -7651,7 +7683,7 @@
 
         function updateMiniMap() {
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
-            const shouldShow = userZoom > 1.05 && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const shouldShow = _isCanvasOverflowing() && lastImageData && !compareActive && !multiViewActive && !qmriActive;
             _miniMap.classList.toggle('visible', !!shouldShow);
             if (!shouldShow) return;
             const W = 100, H = 100;
@@ -7664,36 +7696,45 @@
             updateMiniMapViewport();
         }
         function updateMiniMapViewport() {
-            if (!_miniMap || !_miniViewport || !lastImageData || userZoom <= 1.05) return;
-            // Estimate visible fraction from CSS sizes
+            if (!_miniMap || !_miniViewport || !lastImageData) return;
+            if (!_isCanvasOverflowing()) { _miniMap.classList.remove('visible'); return; }
+            // Canvas CSS size and viewport (clipping container) size
             const cssW = parseInt(canvas.style.width) || canvas.width;
             const cssH = parseInt(canvas.style.height) || canvas.height;
-            const viewableW = Math.min(cssW, window.innerWidth);
-            const viewableH = Math.min(cssH, window.innerHeight);
-            const fx = viewableW / cssW, fy = viewableH / cssH;
-            // Pan offset as fraction
-            const offFx = _panX / cssW, offFy = _panY / cssH;
-            const vpW = Math.round(fx * 100), vpH = Math.round(fy * 100);
-            const vpX = Math.max(0, Math.min(100 - vpW, -offFx * 100));
-            const vpY = Math.max(0, Math.min(100 - vpH, -offFy * 100));
-            _miniViewport.style.width = vpW + 'px';
-            _miniViewport.style.height = vpH + 'px';
-            _miniViewport.style.left = vpX + 'px';
-            _miniViewport.style.top = vpY + 'px';
+            const vp = document.getElementById('canvas-viewport');
+            const vpW = vp ? vp.offsetWidth : cssW;
+            const vpH = vp ? vp.offsetHeight : cssH;
+            // Visible fraction
+            const fx = Math.min(1, vpW / cssW);
+            const fy = Math.min(1, vpH / cssH);
+            // Pan offset as fraction of canvas (panX/panY are negative)
+            const offFx = -_panX / cssW;
+            const offFy = -_panY / cssH;
+            const mmW = Math.max(2, Math.round(fx * 100));
+            const mmH = Math.max(2, Math.round(fy * 100));
+            const mmX = Math.max(0, Math.min(100 - mmW, Math.round(offFx * 100)));
+            const mmY = Math.max(0, Math.min(100 - mmH, Math.round(offFy * 100)));
+            _miniViewport.style.width = mmW + 'px';
+            _miniViewport.style.height = mmH + 'px';
+            _miniViewport.style.left = mmX + 'px';
+            _miniViewport.style.top = mmY + 'px';
         }
         // Mini-map click to jump pan position
         if (_miniMap) {
             _miniMap.addEventListener('mousedown', (e) => {
-                if (!lastImageData || userZoom <= 1.05) return;
+                if (!lastImageData || !_isCanvasOverflowing()) return;
                 const rect = _miniMap.getBoundingClientRect();
                 const fx = (e.clientX - rect.left) / rect.width;
                 const fy = (e.clientY - rect.top) / rect.height;
                 const cssW = parseInt(canvas.style.width) || canvas.width;
                 const cssH = parseInt(canvas.style.height) || canvas.height;
-                const vfx = Math.min(cssW, window.innerWidth) / cssW;
-                const vfy = Math.min(cssH, window.innerHeight) / cssH;
-                _panX = -Math.max(0, fx - vfx / 2) * cssW;
-                _panY = -Math.max(0, fy - vfy / 2) * cssH;
+                const vp = document.getElementById('canvas-viewport');
+                const vpW = vp ? vp.offsetWidth : cssW;
+                const vpH = vp ? vp.offsetHeight : cssH;
+                // Center the viewport on the clicked point
+                _panX = -(fx * cssW - vpW / 2);
+                _panY = -(fy * cssH - vpH / 2);
+                _clampPan();
                 _applyCanvasPan();
                 updateMiniMapViewport();
             });

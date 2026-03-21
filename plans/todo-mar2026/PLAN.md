@@ -80,31 +80,36 @@ Items from `TODO.md`. Each item = one commit. Ordered by complexity (small → l
 
 ---
 
-## 7. Minimap + true pan-zoom (zoom past canvas limits)
+## 7. Minimap + true pan-zoom (zoom past canvas limits) ✓ DONE
 
 **Problem:** Currently zoom is capped when canvas would push other UI elements out. User wants:  
 - Continue zooming beyond the canvas size cap — instead of enlarging canvas, zoom shows a sub-region  
 - Minimap shows a yellow rectangle indicating the currently visible sub-region  
 - Pan within the zoomed view is unchanged (right-drag already pans when zoomed)
 
-**Design:**  
-- Track `imageZoom` (the actual pixel zoom level) separately from `canvasZoom` (CSS display zoom bounded by layout)  
-- When `imageZoom` exceeds the cap, crop the rendered region: compute pixel offset within the array slice and send as `?zoom=<scale>&pan_x=<px>&pan_y=<py>` to the render endpoint (or crop client-side from cached image data)  
-- Minimap: show only when `imageZoom > threshold` (e.g. > 1.1× cap). Position at bottom-right of canvas. Yellow rectangle = visible region.  
-**Files:** `_viewer.html` (`scaleCanvas`, zoom key handlers, render fetch), `_server.py` (support crop params), `_render.py` (crop/downsample server-side)  
-**Test:** `tests/visual_smoke.py`, `tests/test_api.py`
+**Implementation:**  
+- Added `#canvas-viewport` wrapper between `#canvas-wrap` and `#canvas-inner` with `overflow: hidden`  
+- `scaleCanvas()` now lets canvas CSS size grow freely with `userZoom` (no cap/snap)  
+- Viewport dimensions capped at available layout space; canvas overflows and is clipped  
+- Added `_clampPan()` to keep pan offsets within valid bounds  
+- `_isCanvasOverflowing()` helper replaces `userZoom > 1.05` checks  
+- Minimap shows when canvas overflows viewport; yellow rect accurately reflects visible portion  
+- Pan auto-centers when first overflowing; zoom reset (`0`) also resets pan  
+- Colorbar positioning uses viewport rect instead of canvas rect to stay in correct position  
+**Files:** `_viewer.html` (CSS, HTML structure, `scaleCanvas`, pan/minimap code)  
+**Test:** `tests/test_api.py`, `tests/test_cli.py`
 
 ---
 
 ## Order of implementation
 
 1. ✅ Plan (this file)
-2. `log` vertical
-3. Remove `showStatus` on `c`
-4. Array names in compare mode
-5. Unify compare modes (X picker strip)
-6. Diff colormaps (black + afmhot)
-7. ROI redesign
-8. Minimap zoom
+2. ✅ `log` vertical
+3. ✅ Remove `showStatus` on `c`
+4. ✅ Array names in compare mode
+5. ✅ Unify compare modes (X picker strip)
+6. ✅ Diff colormaps (black + afmhot)
+7. ✅ ROI redesign
+8. ✅ Minimap zoom
 
 Items 2–4 are in a session.  Items 5–8 require larger effort and may span sessions.
