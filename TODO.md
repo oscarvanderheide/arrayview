@@ -1,41 +1,21 @@
 # TODO
 
 
-- no need for automatic colormap selection as introduced in commit 952fc1a1fe596ab6b2007c2796b38df49ae8fc2f, get rid of it
-- the linked crosshair from a778ab75ef3bd4ae2cf33b33bbfa6bac17f5a696 is broken. get rid of it, dont need it somehow changes what i see in the viewer (like small version of the array in top left corner of the window with the info overlayed). fix this. 
-- where do screenshots and slices (npy) get saved? 
-- rect ROI is ok, i want to focus on a special roi mode later on
-- the histogram with W is nice. right now i see the yellow vertical liens for current clim. would be nice to be able to drag them to chang clims. and see the value of current bin when hovering over the histogram
-- automatically opening in vscode browser tab is still not working locally: arrayview main
-❯ uv run arrayview --diagnose   
-{
-  "env": {
-    "TERM_PROGRAM": "vscode",
-    "VSCODE_IPC_HOOK_CLI": null,
-    "SSH_CONNECTION": null,
-    "SSH_CLIENT": null,
-    "VSCODE_INJECTION": "1",
-    "VSCODE_AGENT_FOLDER": null,
-    "DISPLAY": "/private/tmp/com.apple.launchd.MzjoGL4Vi1/org.xquartz:0",
-    "WAYLAND_DISPLAY": null
-  },
-  "detection": {
-    "in_vscode_terminal": true,
-    "is_vscode_remote": false,
-    "in_vscode_tunnel": true,
-    "can_native_window": false,
-    "in_jupyter": false,
-    "vscode_ipc_hook_recovered": null
-  },
-  "pid": 29667,
-  "ppid": 29666,
-  "platform": "darwin",
-  "python": "/Users/oscar/Projects/packages/python/arrayview/.venv/bin/python3"
-}
+- compare mode still broken. when i open it i get a third large colorbar in the ui. sometimes i get a wrong grid (see wrong_grid.png). I think i also want to "merge" the registration overlay (R) and swipe mode (W) into a unified thing with diff mode (X): They all do the same thing, i.e. giving a third canvas in the middle with some sort of way to compare the two arrays. how about something similar to the preview thingy for colormaps (c) but then for ways that the two arrays can be compared (A-B, |A-B|, |A-B|/|A|, overlay, wipe). make sure to remove non-used keybinds also from readme, help, etc.
+- I typically use default black theme. In diff mode with A - B, it uses RdBl_r which has
+  white in the middle. I'd rather have black in the middle. it should be possible, see
+  https://stackoverflow.com/questions/65523844/colormap-diverging-from-black-instead-of-white.
+  For |A-B|, and |A-B|/|A| I think i want colormap afmhot because it has black as 0. i guess
+  i also want to be able to change colormaps for the center canvas when i hover over it and
+  press c. otherwise c changes colormaps of the two compared arrays.
+- in compare mode it shows the name of the first arrow above the dim bar right next to the logo. that doesnt make sense. show the array name above each canvas. at the top next to the logo just say comparing {2,3,4} arrays
+- the "log" in the histogram is great but it should be written vertically because now it extends beyond the bar it applies to.
+- when i switch colormap with c i get the nice preview window so no need for the fading text
+- click-dragging results in a square ROI. dont do that. i want to make a separate roi mode (dont know a good keybind) where i can draw multiple rois and export their statistics (mean std min max num_voxels) to csv
+- right now i get the minimap when zooming to 105%. i like it but its not useful at the moment. the reason is that when i zoom, the canvas increases in size and when its about to push other ui elements out of the window, further zooming is no longer allowed. what i want is to then continue to zoom but without increasing the canvas, resulting in a small array patch being visible. then in the minimap i should see with the yellow square which part of the image is shown in (zoomed) in the canvas.
+- the Alt+hover thing is nice but feels kinda useless
 
-- make shift + o open picker as well since cmd or ctrl + o does not work well in vscode. welcome should say something like: pick array with {cmd,ctrl,shift} + o or drop array in window. keep it minimal. no cmd emoji thingy
-- when i enable hover info, i need to move mouse for it to appear. tahts annoying it should appear immediatly.
-- picker needs a rewrite. it should allows me to directly open another array with enter like it does now. no switching between modes with tab. i want to be able to select arrays with <space> and then it should switch to compare mode and also change the UI color like it does now. i want to be able to select up to four arrays for compare. they should then appear in 2x2 grid. for 2, it should be 1x2, for three 1x3. for more arrays, users just needs to cat them themselves. adjust the compare mode s.t. 4 is maximum. the diff and registration modes should only work (like now) when two arrays are selected.
+make a plan first and write it down. make each finished item a separate commit. no need for separate branches unless you work on things in parallel. in that case, do the merge (no merge commits pls, just rebase) afterwards. remember to use the skill that makes sure auto-open of simplebrowser tab keeps working and that things keep working over the vscode remote tunnel. it happened often already that you broke these things and i had to spend a lot of time to fix it. also make sure to update tests with new functionality
 
 
-each item a separate commit. no need for separate branches unless you work on things in parallel. in that case, do the merge (no merge commits pls, just rebase) afterwards.  
+

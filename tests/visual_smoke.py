@@ -42,9 +42,8 @@ DISPLAY
    Cmd+O / Ctrl+O  unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
    (search box)    substring filter          ✓ 45e (type query, list filters client-side; box top-anchored, no jump)
    (arrow keys)    navigate picker list      ✓ 45f (ArrowDown from search moves to first item)
-  X               diff view (compare mode)  ✓ 39 (2-pane compare + X cycle)
-  R               registration overlay      ✓ 24, 37 (compare mode + R)
-   [ / ]           registration blend        ✓ 24, 37; in movie mode → fps ✓ 64
+  X               center pane cycle (compare)  ✓ 24, 37, 39 (2-pane compare + X cycle: off/A−B/|A−B|/|A−B|/|A|/overlay/wipe)
+   [ / ]           overlay blend             ✓ 24, 37; in movie mode → fps ✓ 64
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
    L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs); no-op in RGB mode (toast shown)
@@ -123,9 +122,9 @@ STABILITY (keys must not cause UI element jumps)
   Z — zen mode toggle                       ✓ 34 (before/after)
   b — border toggle                         ✓ 35 (before/after)
   +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
-  registration arrays (phantom)             ✓ 37 (shifted ellipse, reg overlay)
+  registration arrays (phantom)             ✓ 37 (shifted ellipse, overlay via X)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
-  compare diff view (X key)                ✓ 39 (A−B, |A−B|, relative)
+  compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
   LOG, complex, and mask eggs               ✓ 40 (badges in #mode-eggs below canvas)
   RGB egg spacing below canvas              ✓ 46 (eggs top > canvas bottom + 30px)
   V custom multiview dims                   ✓ 41 (inline prompt)
@@ -457,15 +456,19 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "23b_multiview_origin_reset")
     _press(page, "v", wait=400)  # exit multiview
 
-    # ── 24: compare + registration overlay (R, [, ]) ─────────────────────────
+    # ── 24: compare + overlay mode via X cycle ([, ] blend) ──────────────────
     _goto_compare(page, base, sid2d, sid2d_b)
     _focus(page)
-    _press(page, "Shift+R")
+    # X cycles: off(0)→A−B(1)→|A−B|(2)→|A−B|/|A|(3)→overlay(4)
+    for _ in range(4):
+        _press(page, "Shift+X", wait=400)
     _shot(page, "24a_registration_overlay")
     _press(page, "]")
     _press(page, "]")
     _shot(page, "24b_registration_blend_increased")
-    _press(page, "Shift+R")  # exit reg mode
+    # X again → wipe(5), then → off(0)
+    _press(page, "Shift+X", wait=400)  # wipe
+    _press(page, "Shift+X", wait=400)  # off
 
     # ── 25: complex mode cycling (m) ─────────────────────────────────────────
     _goto(page, base, sidC)
@@ -553,16 +556,20 @@ def run_smoke(page, base, client, tmp):
     _press(page, "0")
     _shot(page, "36d_stab_zoom_reset")
 
-    # ── 37: registration overlay with structured phantom arrays ───────────────
+    # ── 37: overlay with structured phantom arrays (X cycle to overlay) ───────
     _goto_compare(page, base, sid_reg_a, sid_reg_b)
     _focus(page)
     _shot(page, "37a_reg_before_overlay")
-    _press(page, "Shift+R")
+    # X cycles: off(0)→A−B(1)→|A−B|(2)→|A−B|/|A|(3)→overlay(4)
+    for _ in range(4):
+        _press(page, "Shift+X", wait=400)
     _shot(page, "37b_reg_overlay_on")
     _press(page, "]")
     _press(page, "]")
     _shot(page, "37c_reg_blend_increased")
-    _press(page, "Shift+R")  # exit reg mode
+    # X → wipe(5) → off(0)
+    _press(page, "Shift+X", wait=400)  # wipe
+    _press(page, "Shift+X", wait=400)  # off
 
     # ── 38: multiview uniform cell sizes + zoom limit ────────────────────────
     _goto(page, base, sid3d)
@@ -575,18 +582,22 @@ def run_smoke(page, base, client, tmp):
     _press(page, "0")  # reset zoom
     _press(page, "v", wait=400)  # exit multiview
 
-    # ── 39: compare diff view (X key cycles diff modes) ──────────────────────
+    # ── 39: compare center pane cycle (X key: off→A−B→|A−B|→|A−B|/|A|→overlay→wipe→off)
     _goto_compare(page, base, sid2d, sid2d_b)
     _focus(page)
     _shot(page, "39a_diff_compare_base")
-    _press(page, "Shift+X", wait=800)  # diff: A−B
+    _press(page, "Shift+X", wait=800)  # 1: A−B
     _shot(page, "39b_diff_AB")
-    _press(page, "Shift+X", wait=800)  # diff: |A−B|
+    _press(page, "Shift+X", wait=800)  # 2: |A−B|
     _shot(page, "39c_diff_abs")
-    _press(page, "Shift+X", wait=800)  # diff: |A−B|/|A|
+    _press(page, "Shift+X", wait=800)  # 3: |A−B|/|A|
     _shot(page, "39d_diff_rel")
-    _press(page, "Shift+X", wait=400)  # diff: off
-    _shot(page, "39e_diff_off")
+    _press(page, "Shift+X", wait=800)  # 4: overlay
+    _shot(page, "39e_overlay")
+    _press(page, "Shift+X", wait=800)  # 5: wipe
+    _shot(page, "39f_wipe")
+    _press(page, "Shift+X", wait=400)  # 0: off
+    _shot(page, "39g_off")
 
     # ── 40: LOG, complex, and mask eggs in #mode-eggs ────────────────────────
     _goto(page, base, sid3d)
