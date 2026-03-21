@@ -3149,7 +3149,8 @@
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
-                    const inner = `<span class="dim-text">${v+1}<span class="dim-size">/${shape[i]}</span></span>${track}`;
+                    const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
+                    const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
                     if (active) return `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`;
                     return `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
                 }
@@ -3170,7 +3171,8 @@
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                 const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
-                const inner = `<span class="dim-text">${v+1}<span class="dim-size">/${shape[i]}</span></span>${track}`;
+                const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
+                const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
                 return active ? `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
@@ -3178,7 +3180,8 @@
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
                 const track = `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>`;
-                const inner = `<span class="dim-text">${vfieldT + 1}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
+                const paddedT = String(vfieldT + 1).padStart(String(vfieldNTimes).length, '\u2007');
+                const inner = `<span class="dim-text">${paddedT}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label dim-chip' : 'vfield-t-dim dim-label dim-chip';
                 idxStr += `, <span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
