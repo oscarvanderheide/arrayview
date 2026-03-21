@@ -568,21 +568,6 @@
         .ruler-lbl { font-family:monospace; font-size:11px; fill:var(--active-dim); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
 
         /* ── 1D Intensity profile ────────────────────────────────── */
-        #profile-popup {
-            position:fixed; pointer-events:none; z-index:12;
-            background:var(--surface); border:1px solid var(--border);
-            border-radius:var(--radius); padding:5px 7px; display:none;
-            font-size:9px; color:var(--muted); font-family:monospace;
-        }
-        #profile-popup.visible { display:block; }
-        #profile-line-h, #profile-line-v {
-            position:fixed; pointer-events:none; z-index:7; display:none;
-            background:rgba(245,200,66,0.3);
-        }
-        #profile-line-h { height:1px; left:0; right:0; }
-        #profile-line-v { width:1px; top:0; bottom:0; }
-        #profile-line-h.visible, #profile-line-v.visible { display:block; }
-
         /* ── Mini-map ────────────────────────────────────────────── */
         #mini-map {
             position:fixed; bottom:80px; right:12px; z-index:4;
@@ -826,9 +811,6 @@
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
     <div id="compare-mode-strip"></div>
-    <div id="profile-popup"><canvas id="profile-canvas" width="140" height="40"></canvas></div>
-    <div id="profile-line-h"></div>
-    <div id="profile-line-v"></div>
     <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
     <div id="inline-prompt">
         <div id="inline-prompt-box">
@@ -920,7 +902,6 @@
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
                 <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
                 <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
-                <div class="help-row"><span class="key">Alt+hover</span><span class="desc">1D intensity profile at cursor row/col</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
                 <div class="help-panel-title">Info &amp; Export</div>
@@ -4087,13 +4068,6 @@
             if (dim_z >= 0) return;
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
-            // Alt+hover: show 1D intensity profile
-            if (e.altKey && !compareActive && !multiViewActive && !qmriActive) {
-                showProfileOverlay(e);
-                return;
-            } else {
-                hideProfileOverlay();
-            }
             if (pixelHoverPending) return;
             pixelHoverPending = true;
             setTimeout(() => { pixelHoverPending = false; }, 50);
@@ -7605,75 +7579,6 @@
                 _rulerPtA = null; _rulerPtB = null;
             }
         });
-
-        // ── 6. 1D intensity profile (Alt+hover) ──────────────────────
-        const _profilePopup = document.getElementById('profile-popup');
-        const _profileCanvas = document.getElementById('profile-canvas');
-        const _profileCtx = _profileCanvas ? _profileCanvas.getContext('2d') : null;
-        const _profileLineH = document.getElementById('profile-line-h');
-        const _profileLineV = document.getElementById('profile-line-v');
-        let _profilePending = false;
-
-        function hideProfileOverlay() {
-            if (_profilePopup) _profilePopup.classList.remove('visible');
-            if (_profileLineH) _profileLineH.classList.remove('visible');
-            if (_profileLineV) _profileLineV.classList.remove('visible');
-        }
-        function showProfileOverlay(e) {
-            const rect = canvas.getBoundingClientRect();
-            const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
-            const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            // Show crosshair lines
-            if (_profileLineH) {
-                _profileLineH.style.top = e.clientY + 'px';
-                _profileLineH.style.left = rect.left + 'px';
-                _profileLineH.style.width = rect.width + 'px';
-                _profileLineH.classList.add('visible');
-            }
-            if (_profileLineV) {
-                _profileLineV.style.left = e.clientX + 'px';
-                _profileLineV.style.top = rect.top + 'px';
-                _profileLineV.style.height = rect.height + 'px';
-                _profileLineV.classList.add('visible');
-            }
-            if (_profilePending) return;
-            _profilePending = true;
-            setTimeout(() => { _profilePending = false; }, 80);
-            fetch(`/profile/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
-                .then(r => r.ok ? r.json() : null)
-                .then(d => {
-                    if (!d || !_profileCanvas || !_profileCtx) return;
-                    const W = 140, H = 40;
-                    _profileCanvas.width = W; _profileCanvas.height = H;
-                    _profileCtx.clearRect(0, 0, W, H);
-                    const drawLine = (vals, color) => {
-                        if (!vals || !vals.length) return;
-                        const mn = Math.min(...vals), mx = Math.max(...vals);
-                        const range = mx - mn || 1;
-                        _profileCtx.strokeStyle = color; _profileCtx.lineWidth = 1;
-                        _profileCtx.beginPath();
-                        vals.forEach((v, i) => {
-                            const x = i / (vals.length - 1) * (W - 1);
-                            const y = H - 1 - ((v - mn) / range) * (H - 3);
-                            i === 0 ? _profileCtx.moveTo(x, y) : _profileCtx.lineTo(x, y);
-                        });
-                        _profileCtx.stroke();
-                    };
-                    _profileCtx.fillStyle = 'var(--bg)';
-                    _profileCtx.fillRect(0, 0, W, H);
-                    drawLine(d.row, 'rgba(245,200,66,0.9)');
-                    drawLine(d.col, 'rgba(100,180,255,0.6)');
-                    if (_profilePopup) {
-                        const popX = Math.min(e.clientX + 14, window.innerWidth - 160);
-                        const popY = Math.max(e.clientY - 60, 4);
-                        _profilePopup.style.left = popX + 'px';
-                        _profilePopup.style.top = popY + 'px';
-                        _profilePopup.classList.add('visible');
-                    }
-                })
-                .catch(() => {});
-        }
-        canvas.addEventListener('mouseleave', () => hideProfileOverlay());
 
         // ── 7. Mini-map (when zoomed) ─────────────────────────────────
         const _miniMap = document.getElementById('mini-map');
