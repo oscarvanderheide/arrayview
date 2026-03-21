@@ -501,6 +501,23 @@
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:50px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--active-dim); }
 
+        /* ── Compare mode preview strip ─────────────────────────── */
+        #compare-mode-strip {
+            position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+            display:flex; flex-direction:row; align-items:center; gap:6px;
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:var(--radius); padding:7px 12px;
+            opacity:0; pointer-events:none; transition:opacity 0.25s ease;
+            z-index:8;
+        }
+        #compare-mode-strip.visible { opacity:1; }
+        .cmode-thumb { display:flex; align-items:center; justify-content:center;
+            min-width:54px; height:22px; border-radius:4px;
+            border:1.5px solid var(--border); background:var(--surface-2); }
+        .cmode-thumb span { font-size:10px; color:var(--muted); font-family:monospace; white-space:nowrap; }
+        .cmode-thumb.active { border-color:var(--active-dim); background:rgba(245,200,66,0.1); }
+        .cmode-thumb.active span { color:var(--active-dim); }
+
         /* ── Wipe comparator (center pane + range slider) ────────── */
         .compare-wipe { order: 1; }
         #compare-view-wrap.wipe-mode .compare-wipe { display: flex !important; }
@@ -798,6 +815,7 @@
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
+    <div id="compare-mode-strip"></div>
     <div id="profile-popup"><canvas id="profile-canvas" width="140" height="40"></canvas></div>
     <div id="profile-line-h"></div>
     <div id="profile-line-v"></div>
@@ -878,13 +896,13 @@
                 <div class="help-row"><span class="key">w</span><span class="desc">Lebesgue mode — hover colorbar to highlight pixels in that value bin</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
-                <div class="help-row"><span class="key">R</span><span class="desc">toggle registration overlay mode (compare)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: decrease / increase playback fps; else: overlay transparency, registration blend, or arrow density</span></div>
+                <div class="help-row"><span class="key">X</span><span class="desc">cycle compare center pane (2-pane compare): off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → off</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: decrease / increase playback fps; else: overlay transparency, overlay blend, or arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                   <div class="help-row"><span class="key">G</span><span class="desc">cycle compare layout: horizontal → vertical → grid (3–4 panes)</span></div>
                   <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
-                <div class="help-row"><span class="key">Z</span><span class="desc">focus diff/overlay pane (in X or R mode)</span></div>
+                <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
@@ -892,7 +910,6 @@
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
                 <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
                 <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
-                <div class="help-row"><span class="key">W</span><span class="desc">A/B wipe — shows a center pane with a split-slider to compare two arrays side-by-side (compare mode)</span></div>
                 <div class="help-row"><span class="key">Alt+hover</span><span class="desc">1D intensity profile at cursor row/col</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
@@ -1085,7 +1102,7 @@
         const compareNameBySid = {};
         let compareRendering = false;
         let comparePending = false;
-        let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|
+        let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A| (derived from compareCenterMode)
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let compareFrames = [];
         let compareDisplaySids = [];
@@ -1093,7 +1110,9 @@
         let compareLayoutMode = null;    // null=auto, 'horizontal', 'vertical', 'grid'
         let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
-        let registrationMode = false;
+        let registrationMode = false;  // derived from compareCenterMode
+        let _wipeActive = false;       // derived from compareCenterMode
+        let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let pendingViewMode = null;
@@ -1621,6 +1640,73 @@
             compareTitles.forEach((el, idx) => {
                 el.textContent = labels[idx] || '';
             });
+        }
+
+        // ── Compare center-pane mode (unified: diff / overlay / wipe) ─────────
+        // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|, 4=overlay, 5=wipe
+        const COMPARE_CENTER_LABELS = ['off', 'A−B', '|A−B|', '|A−B|/|A|', 'overlay', 'wipe'];
+
+        function _setCompareCenterMode(newMode) {
+            const prev = compareCenterMode;
+            compareCenterMode = newMode;
+            // Derive legacy state variables from unified mode
+            diffMode       = (newMode >= 1 && newMode <= 3) ? newMode : 0;
+            registrationMode = (newMode === 4);
+            _wipeActive    = (newMode === 5);
+
+            // Clear focus mode when center pane is turned off
+            if (newMode === 0 && compareFocusMode) {
+                compareFocusMode = false;
+                compareWrap.classList.remove('focus-diff', 'focus-reg');
+            }
+
+            // Update diff pane visibility
+            const diffPane = document.getElementById('compare-diff-pane');
+            if (diffPane) diffPane.style.display = diffMode ? 'flex' : 'none';
+
+            // Update wipe pane visibility
+            const wipePaneEl = document.getElementById('compare-wipe-pane');
+            if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
+            compareWrap.classList.toggle('wipe-mode', _wipeActive);
+
+            // Update layout (registration adds a 3rd pane)
+            if (registrationMode !== (prev === 4)) applyCompareLayout();
+            else { updateCompareTitles(); compareWrap.classList.toggle('registration-mode', compareActive && registrationMode); }
+
+            if (newMode === 0) {
+                showStatus('compare center: off');
+            } else if (diffMode > 0) {
+                fetchAndDrawDiff();
+                showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
+            } else if (registrationMode) {
+                applyCompareLayout();
+                drawCompareFramesFromCache();
+                showStatus(`overlay: on (moving ${Math.round(registrationAlpha * 100)}%)`);
+            } else if (_wipeActive) {
+                compareScaleCanvases();
+                _drawWipe();
+                showStatus('wipe: drag slider · X to cycle');
+            }
+            saveState();
+        }
+
+        let _cmodStripTimer = null;
+        function showCompareModeStrip() {
+            const el = document.getElementById('compare-mode-strip');
+            if (!el) return;
+            el.innerHTML = '';
+            const n = COMPARE_CENTER_LABELS.length;
+            for (let i = 0; i < n; i++) {
+                const thumb = document.createElement('div');
+                thumb.className = 'cmode-thumb' + (i === compareCenterMode ? ' active' : '');
+                const lbl = document.createElement('span');
+                lbl.textContent = COMPARE_CENTER_LABELS[i];
+                thumb.appendChild(lbl);
+                el.appendChild(thumb);
+            }
+            el.classList.add('visible');
+            clearTimeout(_cmodStripTimer);
+            _cmodStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
         }
 
         function applyCompareLayout() {
@@ -3247,6 +3333,7 @@
                 compareSidList: [...compareSidList],
                 compareName,
                 registrationMode,
+                compareCenterMode,
                 registrationAlpha,
                 overlayAlpha,
                 viewMode: currentViewMode(),
@@ -3323,7 +3410,14 @@
                     .filter(v => v && v !== sid);
             }
             if (typeof s.compareName === 'string') compareName = s.compareName;
-            registrationMode = !!s.registrationMode;
+            // Restore unified compare center mode (prefer new field, fall back to legacy)
+            if (Number.isInteger(s.compareCenterMode) && s.compareCenterMode >= 0 && s.compareCenterMode < 6) {
+                compareCenterMode = s.compareCenterMode;
+            } else {
+                compareCenterMode = s.registrationMode ? 4 : 0;
+            }
+            registrationMode = (compareCenterMode === 4);
+            diffMode = (compareCenterMode >= 1 && compareCenterMode <= 3) ? compareCenterMode : 0;
             if (Number.isFinite(Number(s.registrationAlpha))) {
                 registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
             }
@@ -4019,23 +4113,15 @@
             } else if (e.key === 'X') {
                 const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
                 if (!compareActive || cmpCount !== 2) {
-                    showToast('diff view: only in 2-pane compare mode');
+                    showToast('compare mode picker: only in 2-pane compare (B)');
                     return;
                 }
-                diffMode = (diffMode + 1) % 4;
-                if (!diffMode && compareFocusMode) {
-                    compareFocusMode = false;
-                    compareWrap.classList.remove('focus-diff', 'focus-reg');
-                }
-                const diffLabels = ['diff: off', 'diff: A−B', 'diff: |A−B|', 'diff: |A−B|/|A|'];
-                showStatus(diffLabels[diffMode]);
-                const diffPane = document.getElementById('compare-diff-pane');
-                diffPane.style.display = diffMode ? 'flex' : 'none';
-                if (diffMode) fetchAndDrawDiff();
+                const nextMode = (compareCenterMode + 1) % COMPARE_CENTER_LABELS.length;
+                _setCompareCenterMode(nextMode);
+                showCompareModeStrip();
                 return;
             } else if (e.key === 'R') {
-                if (compareActive) toggleRegistrationMode();
-                else await toggleRgbMode();
+                await toggleRgbMode();
             } else if (e.key === 'n') {
                 if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
                 cycleCompareTarget(1);
@@ -4077,8 +4163,8 @@
                 showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                 saveState();
             } else if (e.key === 'Z') {
-                if (!compareActive || (diffMode === 0 && !registrationMode)) {
-                    showToast('Z: focus available in diff (X) or registration (R) mode');
+                if (!compareActive || (diffMode === 0 && !registrationMode && !_wipeActive)) {
+                    showToast('Z: focus available when compare center is active (X to activate)');
                     return;
                 }
                 compareFocusMode = !compareFocusMode;
@@ -4626,9 +4712,6 @@
             } else if (e.key === 'u') {
                 // Ruler mode: click A→B to measure pixel distance
                 toggleRulerMode();
-            } else if (e.key === 'W') {
-                // A/B wipe comparator (2-pane compare only)
-                toggleWipeMode();
             }
         });
 
@@ -5140,8 +5223,15 @@
             compareRendering = false;
             comparePending = false;
             compareOverflowNotified = false;
+            // Reset all center-pane mode state
+            compareCenterMode = 0;
             diffMode = 0;
+            registrationMode = false;
+            _wipeActive = false;
             document.getElementById('compare-diff-pane').style.display = 'none';
+            const _wp = document.getElementById('compare-wipe-pane');
+            if (_wp) _wp.style.display = 'none';
+            compareWrap.classList.remove('wipe-mode');
             compareWrap.classList.remove('active');
             compareWrap.classList.remove('registration-mode');
             compareFocusMode = false;
@@ -7268,7 +7358,6 @@
         }
 
         // ── 4. A/B wipe comparator (center pane + range slider) ──────
-        let _wipeActive = false;
         let _wipeFrac = 0.5;
         const _wipeCanvas = document.getElementById('compare-wipe-canvas');
         const _wipeCtx = _wipeCanvas ? _wipeCanvas.getContext('2d') : null;

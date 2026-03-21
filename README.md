@@ -239,7 +239,7 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `m` | Cycle complex mode (mag / phase / real / imag) |
 | `f` | Toggle centered FFT |
 | `M` | Cycle mask threshold (Otsu + 7 levels) |
-| `R` | Toggle RGB mode (or registration overlay in compare) |
+| `R` | Toggle RGB mode |
 | `T` | Cycle theme (dark / light / solarized / nord) |
 | `b` | Toggle canvas border |
 
@@ -250,10 +250,9 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `P` | Open picker (compare) |
 | `O` | Open picker (open / navigate sessions) |
 | `n` | Cycle compare target |
-| `X` | Cycle diff view (off / A-B / \|A-B\| / \|A-B\|/\|A\|) |
-| `R` | Toggle registration overlay |
-| `[` / `]` | Decrease / increase registration blend |
-| `Z` | Focus diff/overlay pane |
+| `X` | Cycle center pane (off / A−B / \|A−B\| / \|A−B\|/\|A\| / overlay / wipe) |
+| `[` / `]` | Decrease / increase overlay blend |
+| `Z` | Focus center pane |
 
 ### Info and Export
 
@@ -284,8 +283,7 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | **Normal** | Default | Single 2D slice with dimension navigation |
 | **Multi-view** | `v` / `V` | 3-plane orthogonal view (axial/coronal/sagittal) with oblique rotation |
 | **Compare** | `P` (picker) | Side-by-side comparison of up to 6 arrays |
-| **Diff** | `X` (in compare) | Difference maps: A-B, \|A-B\|, \|A-B\|/\|A\| |
-| **Registration** | `R` (in compare) | Alpha-blended overlay of two arrays |
+| **Center pane** | `X` (in compare) | Difference (A−B, \|A−B\|, \|A−B\|/\|A\|), overlay, or wipe |
 | **qMRI** | `q` | Quantitative MRI: auto-detects parameter dimension, shows each with a dedicated colormap |
 
 ## VS Code Integration
