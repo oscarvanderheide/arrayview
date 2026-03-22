@@ -242,6 +242,8 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `R` | Toggle RGB mode |
 | `T` | Cycle theme (dark / light / solarized / nord) |
 | `b` | Toggle canvas border |
+| `F` | Zen mode — hide chrome, go fullscreen |
+| `K` | Compact mode — collapse top chrome, vertical colorbar (auto-activates when zoomed) |
 
 ### Compare Mode
 

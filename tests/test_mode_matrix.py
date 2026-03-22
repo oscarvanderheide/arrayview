@@ -520,3 +520,69 @@ class TestZoomRegression:
 
         assert page.is_visible("#info"), "Info bar should stay visible when zoomed"
         assert page.is_visible("#slim-cb-wrap"), "Colorbar should stay visible when zoomed"
+
+
+# ---------------------------------------------------------------------------
+# Item 17: Compact mode
+# ---------------------------------------------------------------------------
+
+_JS_HAS_COMPACT_MODE_CLASS = """
+() => document.body.classList.contains('compact-mode')
+"""
+
+_JS_ARRAY_NAME_HIDDEN = """
+() => {
+    const el = document.getElementById('array-name');
+    if (!el) return true;
+    const s = getComputedStyle(el);
+    return s.opacity === '0' || s.maxHeight === '0px' || s.display === 'none';
+}
+"""
+
+_JS_CB_IS_VERTICAL = """
+() => {
+    const wrap = document.getElementById('slim-cb-wrap');
+    return wrap && wrap.classList.contains('compact-vertical');
+}
+"""
+
+class TestCompactMode:
+    def test_K_toggles_compact_mode(self, loaded_viewer, sid_2d):
+        """K key should toggle compact mode on and off."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+
+        assert not page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "Should not start in compact mode"
+
+        page.keyboard.press("K")
+        page.wait_for_timeout(400)
+        assert page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "K should activate compact mode"
+        assert page.evaluate(_JS_ARRAY_NAME_HIDDEN), "Array name should be hidden in compact mode"
+
+        page.keyboard.press("K")
+        page.wait_for_timeout(400)
+        assert not page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "K again should deactivate compact mode"
+
+    def test_compact_mode_vertical_colorbar(self, loaded_viewer, sid_2d):
+        """In compact mode, the colorbar should get the compact-vertical class."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+
+        page.keyboard.press("K")
+        page.wait_for_timeout(500)
+        assert page.evaluate(_JS_CB_IS_VERTICAL), \
+            "Colorbar should have compact-vertical class in compact mode"
+
+        page.keyboard.press("K")
+        page.wait_for_timeout(500)
+        assert not page.evaluate(_JS_CB_IS_VERTICAL), \
+            "Colorbar should not have compact-vertical class after exiting compact mode"
+
+    def test_compact_mode_info_still_visible(self, loaded_viewer, sid_2d):
+        """In compact mode, the dim bar (#info) should still be visible (just smaller)."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+
+        page.keyboard.press("K")
+        page.wait_for_timeout(400)
+        assert page.is_visible("#info"), "Info bar should remain visible in compact mode"
