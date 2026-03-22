@@ -140,7 +140,7 @@
             transition: opacity 0.3s ease;
         }
         #compare-view-wrap.focus-diff .compare-pane:not(.compare-diff) { display: none !important; }
-        #compare-view-wrap.focus-reg .compare-pane:not(.compare-tertiary) { display: none !important; }
+        #compare-view-wrap.focus-reg .compare-pane:not(.compare-diff) { display: none !important; }
         #inline-prompt {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -397,9 +397,9 @@
         #reg-blend-bar-wrap {
             display: none; flex-direction: column; align-items: stretch; width: 100%;
         }
-        #compare-view-wrap.registration-mode #reg-blend-bar-wrap { display: flex; cursor: ew-resize; }
-        #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb,
-        #compare-view-wrap.registration-mode .compare-tertiary .compare-pane-cb-labels { display: none !important; }
+        #compare-diff-pane.overlay-center #reg-blend-bar-wrap { display: flex; cursor: ew-resize; }
+        #compare-diff-pane.overlay-center .compare-pane-cb,
+        #compare-diff-pane.overlay-center .compare-pane-cb-labels { display: none !important; }
         #reg-blend-cb {
             display: block; height: 8px; width: 100%; border-radius: 3px; border: none;
             margin-top: 4px; pointer-events: none;
@@ -424,8 +424,7 @@
         .compare-pane.compare-primary { order: 0; }
         .compare-diff { order: 1; }
         .compare-pane.compare-secondary { order: 2; }
-        #compare-view-wrap.registration-mode .compare-pane.compare-tertiary { order: 2; }
-        #compare-view-wrap.registration-mode .compare-pane.compare-secondary { order: 3; }
+        .compare-pane.compare-tertiary { order: 3; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; }
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-canvas-area {
@@ -671,6 +670,10 @@
                             </div>
                             <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
+                            <div id="reg-blend-bar-wrap">
+                                <canvas id="reg-blend-cb"></canvas>
+                                <div id="reg-blend-labels"><span></span><span></span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -727,10 +730,6 @@
                             </div>
                             <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
                             <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
-                            <div id="reg-blend-bar-wrap">
-                                <canvas id="reg-blend-cb"></canvas>
-                                <div id="reg-blend-labels"><span></span><span></span></div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1525,21 +1524,16 @@
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
             const panePadY = 30; // .compare-canvas-area bottom-heavy vertical padding
             const fitSlack = 0.96;
-            const activeFrames = registrationMode
-                ? [
-                    compareFrames[0] || null,
-                    compareFrames[1] || null,
-                    compareRegistrationFrame || null,
-                ].filter(Boolean)
-                : compareFrames.filter(Boolean);
+            const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
             const baseCols = compareLayoutMode === 'horizontal' ? paneCount
                 : compareLayoutMode === 'vertical'   ? 1
                 : compareLayoutMode === 'grid'       ? 2
                 : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-            // When diff mode is active with 2 data panes there are 3 visible columns
-            const cols = (diffMode > 0 && paneCount === 2) ? 3 : baseCols;
+            // When diff/overlay/wipe mode is active with 2 data panes there are 3 visible columns
+            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive);
+            const cols = (hasCenterPane && paneCount === 2) ? 3 : baseCols;
             const rows = Math.max(1, Math.ceil(paneCount / baseCols));
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
@@ -1577,8 +1571,8 @@
                 cv.style.width = cvW + 'px';
                 cv.style.height = cvH + 'px';
             }
-            // Keep diff canvas sized to match the first compare canvas
-            if (diffMode > 0 && compareCanvases[0] && compareCanvases[0].style.width) {
+            // Keep diff canvas (also used for overlay) sized to match the first compare canvas
+            if ((diffMode > 0 || registrationMode) && compareCanvases[0] && compareCanvases[0].style.width) {
                 const diffCanvas = document.getElementById('compare-diff-canvas');
                 if (diffCanvas) {
                     diffCanvas.style.width = compareCanvases[0].style.width;
@@ -1652,11 +1646,13 @@
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
             const labels = effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
-            if (registrationMode && labels.length) {
+            if (registrationMode && labels.length >= 2) {
                 const movingPct = Math.round(registrationAlpha * 100);
                 labels[0] = compareBaseName || 'base';
                 labels[1] = compareName || 'other';
-                labels[2] = `overlay (${movingPct}% moving)`;
+                // Set the diff pane title for the overlay blend
+                const diffTitle = document.getElementById('compare-diff-title');
+                if (diffTitle) diffTitle.textContent = `overlay (${movingPct}% moving)`;
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
@@ -1684,18 +1680,20 @@
                 compareWrap.classList.remove('focus-diff', 'focus-reg');
             }
 
-            // Update diff pane visibility
+            // Update diff pane visibility (also used for overlay mode)
             const diffPane = document.getElementById('compare-diff-pane');
-            if (diffPane) diffPane.style.display = diffMode ? 'flex' : 'none';
+            if (diffPane) {
+                diffPane.style.display = (diffMode || registrationMode) ? 'flex' : 'none';
+                diffPane.classList.toggle('overlay-center', registrationMode);
+            }
 
             // Update wipe pane visibility
             const wipePaneEl = document.getElementById('compare-wipe-pane');
             if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
             compareWrap.classList.toggle('wipe-mode', _wipeActive);
 
-            // Update layout (registration adds a 3rd pane)
-            if (registrationMode !== (prev === 4)) applyCompareLayout();
-            else { updateCompareTitles(); compareWrap.classList.toggle('registration-mode', compareActive && registrationMode); }
+            // Update titles
+            updateCompareTitles();
 
             if (newMode === 0) {
                 showStatus('compare center: off');
@@ -1703,7 +1701,6 @@
                 fetchAndDrawDiff();
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
             } else if (registrationMode) {
-                applyCompareLayout();
                 drawCompareFramesFromCache();
                 showStatus(`overlay: on (moving ${Math.round(registrationAlpha * 100)}%)`);
             } else if (_wipeActive) {
@@ -1737,7 +1734,7 @@
         function applyCompareLayout() {
             const sidsLen = _compareExplicitSids ? _compareExplicitSids.length
                 : compareDisplaySids.length;
-            const count = registrationMode ? 3 : Math.max(1, sidsLen);
+            const count = Math.max(1, sidsLen);
             const cols = compareLayoutMode === 'horizontal' ? count
                 : compareLayoutMode === 'vertical'   ? 1
                 : compareLayoutMode === 'grid'        ? 2
@@ -1749,7 +1746,6 @@
                 // regardless of .compare-primary / .compare-secondary class overrides.
                 pane.style.order = String(idx);
             });
-            compareWrap.classList.toggle('registration-mode', compareActive && registrationMode);
             updateCompareTitles();
             _updateHeaderNameForCompare();
         }
@@ -1764,7 +1760,21 @@
                 if (!compareRegistrationFrame) return;
                 drawCompareFrame(0, left);
                 drawCompareFrame(1, right);
-                drawCompareFrame(2, compareRegistrationFrame);
+                // Ensure diff pane is visible and styled for overlay
+                const diffPane = document.getElementById('compare-diff-pane');
+                if (diffPane) {
+                    diffPane.style.display = 'flex';
+                    diffPane.classList.add('overlay-center');
+                }
+                // Draw overlay blend into the diff canvas (center pane)
+                const diffCv = document.getElementById('compare-diff-canvas');
+                if (diffCv) {
+                    const f = compareRegistrationFrame;
+                    diffCv.width = f.width;
+                    diffCv.height = f.height;
+                    diffCv.getContext('2d').putImageData(
+                        applyFlips(f.imageData, f.width, f.height), 0, 0);
+                }
             } else {
                 compareRegistrationFrame = null;
                 for (let i = 0; i < compareFrames.length && i < compareCanvases.length; i++) {
@@ -1805,15 +1815,6 @@
         }
 
         function drawComparePaneCb(idx) {
-            // In registration mode, the tertiary pane (idx=2) shows the reg blend bar, not data colorbar
-            if (registrationMode && idx === 2) {
-                const cbCanvas = comparePaneCbs[idx];
-                const cbLabels = comparePaneCbLabels[idx];
-                if (cbCanvas) cbCanvas.style.display = 'none';
-                if (cbLabels) cbLabels.style.display = 'none';
-                drawRegBlendCb();
-                return;
-            }
             const cbCanvas = comparePaneCbs[idx];
             const cbLabels = comparePaneCbLabels[idx];
             const cv = compareCanvases[idx];
@@ -1860,7 +1861,7 @@
 
         function drawRegBlendCb() {
             if (!regBlendCb) return;
-            const cv = compareCanvases[2]; // compare-third-canvas
+            const cv = document.getElementById('compare-diff-canvas');
             if (!cv) return;
             const cssW = parseInt(cv.style.width);
             if (!cssW || cssW < 10) { regBlendCb.style.display = 'none'; return; }
@@ -5380,7 +5381,12 @@
                 if (!compareActive) return;
             }
             registrationMode = !registrationMode;
-            applyCompareLayout();
+            // Sync with unified center mode
+            if (registrationMode) {
+                _setCompareCenterMode(4);
+            } else {
+                _setCompareCenterMode(0);
+            }
             drawCompareFramesFromCache();
             const movingPct = Math.round(registrationAlpha * 100);
             if (registrationMode) showStatus(`registration: on (moving ${movingPct}%)`);
@@ -5414,11 +5420,11 @@
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
             document.getElementById('compare-diff-pane').style.display = 'none';
+            document.getElementById('compare-diff-pane').classList.remove('overlay-center');
             const _wp = document.getElementById('compare-wipe-pane');
             if (_wp) _wp.style.display = 'none';
             compareWrap.classList.remove('wipe-mode');
             compareWrap.classList.remove('active');
-            compareWrap.classList.remove('registration-mode');
             compareFocusMode = false;
             compareWrap.classList.remove('focus-diff', 'focus-reg');
             if (!multiViewActive && !qmriActive) {
