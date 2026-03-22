@@ -6265,6 +6265,7 @@
             if (httpTransport) {
                 compareMvViews.forEach(v => compareMvRender(v));
             }
+            document.getElementById('mv-orientation').style.display = 'block';
             flashAxesIndicators();
             renderInfo();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
@@ -6291,6 +6292,7 @@
             compareMvViews = [];
             compareMvSids = [];
             compareMvDims = [];
+            document.getElementById('mv-orientation').style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
@@ -6402,6 +6404,7 @@
             v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             v.ctx.restore();
+            drawMvOrientation();
         }
 
         function compareMvScaleAllCanvases() {
@@ -6816,7 +6819,8 @@
 
         function drawMvOrientation() {
             const cv = document.getElementById('mv-orientation');
-            if (!cv || !multiViewActive || mvDims.length < 3) return;
+            const _oriDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : []);
+            if (!cv || _oriDims.length < 3) return;
             const dpr = window.devicePixelRatio || 1;
             const cssSize = 120;
             if (cv.width !== cssSize * dpr || cv.height !== cssSize * dpr) {
@@ -6828,9 +6832,9 @@
             ctx.scale(dpr, dpr);
 
             // Normalized cuboid dims (longest axis = 1)
-            const d0 = shape[mvDims[0]] || 1;
-            const d1 = shape[mvDims[1]] || 1;
-            const d2 = shape[mvDims[2]] || 1;
+            const d0 = shape[_oriDims[0]] || 1;
+            const d1 = shape[_oriDims[1]] || 1;
+            const d2 = shape[_oriDims[2]] || 1;
             const maxDim = Math.max(d0, d1, d2);
             const W = d2 / maxDim;  // width  (z-axis in 3D widget → left-right)
             const H = d0 / maxDim;  // height (dim0 → up-down)
@@ -6877,9 +6881,9 @@
 
             // Three slice planes
             // Slice fractions: position within each dim's extent
-            const f0 = (shape[mvDims[0]] > 1) ? indices[mvDims[0]] / (shape[mvDims[0]] - 1) : 0.5;
-            const f1 = (shape[mvDims[1]] > 1) ? indices[mvDims[1]] / (shape[mvDims[1]] - 1) : 0.5;
-            const f2 = (shape[mvDims[2]] > 1) ? indices[mvDims[2]] / (shape[mvDims[2]] - 1) : 0.5;
+            const f0 = (shape[_oriDims[0]] > 1) ? indices[_oriDims[0]] / (shape[_oriDims[0]] - 1) : 0.5;
+            const f1 = (shape[_oriDims[1]] > 1) ? indices[_oriDims[1]] / (shape[_oriDims[1]] - 1) : 0.5;
+            const f2 = (shape[_oriDims[2]] > 1) ? indices[_oriDims[2]] / (shape[_oriDims[2]] - 1) : 0.5;
             const planeColors = [
                 { fill: 'rgba(255,90,90,0.30)',   stroke: 'rgba(255,90,90,0.7)' },
                 { fill: 'rgba(100,210,130,0.28)', stroke: 'rgba(100,210,130,0.65)' },
