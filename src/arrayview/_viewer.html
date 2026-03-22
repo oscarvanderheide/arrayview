@@ -4530,6 +4530,7 @@
                 updateView(); triggerPreload();
             } else if (isSpaceKey) {
                 e.preventDefault();
+                if (rectRoiMode) { showStatus('exit ROI mode first (A)'); return; }
                 togglePlay();
             } else if (e.key === 'T') {
                 applyTheme((themeIdx + 1) % THEMES.length);
@@ -4642,6 +4643,7 @@
                 saveScreenshot();
             } else if (e.key === 'N') {
                 // Export current 2-D slice as .npy
+                if (multiViewActive || compareMvActive || compareActive || qmriActive || compareQmriActive) { showStatus('slice export: not available in this mode'); return; }
                 if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; }
                 const idxStr = indices.join(',');
                 const params = new URLSearchParams({
@@ -4657,6 +4659,7 @@
                 document.body.removeChild(a);
                 showStatus('slice saved to Downloads (.npy)');
             } else if (e.key === 'g') {
+                if (multiViewActive || compareMvActive || compareActive || qmriActive || compareQmriActive) { showStatus('GIF export: not available in this mode'); return; }
                 saveGif();
             } else if (e.key === 'G') {
                 // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
@@ -4707,6 +4710,7 @@
                 renderEggs();
                 saveState();
             } else if (e.key === 'c') {
+                if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
                 if (rgbMode) return;
                 // If hovering over center pane, cycle its colormap instead
                 if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive)) {
@@ -4726,6 +4730,7 @@
                 showColormapStrip();
                 saveState();
             } else if (e.key === 'C') {
+                if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
                 if (rgbMode) return;
                 const name = window.prompt('Matplotlib colormap name:', '');
                 if (!name) return;
@@ -4743,6 +4748,7 @@
                     });
             } else if (e.key === 'd') {
                 manualVmin = manualVmax = null;
+                cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
                 fetch(`/clearcache/${sid}`).then(() => {
@@ -4752,6 +4758,7 @@
                 showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
                 saveState();
             } else if (e.key === 'D') {
+                if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; }
                 const v1 = await showInlinePrompt('vmin:', _cbFmt(currentVmin));
                 if (v1 === null) return;
                 const v2 = await showInlinePrompt('vmax:', _cbFmt(currentVmax));
@@ -4759,6 +4766,7 @@
                 const mn = parseFloat(v1), mx = parseFloat(v2);
                 if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
                 manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
+                cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
@@ -4916,6 +4924,7 @@
                     showStatus('Reusable URL copied');
                 }).catch(() => showStatus('Clipboard unavailable'));
             } else if (e.key === 'f') {
+                if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
                         .then(r => r.json()).then(d => {
@@ -4942,6 +4951,8 @@
                         });
                 }
             } else if (e.key === 'x') {
+                if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
+                if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; }
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; }
                 if (shape.length < 3) return;
                 if (activeDim === dim_x) { /* already x */ }
@@ -4950,6 +4961,8 @@
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'y') {
+                if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
+                if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; }
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; }
                 if (shape.length < 3) return;
                 if (activeDim === dim_y) { /* already y */ }
