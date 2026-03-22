@@ -72,6 +72,7 @@
             opacity: 0; transition: opacity 0.6s ease;
             color: rgba(190, 190, 190, 0.8);
         }
+        .axes-lbl-x, .axes-lbl-y { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; transition: opacity 0.3s ease; }
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
         #slim-cb { display: block; margin: 0 auto; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; }
@@ -107,9 +108,10 @@
         .cv-pixel-info {
             position: absolute; z-index: 10;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            color: var(--text); background: var(--surface); border: 1px solid var(--border);
+            color: var(--active-dim); background: none; border: none;
             padding: 2px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none;
             display: none;
+            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg);
         }
         #preload-status { position: fixed; bottom: 20px; left: 20px;
                           font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
@@ -569,7 +571,7 @@
         body.ruler-mode canvas { cursor:crosshair !important; }
         .ruler-line { stroke:var(--active-dim); stroke-width:1.5px; stroke-dasharray:5,3; fill:none; }
         .ruler-dot { fill:var(--active-dim); }
-        .ruler-lbl { font-family:monospace; font-size:11px; fill:var(--active-dim); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+        .ruler-lbl { font-family:monospace; font-size:9px; fill:var(--active-dim); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
 
         /* ── 1D Intensity profile ────────────────────────────────── */
         /* ── Mini-map ────────────────────────────────────────────── */
