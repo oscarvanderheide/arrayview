@@ -506,6 +506,29 @@
         body.zen-mode #help-hint, body.zen-mode #status,
         body.zen-mode #preload-status { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
+        /* ── Compact mode (auto-collapse on small screens) ───────── */
+        body.compact-mode #array-name {
+            opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
+            transition: opacity 0.25s ease, max-height 0.25s ease;
+            pointer-events: none;
+        }
+        body.compact-mode #info {
+            font-size: 12px; margin-bottom: 2px;
+            transition: font-size 0.25s ease, margin 0.25s ease;
+        }
+        body.compact-mode #slim-cb-wrap.compact-vertical {
+            writing-mode: vertical-lr; transform: rotate(180deg);
+        }
+        body.compact-mode #slim-cb-wrap.compact-vertical #slim-cb-labels {
+            writing-mode: horizontal-tb; transform: rotate(180deg);
+            display: flex; flex-direction: column; align-items: center;
+            font-size: 10px; width: 100%;
+        }
+        /* Hover reveals top chrome briefly in compact mode */
+        body.compact-mode.compact-hover #array-name {
+            opacity: 1; max-height: 40px; pointer-events: auto;
+        }
+
         /* ── Colormap preview strip ──────────────────────────────── */
         #colormap-strip {
             position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
@@ -916,6 +939,7 @@
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
                 <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
+                <div class="help-row"><span class="key">K</span><span class="desc">compact mode — collapse top chrome, vertical colorbar; auto-activates when zoomed &amp; constrained</span></div>
                 <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
@@ -1074,6 +1098,7 @@
         let _mvPrevZoom = 1.0;
         let _mvPrevSquareStretch = false;
         let _eggsVisible = true;
+        let _compactCheckPending = false;
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
         let pixelHoverPending = false;
@@ -1472,6 +1497,10 @@
         // const MAX_CANVAS_FIT_PX = 600;
 
         function uiReserveV() {
+            if (_compactActive) {
+                // In compact mode: array-name is hidden, info is tiny
+                return 50; // wrapper padding + small info bar
+            }
             let h = 30; // wrapper padding
             for (const id of ['array-name', 'info']) {
                 const el = document.getElementById(id);
@@ -1494,7 +1523,7 @@
                 if (s.display === 'none') continue;
                 childrenH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
-            const bottomReserve = 72; // colorbar (~31px) + eggs (~22px) + gaps
+            const bottomReserve = _compactActive ? 26 : 72; // compact: eggs only; normal: colorbar + eggs + gaps
             const pt = Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
@@ -1509,8 +1538,8 @@
         }
 
         function scaleCanvas(w, h) {
-            const bottomReserve = 72; // slim colorbar (~31px) + eggs (~22px) + gaps
-            const maxW = Math.max(100, window.innerWidth - 80);
+            const bottomReserve = _compactActive ? 26 : 72; // compact: eggs only; normal: colorbar + eggs + gaps
+            const maxW = Math.max(100, window.innerWidth - (_compactActive ? 60 : 80));
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve);
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
@@ -1549,6 +1578,11 @@
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
             updateMiniMap();
+            // Check if compact mode should auto-activate/deactivate (deferred to avoid re-entrancy)
+            if (!_compactCheckPending) {
+                _compactCheckPending = true;
+                requestAnimationFrame(() => { _compactCheckPending = false; _checkAutoCompact(); });
+            }
         }
 
         function compareScaleCanvases() {
@@ -2042,19 +2076,79 @@
                 drawCompareColorbar();
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
-                if (wrap) wrap.style.display = 'none';
+                if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
                 return;
             }
             if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
-                if (wrap) wrap.style.display = 'none';
+                if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
                 return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const vpEl = document.getElementById('canvas-viewport');
             const canvasRect = (vpEl || canvas).getBoundingClientRect();
+
+            // ── Compact vertical colorbar mode ──────────────────────
+            if (_compactActive) {
+                // Draw horizontal as normal but position + rotate via CSS
+                const vpH = vpEl ? vpEl.offsetHeight : Math.round(canvasRect.height);
+                const cssW = Math.max(60, Math.min(vpH, window.innerHeight - 80));
+                const stripH = CB_COLLAPSED_H; // no histogram expand in compact vertical
+                if (wrap) {
+                    wrap.classList.add('compact-vertical');
+                    // Position to the right of the viewport, centered vertically
+                    const cbLeft = canvasRect.right + 8;
+                    const cbTop = canvasRect.top + (canvasRect.height - cssW) / 2;
+                    wrap.style.top = cbTop + 'px';
+                    wrap.style.left = cbLeft + 'px';
+                    wrap.style.width = cssW + 'px';
+                    wrap.style.display = '';
+                    // Use CSS transform to rotate the whole element
+                    wrap.style.transformOrigin = '0 0';
+                    wrap.style.transform = `rotate(90deg) translateY(-100%)`;
+                }
+                const dpr = window.devicePixelRatio || 1;
+                slimCbCanvas.width = Math.round(cssW * dpr);
+                slimCbCanvas.height = Math.round(stripH * dpr);
+                slimCbCanvas.style.width = cssW + 'px';
+                slimCbCanvas.style.height = stripH + 'px';
+                slimCbCanvas.style.display = '';
+                const sCtx = slimCbCanvas.getContext('2d');
+                sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
+                sCtx.save();
+                sCtx.scale(dpr, dpr);
+                if (!lebesgueMode) {
+                    const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
+                    const n = stops.length;
+                    for (let i = 0; i < n; i++) {
+                        const t = n <= 1 ? 0 : i / (n - 1);
+                        const rgb = stops[i];
+                        grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+                    }
+                    sCtx.fillStyle = grad;
+                    sCtx.fillRect(0, 0, cssW, stripH);
+                }
+                if (markerFrac !== null && markerFrac !== undefined) {
+                    const mx = Math.round(markerFrac * (cssW - 1));
+                    sCtx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+                    sCtx.lineWidth = 1;
+                    sCtx.beginPath(); sCtx.moveTo(mx + 0.5, 0); sCtx.lineTo(mx + 0.5, stripH); sCtx.stroke();
+                }
+                sCtx.restore();
+                slimCbLabels.style.display = '';
+                slimCbLabels.style.width = cssW + 'px';
+                slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+                return;
+            }
+
+            // ── Normal horizontal colorbar ──────────────────────────
+            if (wrap) {
+                wrap.classList.remove('compact-vertical');
+                wrap.style.transform = '';
+                wrap.style.transformOrigin = '';
+            }
             const rawW = vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width));
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
@@ -4975,6 +5069,9 @@
             } else if (e.key === 'F') {
                 // Zen / fullscreen mode
                 toggleZenMode();
+            } else if (e.key === 'K') {
+                // Compact mode — toggle (also controls auto-collapse)
+                toggleCompactMode();
             } else if (e.key === 'u') {
                 // Ruler mode: click A→B to measure pixel distance
                 toggleRulerMode();
@@ -7629,6 +7726,73 @@
                 document.removeEventListener('mousemove', _zenShowChrome);
             }
         });
+
+        // ── 2b. Compact mode (auto-collapse on small windows) ─────────
+        let _compactActive = false;
+        let _compactManual = false; // true when user toggled via K key
+        let _compactHoverTimer = null;
+
+        function setCompactMode(on) {
+            if (_compactActive === on) return;
+            _compactActive = on;
+            document.body.classList.toggle('compact-mode', on);
+            // Recalc layout with new reserves
+            if (lastImageData) scaleCanvas(lastImgW, lastImgH);
+            if (on) {
+                document.addEventListener('mousemove', _compactMouseMove);
+            } else {
+                document.removeEventListener('mousemove', _compactMouseMove);
+                document.body.classList.remove('compact-hover');
+                clearTimeout(_compactHoverTimer);
+                // Restore non-vertical colorbar
+                const wrap = document.getElementById('slim-cb-wrap');
+                if (wrap) wrap.classList.remove('compact-vertical');
+            }
+        }
+
+        function _compactMouseMove(e) {
+            if (!_compactActive) return;
+            // Show top chrome when mouse is in the top 40px
+            if (e.clientY < 40) {
+                document.body.classList.add('compact-hover');
+                clearTimeout(_compactHoverTimer);
+                _compactHoverTimer = setTimeout(() => {
+                    document.body.classList.remove('compact-hover');
+                }, 2000);
+            }
+        }
+
+        function _checkAutoCompact() {
+            // Don't auto-toggle when user manually set it
+            if (_compactManual || _zenActive || compareActive || _isWelcomeScreen) {
+                return;
+            }
+            // Auto-compact when the viewport is clipped (canvas overflows) and user is zoomed in
+            const vp = document.getElementById('canvas-viewport');
+            if (!vp || !canvas) return;
+            const vpH = parseInt(vp.style.height) || 0;
+            // Check if canvas would benefit from more space:
+            // viewport height is close to max available
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - 72);
+            const constrained = vpH >= maxH - 2 && userZoom > 1.0;
+            if (constrained && !_compactActive) {
+                setCompactMode(true);
+            } else if (!constrained && _compactActive) {
+                setCompactMode(false);
+            }
+        }
+
+        function toggleCompactMode() {
+            if (_compactActive) {
+                _compactManual = false;
+                setCompactMode(false);
+                showToast('compact mode off · K to toggle');
+            } else {
+                _compactManual = true;
+                setCompactMode(true);
+                showToast('compact mode on · K to toggle');
+            }
+        }
 
         // ── 3. Colormap preview strip ─────────────────────────────────
         const _cmapStrip = document.getElementById('colormap-strip');
