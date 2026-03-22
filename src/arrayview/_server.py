@@ -1373,7 +1373,7 @@ def get_diff(
     if diff_mode == 1:
         raw = a - b
         vmin, vmax = -1.0, 1.0
-        colormap = "RdBu_r_black"
+        colormap = "RdBu_r"
     elif diff_mode == 2:
         raw = np.abs(a - b)
         vmax = float(raw.max()) or 1.0

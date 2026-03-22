@@ -1110,6 +1110,8 @@
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
+        const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
+        const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
         let compareFrames = [];
         let compareDisplaySids = [];
@@ -1894,7 +1896,7 @@
                 if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
                 return;
             }
-            const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r_black' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
+            const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
             if (!stops) return;
             const stripH = 8;
             const dpr = window.devicePixelRatio || 1;
@@ -4531,12 +4533,13 @@
                 if (rgbMode) return;
                 // If hovering over center pane, cycle its colormap instead
                 if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive)) {
-                    const idx = COLORMAPS.indexOf(_diffCenterColormap);
-                    const next = (idx + 1) % COLORMAPS.length;
-                    _diffCenterColormap = COLORMAPS[next];
+                    const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
+                    const idx = pool.indexOf(_diffCenterColormap);
+                    const next = (idx + 1) % pool.length;
+                    _diffCenterColormap = pool[next];
                     _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
                     if (diffMode > 0) fetchAndDrawDiff();
-                    showColormapStrip();
+                    showColormapStrip(_diffCenterColormap, pool);
                     return;
                 }
                 customColormap = null; customGradientStops = null;
@@ -7508,14 +7511,15 @@
         // ── 3. Colormap preview strip ─────────────────────────────────
         const _cmapStrip = document.getElementById('colormap-strip');
         let _cmapStripTimer = null;
-        function showColormapStrip() {
+        function showColormapStrip(overrideName, overridePool) {
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
-            const ci = colormap_idx === -1 ? 0 : colormap_idx;
+            const pool = overridePool || COLORMAPS;
+            const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
             const WINDOW = 4; // show 4 before and 4 after current
             _cmapStrip.innerHTML = '';
             for (let offs = -WINDOW; offs <= WINDOW; offs++) {
-                const idx = ((ci + offs) % COLORMAPS.length + COLORMAPS.length) % COLORMAPS.length;
-                const name = COLORMAPS[idx];
+                const idx = ((ci + offs) % pool.length + pool.length) % pool.length;
+                const name = pool[idx];
                 const stops = COLORMAP_GRADIENT_STOPS[name];
                 const thumb = document.createElement('div');
                 thumb.className = 'cmap-thumb' + (offs === 0 ? ' active' : '');
