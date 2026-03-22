@@ -12,6 +12,7 @@ import threading
 
 import numpy as np
 from fastapi import (
+    Body,
     FastAPI,
     File,
     HTTPException,
@@ -794,6 +795,44 @@ def get_pixel(
     h, w = data.shape
     val = _safe_float(data[py, px]) if (0 <= py < h and 0 <= px < w) else None
     return {"value": val}
+
+
+@app.post("/roi_freehand/{sid}")
+def get_roi_freehand(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    complex_mode: int = 0,
+    body: dict = Body(...),
+):
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
+    points = body.get("points", [])
+    if len(points) < 3:
+        return {"error": "need at least 3 points"}
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    from PIL import Image as _PILImage, ImageDraw as _PILDraw
+    mask_img = _PILImage.new("L", (w, h), 0)
+    _PILDraw.Draw(mask_img).polygon([(p[0], p[1]) for p in points], fill=255)
+    mask = np.array(mask_img) > 0
+    roi = data[mask]
+    if roi.size == 0:
+        return {"error": "empty selection"}
+    finite = roi[np.isfinite(roi)]
+    return {
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
+    }
 
 
 @app.get("/roi_circle/{sid}")
