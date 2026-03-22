@@ -401,12 +401,18 @@
         #compare-diff-pane.overlay-center .compare-pane-cb,
         #compare-diff-pane.overlay-center .compare-pane-cb-labels { display: none !important; }
         #reg-blend-cb {
-            display: block; height: 8px; width: 100%; border-radius: 3px; border: none;
+            display: block; height: 8px; width: 100%; border-radius: 3px;
+            border: 1px solid var(--border);
             margin-top: 4px; pointer-events: none;
         }
+        #reg-blend-bar-wrap:hover #reg-blend-cb { border-color: var(--active-dim); }
         #reg-blend-labels {
             display: flex; justify-content: space-between;
             font-size: 9px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%;
+        }
+        #reg-blend-hint {
+            font-size: 8px; color: var(--muted); text-align: center; opacity: 0.6;
+            font-family: monospace; margin-top: 1px;
         }
         #compare-view-wrap { display: none; width: 100%; height: 100%; gap: 8px; }
         #compare-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; }
@@ -673,6 +679,7 @@
                             <div id="reg-blend-bar-wrap">
                                 <canvas id="reg-blend-cb"></canvas>
                                 <div id="reg-blend-labels"><span></span><span></span></div>
+                                <div id="reg-blend-hint">drag · scroll · [ ]</div>
                             </div>
                         </div>
                     </div>
@@ -898,7 +905,7 @@
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle compare center pane (2-pane compare): off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → off</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: decrease / increase playback fps; else: overlay transparency, overlay blend, or arrow density</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: fps; else: wipe position, overlay blend, overlay alpha, or arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                   <div class="help-row"><span class="key">G</span><span class="desc">cycle compare layout: horizontal → vertical → grid (3–4 panes)</span></div>
@@ -4300,7 +4307,13 @@
                     return;
                 }
                 const step = e.key === ']' ? 0.05 : -0.05;
-                if (overlay_sid && !registrationMode) {
+                if (compareActive && _wipeActive) {
+                    // Wipe position
+                    _wipeFrac = Math.max(0, Math.min(1, _wipeFrac + step));
+                    _drawWipe();
+                    showStatus(`wipe: ${Math.round(_wipeFrac * 100)}%`);
+                    saveState();
+                } else if (overlay_sid && !registrationMode) {
                     // Overlay transparency mode
                     overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
                     updateView();
@@ -7579,11 +7592,13 @@
             const d1 = applyFlips(f1.imageData, f1.width, f1.height);
             _wipeCtx.putImageData(d0, 0, 0, 0, 0, xSplit, H);
             _wipeCtx.putImageData(d1, 0, 0, xSplit, 0, W - xSplit, H);
-            // Draw 1 CSS-pixel divider line
+            // Draw 1 CSS-pixel divider line (pixel-snapped for crisp rendering)
             _wipeCtx.save();
             _wipeCtx.strokeStyle = 'rgba(245,200,66,0.9)';
-            _wipeCtx.lineWidth = Math.max(1, W / cssW);
-            _wipeCtx.beginPath(); _wipeCtx.moveTo(xSplit, 0); _wipeCtx.lineTo(xSplit, H);
+            const linePx = Math.max(1, W / cssW);
+            _wipeCtx.lineWidth = linePx;
+            const snapX = Math.round(xSplit) + (linePx % 2 === 0 ? 0 : 0.5);
+            _wipeCtx.beginPath(); _wipeCtx.moveTo(snapX, 0); _wipeCtx.lineTo(snapX, H);
             _wipeCtx.stroke(); _wipeCtx.restore();
             // Sync range thumb and track gradient
             if (_wipeRange) {
@@ -7624,6 +7639,36 @@
                 _drawWipe();
             });
         }
+
+        // Click-drag the wipe divider line on the canvas
+        let _wipeDragging = false;
+        if (_wipeCanvas) {
+            _wipeCanvas.addEventListener('mousedown', (e) => {
+                if (!_wipeActive || e.button !== 0) return;
+                const rect = _wipeCanvas.getBoundingClientRect();
+                const xRel = (e.clientX - rect.left) / rect.width;
+                // Start drag if click is near the divider (±5% of canvas width)
+                if (Math.abs(xRel - _wipeFrac) < 0.05) {
+                    _wipeDragging = true;
+                    e.preventDefault();
+                }
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!_wipeDragging) return;
+                const rect = _wipeCanvas.getBoundingClientRect();
+                _wipeFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                _drawWipe();
+            });
+            window.addEventListener('mouseup', () => { if (_wipeDragging) { _wipeDragging = false; saveState(); } });
+            // Update cursor when near the divider line
+            _wipeCanvas.addEventListener('mousemove', (e) => {
+                if (_wipeDragging) return;
+                const rect = _wipeCanvas.getBoundingClientRect();
+                const xRel = (e.clientX - rect.left) / rect.width;
+                _wipeCanvas.style.cursor = Math.abs(xRel - _wipeFrac) < 0.05 ? 'ew-resize' : 'crosshair';
+            });
+        }
+
         // Re-draw wipe whenever compare frames update
         function _maybeRedrawWipe() { if (_wipeActive) _drawWipe(); }
 
