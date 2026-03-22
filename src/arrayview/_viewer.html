@@ -438,12 +438,11 @@
             padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
-        .compare-canvas-inner { position: relative; display: inline-block; }
+        .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
         .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
         .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
-            max-width: 100%; max-height: 100%;
         }
         #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
         #compare-view-wrap.active #compare-cb-wrap { display: flex; justify-content: center; }
@@ -1178,6 +1177,34 @@
             document.getElementById('compare-fifth-title'),
             document.getElementById('compare-sixth-title'),
         ];
+        // ── compare pan (synced across panes when zoomed past viewport) ───────
+        let _cmpPanX = 0, _cmpPanY = 0;
+        let _cmpPanDrag = null; // {x, y, panX0, panY0}
+        function _cmpIsOverflowing() {
+            const inner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
+            if (!inner || !inner.dataset.vpW) return false;
+            const cv = compareCanvases[0];
+            return (parseInt(cv.style.width) || 0) > parseInt(inner.dataset.vpW) + 2 ||
+                   (parseInt(cv.style.height) || 0) > parseInt(inner.dataset.vpH) + 2;
+        }
+        function _cmpClampPan() {
+            const cv = compareCanvases[0];
+            const inner = cv && cv.closest('.compare-canvas-inner');
+            if (!inner || !inner.dataset.vpW) { _cmpPanX = _cmpPanY = 0; return; }
+            const cssW = parseInt(cv.style.width) || 0;
+            const cssH = parseInt(cv.style.height) || 0;
+            const vpW = parseInt(inner.dataset.vpW);
+            const vpH = parseInt(inner.dataset.vpH);
+            if (cssW <= vpW) _cmpPanX = 0;
+            else _cmpPanX = Math.max(-(cssW - vpW), Math.min(0, _cmpPanX));
+            if (cssH <= vpH) _cmpPanY = 0;
+            else _cmpPanY = Math.max(-(cssH - vpH), Math.min(0, _cmpPanY));
+        }
+        function _cmpApplyPan() {
+            const tx = (_cmpPanX || _cmpPanY) ? `translate(${_cmpPanX}px,${_cmpPanY}px)` : '';
+            document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
+        }
+
         // ── compare-title drag-to-reorder ──────────────────────────────────────
         let _cmpDragSrcIdx = null;
         compareTitles.forEach((titleEl, idx) => {
@@ -1551,19 +1578,9 @@
             const totalH = Math.max(100, window.innerHeight - uiReserveH) * 0.65;
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
-            // Cap userZoom so panes never exceed the viewport
+            // Maximum viewport size (how large the clipping container can be)
             const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - 80)  - (cols - 1) * colGap) / cols - panePadX);
             const capPaneH = Math.max(40, (Math.max(100, window.innerHeight - uiReserveH) - (rows - 1) * rowGap) / rows - titleReserve - panePadY);
-            let capZoom = 10.0;
-            for (const frame of activeFrames) {
-                if (!frame) continue;
-                const aw = Math.max(40, paneOuterW - panePadX);
-                const ah = Math.max(40, paneOuterH - titleReserve - panePadY);
-                const base = Math.min(aw / frame.width, ah / frame.height);
-                const maxScale = Math.min(capPaneW / frame.width, capPaneH / frame.height);
-                if (base > 0) capZoom = Math.min(capZoom, maxScale / (base * fitSlack));
-            }
-            if (userZoom > capZoom) userZoom = capZoom;
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
@@ -1577,7 +1594,31 @@
                 if (squareStretch) { const sq = Math.max(cvW, cvH); cvW = sq; cvH = sq; }
                 cv.style.width = cvW + 'px';
                 cv.style.height = cvH + 'px';
+                // Set viewport (clipping container) on .compare-canvas-inner
+                const inner = cv.closest('.compare-canvas-inner');
+                if (inner) {
+                    let vpW = Math.min(cvW, Math.round(capPaneW));
+                    let vpH = Math.min(cvH, Math.round(capPaneH));
+                    // Maintain aspect ratio: don't widen when height hits the limit
+                    if (cvH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cvW / cvH));
+                    if (cvW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cvH / cvW));
+                    inner.style.width = vpW + 'px';
+                    inner.style.height = vpH + 'px';
+                    inner.dataset.vpW = vpW;
+                    inner.dataset.vpH = vpH;
+                }
             }
+            // When first overflowing, center the pan
+            if (_cmpIsOverflowing() && _cmpPanX === 0 && _cmpPanY === 0) {
+                const cv = compareCanvases[0];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                if (inner) {
+                    _cmpPanX = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
+                    _cmpPanY = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
+                }
+            }
+            _cmpClampPan();
+            _cmpApplyPan();
             // Keep diff canvas (also used for overlay) sized to match the first compare canvas
             if ((diffMode > 0 || registrationMode) && compareCanvases[0] && compareCanvases[0].style.width) {
                 const diffCanvas = document.getElementById('compare-diff-canvas');
@@ -1585,12 +1626,40 @@
                     diffCanvas.style.width = compareCanvases[0].style.width;
                     diffCanvas.style.height = compareCanvases[0].style.height;
                 }
+                // Diff/wipe canvas inner also needs viewport sizing
+                const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
+                const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
+                if (diffInner && firstInner) {
+                    diffInner.style.width = firstInner.style.width;
+                    diffInner.style.height = firstInner.style.height;
+                    diffInner.dataset.vpW = firstInner.dataset.vpW;
+                    diffInner.dataset.vpH = firstInner.dataset.vpH;
+                }
+            }
+            // Wipe canvas inner viewport sizing
+            if (_wipeActive) {
+                const wipeCv = document.getElementById('compare-wipe-canvas');
+                const wipeInner = wipeCv && wipeCv.closest('.compare-canvas-inner');
+                const firstInner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
+                if (wipeInner && firstInner && wipeCv) {
+                    wipeCv.style.width = compareCanvases[0].style.width;
+                    wipeCv.style.height = compareCanvases[0].style.height;
+                    wipeInner.style.width = firstInner.style.width;
+                    wipeInner.style.height = firstInner.style.height;
+                    wipeInner.dataset.vpW = firstInner.dataset.vpW;
+                    wipeInner.dataset.vpH = firstInner.dataset.vpH;
+                }
             }
             drawAllComparePaneCbs();
             if (registrationMode) drawRegBlendCb();
             drawSlimColorbar(cbMarkerFrac);
             fixWrapperAlignment();
             positionEggs();
+            // Update cursor on compare canvases
+            const overflowing = _cmpIsOverflowing();
+            compareCanvases.forEach(cv => {
+                if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair';
+            });
         }
 
         function compareLuma(imgData, i) {
@@ -5425,6 +5494,12 @@
             compareRendering = false;
             comparePending = false;
             compareOverflowNotified = false;
+            // Reset compare pan
+            _cmpPanX = 0; _cmpPanY = 0; _cmpPanDrag = null;
+            document.querySelectorAll('.compare-canvas-inner').forEach(el => {
+                el.style.width = ''; el.style.height = ''; el.style.transform = '';
+                delete el.dataset.vpW; delete el.dataset.vpH;
+            });
             // Reset all center-pane mode state
             compareCenterMode = 0;
             diffMode = 0;
@@ -7379,6 +7454,30 @@
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
         compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
+        // Compare pane drag-to-pan when zoomed past viewport
+        compareCanvases.forEach(cv => {
+            cv.addEventListener('mousedown', (e) => {
+                if (!compareActive || !_cmpIsOverflowing()) return;
+                if (e.button !== 0 && e.button !== 2) return;
+                e.preventDefault();
+                _cmpPanDrag = { x: e.clientX, y: e.clientY, panX0: _cmpPanX, panY0: _cmpPanY };
+                cv.style.cursor = 'grabbing';
+            });
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!_cmpPanDrag) return;
+            _cmpPanX = _cmpPanDrag.panX0 + (e.clientX - _cmpPanDrag.x);
+            _cmpPanY = _cmpPanDrag.panY0 + (e.clientY - _cmpPanDrag.y);
+            _cmpClampPan();
+            _cmpApplyPan();
+        });
+        window.addEventListener('mouseup', () => {
+            if (_cmpPanDrag) {
+                _cmpPanDrag = null;
+                const overflowing = _cmpIsOverflowing();
+                compareCanvases.forEach(cv => { if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair'; });
+            }
+        });
         let comparePixelPending = false;
         // Dynamically create crosshair elements in compare panes
         compareCanvases.forEach((cv) => {
@@ -7390,7 +7489,7 @@
         compareCanvases.forEach((cv, i) => {
             const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
             cv.addEventListener('mousemove', (e) => {
-                if (!compareActive) return;
+                if (!compareActive || _cmpPanDrag) return;
                 const cvSid = compareDisplaySids[i];
                 if (!cvSid) return;
                 // Crosshair sync across all active compare panes
