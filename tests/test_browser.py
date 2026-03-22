@@ -68,7 +68,7 @@ _JS_COMPARE_LEFT_CSS_SIZE = """
 
 _JS_COMPARE_OVERLAY_CENTER_PIXEL = """
 () => {
-    const c = document.querySelector('canvas#compare-third-canvas');
+    const c = document.querySelector('canvas#compare-diff-canvas');
     if (!c) return null;
     const ctx = c.getContext('2d');
     const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
@@ -356,7 +356,8 @@ class TestKeyboard:
         page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
-        assert page.is_visible("canvas#compare-cb")
+        # Per-pane colorbars are used (shared compare-cb is hidden)
+        assert page.is_visible("canvas#compare-left-pane-cb")
         assert "arr2d_compare" in page.inner_text("#compare-right-title").lower()
 
         page.keyboard.press("B")
@@ -431,15 +432,18 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-right-canvas")
         assert not page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("canvas#compare-cb")
+        assert page.is_visible("canvas#compare-left-pane-cb")
 
-        page.keyboard.press("R")
+        # Cycle compare center mode to overlay (mode 4): X×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
+        for _ in range(4):
+            page.keyboard.press("X")
+            page.wait_for_timeout(200)
         page.wait_for_timeout(400)
-        classes = page.get_attribute("#compare-view-wrap", "class") or ""
-        assert "registration-mode" in classes
+        diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
+        assert "overlay-center" in diff_classes
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
-        assert page.is_visible("canvas#compare-third-canvas")
+        assert page.is_visible("canvas#compare-diff-canvas")
 
         before = page.evaluate(_JS_COMPARE_OVERLAY_CENTER_PIXEL)
         page.keyboard.press("]")
@@ -451,10 +455,13 @@ class TestKeyboard:
         page.wait_for_timeout(800)
         assert "arr2d_compare_2" in page.inner_text("#compare-right-title").lower()
 
-        page.keyboard.press("R")
+        # Press X twice more to go past wipe (mode 5) back to off (mode 0)
+        page.keyboard.press("X")
+        page.wait_for_timeout(200)
+        page.keyboard.press("X")
         page.wait_for_timeout(400)
-        classes = page.get_attribute("#compare-view-wrap", "class") or ""
-        assert "registration-mode" not in classes
+        diff_classes = page.get_attribute("#compare-diff-pane", "class") or ""
+        assert "overlay-center" not in diff_classes
         assert page.is_visible("canvas#compare-right-canvas")
 
     def test_B_is_locked_for_multi_array_launch(
@@ -477,7 +484,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(500)
         assert page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("canvas#compare-cb")
+        assert page.is_visible("canvas#compare-left-pane-cb")
 
         _focus_kb(page)
         page.keyboard.press("B")
@@ -631,6 +638,9 @@ class TestROIDrag:
     def test_canvas_drag_shows_roi_stats(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
+        # Enter ROI mode first (A key)
+        page.keyboard.press("A")
+        page.wait_for_timeout(300)
         cv = page.locator("canvas#viewer")
         box = cv.bounding_box()
         assert box is not None
@@ -648,9 +658,9 @@ class TestROIDrag:
             "() => document.getElementById('roi-panel').style.display !== 'none' && document.getElementById('roi-panel').style.display !== ''"
         )
         assert panel_visible, "Expected #roi-panel to be visible after drag"
-        table_text = page.inner_text("#roi-table")
+        table_text = page.inner_text("#roi-content")
         assert "mean" in table_text.lower() or "min" in table_text.lower(), (
-            f"Expected ROI stats in #roi-table, got: '{table_text}'"
+            f"Expected ROI stats in #roi-content, got: '{table_text}'"
         )
 
 
