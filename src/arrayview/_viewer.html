@@ -1096,6 +1096,7 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
+        let _autoFitPending = true; // auto-fit to viewport on first render
         let _mvPrevZoom = 1.0;
         let _mvPrevSquareStretch = false;
         let _eggsVisible = true;
@@ -1548,6 +1549,11 @@
             const baseScale = getBaseScale(w, h);
             // The viewport (clipping container) never exceeds available layout space
             const capScale = Math.min(maxW / w, effectiveMaxH / h);
+            // On first render, auto-fit: set userZoom so the canvas fills the available space
+            if (_autoFitPending && !_isWelcomeScreen) {
+                _autoFitPending = false;
+                userZoom = Math.max(1.0, capScale / baseScale);
+            }
             // Canvas CSS size grows freely with userZoom (no cap/snap)
             const finalScale = baseScale * userZoom;
             let cssW = Math.round(w * finalScale);
@@ -3591,6 +3597,7 @@
             flip_y = s.flip_y ?? false;
             flipDims = s.flipDims ?? {};
             userZoom = s.userZoom ?? 1.0;
+            if (s.userZoom !== undefined) _autoFitPending = false; // don't override explicitly saved zoom
             if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
             else if (s.isDark !== undefined) applyTheme(s.isDark ? 0 : 1); // legacy
             _pixelInfoVisible = s._pixelInfoVisible ?? false;
