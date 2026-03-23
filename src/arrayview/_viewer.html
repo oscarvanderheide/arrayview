@@ -4859,6 +4859,14 @@
                 }
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
+                // While colormap strip is visible, cycle colormap backward
+                if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
+                    colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
+                    customColormap = null; customGradientStops = null;
+                    fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                    refreshAxesColor(); showColormapStrip(); saveState();
+                    return;
+                }
                 if (multiViewActive) {
                     activeDim = (activeDim - 1 + shape.length) % shape.length;
                     flashAxesIndicators();
@@ -4879,6 +4887,14 @@
                 }
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
+                // While colormap strip is visible, cycle colormap forward
+                if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
+                    customColormap = null; customGradientStops = null;
+                    colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
+                    fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                    refreshAxesColor(); showColormapStrip(); saveState();
+                    return;
+                }
                 if (multiViewActive) {
                     activeDim = (activeDim + 1) % shape.length;
                     flashAxesIndicators();
