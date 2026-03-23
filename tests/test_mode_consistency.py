@@ -207,6 +207,30 @@ class TestMultiviewWorks:
             f"Expected 1 pane rotated, got {swapped}. Before: {pane_dims_before}, after: {pane_dims_after}"
         )
 
+    def test_d_shows_histogram_in_multiview(self, loaded_viewer, sid_3d):
+        """Pressing d in multiview should expand the mv colorbar to show histogram."""
+        page = loaded_viewer(sid_3d)
+        _enter_multiview(page)
+        _focus_kb(page)
+        page.keyboard.press("d")
+        page.wait_for_timeout(1500)
+        # mv-cb canvas should be expanded (height > 8px)
+        cb_height = page.evaluate(
+            "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
+        )
+        assert cb_height > 8, (
+            f"Expected mv colorbar to expand for histogram, got height={cb_height}px"
+        )
+        # Wait for auto-dismiss (3s)
+        page.wait_for_timeout(3000)
+        cb_height_after = page.evaluate(
+            "() => parseInt(document.getElementById('mv-cb')?.style.height || '0')"
+        )
+        assert cb_height_after <= 8, (
+            f"Expected mv colorbar to collapse after 3s, got height={cb_height_after}px"
+        )
+        _exit_multiview(page)
+
     def test_f_fft_works_in_multiview(self, loaded_viewer, sid_3d):
         """f (FFT) must NOT be blocked in multiview — it applies to the underlying
         data and all panes re-render with the FFT'd volume."""
