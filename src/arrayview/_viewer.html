@@ -4470,6 +4470,8 @@
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
                     // No buffered input: reset zoom and pan
+                    // Exit auto-compact first so the layout matches the initial auto-fit state
+                    if (_compactActive && !_compactManual) setCompactMode(false);
                     userZoom = 1.0;
                     _panX = 0; _panY = 0; _applyCanvasPan();
                     if (compareQmriActive) compareQmriScaleAllCanvases();
@@ -4477,7 +4479,7 @@
                     else if (multiViewActive) mvScaleAllCanvases();
                     else if (compareActive) compareScaleCanvases();
                     else if (qmriActive) qvScaleAllCanvases();
-                    else scaleCanvas(canvas.width, canvas.height);
+                    else { _autoFitPending = true; scaleCanvas(canvas.width, canvas.height); }
                     showStatus(`zoom: fit`);
                     saveState();
                 }
@@ -7909,9 +7911,11 @@
             if (!vp || !canvas) return;
             const vpH = parseInt(vp.style.height) || 0;
             // Check if canvas would benefit from more space:
-            // viewport height is close to max available
+            // viewport height is close to max available AND canvas actually overflows
+            // (userZoom > 1 alone isn't sufficient — auto-fit sets userZoom > 1 without overflow)
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - 72);
-            const constrained = vpH >= maxH - 2 && userZoom > 1.0;
+            const canvasH = parseInt(canvas.style.height) || 0;
+            const constrained = vpH >= maxH - 2 && userZoom > 1.0 && canvasH > vpH + 2;
             if (constrained && !_compactActive) {
                 setCompactMode(true);
             } else if (!constrained && _compactActive) {
