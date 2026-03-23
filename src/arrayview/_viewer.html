@@ -53,7 +53,7 @@
         #info {
             margin-bottom: 10px; font-size: 20px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
-            font-variant-numeric: tabular-nums; align-self: flex-start;
+            font-variant-numeric: tabular-nums; align-self: center;
         }
         #viewer-row {
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -1123,6 +1123,7 @@
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
         let pixelHoverPending = false;
+        let _pixelReqSeq = 0;
         let cbMarkerFrac = null;
         let _lastMouseX = 0, _lastMouseY = 0;
         let flip_x = false, flip_y = false;
@@ -2177,12 +2178,6 @@
                     sCtx.fillStyle = grad;
                     sCtx.fillRect(0, 0, cssW, stripH);
                 }
-                if (markerFrac !== null && markerFrac !== undefined) {
-                    const mx = Math.round(markerFrac * (cssW - 1));
-                    sCtx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
-                    sCtx.lineWidth = 1;
-                    sCtx.beginPath(); sCtx.moveTo(mx + 0.5, 0); sCtx.lineTo(mx + 0.5, stripH); sCtx.stroke();
-                }
                 sCtx.restore();
                 slimCbLabels.style.display = '';
                 slimCbLabels.style.width = cssW + 'px';
@@ -2248,13 +2243,6 @@
             // Draw vmin/vmax vertical lines when expanded
             if (_cbExpanded && _histData) {
                 _drawClimLines(sCtx, cssW, stripH);
-            }
-            // Draw marker line when hovering over main canvas
-            if (markerFrac !== null && markerFrac !== undefined) {
-                const mx = Math.round(markerFrac * (cssW - 1));
-                sCtx.strokeStyle = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
-                sCtx.lineWidth = 1;
-                sCtx.beginPath(); sCtx.moveTo(mx + 0.5, 0); sCtx.lineTo(mx + 0.5, stripH); sCtx.stroke();
             }
             sCtx.restore();
             slimCbLabels.style.display = '';
@@ -4517,9 +4505,11 @@
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
             const _mx = e.clientX, _my = e.clientY;
+            const seq = ++_pixelReqSeq;
             fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
                 .then(r => r.json())
                 .then(d => {
+                    if (seq !== _pixelReqSeq) return;
                     const piEl = document.getElementById('main-pixel-info');
                     if (d.value !== undefined && isFinite(d.value)) {
                         const av = Math.abs(d.value);
@@ -4533,15 +4523,8 @@
                                 axEl.querySelector('.axes-lbl-y').textContent = `y ${py}`;
                             }
                         }
-                        const range = currentVmax - currentVmin;
-                        if (range !== 0) {
-                            cbMarkerFrac = (d.value - currentVmin) / range;
-                            drawSlimColorbar(cbMarkerFrac);
-                        }
                     } else {
                         if (piEl) piEl.style.display = 'none';
-                        cbMarkerFrac = null;
-                        drawSlimColorbar(null);
                     }
                 });
         });
@@ -4554,8 +4537,6 @@
             if (ttip) ttip.style.display = 'none';
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
-            cbMarkerFrac = null;
-            drawSlimColorbar(null);
         });
 
         sink.addEventListener('keydown', async (e) => {
@@ -4857,7 +4838,7 @@
                 } else if (qmriActive) {
                     document.querySelectorAll('.qv-canvas-wrap').forEach(el => el.classList.toggle('canvas-bordered', canvasBorders));
                 } else {
-                    document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
+                    document.getElementById('canvas-viewport').classList.toggle('canvas-bordered', canvasBorders);
                 }
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
             } else if (e.key === 'a') {
@@ -6152,7 +6133,7 @@
                 el.style.opacity = '0';
             });
             // Re-apply border state to the normal canvas (multi-view panes are gone)
-            document.getElementById('canvas-inner').classList.toggle('canvas-bordered', canvasBorders);
+            document.getElementById('canvas-viewport').classList.toggle('canvas-bordered', canvasBorders);
             updateView();
             showStatus('3-plane view: off');
         }
