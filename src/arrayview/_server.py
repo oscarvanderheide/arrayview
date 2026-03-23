@@ -825,7 +825,8 @@ def get_vectorfield(
         # density_offset: positive = denser (smaller stride), negative = sparser
         # Use √2 per step (half-octave) for finer control than 2x per step
         stride = max(1, round(base_stride * (1.4142**-density_offset)))
-        n_arrows = max(1, (H // stride) * (W // stride))
+        MAX_ARROWS = 4096
+        n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
         rng = np.random.default_rng(int(H) * 10007 + int(W))
         gy = rng.integers(0, H, n_arrows).astype(int)
         gx = rng.integers(0, W, n_arrows).astype(int)
@@ -839,10 +840,9 @@ def get_vectorfield(
         p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
         scale = float(stride * 0.75 / max(p95, 1e-9))
 
-        arrows = [
-            [int(gx[i]), int(gy[i]), float(vx_s[i]), float(vy_s[i])]
-            for i in range(len(gx))
-        ]
+        # Stack into a single array for faster serialization
+        coords = np.column_stack([gx, gy, vx_s, vy_s])
+        arrows = coords.tolist()
         return {"arrows": arrows, "scale": scale, "stride": int(stride)}
     except Exception as e:
         import traceback
