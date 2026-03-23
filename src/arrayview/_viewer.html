@@ -4575,15 +4575,6 @@
             }
             if (e.key === '+' || e.key === '=') {
                 userZoom = userZoom * 1.1;
-                // Cap zoom so canvas never exceeds available window space
-                const _zW = canvas.width, _zH = canvas.height;
-                const _zBase = getBaseScale(_zW, _zH);
-                const _zBotR = _compactActive ? 26 : 72;
-                const _zMaxW = Math.max(100, window.innerWidth - (_compactActive ? 60 : 80));
-                const _zMaxH = Math.max(50, window.innerHeight - uiReserveV() - _zBotR);
-                const _zCapScale = Math.min(_zMaxW / _zW, _zMaxH / _zH);
-                const _zMaxZoom = _zCapScale / _zBase;
-                userZoom = Math.min(userZoom, _zMaxZoom);
                 _zoomAdjustedByUser = true;
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
