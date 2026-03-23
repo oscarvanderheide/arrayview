@@ -107,7 +107,8 @@ VIEW MODES (colorbar visible in all)
   multiview (3-plane)                       ✓ 08
    qmri 3-panel                              ✓ 12
    qmri 5-panel                              ✓ 10-11
-   compare 2-array                           ✓ 13-14
+    compare 2-array                           ✓ 13-14
+    compare overflow minimap                 ✓ 71 (zoomed compare stays on one row; minimap visible)
    compare-qMRI (q in compare)              ✓ 62 (2 arrays × 5 maps; compact toggle)
    compare-multiview (v in compare)          ✓ 63 (2 arrays × 3 planes; scroll + exit)
 
@@ -124,7 +125,8 @@ STABILITY (keys must not cause UI element jumps)
   +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
   registration arrays (phantom)             ✓ 37 (shifted ellipse, overlay via X)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
-  compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
+    compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
+    compare zoom overflow keeps one row      ✓ 71 (minimap visible; panes stay side-by-side)
   LOG, complex, and mask eggs               ✓ 40 (badges in #mode-eggs below canvas)
   RGB egg spacing below canvas              ✓ 46 (eggs top > canvas bottom + 30px)
   V custom multiview dims                   ✓ 41 (inline prompt)
@@ -1686,6 +1688,33 @@ def run_smoke(page, base, client, tmp):
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
     print("  OK: picker-checkboxes all assertions passed")
+
+    # ── 71: compare zoom overflow keeps row + minimap ─────────────────────────
+    print("71: compare zoom overflow keeps row + minimap")
+    _goto_compare(page, base, sid2d, sid2d_b, wait=1500)
+    _focus(page)
+    for _ in range(5):
+        _press(page, "+", wait=150)
+    page.wait_for_timeout(500)
+    _shot(page, "71a_compare_zoom_overflow")
+    mini_visible = page.evaluate(
+        "() => document.getElementById('mini-map')?.classList.contains('visible') ?? false"
+    )
+    left_top = page.evaluate(
+        "() => document.getElementById('compare-left-canvas')?.getBoundingClientRect().top ?? null"
+    )
+    right_top = page.evaluate(
+        "() => document.getElementById('compare-right-canvas')?.getBoundingClientRect().top ?? null"
+    )
+    assert mini_visible, "FAIL: compare overflow should show mini-map"
+    assert left_top is not None and right_top is not None, "FAIL: compare canvases missing"
+    assert abs(left_top - right_top) < 20, (
+        f"FAIL: compare panes stacked while zoomed (left_top={left_top}, right_top={right_top})"
+    )
+    page.locator('#mini-map').click(position={"x": 75, "y": 50})
+    page.wait_for_timeout(300)
+    _shot(page, "71b_compare_zoom_minimap_pan")
+    print("  OK: compare overflow stays horizontal and minimap is visible")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

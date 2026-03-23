@@ -1614,15 +1614,33 @@
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
             const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
-            // Use window dimensions (same approach as normal view)
+            // Use the full compare area; overflow is handled by per-pane clipping
+            // and the shared compare pan state, so the panes themselves must keep
+            // stable slot widths instead of shrinking and wrapping.
             const uiReserveH = uiReserveV() + 40; // status/info + compare colorbar
-            const totalW = Math.max(100, window.innerWidth - 80) * 0.65;
-            const totalH = Math.max(100, window.innerHeight - uiReserveH) * 0.65;
+            const totalW = Math.max(100, window.innerWidth - 80);
+            const totalH = Math.max(100, window.innerHeight - uiReserveH);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Maximum viewport size (how large the clipping container can be)
             const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - 80)  - (cols - 1) * colGap) / cols - panePadX);
             const capPaneH = Math.max(40, (Math.max(100, window.innerHeight - uiReserveH) - (rows - 1) * rowGap) / rows - titleReserve - panePadY);
+            const slotW = Math.round(paneOuterW);
+            const slotH = Math.round(paneOuterH);
+            const applyPaneSlot = (pane) => {
+                if (!pane) return;
+                pane.style.flex = `0 0 ${slotW}px`;
+                pane.style.width = slotW + 'px';
+                pane.style.maxWidth = slotW + 'px';
+                pane.style.height = slotH + 'px';
+                pane.style.maxHeight = slotH + 'px';
+            };
+            comparePaneEls.forEach((pane, idx) => {
+                if (idx < paneCount) applyPaneSlot(pane);
+            });
+            if (hasCenterPane && paneCount === 2) {
+                applyPaneSlot(document.getElementById(_wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane'));
+            }
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
@@ -1697,6 +1715,7 @@
             drawSlimColorbar(cbMarkerFrac);
             fixWrapperAlignment();
             positionEggs();
+            updateMiniMap();
             // Update cursor on compare canvases
             const overflowing = _cmpIsOverflowing();
             compareCanvases.forEach(cv => {
@@ -7687,6 +7706,7 @@
             _cmpPanY = _cmpPanDrag.panY0 + (e.clientY - _cmpPanDrag.y);
             _cmpClampPan();
             _cmpApplyPan();
+            updateMiniMapViewport();
         });
         window.addEventListener('mouseup', () => {
             if (_cmpPanDrag) {
@@ -8145,33 +8165,55 @@
 
         function updateMiniMap() {
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
-            const shouldShow = _isCanvasOverflowing() && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
+            const compareShouldShow = compareActive && _cmpIsOverflowing() && compareFrame && !multiViewActive && !qmriActive;
+            const normalShouldShow = _isCanvasOverflowing() && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const shouldShow = !!(compareShouldShow || normalShouldShow);
             _miniMap.classList.toggle('visible', !!shouldShow);
             if (!shouldShow) return;
             const W = 100, H = 100;
             _miniMapCanvas.width = W; _miniMapCanvas.height = H;
             // Downscale current image to thumbnail
             const tmp = document.createElement('canvas');
-            tmp.width = lastImgW; tmp.height = lastImgH;
-            tmp.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            if (compareShouldShow) {
+                tmp.width = compareFrame.width;
+                tmp.height = compareFrame.height;
+                tmp.getContext('2d').putImageData(applyFlips(compareFrame.imageData, compareFrame.width, compareFrame.height), 0, 0);
+            } else {
+                tmp.width = lastImgW;
+                tmp.height = lastImgH;
+                tmp.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+            }
             _miniMapCtx.drawImage(tmp, 0, 0, W, H);
             updateMiniMapViewport();
         }
         function updateMiniMapViewport() {
-            if (!_miniMap || !_miniViewport || !lastImageData) return;
-            if (!_isCanvasOverflowing()) { _miniMap.classList.remove('visible'); return; }
-            // Canvas CSS size and viewport (clipping container) size
-            const cssW = parseInt(canvas.style.width) || canvas.width;
-            const cssH = parseInt(canvas.style.height) || canvas.height;
-            const vp = document.getElementById('canvas-viewport');
-            const vpW = vp ? vp.offsetWidth : cssW;
-            const vpH = vp ? vp.offsetHeight : cssH;
+            if (!_miniMap || !_miniViewport) return;
+            let cssW, cssH, vpW, vpH, offFx, offFy;
+            if (compareActive) {
+                if (!_cmpIsOverflowing() || !compareFrames.find(Boolean)) { _miniMap.classList.remove('visible'); return; }
+                const cv = compareCanvases[0];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                if (!cv || !inner) { _miniMap.classList.remove('visible'); return; }
+                cssW = parseInt(cv.style.width) || cv.width;
+                cssH = parseInt(cv.style.height) || cv.height;
+                vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
+                vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
+                offFx = -_cmpPanX / cssW;
+                offFy = -_cmpPanY / cssH;
+            } else {
+                if (!lastImageData || !_isCanvasOverflowing()) { _miniMap.classList.remove('visible'); return; }
+                const vp = document.getElementById('canvas-viewport');
+                cssW = parseInt(canvas.style.width) || canvas.width;
+                cssH = parseInt(canvas.style.height) || canvas.height;
+                vpW = vp ? vp.offsetWidth : cssW;
+                vpH = vp ? vp.offsetHeight : cssH;
+                offFx = -_panX / cssW;
+                offFy = -_panY / cssH;
+            }
             // Visible fraction
             const fx = Math.min(1, vpW / cssW);
             const fy = Math.min(1, vpH / cssH);
-            // Pan offset as fraction of canvas (panX/panY are negative)
-            const offFx = -_panX / cssW;
-            const offFy = -_panY / cssH;
             const mmW = Math.max(2, Math.round(fx * 100));
             const mmH = Math.max(2, Math.round(fy * 100));
             const mmX = Math.max(0, Math.min(100 - mmW, Math.round(offFx * 100)));
@@ -8184,20 +8226,35 @@
         // Mini-map click to jump pan position
         if (_miniMap) {
             _miniMap.addEventListener('mousedown', (e) => {
-                if (!lastImageData || !_isCanvasOverflowing()) return;
                 const rect = _miniMap.getBoundingClientRect();
                 const fx = (e.clientX - rect.left) / rect.width;
                 const fy = (e.clientY - rect.top) / rect.height;
-                const cssW = parseInt(canvas.style.width) || canvas.width;
-                const cssH = parseInt(canvas.style.height) || canvas.height;
-                const vp = document.getElementById('canvas-viewport');
-                const vpW = vp ? vp.offsetWidth : cssW;
-                const vpH = vp ? vp.offsetHeight : cssH;
-                // Center the viewport on the clicked point
-                _panX = -(fx * cssW - vpW / 2);
-                _panY = -(fy * cssH - vpH / 2);
-                _clampPan();
-                _applyCanvasPan();
+                if (compareActive) {
+                    if (!_cmpIsOverflowing()) return;
+                    const cv = compareCanvases[0];
+                    const inner = cv && cv.closest('.compare-canvas-inner');
+                    if (!cv || !inner) return;
+                    const cssW = parseInt(cv.style.width) || cv.width;
+                    const cssH = parseInt(cv.style.height) || cv.height;
+                    const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
+                    const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
+                    _cmpPanX = -(fx * cssW - vpW / 2);
+                    _cmpPanY = -(fy * cssH - vpH / 2);
+                    _cmpClampPan();
+                    _cmpApplyPan();
+                } else {
+                    if (!lastImageData || !_isCanvasOverflowing()) return;
+                    const cssW = parseInt(canvas.style.width) || canvas.width;
+                    const cssH = parseInt(canvas.style.height) || canvas.height;
+                    const vp = document.getElementById('canvas-viewport');
+                    const vpW = vp ? vp.offsetWidth : cssW;
+                    const vpH = vp ? vp.offsetHeight : cssH;
+                    // Center the viewport on the clicked point
+                    _panX = -(fx * cssW - vpW / 2);
+                    _panY = -(fy * cssH - vpH / 2);
+                    _clampPan();
+                    _applyCanvasPan();
+                }
                 updateMiniMapViewport();
             });
         }
