@@ -180,6 +180,33 @@ class TestMultiviewWorks:
         # (20×64×64 arr_3d: dims are close but sliceDir affects shape — just check rendering is alive)
         assert len(dims_after) >= 3, "Expected at least 3 panes after transpose"
 
+    def test_r_rotates_pane_in_multiview(self, loaded_viewer, sid_3d):
+        """r in multiview should rotate the active pane 90 CW (swap dimX/dimY)."""
+        page = loaded_viewer(sid_3d)
+        _enter_multiview(page)
+        _focus_kb(page)
+        # Get pane dimX/dimY before rotation
+        pane_dims_before = page.evaluate(
+            "() => mvViews.map(v => ({ dx: v.dimX, dy: v.dimY }))"
+        )
+        page.keyboard.press("r")
+        page.wait_for_timeout(500)
+        status = _status_or_empty(page)
+        assert "rotated" in status.lower(), (
+            f"Expected 'rotated 90°' status, got: '{status}'"
+        )
+        pane_dims_after = page.evaluate(
+            "() => mvViews.map(v => ({ dx: v.dimX, dy: v.dimY }))"
+        )
+        # Exactly one pane should have its dimX/dimY swapped
+        swapped = sum(
+            1 for a, b in zip(pane_dims_before, pane_dims_after)
+            if a["dx"] == b["dy"] and a["dy"] == b["dx"]
+        )
+        assert swapped == 1, (
+            f"Expected 1 pane rotated, got {swapped}. Before: {pane_dims_before}, after: {pane_dims_after}"
+        )
+
     def test_f_fft_works_in_multiview(self, loaded_viewer, sid_3d):
         """f (FFT) must NOT be blocked in multiview — it applies to the underlying
         data and all panes re-render with the FFT'd volume."""
