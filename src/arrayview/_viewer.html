@@ -396,7 +396,7 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
-        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; }
+        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; transition: opacity 0.3s ease; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
@@ -546,8 +546,8 @@
         }
         #colormap-strip.visible { opacity:1; }
         .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:1px; }
-        .cmap-thumb canvas { display:block; width:36px; height:6px; border-radius:2px; border:1px solid transparent; }
-        .cmap-thumb span { font-size:8px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:42px; overflow:hidden; text-overflow:ellipsis; }
+        .cmap-thumb canvas { display:block; width:56px; height:10px; border-radius:3px; border:1px solid transparent; }
+        .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:64px; overflow:hidden; text-overflow:ellipsis; }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -8205,15 +8205,15 @@
                 const thumb = document.createElement('div');
                 thumb.className = 'cmap-thumb';
                 const cv = document.createElement('canvas');
-                cv.width = 36; cv.height = 6;
+                cv.width = 56; cv.height = 10;
                 if (stops) {
                     const g = cv.getContext('2d');
-                    const grad = g.createLinearGradient(0, 0, 36, 0);
+                    const grad = g.createLinearGradient(0, 0, 56, 0);
                     stops.forEach(([r, gv, b], i) => {
                         grad.addColorStop(i / (stops.length - 1), `rgb(${r},${gv},${b})`);
                     });
                     g.fillStyle = grad;
-                    g.fillRect(0, 0, 36, 6);
+                    g.fillRect(0, 0, 56, 10);
                 }
                 const lbl = document.createElement('span');
                 lbl.textContent = name.length > 8 ? name.slice(0, 7) + '…' : name;
@@ -8234,17 +8234,20 @@
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
                 const cbW = cbRect.width;
-                // Gap width matches colorbar
                 gap.style.width = cbW + 'px';
-                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 10) + 'px';
+                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 14) + 'px';
                 _cmapStrip.style.left = (cbRect.left + cbW / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
+                // Fade out the colorbar/histogram while preview is visible
+                cbWrap.style.opacity = '0';
             }
             _cmapStrip.classList.add('visible');
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
-            }, 1200);
+                // Fade colorbar back in
+                if (cbWrap) cbWrap.style.opacity = '1';
+            }, 1500);
         }
 
         // ── 4. A/B wipe comparator (center pane + range slider) ──────
