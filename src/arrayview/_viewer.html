@@ -8186,8 +8186,8 @@
             _cmapStrip.appendChild(gap);
             // Right side (next colormaps)
             for (let offs = 1; offs <= SIDE; offs++) _cmapStrip.appendChild(_makeThumb(ci + offs));
-            // Position strip centered on the colorbar
-            const cbWrap = document.getElementById('slim-cb-wrap');
+            // Position strip centered on the colorbar (use mv-cb-wrap in multiview)
+            const cbWrap = document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
                 const cbW = cbRect.width;

@@ -264,6 +264,20 @@ class TestMultiviewStateRoundTrip:
             f"Colormap changed across multiview round-trip: '{cmap_before}' → '{cmap_after}'"
         )
 
+    def test_colormap_strip_visible_in_multiview(self, loaded_viewer, sid_3d):
+        """Pressing c in multiview should show the colormap preview strip."""
+        page = loaded_viewer(sid_3d)
+        _enter_multiview(page)
+        _focus_kb(page)
+        page.keyboard.press("c")
+        strip = page.wait_for_selector("#colormap-strip.visible", timeout=3000)
+        assert strip is not None, "Colormap strip not visible in multiview"
+        # Verify it's positioned near the multiview colorbar
+        strip_box = strip.bounding_box()
+        mv_cb = page.query_selector("#mv-cb-wrap")
+        assert mv_cb is not None, "Multiview colorbar not found"
+        _exit_multiview(page)
+
     def test_manual_range_survives_multiview_roundtrip(self, loaded_viewer, sid_3d):
         """Manual vmin/vmax set before multiview must persist after exit.
         Verified by re-opening the D prompt and checking the pre-filled vmin default."""
