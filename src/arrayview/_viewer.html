@@ -395,7 +395,7 @@
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
-        #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; }
+        #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
         #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
@@ -4997,7 +4997,10 @@
                     updateView(); triggerPreload();
                     if (!compareActive && !rgbMode) {
                         _histData = null; _histDataVersion = null;
-                        _fetchHistogram().then(() => { _cbExpanded = true; drawSlimColorbar(cbMarkerFrac); });
+                        _fetchHistogram().then(() => {
+                            _cbExpanded = true;
+                            if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
+                        });
                     }
                 });
                 showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
@@ -5006,7 +5009,10 @@
                     if (!lebesgueMode) {
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!lebesgueMode && !_cbDragActive) { _cbExpanded = false; _histData = null; drawSlimColorbar(cbMarkerFrac); }
+                            if (!lebesgueMode && !_cbDragActive) {
+                                _cbExpanded = false; _histData = null;
+                                if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
+                            }
                         }, 3000);
                     }
                 }
@@ -7568,7 +7574,7 @@
             const wrap = document.getElementById('multi-view-wrap');
             if (!wrap) return;
             const cssW = Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
-            const cssH = 8;
+            const cssH = _cbExpanded ? CB_EXPANDED_H : 8;
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.width = Math.round(cssW * dpr);
             cbCanvas.height = Math.round(cssH * dpr);
@@ -7577,19 +7583,40 @@
             cbCanvas.style.display = 'block';
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
+            sCtx.save();
             sCtx.scale(dpr, dpr);
-            const n = stops.length;
-            for (let col = 0; col < cssW; col++) {
-                const t = col / (cssW - 1);
-                const fi = t * (n - 1);
-                const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
-                const f = fi - lo;
-                const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
-                const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
-                const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
-                sCtx.fillStyle = `rgb(${r},${g},${b})`;
-                sCtx.fillRect(col, 0, 1, cssH);
+            // Draw gradient strip at the bottom
+            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H) : 0;
+            const gradH = _cbExpanded ? CB_COLLAPSED_H : cssH;
+            if (!lebesgueMode) {
+                const n = stops.length;
+                for (let col = 0; col < cssW; col++) {
+                    const t = col / (cssW - 1);
+                    const fi = t * (n - 1);
+                    const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+                    const f = fi - lo;
+                    const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
+                    const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
+                    const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
+                    sCtx.fillStyle = `rgb(${r},${g},${b})`;
+                    sCtx.fillRect(col, gradY, 1, gradH);
+                }
             }
+            // Draw histogram bars when expanded
+            if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
+                _drawHistogramBarsOnColorbar(sCtx, cssW, cssH, stops);
+            }
+            // Auto-refresh histogram when expanded but data is stale
+            if (_cbExpanded) {
+                const hDimX = mvViews.length ? mvViews[0].dimX : dim_x;
+                const hDimY = mvViews.length ? mvViews[0].dimY : dim_y;
+                if (_histDataVersion !== (indices.join(',') + ':' + hDimX + ':' + hDimY)) {
+                    if (!_histFetching) {
+                        _fetchHistogram().then(() => { if (_cbExpanded) drawMvColorbar(); });
+                    }
+                }
+            }
+            sCtx.restore();
             // Min/max labels
             const v0 = mvViews.find(v => v.lastW);
             if (v0) {
