@@ -43,9 +43,13 @@ For each TODO item, ensure the following before marking the task done:
 - [ ] README or in-app help overlay (`#help-overlay` content in `src/arrayview/_viewer.html`) updated if usage changed.
 - [ ] `CHANGELOG.md` or `AGENTS.md` updated with a one-line summary.
 - [ ] Commit message follows the format above and lists affected files.
-- [ ] Run the core checks locally:
-  - `uv run pytest tests/test_api.py -q`
-  - `uv run python tests/visual_smoke.py` (and review `tests/smoke_output/`)
+- [ ] **Tests MUST be run by the agent — NEVER ask the user to run them.**
+  - After every code change, run the relevant test suite immediately:
+    - Backend/API changes → `uv run pytest tests/test_api.py -q`
+    - Viewer UI changes → `uv run pytest tests/test_interactions.py tests/test_mode_consistency.py -q`
+    - CLI changes → `uv run pytest tests/test_cli.py -q`
+  - If any test fails, fix it before considering the task done.
+  - Do NOT end a task with "run this to verify" — run it yourself and report results.
 
 ## How to use
 

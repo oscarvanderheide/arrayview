@@ -278,7 +278,7 @@ When scrolling through slices, ROIs persist (they define a spatial region). Stat
 ### 3. ROI in compare mode
 Draw once on any pane → same region on all panes. See stats per-array. CSV export includes all arrays. Detailed design above.
 
-### 4. GIF export for compare/multiview
+### 4. GIF export for compare/multiview22
 Currently blocked because the server can only GIF a single session. Could be implemented by having the frontend compose frames (capture each compare layout → assemble into GIF). This is hard to implement well — low priority.
 
 ### 5. Per-map colorbar interaction in qMRI
