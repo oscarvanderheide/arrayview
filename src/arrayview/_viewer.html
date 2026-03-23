@@ -2522,9 +2522,13 @@
                     const val = _xToValue(Math.max(0, Math.min(cssW, x)), cssW);
                     if (val === null) return;
                     if (_dragTarget === 'vmin') {
-                        manualVmin = Math.min(val, manualVmax - 1e-10);
+                        const curMax = manualVmax ?? currentVmax ?? _histData.vmax;
+                        manualVmin = Math.min(val, curMax - 1e-10);
+                        if (manualVmax === null) manualVmax = curMax; // anchor so subsequent drags are consistent
                     } else {
-                        manualVmax = Math.max(val, manualVmin + 1e-10);
+                        const curMin = manualVmin ?? currentVmin ?? _histData.vmin;
+                        manualVmax = Math.max(val, curMin + 1e-10);
+                        if (manualVmin === null) manualVmin = curMin;
                     }
                     drawSlimColorbar(cbMarkerFrac);
                     _scheduleRender();
@@ -2777,6 +2781,11 @@
             ws.onclose = () => {
                 reportParent('ws-close', { sid });
                 wsReady = false;
+                // Reset render-state so we don't get stuck when the socket
+                // closes while a render is in-flight (isRendering would
+                // otherwise stay true and block all future requests).
+                isRendering = false;
+                pendingRequest = false;
                 // Silently retry: server may be restarting or the connection dropped.
                 // Back off: 300 ms if we connected before, 500 ms on first-time failure.
                 const delay = _wsEverConnected ? 300 : 500;
