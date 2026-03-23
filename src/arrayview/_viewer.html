@@ -3488,7 +3488,7 @@
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
             // In multi-view or compare-mv mode, keep axes indicators always visible
-            if (multiViewActive || compareMvActive) return;
+            if (_pixelInfoVisible || multiViewActive || compareMvActive) return;
             axesFlashTimer = setTimeout(() => {
                 document.querySelectorAll('.axes-indicator').forEach(el => {
                     el.style.transition = 'opacity 0.6s ease';
@@ -4525,7 +4525,14 @@
                         const av = Math.abs(d.value);
                         const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
                             ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                        showPixelInfo(piEl, `(${px},${py}) ${fmt(d.value)}`, _mx, _my);
+                        showPixelInfo(piEl, fmt(d.value), _mx, _my);
+                        if (_pixelInfoVisible && !multiViewActive && !compareActive) {
+                            const axEl = document.getElementById('main-axes-svg');
+                            if (axEl) {
+                                axEl.querySelector('.axes-lbl-x').textContent = String(px);
+                                axEl.querySelector('.axes-lbl-y').textContent = String(py);
+                            }
+                        }
                         const range = currentVmax - currentVmin;
                         if (range !== 0) {
                             cbMarkerFrac = (d.value - currentVmin) / range;
@@ -4695,8 +4702,21 @@
                 showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
             } else if (e.key === 'H') {
                 _pixelInfoVisible = !_pixelInfoVisible;
-                if (!_pixelInfoVisible) hideAllPixelInfo();
-                else canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                if (!_pixelInfoVisible) {
+                    hideAllPixelInfo();
+                    const axEl = document.getElementById('main-axes-svg');
+                    if (axEl) {
+                        axEl.querySelector('.axes-lbl-x').textContent = 'x';
+                        axEl.querySelector('.axes-lbl-y').textContent = 'y';
+                    }
+                    document.querySelectorAll('.axes-indicator').forEach(el => {
+                        el.style.transition = 'opacity 0.6s ease';
+                        el.style.opacity = '0';
+                    });
+                } else {
+                    flashAxesIndicators();
+                    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                }
                 showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                 saveState();
             } else if (e.key === 'Z') {
@@ -7906,7 +7926,7 @@
                         if (d.value !== undefined && isFinite(d.value)) {
                             const av = Math.abs(d.value);
                             const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                            showPixelInfo(piEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                            showPixelInfo(piEl, fmt(d.value), _mx, _my);
                         } else if (piEl) {
                             piEl.style.display = 'none';
                         }
