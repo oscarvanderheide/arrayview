@@ -1299,6 +1299,7 @@ def _serve_daemon(
     compare_filepath: str = None,
     compare_sid: str = None,
     vfield_filepath: str = None,
+    vfield_components_dim: int = None,
     persist: bool = False,
     rgb: bool = False,
 ) -> None:
@@ -1344,9 +1345,11 @@ def _serve_daemon(
             if vfield_filepath:
                 try:
                     vf_data = load_data(vfield_filepath)
-                    session.vfield = vf_data
+                    _server_mod()._configure_vectorfield(
+                        session, vf_data, vfield_components_dim
+                    )
                     _vprint(
-                        f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape}",
+                        f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape} component_axis={session.vfield_component_dim}",
                         flush=True,
                     )
                 except Exception as e:
@@ -1536,8 +1539,18 @@ def arrayview():
         metavar="FILE",
         help=(
             "Deformation vector field to overlay as arrows. "
-            "Must have the same spatial shape as the image plus a trailing dimension of size 3 "
-            "(displacements along each spatial axis)."
+            "Must have the same spatial shape as the image plus one axis of size 3 "
+            "holding the xyz displacement components."
+        ),
+    )
+    parser.add_argument(
+        "--vectorfield-components-dim",
+        metavar="DIM",
+        type=int,
+        default=None,
+        help=(
+            "Axis index of the xyz displacement components in --vectorfield. "
+            "If omitted, arrayview auto-detects the unique axis of size 3."
         ),
     )
     parser.add_argument(
@@ -1587,6 +1600,7 @@ def arrayview():
     )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
+    vfield_components_dim = None
 
     # --diagnose: print detection results and exit
     if getattr(args, "diagnose", False):
@@ -1814,6 +1828,30 @@ def arrayview():
 
     name = getattr(args, "_demo_name", None) or os.path.basename(base_file)
 
+    if args.vectorfield:
+        try:
+            from arrayview._io import load_data
+            from arrayview._render import _detect_rgb_axis
+            from arrayview._server import _resolve_vfield_layout
+
+            base_data = load_data(base_file)
+            image_shape = tuple(int(s) for s in base_data.shape)
+            if args.rgb:
+                rgb_axis = _detect_rgb_axis(image_shape)
+                image_shape = tuple(
+                    s for i, s in enumerate(image_shape) if i != rgb_axis
+                )
+            vf_data = load_data(args.vectorfield)
+            layout = _resolve_vfield_layout(
+                tuple(int(s) for s in vf_data.shape),
+                image_shape,
+                args.vectorfield_components_dim,
+            )
+            vfield_components_dim = int(layout["components_dim"])
+        except Exception as e:
+            print(f"Error: invalid vector field {args.vectorfield}: {e}")
+            sys.exit(1)
+
     # Detect SSH early — needed by the relay auto-detect retry and the relay check below.
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
     is_arrayview_server = _server_alive(args.port)
@@ -2002,6 +2040,7 @@ def arrayview():
                     {
                         "sid": result["sid"],
                         "filepath": os.path.abspath(args.vectorfield),
+                        "components_dim": vfield_components_dim,
                     }
                 ).encode()
                 vf_req = urllib.request.Request(
@@ -2013,9 +2052,8 @@ def arrayview():
                 with urllib.request.urlopen(vf_req, timeout=300) as resp:
                     vf_result = json.loads(resp.read())
                 if "error" in vf_result:
-                    print(
-                        f"Warning: failed to attach vector field: {vf_result['error']}"
-                    )
+                    print(f"Error: failed to attach vector field: {vf_result['error']}")
+                    sys.exit(1)
         except Exception as e:
             print(
                 f"Error: port {args.port} is in use by another process. "
@@ -2087,6 +2125,7 @@ def arrayview():
         f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
         f" overlay_sid={repr(overlay_sid)},"
         f" vfield_filepath={repr(vfield_abs)},"
+        f" vfield_components_dim={repr(vfield_components_dim)},"
         f" persist={is_remote},"
         f" rgb={args.rgb},"
         f")"

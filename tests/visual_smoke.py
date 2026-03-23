@@ -18,6 +18,7 @@ NAVIGATION
   r               reverse axis / rotate 90° ✓ 19 (r key reverses), 67 (r rotates when slice dim active)
   Space           toggle auto-play          ✓ 20 (play then stop)
   [ / ] (play)    change playback fps       ✓ 64 (play + ] raises fps)
+    U               toggle vector arrows      ✓ 72
   + / -           zoom in/out               ✓ 04 (zoom in), 05 (zoom out+reset)
   0               reset zoom                ✓ 05
 
@@ -297,6 +298,18 @@ def run_smoke(page, base, client, tmp):
     # A 3D array with same spatial dims as arr3d for compare-multiview
     arr3d_b = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.7 + 0.2
     sid3d_b = _load(client, arr3d_b, "arr3d_b", tmp)
+    vf3d = np.zeros((20, 64, 64, 3), dtype=np.float32)
+    vf3d[..., 1] = 0.3
+    vf3d[..., 2] = 0.6
+    sid3d_vf = _load(client, arr3d, "arr3d_vf", tmp)
+    vf3d_path = Path(tmp) / "arr3d_vf_field.npy"
+    np.save(vf3d_path, vf3d)
+    attach_vf = client.post(
+        "/attach_vectorfield",
+        json={"sid": sid3d_vf, "filepath": str(vf3d_path)},
+    )
+    attach_vf.raise_for_status()
+    assert attach_vf.json().get("ok") is True
 
     # ── 01: 2D default view ──────────────────────────────────────────────────
     _goto(page, base, sid2d)
@@ -1429,7 +1442,7 @@ def run_smoke(page, base, client, tmp):
     print("64: movie-fps: [ / ] changes fps in movie mode")
     page.evaluate("() => sessionStorage.clear()")
     page.goto(f"{base}/?sid={sid3d}")
-    page.wait_for_selector("#canvas", timeout=10_000)
+    page.wait_for_selector("#viewer", timeout=10_000)
     page.wait_for_timeout(800)
     _focus(page)
 
@@ -1480,9 +1493,9 @@ def run_smoke(page, base, client, tmp):
     # Normal mode: toggle stretch on, canvas should become square
     _goto(page, base, sid3d, wait=600)
     _focus(page)
-    cv_box_before = page.locator("#canvas").bounding_box()
+    cv_box_before = page.locator("#viewer").bounding_box()
     _press(page, "a", wait=300)
-    cv_box_square = page.locator("#canvas").bounding_box()
+    cv_box_square = page.locator("#viewer").bounding_box()
     if cv_box_square:
         w, h = cv_box_square["width"], cv_box_square["height"]
         if abs(w - h) <= 2:
@@ -1513,11 +1526,11 @@ def run_smoke(page, base, client, tmp):
     _goto(page, base, sid3d, wait=600)
     _focus(page)
     # Check current dim_x, dim_y orientation before rotate
-    cv_before = page.locator("#canvas").bounding_box()
+    cv_before = page.locator("#viewer").bounding_box()
     # Press r — in default state activeDim should be current_slice_dim, not dim_x or dim_y
     # This should rotate 90° CW swapping dim_x and dim_y
     _press(page, "r", wait=400)
-    cv_after = page.locator("#canvas").bounding_box()
+    cv_after = page.locator("#viewer").bounding_box()
     _shot(page, "67a_r_rotate_cw")
     if cv_before and cv_after:
         w_b, h_b = cv_before["width"], cv_before["height"]
@@ -1715,6 +1728,30 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_timeout(300)
     _shot(page, "71b_compare_zoom_minimap_pan")
     print("  OK: compare overflow stays horizontal and minimap is visible")
+
+    # ── 72: U key — vector arrows on/off ─────────────────────────────────────
+    print("72: U key — toggle vector arrows")
+    _goto(page, base, sid3d_vf, wait=900)
+    _focus(page)
+    page.wait_for_timeout(700)
+    arrows_on = page.evaluate(
+        "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+    )
+    _shot(page, "72a_vector_arrows_on")
+    _press(page, "U", wait=300)
+    arrows_off = page.evaluate(
+        "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+    )
+    _shot(page, "72b_vector_arrows_off")
+    _press(page, "U", wait=500)
+    arrows_on_again = page.evaluate(
+        "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+    )
+    _shot(page, "72c_vector_arrows_on_again")
+    assert arrows_on, "FAIL: vector arrows should be visible initially"
+    assert not arrows_off, "FAIL: U should hide vector arrows"
+    assert arrows_on_again, "FAIL: U should show vector arrows again"
+    print("  OK: U toggles vector arrows")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

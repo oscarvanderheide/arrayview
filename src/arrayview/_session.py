@@ -194,7 +194,10 @@ class Session:
         self.mask_otsu = None  # cached Otsu threshold (float)
         self.mask_threshold = 0.0  # active threshold applied to rendering
 
-        self.vfield = None  # Optional deformation vector field: (*spatial_shape, 3)
+        self.vfield = None  # Optional deformation vector field
+        self.vfield_component_dim = None  # axis holding xyz displacement components
+        self.vfield_time_dim = None  # optional time axis in the raw vfield array
+        self.vfield_spatial_axes = None  # image spatial dim -> vfield axis mapping
 
         self.compute_global_stats()
 
