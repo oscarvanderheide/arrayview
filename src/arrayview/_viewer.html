@@ -523,16 +523,15 @@
             pointer-events: none;
         }
         body.compact-mode #info {
-            font-size: 12px; margin-bottom: 2px;
-            transition: font-size 0.25s ease, margin 0.25s ease;
+            position: fixed; z-index: 6; font-size: 12px; margin: 0; padding: 2px 8px;
+            transform: translateX(-50%); align-self: auto;
+            background: rgba(30, 30, 36, 0.75); border-radius: 4px;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            transition: font-size 0.25s ease;
         }
-        body.compact-mode #slim-cb-wrap.compact-vertical {
-            writing-mode: vertical-lr; transform: rotate(180deg);
-        }
-        body.compact-mode #slim-cb-wrap.compact-vertical #slim-cb-labels {
-            writing-mode: horizontal-tb; transform: rotate(180deg);
-            display: flex; flex-direction: column; align-items: center;
-            font-size: 10px; width: 100%;
+        body.compact-mode #slim-cb-wrap.compact-overlay {
+            background: rgba(30, 30, 36, 0.75); border-radius: 4px;
+            padding: 3px 6px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         }
         /* Hover reveals top chrome briefly in compact mode */
         body.compact-mode.compact-hover #array-name {
@@ -541,19 +540,14 @@
 
         /* ── Colormap preview strip ──────────────────────────────── */
         #colormap-strip {
-            position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
-            display:flex; flex-direction:row; align-items:flex-end; gap:6px;
-            background:var(--surface); border:1px solid var(--border);
-            border-radius:var(--radius); padding:6px 10px 8px;
+            position:fixed; display:flex; flex-direction:row; align-items:center; gap:4px;
             opacity:0; pointer-events:none; transition:opacity 0.25s ease;
-            z-index:8; max-width:90vw; overflow:visible;
+            z-index:8;
         }
         #colormap-strip.visible { opacity:1; }
-        .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; }
-        .cmap-thumb canvas { display:block; width:44px; height:8px; border-radius:2px; border:1.5px solid transparent; }
-        .cmap-thumb.active canvas { border-color:var(--active-dim); box-shadow:0 0 0 1px var(--active-dim); }
-        .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:50px; overflow:hidden; text-overflow:ellipsis; }
-        .cmap-thumb.active span { color:var(--active-dim); }
+        .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:1px; }
+        .cmap-thumb canvas { display:block; width:36px; height:6px; border-radius:2px; border:1px solid transparent; }
+        .cmap-thumb span { font-size:8px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:42px; overflow:hidden; text-overflow:ellipsis; }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -1605,6 +1599,7 @@
             drawSlimColorbar(cbMarkerFrac);
             positionEggs();
             updateMiniMap();
+            if (_compactActive) _positionCompactInfo();
             // Check if compact mode should auto-activate/deactivate (deferred to avoid re-entrancy)
             if (!_compactCheckPending) {
                 _compactCheckPending = true;
@@ -2140,22 +2135,21 @@
 
             // ── Compact vertical colorbar mode ──────────────────────
             if (_compactActive) {
-                // Draw horizontal as normal but position + rotate via CSS
-                const vpH = vpEl ? vpEl.offsetHeight : Math.round(canvasRect.height);
-                const cssW = Math.max(60, Math.min(vpH, window.innerHeight - 80));
-                const stripH = CB_COLLAPSED_H; // no histogram expand in compact vertical
+                // Overlay colorbar horizontally at bottom of canvas viewport
+                const vpW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
+                const cssW = Math.max(60, Math.min(vpW * 0.8, 400));
+                const stripH = CB_COLLAPSED_H;
                 if (wrap) {
-                    wrap.classList.add('compact-vertical');
-                    // Position to the right of the viewport, centered vertically
-                    const cbLeft = canvasRect.right + 8;
-                    const cbTop = canvasRect.top + (canvasRect.height - cssW) / 2;
+                    wrap.classList.remove('compact-vertical');
+                    wrap.classList.add('compact-overlay');
+                    wrap.style.transform = '';
+                    wrap.style.transformOrigin = '';
+                    const cbLeft = canvasRect.left + (canvasRect.width - cssW) / 2 - 6;
+                    const cbTop = canvasRect.bottom - stripH - 22;
                     wrap.style.top = cbTop + 'px';
                     wrap.style.left = cbLeft + 'px';
-                    wrap.style.width = cssW + 'px';
+                    wrap.style.width = (cssW + 12) + 'px';
                     wrap.style.display = '';
-                    // Use CSS transform to rotate the whole element
-                    wrap.style.transformOrigin = '0 0';
-                    wrap.style.transform = `rotate(90deg) translateY(-100%)`;
                 }
                 const dpr = window.devicePixelRatio || 1;
                 slimCbCanvas.width = Math.round(cssW * dpr);
@@ -2187,7 +2181,7 @@
 
             // ── Normal horizontal colorbar ──────────────────────────
             if (wrap) {
-                wrap.classList.remove('compact-vertical');
+                wrap.classList.remove('compact-vertical', 'compact-overlay');
                 wrap.style.transform = '';
                 wrap.style.transformOrigin = '';
             }
@@ -4572,7 +4566,16 @@
                 return;
             }
             if (e.key === '+' || e.key === '=') {
-                userZoom = Math.min(userZoom * 1.1, 10.0);
+                userZoom = userZoom * 1.1;
+                // Cap zoom so canvas never exceeds available window space
+                const _zW = canvas.width, _zH = canvas.height;
+                const _zBase = getBaseScale(_zW, _zH);
+                const _zBotR = _compactActive ? 26 : 72;
+                const _zMaxW = Math.max(100, window.innerWidth - (_compactActive ? 60 : 80));
+                const _zMaxH = Math.max(50, window.innerHeight - uiReserveV() - _zBotR);
+                const _zCapScale = Math.min(_zMaxW / _zW, _zMaxH / _zH);
+                const _zMaxZoom = _zCapScale / _zBase;
+                userZoom = Math.min(userZoom, _zMaxZoom);
                 _zoomAdjustedByUser = true;
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
@@ -8063,6 +8066,18 @@
         let _compactManual = false; // true when user toggled via K key
         let _compactHoverTimer = null;
 
+        function _positionCompactInfo() {
+            if (!_compactActive) return;
+            const vpEl = document.getElementById('canvas-viewport');
+            const ref = multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
+            if (!ref) return;
+            const r = ref.getBoundingClientRect();
+            const infoEl = document.getElementById('info');
+            if (!infoEl) return;
+            infoEl.style.top = (r.top + 6) + 'px';
+            infoEl.style.left = (r.left + r.width / 2) + 'px';
+        }
+
         function setCompactMode(on) {
             if (_compactActive === on) return;
             _compactActive = on;
@@ -8072,13 +8087,17 @@
             else if (lastImageData) scaleCanvas(lastImgW, lastImgH);
             if (on) {
                 document.addEventListener('mousemove', _compactMouseMove);
+                _positionCompactInfo();
             } else {
                 document.removeEventListener('mousemove', _compactMouseMove);
                 document.body.classList.remove('compact-hover');
                 clearTimeout(_compactHoverTimer);
-                // Restore non-vertical colorbar
+                // Restore normal colorbar positioning
                 const wrap = document.getElementById('slim-cb-wrap');
-                if (wrap) wrap.classList.remove('compact-vertical');
+                if (wrap) wrap.classList.remove('compact-overlay');
+                // Reset info position
+                const infoEl = document.getElementById('info');
+                if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
             }
         }
 
@@ -8135,38 +8154,53 @@
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
             const pool = overridePool || COLORMAPS;
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
-            const WINDOW = 4; // show 4 before and 4 after current
+            const SIDE = 2; // show 2 before and 2 after current
             _cmapStrip.innerHTML = '';
-            for (let offs = -WINDOW; offs <= WINDOW; offs++) {
-                const idx = ((ci + offs) % pool.length + pool.length) % pool.length;
-                const name = pool[idx];
+            function _makeThumb(idx) {
+                const name = pool[((idx) % pool.length + pool.length) % pool.length];
                 const stops = COLORMAP_GRADIENT_STOPS[name];
                 const thumb = document.createElement('div');
-                thumb.className = 'cmap-thumb' + (offs === 0 ? ' active' : '');
+                thumb.className = 'cmap-thumb';
                 const cv = document.createElement('canvas');
-                cv.width = 44; cv.height = 8;
+                cv.width = 36; cv.height = 6;
                 if (stops) {
                     const g = cv.getContext('2d');
-                    const grad = g.createLinearGradient(0, 0, 44, 0);
+                    const grad = g.createLinearGradient(0, 0, 36, 0);
                     stops.forEach(([r, gv, b], i) => {
                         grad.addColorStop(i / (stops.length - 1), `rgb(${r},${gv},${b})`);
                     });
                     g.fillStyle = grad;
-                    g.fillRect(0, 0, 44, 8);
+                    g.fillRect(0, 0, 36, 6);
                 }
                 const lbl = document.createElement('span');
-                lbl.textContent = name.length > 10 ? name.slice(0, 9) + '…' : name;
+                lbl.textContent = name.length > 8 ? name.slice(0, 7) + '…' : name;
                 thumb.appendChild(cv);
                 thumb.appendChild(lbl);
-                _cmapStrip.appendChild(thumb);
+                return thumb;
+            }
+            // Left side (previous colormaps)
+            for (let offs = -SIDE; offs < 0; offs++) _cmapStrip.appendChild(_makeThumb(ci + offs));
+            // Gap placeholder for colorbar (CSS positions strip to flank it)
+            const gap = document.createElement('div');
+            gap.className = 'cmap-center-gap';
+            _cmapStrip.appendChild(gap);
+            // Right side (next colormaps)
+            for (let offs = 1; offs <= SIDE; offs++) _cmapStrip.appendChild(_makeThumb(ci + offs));
+            // Position strip centered on the colorbar
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) {
+                const cbRect = cbWrap.getBoundingClientRect();
+                const cbW = cbRect.width;
+                // Gap width matches colorbar
+                gap.style.width = cbW + 'px';
+                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 10) + 'px';
+                _cmapStrip.style.left = (cbRect.left + cbW / 2) + 'px';
+                _cmapStrip.style.transform = 'translateX(-50%)';
             }
             _cmapStrip.classList.add('visible');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            if (cbWrap) cbWrap.classList.add('cb-faded');
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
-                if (cbWrap) cbWrap.classList.remove('cb-faded');
             }, 1200);
         }
 
@@ -8396,39 +8430,50 @@
             _miniViewport.style.left = mmX + 'px';
             _miniViewport.style.top = mmY + 'px';
         }
-        // Mini-map click to jump pan position
+        // Mini-map click + drag to jump/pan position
+        function _miniMapJumpTo(e) {
+            const rect = _miniMap.getBoundingClientRect();
+            const fx = (e.clientX - rect.left) / rect.width;
+            const fy = (e.clientY - rect.top) / rect.height;
+            if (compareActive) {
+                if (!_cmpIsOverflowing()) return;
+                const cv = compareCanvases[0];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                if (!cv || !inner) return;
+                const cssW = parseInt(cv.style.width) || cv.width;
+                const cssH = parseInt(cv.style.height) || cv.height;
+                const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
+                const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
+                _cmpPanX = -(fx * cssW - vpW / 2);
+                _cmpPanY = -(fy * cssH - vpH / 2);
+                _cmpClampPan();
+                _cmpApplyPan();
+            } else {
+                if (!lastImageData || !_isCanvasOverflowing()) return;
+                const cssW = parseInt(canvas.style.width) || canvas.width;
+                const cssH = parseInt(canvas.style.height) || canvas.height;
+                const vp = document.getElementById('canvas-viewport');
+                const vpW = vp ? vp.offsetWidth : cssW;
+                const vpH = vp ? vp.offsetHeight : cssH;
+                _panX = -(fx * cssW - vpW / 2);
+                _panY = -(fy * cssH - vpH / 2);
+                _clampPan();
+                _applyCanvasPan();
+            }
+            updateMiniMapViewport();
+        }
+        let _miniMapDragging = false;
         if (_miniMap) {
             _miniMap.addEventListener('mousedown', (e) => {
-                const rect = _miniMap.getBoundingClientRect();
-                const fx = (e.clientX - rect.left) / rect.width;
-                const fy = (e.clientY - rect.top) / rect.height;
-                if (compareActive) {
-                    if (!_cmpIsOverflowing()) return;
-                    const cv = compareCanvases[0];
-                    const inner = cv && cv.closest('.compare-canvas-inner');
-                    if (!cv || !inner) return;
-                    const cssW = parseInt(cv.style.width) || cv.width;
-                    const cssH = parseInt(cv.style.height) || cv.height;
-                    const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
-                    const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
-                    _cmpPanX = -(fx * cssW - vpW / 2);
-                    _cmpPanY = -(fy * cssH - vpH / 2);
-                    _cmpClampPan();
-                    _cmpApplyPan();
-                } else {
-                    if (!lastImageData || !_isCanvasOverflowing()) return;
-                    const cssW = parseInt(canvas.style.width) || canvas.width;
-                    const cssH = parseInt(canvas.style.height) || canvas.height;
-                    const vp = document.getElementById('canvas-viewport');
-                    const vpW = vp ? vp.offsetWidth : cssW;
-                    const vpH = vp ? vp.offsetHeight : cssH;
-                    // Center the viewport on the clicked point
-                    _panX = -(fx * cssW - vpW / 2);
-                    _panY = -(fy * cssH - vpH / 2);
-                    _clampPan();
-                    _applyCanvasPan();
-                }
-                updateMiniMapViewport();
+                _miniMapDragging = true;
+                _miniMapJumpTo(e);
+            });
+            document.addEventListener('mousemove', (e) => {
+                if (!_miniMapDragging) return;
+                _miniMapJumpTo(e);
+            });
+            document.addEventListener('mouseup', () => {
+                _miniMapDragging = false;
             });
         }
 

@@ -507,6 +507,10 @@ class TestNavigation:
     def test_zoom_in_increases_canvas_size(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
+        # Zoom out first so there's room to grow (auto-fit may fill window)
+        page.keyboard.press("-")
+        page.keyboard.press("-")
+        page.wait_for_timeout(300)
         before = page.evaluate(_JS_CANVAS_RECT)
         page.keyboard.press("+")
         page.wait_for_timeout(300)
