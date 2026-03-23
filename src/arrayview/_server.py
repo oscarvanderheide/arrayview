@@ -685,10 +685,12 @@ def get_vectorfield(
     if not session or session.vfield is None:
         return Response(status_code=404)
     try:
-        vf = np.array(session.vfield, dtype=np.float32)
+        vf = session.vfield
         idx_tuple = tuple(int(x) for x in indices.split(","))
 
-        # Strip time dimension if present (shape T, *spatial, 3)
+        # Strip time dimension if present (shape T, *spatial, 3) before materializing.
+        # session.vfield may be a memmap / zarr / nibabel proxy, so loading the entire
+        # array here would make every overlay refresh expensive.
         n_times = _vfield_n_times(session)
         if n_times > 1:
             t = max(0, min(n_times - 1, t_index))
@@ -701,9 +703,9 @@ def get_vectorfield(
         for d in range(ndim_spatial):
             slices.append(slice(None) if d in (dim_x, dim_y) else int(idx_tuple[d]))
         slices.append(slice(None))  # vector components
-        vf_slice = vf[
-            tuple(slices)
-        ]  # shape ≈ (A, B, 3) where A,B are free spatial dims
+        vf_slice = np.asarray(
+            vf[tuple(slices)], dtype=np.float32
+        )  # shape ≈ (A, B, 3) where A,B are free spatial dims
 
         # Ensure axis order is (dim_y rows, dim_x cols, 3).
         # The free axes appear in ascending original-dim order; transpose if dim_x < dim_y.

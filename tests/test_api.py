@@ -93,6 +93,48 @@ class TestMetadata:
         r = client.get("/metadata/doesnotexist000")
         assert r.status_code == 404
 
+    def test_timed_vectorfield_metadata_and_slice(self, client, tmp_path):
+        arr = np.zeros((6, 8, 10), dtype=np.float32)
+        vf = np.zeros((4, 6, 8, 10, 3), dtype=np.float32)
+        vf[2, :, :, :, 1] = 0.25
+        vf[2, :, :, :, 2] = 0.5
+
+        arr_path = tmp_path / "base.npy"
+        vf_path = tmp_path / "vf_time.npy"
+        np.save(arr_path, arr)
+        np.save(vf_path, vf)
+
+        sid = client.post(
+            "/load", json={"filepath": str(arr_path), "name": "base"}
+        ).json()["sid"]
+        attach = client.post(
+            "/attach_vectorfield", json={"sid": sid, "filepath": str(vf_path)}
+        )
+        assert attach.status_code == 200
+        assert attach.json()["ok"] is True
+
+        meta = client.get(f"/metadata/{sid}")
+        assert meta.status_code == 200
+        body = meta.json()
+        assert body["has_vectorfield"] is True
+        assert body["vfield_n_times"] == 4
+
+        r = client.get(
+            f"/vectorfield/{sid}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "3,4,5",
+                "t_index": 2,
+                "density_offset": 0,
+            },
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["stride"] >= 1
+        assert len(data["arrows"]) > 0
+        assert any(abs(a[2]) > 0 or abs(a[3]) > 0 for a in data["arrows"])
+
 
 # ---------------------------------------------------------------------------
 # /info
