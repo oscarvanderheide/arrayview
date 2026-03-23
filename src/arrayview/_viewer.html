@@ -7711,7 +7711,9 @@
         const _fadeCtx = _fadeCanvas ? _fadeCanvas.getContext('2d') : null;
         function crossFadeIn(newImageData, width, height) {
             // Snapshot old frame to fade canvas, then immediately draw new frame underneath
-            if (_fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
+            // Skip the fade when a vector overlay is active — the fade canvas sits above
+            // the vfield-canvas and would obscure the new arrows for 90 ms, causing flicker.
+            if (!hasVectorfield && _fadeCanvas && _fadeCtx && lastImageData && lastImgW === width && lastImgH === height) {
                 _fadeCanvas.width = width;
                 _fadeCanvas.height = height;
                 _fadeCanvas.style.width = canvas.style.width;
