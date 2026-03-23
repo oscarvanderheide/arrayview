@@ -4456,12 +4456,14 @@
             for (let i = _rois.length - 1; i >= 0; i--) {
                 if (_pointInRoi(_rois[i], cx, cy)) { hitIdx = i; break; }
             }
-            if (hitIdx < 0 || !_rois[hitIdx].stats) { ttip.style.display = 'none'; return; }
+            const piEl = document.getElementById('main-pixel-info');
+            if (hitIdx < 0 || !_rois[hitIdx].stats) { ttip.style.display = 'none'; if (_pixelInfoVisible) piEl.style.display = ''; return; }
             const s = _rois[hitIdx].stats;
             const c = _roiColors[hitIdx % _roiColors.length];
             const fmt = v => { const a = Math.abs(v); if (a === 0) return '0'; if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3); return parseFloat(v.toPrecision(4)).toString(); };
-            ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">ROI ${hitIdx + 1}</span>&nbsp; n=${s.n.toLocaleString()}<br>mean=${fmt(s.mean)}&nbsp; std=${fmt(s.std)}<br>min=${fmt(s.min)}&nbsp; max=${fmt(s.max)}`;
+            ttip.innerHTML = `<span style="color:${c.stroke};font-weight:bold">${hitIdx+1}</span> ${fmt(s.mean)} \u00B1 ${fmt(s.std)}`;
             ttip.style.display = 'block';
+            if (_pixelInfoVisible) piEl.style.display = 'none';
             const par = ttip.offsetParent;
             if (par) {
                 const pr = par.getBoundingClientRect();
