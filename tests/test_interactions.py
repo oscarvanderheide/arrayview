@@ -1804,3 +1804,41 @@ def test_key_blocked_in_mode(
         f"Key '{key}' in {mode} mode should show blocked status containing '{blocked_part}', "
         f"but got: '{status}'"
     )
+
+
+class TestVectorfieldOverlay:
+    def test_U_toggles_vectorfield_visibility(
+        self, loaded_viewer, client, sid_3d, tmp_path
+    ):
+        vf_path = tmp_path / "vf_toggle.npy"
+        vf = np.zeros((20, 64, 64, 3), dtype=np.float32)
+        vf[..., 1] = 0.3
+        vf[..., 2] = 0.6
+        np.save(vf_path, vf)
+        attach = client.post(
+            "/attach_vectorfield",
+            json={"sid": sid_3d, "filepath": str(vf_path)},
+        )
+        assert attach.status_code == 200
+        assert attach.json()["ok"] is True
+
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.wait_for_timeout(700)
+        visible_before = page.evaluate(
+            "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+        )
+        page.keyboard.press("U")
+        page.wait_for_timeout(300)
+        visible_hidden = page.evaluate(
+            "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+        )
+        page.keyboard.press("U")
+        page.wait_for_timeout(500)
+        visible_after = page.evaluate(
+            "() => document.getElementById('vfield-canvas')?.style.display !== 'none'"
+        )
+
+        assert visible_before is True, "Vector field overlay should be visible initially"
+        assert visible_hidden is False, "U should hide vector field arrows"
+        assert visible_after is True, "U should show vector field arrows again"

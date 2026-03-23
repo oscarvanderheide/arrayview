@@ -135,6 +135,71 @@ class TestMetadata:
         assert len(data["arrows"]) > 0
         assert any(abs(a[2]) > 0 or abs(a[3]) > 0 for a in data["arrows"])
 
+    def test_vectorfield_auto_detects_unique_non_trailing_component_axis(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((6, 8, 10), dtype=np.float32)
+        vf = np.zeros((6, 3, 8, 10), dtype=np.float32)
+        vf[:, 1, :, :] = 0.25
+        vf[:, 2, :, :] = 0.5
+
+        arr_path = tmp_path / "base_auto.npy"
+        vf_path = tmp_path / "vf_auto.npy"
+        np.save(arr_path, arr)
+        np.save(vf_path, vf)
+
+        sid = client.post(
+            "/load", json={"filepath": str(arr_path), "name": "base"}
+        ).json()["sid"]
+        attach = client.post(
+            "/attach_vectorfield", json={"sid": sid, "filepath": str(vf_path)}
+        )
+        assert attach.status_code == 200
+        assert attach.json()["ok"] is True
+        assert attach.json()["components_dim"] == 1
+
+        r = client.get(
+            f"/vectorfield/{sid}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "3,4,5",
+                "t_index": 0,
+                "density_offset": 0,
+            },
+        )
+        assert r.status_code == 200
+        assert len(r.json()["arrows"]) > 0
+
+    def test_vectorfield_attach_errors_when_multiple_size3_axes_exist(
+        self, client, tmp_path
+    ):
+        arr = np.zeros((6, 8, 10), dtype=np.float32)
+        vf = np.zeros((3, 6, 8, 10, 3), dtype=np.float32)
+
+        arr_path = tmp_path / "base_amb.npy"
+        vf_path = tmp_path / "vf_amb.npy"
+        np.save(arr_path, arr)
+        np.save(vf_path, vf)
+
+        sid = client.post(
+            "/load", json={"filepath": str(arr_path), "name": "base"}
+        ).json()["sid"]
+        attach = client.post(
+            "/attach_vectorfield", json={"sid": sid, "filepath": str(vf_path)}
+        )
+        assert attach.status_code == 200
+        assert "error" in attach.json()
+        assert "--vectorfield-components-dim" in attach.json()["error"]
+
+        attach2 = client.post(
+            "/attach_vectorfield",
+            json={"sid": sid, "filepath": str(vf_path), "components_dim": 4},
+        )
+        assert attach2.status_code == 200
+        assert attach2.json()["ok"] is True
+        assert attach2.json()["components_dim"] == 4
+
 
 # ---------------------------------------------------------------------------
 # /info

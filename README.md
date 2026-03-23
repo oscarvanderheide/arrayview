@@ -185,7 +185,8 @@ arrayview [FILES...] [OPTIONS]
 | `--serve` | Start a persistent empty server (useful for VS Code tunnel setup) |
 | `--kill` | Kill the server on `--port` and exit |
 | `--overlay FILE` | Segmentation mask overlay (binary 0/1, same spatial shape) |
-| `--vectorfield FILE` | Deformation vector field overlay (trailing dim of size 3) |
+| `--vectorfield FILE` | Deformation vector field overlay (one axis of size 3 for xyz components) |
+| `--vectorfield-components-dim DIM` | Axis index of the xyz component dimension in `--vectorfield` |
 | `--rgb` | Interpret as RGB/RGBA |
 | `--compare FILE` | Deprecated: use positional args instead |
 | `--browser` | Deprecated: use `--window browser` |
@@ -244,6 +245,9 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `b` | Toggle canvas border |
 | `F` | Zen mode — hide chrome, go fullscreen |
 | `K` | Compact mode — collapse top chrome, vertical colorbar (auto-activates when zoomed) |
+| `[` / `]` | Adjust arrow density in vectorfield mode |
+| `{` / `}` | Adjust arrow length in vectorfield mode |
+| `U` | Toggle vector arrows |
 
 ### Compare Mode
 

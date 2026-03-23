@@ -108,3 +108,65 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
     compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 6)])
     assert "compare_sid=sid_1" in opened["url"]
     assert f"compare_sids={compare_sid_csv}" in opened["url"]
+
+
+def test_cli_vectorfield_components_dim_is_sent_to_attach(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    vf = str(tmp_path / "vf.npy")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    np.save(vf, np.zeros((8, 8, 3), dtype=np.float32))
+    requests = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            base,
+            "--vectorfield",
+            vf,
+            "--vectorfield-components-dim",
+            "2",
+            "--browser",
+        ],
+    )
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda url, blocking=False, force_vscode=False, title=None: url,
+    )
+
+    def fake_urlopen(req, timeout=5):
+        body = json.loads((req.data or b"{}").decode())
+        requests.append(body)
+        if req.full_url.endswith("/attach_vectorfield"):
+            return _DummyResponse({"ok": True, "components_dim": 2})
+        return _DummyResponse({"sid": "sid_base", "name": "base.npy"})
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    attach_body = next(b for b in requests if b.get("filepath") == vf)
+    assert attach_body["components_dim"] == 2
+
+
+def test_cli_vectorfield_ambiguous_component_axis_requires_flag(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    vf = str(tmp_path / "vf_amb.npy")
+    np.save(base, np.zeros((6, 8, 10), dtype=np.float32))
+    np.save(vf, np.zeros((3, 6, 8, 10, 3), dtype=np.float32))
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["arrayview", base, "--vectorfield", vf, "--browser"],
+    )
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    with pytest.raises(SystemExit):
+        appmod.arrayview()
+
+    assert "--vectorfield-components-dim" in out.getvalue()

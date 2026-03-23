@@ -69,6 +69,108 @@ from arrayview._render import (
 
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
 
+
+def _normalize_axis(axis: int, ndim: int, flag_name: str) -> int:
+    axis = int(axis)
+    if axis < 0:
+        axis += ndim
+    if axis < 0 or axis >= ndim:
+        raise ValueError(
+            f"{flag_name} must be in [-{ndim}, {ndim - 1}], got {axis}."
+        )
+    return axis
+
+
+def _resolve_vfield_layout(
+    vf_shape: tuple[int, ...],
+    image_shape: tuple[int, ...],
+    components_dim: int | None = None,
+) -> dict[str, object]:
+    vf_shape = tuple(int(s) for s in vf_shape)
+    image_shape = tuple(int(s) for s in image_shape)
+    if len(vf_shape) < len(image_shape) + 1:
+        raise ValueError(
+            f"vector field shape {vf_shape} is too small for image shape {image_shape}."
+        )
+
+    if components_dim is not None:
+        comp_dim = _normalize_axis(
+            components_dim, len(vf_shape), "--vectorfield-components-dim"
+        )
+        if vf_shape[comp_dim] != 3:
+            raise ValueError(
+                f"--vectorfield-components-dim points to axis {comp_dim}, but that axis has size {vf_shape[comp_dim]} instead of 3."
+            )
+    else:
+        candidates = [i for i, s in enumerate(vf_shape) if s == 3]
+        if not candidates:
+            raise ValueError(
+                f"vector field shape {vf_shape} has no axis of size 3 for the xyz displacement components; specify one with --vectorfield-components-dim."
+            )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"vector field shape {vf_shape} has multiple axes of size 3 ({candidates}); specify the xyz displacement axis with --vectorfield-components-dim."
+            )
+        comp_dim = candidates[0]
+
+    remaining_axes = [ax for ax in range(len(vf_shape)) if ax != comp_dim]
+    if len(remaining_axes) == len(image_shape):
+        time_dim = None
+        spatial_axes = tuple(remaining_axes)
+    elif len(remaining_axes) == len(image_shape) + 1:
+        time_dim = remaining_axes[0]
+        spatial_axes = tuple(remaining_axes[1:])
+    else:
+        raise ValueError(
+            f"vector field shape {vf_shape} is incompatible with image shape {image_shape}; expected spatial dims {image_shape} plus one component axis of size 3, with at most one extra leading time axis."
+        )
+
+    vf_spatial_shape = tuple(vf_shape[ax] for ax in spatial_axes)
+    if vf_spatial_shape != image_shape:
+        raise ValueError(
+            f"vector field spatial shape {vf_spatial_shape} does not match image shape {image_shape}."
+        )
+
+    return {
+        "components_dim": comp_dim,
+        "time_dim": time_dim,
+        "spatial_axes": spatial_axes,
+        "n_times": int(vf_shape[time_dim]) if time_dim is not None else 1,
+    }
+
+
+def _configure_vectorfield(
+    session: Session, vf_data, components_dim: int | None = None
+) -> dict[str, object]:
+    layout = _resolve_vfield_layout(
+        tuple(int(s) for s in np.shape(vf_data)),
+        tuple(int(s) for s in session.spatial_shape),
+        components_dim,
+    )
+    session.vfield = vf_data
+    session.vfield_component_dim = int(layout["components_dim"])
+    session.vfield_time_dim = layout["time_dim"]
+    session.vfield_spatial_axes = tuple(int(a) for a in layout["spatial_axes"])
+    return layout
+
+
+def _get_vfield_layout(session: Session) -> dict[str, object] | None:
+    if session.vfield is None:
+        return None
+    if (
+        session.vfield_component_dim is not None
+        and session.vfield_spatial_axes is not None
+    ):
+        return {
+            "components_dim": int(session.vfield_component_dim),
+            "time_dim": session.vfield_time_dim,
+            "spatial_axes": tuple(int(a) for a in session.vfield_spatial_axes),
+            "n_times": int(np.shape(session.vfield)[session.vfield_time_dim])
+            if session.vfield_time_dim is not None
+            else 1,
+        }
+    return _configure_vectorfield(session, session.vfield)
+
 # ---------------------------------------------------------------------------
 # Lazy PIL import (only needed for JPEG/PNG/GIF encoding in routes)
 # ---------------------------------------------------------------------------
@@ -629,9 +731,7 @@ def _vfield_n_times(session) -> int:
     """Return number of time frames in the vector field (0 = no vfield, 1 = no time dim)."""
     if session.vfield is None:
         return 0
-    vf_ndim = np.asarray(session.vfield).ndim
-    img_ndim = np.asarray(session.data).ndim
-    return int(np.asarray(session.vfield).shape[0]) if vf_ndim == img_ndim + 2 else 1
+    return int((_get_vfield_layout(session) or {}).get("n_times", 1))
 
 
 @app.get("/metadata/{sid}")
@@ -686,35 +786,36 @@ def get_vectorfield(
         return Response(status_code=404)
     try:
         vf = session.vfield
+        layout = _get_vfield_layout(session)
+        if layout is None:
+            return Response(status_code=404)
         idx_tuple = tuple(int(x) for x in indices.split(","))
 
-        # Strip time dimension if present (shape T, *spatial, 3) before materializing.
-        # session.vfield may be a memmap / zarr / nibabel proxy, so loading the entire
-        # array here would make every overlay refresh expensive.
-        n_times = _vfield_n_times(session)
-        if n_times > 1:
-            t = max(0, min(n_times - 1, t_index))
-            vf = vf[t]
+        slices = [slice(None)] * vf.ndim
+        time_dim = layout["time_dim"]
+        if time_dim is not None:
+            t = max(0, min(int(layout["n_times"]) - 1, t_index))
+            slices[int(time_dim)] = t
 
-        ndim_spatial = vf.ndim - 1  # last dim is vector components (size 3)
+        spatial_axes = tuple(int(ax) for ax in layout["spatial_axes"])
+        comp_dim = int(layout["components_dim"])
+        vf_x_axis = spatial_axes[dim_x]
+        vf_y_axis = spatial_axes[dim_y]
+        for img_dim, vf_axis in enumerate(spatial_axes):
+            if img_dim in (dim_x, dim_y):
+                continue
+            slices[vf_axis] = int(idx_tuple[img_dim])
 
-        # Build index: fix non-display dims, leave dim_x / dim_y free
-        slices = []
-        for d in range(ndim_spatial):
-            slices.append(slice(None) if d in (dim_x, dim_y) else int(idx_tuple[d]))
-        slices.append(slice(None))  # vector components
-        vf_slice = np.asarray(
-            vf[tuple(slices)], dtype=np.float32
-        )  # shape ≈ (A, B, 3) where A,B are free spatial dims
-
-        # Ensure axis order is (dim_y rows, dim_x cols, 3).
-        # The free axes appear in ascending original-dim order; transpose if dim_x < dim_y.
-        if dim_x < dim_y:
-            vf_slice = vf_slice.transpose(1, 0, 2)
+        vf_slice = np.asarray(vf[tuple(slices)], dtype=np.float32)
+        free_axes = [ax for ax, sl in enumerate(slices) if isinstance(sl, slice)]
+        axis_pos = {ax: i for i, ax in enumerate(free_axes)}
+        vf_slice = vf_slice.transpose(
+            axis_pos[vf_y_axis], axis_pos[vf_x_axis], axis_pos[comp_dim]
+        )
 
         H, W = vf_slice.shape[:2]
 
-        # Component mapping: component index == original spatial dim index
+        # Component mapping: component index == original image spatial dim index
         vy_comp = vf_slice[:, :, dim_y]  # displacement along dim_y → vertical arrows
         vx_comp = vf_slice[:, :, dim_x]  # displacement along dim_x → horizontal arrows
 
@@ -758,13 +859,14 @@ async def attach_vectorfield(request: Request):
     body = await request.json()
     sid = str(body["sid"])
     filepath = str(body["filepath"])
+    components_dim = body.get("components_dim")
     session = SESSIONS.get(sid)
     if not session:
         return {"error": f"session {sid} not found"}
     try:
         vf_data = load_data(filepath)
-        session.vfield = vf_data
-        return {"ok": True}
+        layout = _configure_vectorfield(session, vf_data, components_dim)
+        return {"ok": True, "components_dim": layout["components_dim"]}
     except Exception as e:
         return {"error": str(e)}
 
