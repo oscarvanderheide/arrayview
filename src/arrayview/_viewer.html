@@ -1060,6 +1060,7 @@
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
         let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
         let _histFetching = false; // prevents concurrent fetches
+        let _cbDragActive = false; // true while user is dragging a vmin/vmax handle
         let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
         let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
@@ -2238,9 +2239,10 @@
             const _histSliceDimX = multiViewActive && mvViews.length ? mvViews[0].dimX : dim_x;
             const _histSliceDimY = multiViewActive && mvViews.length ? mvViews[0].dimY : dim_y;
             if (_cbExpanded && _histDataVersion !== (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY)) {
-                _fetchHistogram().then(() => {
-                    if (_cbExpanded) drawSlimColorbar(cbMarkerFrac);
-                });
+                if (!_histFetching) {
+                    _fetchHistogram().then(() => { if (_cbExpanded) drawSlimColorbar(cbMarkerFrac); });
+                }
+                return;  // always return — don't draw with stale/null data
             }
             // Draw vmin/vmax vertical lines when expanded
             if (_cbExpanded && _histData) {
@@ -2547,6 +2549,7 @@
                 const target = _hitLine(x);
                 if (!target) return;
                 _dragTarget = target;
+                _cbDragActive = true;
                 // Initialise manualVmin/manualVmax from current display values
                 if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
                 if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
@@ -2609,6 +2612,7 @@
             window.addEventListener('mouseup', () => {
                 if (_dragTarget) {
                     _dragTarget = null;
+                    _cbDragActive = false;
                     slimCbCanvas.style.cursor = 'default';
                     clearTimeout(_renderTimer);
                     updateView(); triggerPreload();
@@ -4961,6 +4965,7 @@
                 cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
+                _cbExpanded = false;
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView(); triggerPreload();
@@ -4975,7 +4980,7 @@
                     if (!lebesgueMode) {
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!lebesgueMode) { _cbExpanded = false; _histData = null; drawSlimColorbar(cbMarkerFrac); }
+                            if (!lebesgueMode && !_cbDragActive) { _cbExpanded = false; _histData = null; drawSlimColorbar(cbMarkerFrac); }
                         }, 3000);
                     }
                 }
