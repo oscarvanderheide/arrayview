@@ -3835,6 +3835,10 @@
                 compareQmriViews.forEach(v => compareQmriRender(v));
                 return;
             }
+            if (compareMvActive) {
+                compareMvViews.forEach(v => compareMvRender(v));
+                return;
+            }
             if (compareActive) {
                 compareRender();
                 return;
