@@ -7657,8 +7657,14 @@
             }
         });
         let comparePixelPending = false;
-        // Dynamically create crosshair elements in compare panes
-        compareCanvases.forEach((cv) => {
+        // Dynamically create crosshair elements in compare panes (including diff canvas)
+        const _allCrosshairCanvases = () => {
+            const cvs = compareCanvases.filter(Boolean);
+            const diffCv = document.getElementById('compare-diff-canvas');
+            if (diffCv && !cvs.includes(diffCv)) cvs.push(diffCv);
+            return cvs;
+        };
+        _allCrosshairCanvases().forEach((cv) => {
             const inner = cv.closest('.compare-canvas-inner');
             if (!inner) return;
             const xh = document.createElement('div'); xh.className = 'cmp-xhair-h'; inner.appendChild(xh);
@@ -7695,6 +7701,16 @@
                 hideCompareCrosshairs();
             });
          });
+
+        // Diff canvas crosshair sync (hover → sync to all panes)
+        const _diffCvForXhair = document.getElementById('compare-diff-canvas');
+        if (_diffCvForXhair) {
+            _diffCvForXhair.addEventListener('mousemove', (e) => {
+                if (!compareActive || _cmpPanDrag) return;
+                _syncCrosshairsFromCv(_diffCvForXhair, e);
+            });
+            _diffCvForXhair.addEventListener('mouseleave', () => { hideCompareCrosshairs(); });
+        }
 
         function closeSocket() {
             if (ws) {
@@ -8149,10 +8165,13 @@
         function updateCompareCrosshairs(srcIdx, e) {
             const srcCv = compareCanvases[srcIdx];
             if (!srcCv) return;
+            _syncCrosshairsFromCv(srcCv, e);
+        }
+        function _syncCrosshairsFromCv(srcCv, e) {
             const srcRect = srcCv.getBoundingClientRect();
             const fx = (e.clientX - srcRect.left) / srcRect.width;
             const fy = (e.clientY - srcRect.top) / srcRect.height;
-            compareCanvases.forEach((cv, j) => {
+            _allCrosshairCanvases().forEach((cv) => {
                 const inner = cv.closest('.compare-canvas-inner');
                 if (!inner) return;
                 const xh = inner.querySelector('.cmp-xhair-h');
@@ -8165,7 +8184,7 @@
             });
         }
         function hideCompareCrosshairs() {
-            compareCanvases.forEach(cv => {
+            _allCrosshairCanvases().forEach(cv => {
                 const inner = cv.closest('.compare-canvas-inner');
                 if (!inner) return;
                 inner.querySelectorAll('.cmp-xhair-h,.cmp-xhair-v').forEach(el => { el.style.display = 'none'; });
