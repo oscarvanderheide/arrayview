@@ -1099,6 +1099,7 @@
         let _autoFitPending = true; // auto-fit to viewport on first render
         let _mvPrevZoom = 1.0;
         let _mvPrevSquareStretch = false;
+        let _cmvPrevSquareStretch = false;
         let _eggsVisible = true;
         let _compactCheckPending = false;
         let _complexEggVisible = false;
@@ -6417,6 +6418,8 @@
             compareMvSids = [...cmpSids];
             compareMvDims = dims;
             compareMvActive = true;
+            _cmvPrevSquareStretch = squareStretch;
+            squareStretch = true;
 
             // Hide compare panes, show qmri-view-wrap (shared container)
             compareWrap.classList.remove('active');
@@ -6570,6 +6573,7 @@
 
         function exitCompareMv() {
             compareMvActive = false;
+            squareStretch = _cmvPrevSquareStretch;
             compareMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             compareMvViews = [];
             compareMvSids = [];
