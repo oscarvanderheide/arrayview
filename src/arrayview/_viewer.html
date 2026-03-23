@@ -3304,6 +3304,23 @@
                 eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
             } else {
                 // Normal mode: use slim colorbar if visible, else canvas bottom.
+                // In compact mode, stack eggs vertically to the left of the canvas.
+                if (_compactActive) {
+                    const vpEl = document.getElementById('canvas-viewport');
+                    if (!vpEl) return;
+                    const vpRect = vpEl.getBoundingClientRect();
+                    el.style.flexDirection = 'column';
+                    el.style.alignItems    = 'flex-start';
+                    el.style.top           = vpRect.top + 'px';
+                    el.style.bottom        = '';
+                    el.style.right         = Math.round(window.innerWidth - vpRect.left + 4) + 'px';
+                    el.style.left          = '';
+                    el.style.transform     = '';
+                    return;
+                }
+                el.style.flexDirection = '';
+                el.style.alignItems    = '';
+                el.style.right         = '';
                 // When the colorbar is hidden (e.g. RGB mode) add the same ~36px
                 // gap that the colorbar would occupy so eggs aren't flush with the canvas.
                 const wrap = document.getElementById('slim-cb-wrap');
