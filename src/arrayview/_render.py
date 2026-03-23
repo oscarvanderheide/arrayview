@@ -129,6 +129,9 @@ def extract_slice(session, dim_x, dim_y, idx_list):
     extracted = np.array(session.data[tuple(slicer)])
     if dim_x < dim_y:
         extracted = extracted.T
+    # scipy.io.loadmat returns complex arrays as structured dtypes; convert here.
+    if extracted.dtype.names and "real" in extracted.dtype.names and "imag" in extracted.dtype.names:
+        extracted = (extracted["real"] + 1j * extracted["imag"]).astype(np.complex64)
     if np.iscomplexobj(extracted):
         result = np.nan_to_num(extracted).astype(np.complex64)
     else:

@@ -27,6 +27,17 @@ def _nib():
 # ---------------------------------------------------------------------------
 
 
+def _fix_mat_complex(arr):
+    """Convert structured complex dtype from scipy.io.loadmat to native complex64.
+
+    scipy.io.loadmat sometimes returns complex arrays as structured arrays with
+    'real' and 'imag' fields instead of numpy's native complex dtype.
+    """
+    if arr.dtype.names and "real" in arr.dtype.names and "imag" in arr.dtype.names:
+        return (arr["real"] + 1j * arr["imag"]).astype(np.complex64)
+    return arr
+
+
 def load_data(filepath):
     if filepath.endswith(".npy"):
         return np.load(filepath, mmap_mode="r")
@@ -78,7 +89,7 @@ def load_data(filepath):
                 if not k.startswith("_") and isinstance(v, np.ndarray)
             }
             if len(arrays) == 1:
-                return next(iter(arrays.values()))
+                return _fix_mat_complex(next(iter(arrays.values())))
             raise ValueError(
                 f".mat file contains multiple arrays: {list(arrays.keys())}. "
                 "Load it manually and pass the array to view()."
