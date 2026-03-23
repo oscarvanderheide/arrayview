@@ -1052,6 +1052,7 @@
         let _histFetching = false; // prevents concurrent fetches
         let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
         let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
+        let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
         let _histVminX = null, _histVmaxX = null; // last-drawn clim line X in CSS px (for drag hit-testing)
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
@@ -4659,6 +4660,7 @@
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
             } else if (e.key === 'w') {
+                clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null;
                 // Toggle histogram mode (expands colorbar + pixel-matching overlay on hover)
                 // In multiview, only histogram expansion works — pixel overlay requires main canvas
                 if (compareActive || rgbMode) {
@@ -4858,8 +4860,21 @@
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView(); triggerPreload();
+                    if (!compareActive && !rgbMode) {
+                        _histData = null; _histDataVersion = null;
+                        _fetchHistogram().then(() => { _cbExpanded = true; drawSlimColorbar(cbMarkerFrac); });
+                    }
                 });
                 showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
+                if (!compareActive && !rgbMode) {
+                    clearTimeout(_histAutoDismissTimer);
+                    if (!lebesgueMode) {
+                        _histAutoDismissTimer = setTimeout(() => {
+                            _histAutoDismissTimer = null;
+                            if (!lebesgueMode) { _cbExpanded = false; _histData = null; drawSlimColorbar(cbMarkerFrac); }
+                        }, 3000);
+                    }
+                }
                 saveState();
             } else if (e.key === 'D') {
                 if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; }
