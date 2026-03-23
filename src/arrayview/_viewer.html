@@ -924,7 +924,7 @@
                 <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
-                <div class="help-row"><span class="key">w</span><span class="desc">Lebesgue mode — hover colorbar to highlight pixels in that value bin</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">histogram — expand colorbar to show value distribution; hover to highlight matching pixels</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle compare center pane (2-pane compare): off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → off</span></div>
@@ -4659,10 +4659,10 @@
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
             } else if (e.key === 'w') {
-                // Toggle Lebesgue integral mode (histogram + pixel-matching overlay)
+                // Toggle histogram mode (expands colorbar + pixel-matching overlay on hover)
                 // In multiview, only histogram expansion works — pixel overlay requires main canvas
                 if (compareActive || rgbMode) {
-                    showStatus('Lebesgue mode: not available in this mode'); return;
+                    showStatus('histogram: not available in this mode'); return;
                 }
                 if (multiViewActive) {
                     _cbExpanded = !_cbExpanded;
@@ -4692,7 +4692,7 @@
                         }
                     }
                     _fetchLebesgueSlice();
-                    showStatus('Lebesgue mode: hover colorbar to highlight matching pixels');
+                    showStatus('histogram: on (hover colorbar to highlight matching pixels)');
                 } else {
                     _clearLebesgueOverlay();
                     _lebesgueSlice = null; _lebesgueVersion = null;
@@ -4700,7 +4700,7 @@
                     _cbExpanded = false;
                     _histVminX = null; _histVmaxX = null;
                     drawSlimColorbar(cbMarkerFrac);
-                    showStatus('Lebesgue mode: off');
+                    showStatus('histogram: off');
                 }
             } else if (e.key === 'b') {
                 canvasBorders = !canvasBorders;
