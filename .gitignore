@@ -19,9 +19,8 @@ tests/snapshots/
 
 *.jl
 *.ipynb
-logs/
+docs/
 *.png
 !src/arrayview/_icon.png
-.worktrees/
 
 benchmarks/data
