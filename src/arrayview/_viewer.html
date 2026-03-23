@@ -53,6 +53,7 @@
         #info {
             margin-bottom: 10px; font-size: 20px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
+            font-variant-numeric: tabular-nums; align-self: flex-start;
         }
         #viewer-row {
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -94,7 +95,7 @@
         }
         .dim-label:hover { background: transparent; }
         .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
-        .dim-text { display: inline-block; min-width: 3ch; text-align: right; }
+        .dim-text { display: inline-block; min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
         .dim-track {
             width: 100%; height: 3px; background: var(--border);
             border-radius: 1px; margin-top: 2px; min-width: 20px; overflow: hidden;
