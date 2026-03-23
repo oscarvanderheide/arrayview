@@ -69,7 +69,7 @@
         .canvas-bordered canvas, .canvas-bordered { outline: 2px solid var(--highlight); }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 48px; height: 48px;
-            pointer-events: none;
+            pointer-events: none; overflow: visible;
             opacity: 0; transition: opacity 0.6s ease;
             color: rgba(190, 190, 190, 0.8);
         }
@@ -666,8 +666,8 @@
                     <polygon points="32,39 37,42 32,45" fill="currentColor"/>
                     <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
                     <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                    <text class="axes-lbl-x" x="39" y="46" font-size="13" font-family="monospace" fill="currentColor">x</text>
-                    <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
+                    <text class="axes-lbl-x" x="38" y="38" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>
+                    <text class="axes-lbl-y" x="10" y="9" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>
                 </svg>
             </div>
             </div><!-- #canvas-viewport -->
@@ -4529,8 +4529,8 @@
                         if (_pixelInfoVisible && !multiViewActive && !compareActive) {
                             const axEl = document.getElementById('main-axes-svg');
                             if (axEl) {
-                                axEl.querySelector('.axes-lbl-x').textContent = String(px);
-                                axEl.querySelector('.axes-lbl-y').textContent = String(py);
+                                axEl.querySelector('.axes-lbl-x').textContent = `x ${px}`;
+                                axEl.querySelector('.axes-lbl-y').textContent = `y ${py}`;
                             }
                         }
                         const range = currentVmax - currentVmin;
@@ -4709,6 +4709,13 @@
                         axEl.querySelector('.axes-lbl-x').textContent = 'x';
                         axEl.querySelector('.axes-lbl-y').textContent = 'y';
                     }
+                    // Restore multiview per-pane axes labels
+                    if (multiViewActive) mvViews.forEach(v => {
+                        if (v.axesSvg) {
+                            v.axesSvg.querySelector('.axes-lbl-x').textContent = v.axLblX;
+                            v.axesSvg.querySelector('.axes-lbl-y').textContent = v.axLblY;
+                        }
+                    });
                     document.querySelectorAll('.axes-indicator').forEach(el => {
                         el.style.transition = 'opacity 0.6s ease';
                         el.style.opacity = '0';
@@ -6004,13 +6011,13 @@
                 const NS = 'http://www.w3.org/2000/svg';
                 const axDiv = document.createElementNS(NS, 'svg');
                 axDiv.setAttribute('class', 'axes-indicator');
-                axDiv.setAttribute('viewBox', '0 0 40 40');
-                axDiv.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>`
-                    + `<polygon points="26,31 31,34 26,37" fill="currentColor"/>`
-                    + `<line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>`
-                    + `<polygon points="3,13 6,8 9,13" fill="currentColor"/>`
-                    + `<text class="axes-lbl-x" x="33" y="38" font-size="11" font-family="monospace" fill="currentColor">${_axX}</text>`
-                    + `<text class="axes-lbl-y" x="0" y="9" font-size="11" font-family="monospace" fill="currentColor">${_axY}</text>`;
+                axDiv.setAttribute('viewBox', '0 0 48 48');
+                axDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
+                    + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
+                    + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
+                    + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
+                    + `<text class="axes-lbl-x" x="38" y="38" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axX}</text>`
+                    + `<text class="axes-lbl-y" x="10" y="9" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
                 cvBox.appendChild(axDiv);
                 const piEl = document.createElement('div');
                 piEl.className = 'cv-pixel-info';
@@ -6021,7 +6028,7 @@
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label: null,
-                    pixelInfoEl: piEl,
+                    pixelInfoEl: piEl, axesSvg: axDiv, axLblX: _axX, axLblY: _axY,
                     vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
@@ -6078,13 +6085,21 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
+                                    if (_pixelInfoVisible && view.axesSvg) {
+                                        view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${ipx}`;
+                                        view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${ipy}`;
+                                    }
                                 }
                             });
                     }
                 });
                 cv.addEventListener('mouseleave', () => {
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
+                    if (view.axesSvg) {
+                        view.axesSvg.querySelector('.axes-lbl-x').textContent = view.axLblX;
+                        view.axesSvg.querySelector('.axes-lbl-y').textContent = view.axLblY;
+                    }
                 });
                 return view;
             });
@@ -6240,7 +6255,7 @@
                                     if (d.value !== undefined && isFinite(d.value)) {
                                         const av = Math.abs(d.value);
                                         const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                        showPixelInfo(v.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                                        showPixelInfo(v.pixelInfoEl, fmt(d.value), _mx, _my);
                                     } else if (v.pixelInfoEl) {
                                         v.pixelInfoEl.style.display = 'none';
                                     }
@@ -6403,7 +6418,7 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
                                 } else if (view.pixelInfoEl) {
                                     view.pixelInfoEl.style.display = 'none';
                                 }
@@ -6660,13 +6675,13 @@
                     const _NS = 'http://www.w3.org/2000/svg';
                     const axDiv = document.createElementNS(_NS, 'svg');
                     axDiv.setAttribute('class', 'axes-indicator');
-                    axDiv.setAttribute('viewBox', '0 0 40 40');
-                    axDiv.innerHTML = `<line x1="6" y1="34" x2="26" y2="34" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="26,31 31,34 26,37" fill="currentColor"/>`
-                        + `<line x1="6" y1="34" x2="6" y2="13" stroke="currentColor" stroke-width="1.5"/>`
-                        + `<polygon points="3,13 6,8 9,13" fill="currentColor"/>`
-                        + `<text class="axes-lbl-x" x="33" y="38" font-size="11" font-family="monospace" fill="currentColor">${_axX}</text>`
-                        + `<text class="axes-lbl-y" x="0" y="9" font-size="11" font-family="monospace" fill="currentColor">${_axY}</text>`;
+                    axDiv.setAttribute('viewBox', '0 0 48 48');
+                    axDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
+                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
+                        + `<text class="axes-lbl-x" x="38" y="38" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axX}</text>`
+                        + `<text class="axes-lbl-y" x="10" y="9" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
                     cvBox.appendChild(axDiv);
                     cvWrap.appendChild(cvBox);
                     const cbCv = document.createElement('canvas');
@@ -6720,7 +6735,7 @@
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
                                     const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, `(${ipx},${ipy}) ${fmt(d.value)}`, _mx, _my);
+                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
                                 } else if (view.pixelInfoEl) {
                                     view.pixelInfoEl.style.display = 'none';
                                 }
