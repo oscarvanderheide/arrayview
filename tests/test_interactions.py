@@ -1093,7 +1093,7 @@ class TestCompareModeSync:
     def test_zoom_in_compare_no_vertical_stacking(
         self, loaded_viewer, sid_2d, sid_cmp_2d
     ):
-        """Zooming should keep both panes side-by-side, not stack vertically."""
+        """Zooming should keep compare panes side-by-side and show the minimap when they overflow."""
         page = loaded_viewer(sid_2d)
         _enter_compare(page, "arr2d_cmp")
         # Zoom in several times
@@ -1101,6 +1101,9 @@ class TestCompareModeSync:
         for _ in range(5):
             page.keyboard.press("+")
         page.wait_for_timeout(400)
+        minimap_visible = page.evaluate(
+            "() => document.getElementById('mini-map')?.classList.contains('visible') ?? false"
+        )
         left_rect = page.evaluate(
             "() => { const c = document.querySelector('canvas#compare-left-canvas'); return c ? c.getBoundingClientRect() : null; }"
         )
@@ -1109,6 +1112,9 @@ class TestCompareModeSync:
         )
         assert left_rect and right_rect, (
             "Both compare canvases should be present when zoomed"
+        )
+        assert minimap_visible, (
+            "Compare zoom overflow should show the minimap so both panes can be panned together."
         )
         # Panes should be approximately at same vertical position (side-by-side layout)
         left_top = left_rect["y"]
