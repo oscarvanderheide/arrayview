@@ -65,7 +65,7 @@
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
         }
-        .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--border); }
+        .canvas-bordered canvas, .canvas-bordered { outline: 2px solid var(--highlight); }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 40px; height: 40px;
             pointer-events: none;
@@ -104,6 +104,7 @@
         #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
                   white-space: nowrap; pointer-events: none; z-index: 5; }
+        #toast  { display: none; } /* showToast() writes here but display trumped by showStatus() */
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
             position: absolute; z-index: 10;
@@ -2088,7 +2089,9 @@
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const vpEl = document.getElementById('canvas-viewport');
-            const canvasRect = (vpEl || canvas).getBoundingClientRect();
+            // In multiview, position relative to the panes row, not the hidden main canvas
+            const _cbRefEl = multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
+            const canvasRect = (_cbRefEl || canvas).getBoundingClientRect();
 
             // ── Compact vertical colorbar mode ──────────────────────
             if (_compactActive) {
@@ -2149,7 +2152,8 @@
                 wrap.style.transform = '';
                 wrap.style.transformOrigin = '';
             }
-            const rawW = vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width));
+            const rawW = multiViewActive ? Math.round(canvasRect.width)
+                : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
@@ -2188,7 +2192,10 @@
                 _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops);
             }
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded && _histDataVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y)) {
+            // In multiview, histogram version uses the first pane's dims, not the main canvas dims
+            const _histSliceDimX = multiViewActive && mvViews.length ? mvViews[0].dimX : dim_x;
+            const _histSliceDimY = multiViewActive && mvViews.length ? mvViews[0].dimY : dim_y;
+            if (_cbExpanded && _histDataVersion !== (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY)) {
                 _fetchHistogram().then(() => {
                     if (_cbExpanded) drawSlimColorbar(cbMarkerFrac);
                 });
@@ -2217,9 +2224,12 @@
         async function _fetchHistogram() {
             if (!sid || !indices.length || _histFetching) return;
             _histFetching = true;
+            // In multiview, fetch histogram for the first pane's view dims
+            const fetchDimX = (multiViewActive && mvViews.length) ? mvViews[0].dimX : dim_x;
+            const fetchDimY = (multiViewActive && mvViews.length) ? mvViews[0].dimY : dim_y;
             const params = new URLSearchParams({
-                dim_x: dim_x,
-                dim_y: dim_y,
+                dim_x: fetchDimX,
+                dim_y: fetchDimY,
                 indices: indices.join(','),
                 complex_mode: complexMode,
                 bins: 64,
@@ -2228,7 +2238,7 @@
                 const resp = await fetch(`/histogram/${sid}?${params}`);
                 if (!resp.ok) { _histFetching = false; return; }
                 _histData = await resp.json();
-                _histDataVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
+                _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY;
             } catch (_) { _histData = null; }
             _histFetching = false;
         }
@@ -4517,6 +4527,7 @@
                 showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
             } else if (e.key === 'z') {
                 if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
+                if (multiViewActive) { showStatus('mosaic: not available in multi-view'); return; }
                 if (dim_z >= 0) {
                     current_slice_dim = dim_z;
                     dim_z = -1;
@@ -4561,6 +4572,17 @@
             } else if (e.key === 't') {
                 // Transpose x and y: swap the dimension indices and flips
                 if (shape.length < 2) return;
+                if (multiViewActive) {
+                    // Swap dimX/dimY for every pane so each orthogonal view is transposed
+                    mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
+                    // Keep global dim_x/dim_y in sync for post-exit state
+                    [dim_x, dim_y] = [dim_y, dim_x];
+                    [flip_x, flip_y] = [flip_y, flip_x];
+                    flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    showStatus('transposed x/y (all panes)');
+                    return;
+                }
                 const wasMosaic = dim_z >= 0;
                 [dim_x, dim_y] = [dim_y, dim_x];
                 [flip_x, flip_y] = [flip_y, flip_x];
@@ -4568,9 +4590,22 @@
                 updateView(); triggerPreload();
                 showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
             } else if (e.key === 'w') {
-                // Toggle Lebesgue integral mode
+                // Toggle Lebesgue integral mode (histogram + pixel-matching overlay)
+                // In multiview, only histogram expansion works — pixel overlay requires main canvas
                 if (compareActive || rgbMode) {
                     showStatus('Lebesgue mode: not available in this mode'); return;
+                }
+                if (multiViewActive) {
+                    _cbExpanded = !_cbExpanded;
+                    if (_cbExpanded) {
+                        _fetchHistogram().then(() => drawSlimColorbar(cbMarkerFrac));
+                        showStatus('histogram: on');
+                    } else {
+                        _histData = null; _histVminX = null; _histVmaxX = null;
+                        drawSlimColorbar(cbMarkerFrac);
+                        showStatus('histogram: off');
+                    }
+                    return;
                 }
                 lebesgueMode = !lebesgueMode;
                 if (lebesgueMode) {
@@ -5670,6 +5705,9 @@
             squareStretch = true;
             userZoom = 1.4;
             mvDims = dims;
+            // Carry single-view flip state into per-dim flip map so rotations/flips are preserved
+            flipDims[dim_x] = flip_x;
+            flipDims[dim_y] = flip_y;
             hideLoadingOverlay();
             document.getElementById('canvas-wrap').style.display = 'none';
             const wrap = document.getElementById('multi-view-wrap');
@@ -5826,6 +5864,12 @@
 
         function exitMultiView() {
             multiViewActive = false;
+            // Sync per-dim flip state back to single-view flip_x/flip_y so flips made in
+            // multiview (or before entering) are preserved on the main canvas
+            flip_x = flipDims[dim_x] ?? flip_x;
+            flip_y = flipDims[dim_y] ?? flip_y;
+            // Collapse histogram if it was expanded in multiview
+            _cbExpanded = false; _histData = null;
             userZoom = _mvPrevZoom;
             squareStretch = _mvPrevSquareStretch;
             mvDims = [];
@@ -7317,6 +7361,10 @@
             );
             const requestedT = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
             const T = Math.min(requestedT, absMaxT);
+            // Clamp userZoom so pressing + repeatedly doesn't overshoot the visual max
+            if (requestedT > absMaxT && Math.min(availH, availW) > 0) {
+                userZoom = absMaxT / Math.min(availH, availW);
+            }
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
             const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
@@ -7750,7 +7798,8 @@
             _compactActive = on;
             document.body.classList.toggle('compact-mode', on);
             // Recalc layout with new reserves
-            if (lastImageData) scaleCanvas(lastImgW, lastImgH);
+            if (multiViewActive) mvScaleAllCanvases();
+            else if (lastImageData) scaleCanvas(lastImgW, lastImgH);
             if (on) {
                 document.addEventListener('mousemove', _compactMouseMove);
             } else {
@@ -7777,7 +7826,7 @@
 
         function _checkAutoCompact() {
             // Don't auto-toggle when user manually set it
-            if (_compactManual || _zenActive || compareActive || _isWelcomeScreen) {
+            if (_compactManual || _zenActive || compareActive || multiViewActive || _isWelcomeScreen) {
                 return;
             }
             // Auto-compact when the viewport is clipped (canvas overflows) and user is zoomed in
