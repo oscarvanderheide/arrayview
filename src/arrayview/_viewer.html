@@ -5924,6 +5924,7 @@
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             multiViewActive = true;
+            document.getElementById('mini-map').classList.remove('visible');
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
             squareStretch = true;
