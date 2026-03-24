@@ -2140,7 +2140,7 @@ def arrayview():
     # compare_sids are not yet loaded at this point — the shell opens with just
     # init_sid; compare params are injected after the server starts (see below).
     _cli_early_window = False
-    if use_webview and overlay_sid is None and not is_remote:
+    if use_webview and overlay_sid is None and not is_remote and not compare_files:
         url_shell_early = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
         _cli_early_window = _open_webview_cli(
             url_shell_early, 1400, 900, loading_port=args.port

@@ -49,7 +49,9 @@
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
+            transition: opacity 0.14s ease;
         }
+        #wrapper.mode-fade { opacity: 0; }
         #info {
             margin-bottom: 10px; font-size: 20px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
@@ -617,7 +619,7 @@
         /* ── 1D Intensity profile ────────────────────────────────── */
         /* ── Mini-map ────────────────────────────────────────────── */
         #mini-map {
-            position:fixed; top:80px; right:12px; z-index:4;
+            position:absolute; top:6px; right:6px; z-index:4;
             width:100px; height:100px; overflow:hidden; display:none;
             background:var(--bg); border:1px solid var(--border);
             cursor:grab;
@@ -681,6 +683,7 @@
                     <text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>
                 </svg>
             </div>
+            <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
             <div id="slim-cb-wrap" style="display:none">
                 <canvas id="slim-cb"></canvas>
@@ -871,7 +874,6 @@
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
     <div id="compare-mode-strip"></div>
-    <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
     <div id="inline-prompt">
         <div id="inline-prompt-box">
             <div id="inline-prompt-msg"></div>
@@ -963,7 +965,7 @@
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
                 <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
-                <div class="help-row"><span class="key">K</span><span class="desc">compact mode — collapse top chrome, vertical colorbar; auto-activates when zoomed &amp; constrained</span></div>
+                <div class="help-row"><span class="key">K</span><span class="desc">compact mode — auto-activates when zoomed in and viewport is constrained</span></div>
                 <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
@@ -2133,6 +2135,28 @@
             if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
         });
 
+        // ── Mode crossfade utility ──────────────────────────────
+        // Fades wrapper to black, runs fn (sync or async), fades back in.
+        let _crossfading = false;
+        function crossfade(fn) {
+            if (_crossfading) { fn(); return; }
+            const w = document.getElementById('wrapper');
+            if (!w) { fn(); return; }
+            _crossfading = true;
+            w.classList.add('mode-fade');
+            // Wait for fade-out transition to finish, then run the mode switch
+            setTimeout(() => {
+                try { fn(); } catch(e) { console.error(e); }
+                // Let the browser reflow after the mode switch before fading back in
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        w.classList.remove('mode-fade');
+                        _crossfading = false;
+                    });
+                });
+            }, 150);
+        }
+
         function showToast(msg) {
             showStatus(msg);
             const t = document.getElementById('toast');
@@ -2176,7 +2200,7 @@
             if (_compactActive) {
                 // Overlay colorbar horizontally at bottom of canvas viewport
                 const vpW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
-                const cssW = Math.max(60, Math.min(vpW * 0.8, 400));
+                const cssW = Math.max(60, Math.round(vpW * 0.92));
                 const stripH = CB_COLLAPSED_H;
                 if (wrap) {
                     wrap.classList.remove('compact-vertical');
@@ -5313,17 +5337,21 @@
                 dim_z = -1;
                 updateView(); triggerPreload();
             } else if (e.key === 'v') {
-                if (compareMvActive) { exitCompareMv(); return; }
-                if (compareActive) { enterCompareMv(); return; }
-                if (qmriActive) exitQmri();
-                if (multiViewActive) { exitMultiView(); } else {
-                    enterMultiView(defaultMultiViewDims());
-                }
+                if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
+                if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                crossfade(() => {
+                    if (qmriActive) exitQmri();
+                    if (multiViewActive) { exitMultiView(); } else {
+                        enterMultiView(defaultMultiViewDims());
+                    }
+                });
             } else if (e.key === 'V') {
-                if (compareMvActive) { exitCompareMv(); return; }
-                if (compareActive) { enterCompareMv(); return; }
-                if (qmriActive) exitQmri();
-                if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
+                if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
+                if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                crossfade(() => {
+                    if (qmriActive) exitQmri();
+                    if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
+                });
             } else if (e.key === 'o' || e.key === 'O') {
                 if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
                 // Reset crosshair to volume center and clear any oblique rotation
@@ -5336,35 +5364,33 @@
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 showStatus('origin reset');
             } else if (e.key === 'q') {
-                if (compareQmriActive) {
-                    // In compare-qMRI mode: toggle compact or exit
-                    const n = shape[compareQmriDim];
-                    if (n > 3 && !qmriCompact) {
-                        qmriCompact = true;
-                        exitCompareQmri();
+                crossfade(() => {
+                    if (compareQmriActive) {
+                        const n = shape[compareQmriDim];
+                        if (n > 3 && !qmriCompact) {
+                            qmriCompact = true;
+                            exitCompareQmri();
+                            enterCompareQmri();
+                        } else {
+                            exitCompareQmri();
+                        }
+                    } else if (compareActive) {
+                        qmriCompact = false;
                         enterCompareQmri();
+                    } else if (qmriActive) {
+                        const n = shape[qmriDim];
+                        if (n > 3 && !qmriCompact) {
+                            qmriCompact = true;
+                            exitQmri();
+                            enterQmri();
+                        } else {
+                            exitQmri();
+                        }
                     } else {
-                        exitCompareQmri();
-                    }
-                } else if (compareActive) {
-                    // In compare mode: enter compare-qMRI
-                    qmriCompact = false;
-                    enterCompareQmri();
-                } else if (qmriActive) {
-                    const n = shape[qmriDim];
-                    if (n > 3 && !qmriCompact) {
-                        // Full mode → switch to compact mode
-                        qmriCompact = true;
-                        exitQmri();
+                        qmriCompact = false;
                         enterQmri();
-                    } else {
-                        // Compact mode or n=3 → exit qMRI mode
-                        exitQmri();
                     }
-                } else {
-                    qmriCompact = false; // Start in full view
-                    enterQmri();
-                }
+                });
             } else if (e.key >= '1' && e.key <= '9') {
                 // Digit key (1-9): accumulate for slice index jump
                 sliceJumpBuffer += e.key;
@@ -5422,11 +5448,13 @@
                     showStatus('');
                 }
             } else if (e.key === 'F') {
-                // Zen / fullscreen mode
+                // Zen / fullscreen mode — also hide borders when entering
+                if (!_zenActive && canvasBorders) {
+                    canvasBorders = false;
+                    document.getElementById('canvas-viewport').classList.remove('canvas-bordered');
+                    document.querySelectorAll('.mv-view, .compare-canvas-wrap, .qv-canvas-wrap').forEach(el => el.classList.remove('canvas-bordered'));
+                }
                 toggleZenMode();
-            } else if (e.key === 'K') {
-                // Compact mode — toggle (also controls auto-collapse)
-                toggleCompactMode();
             } else if (e.key === 'U') {
                 if (!hasVectorfield) {
                     showStatus('U: no vector field loaded');
@@ -6290,7 +6318,7 @@
                         cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1,
                         ws: null, seq: 0, rendering: false, pending: false,
-                        lastW: 0, lastH: 0, lastImageData: null,
+                        lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                     };
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
@@ -6342,6 +6370,8 @@
                 }
                 wrap.appendChild(rowDiv);
             });
+            // Pre-size canvases immediately so layout is correct before first frame arrives
+            qvScaleAllCanvases();
             if (httpTransport) {
                 qmriViews.forEach(v => qvRender(v));
             }
@@ -7179,6 +7209,8 @@
             // and left-align items so columns align across rows.
             if (rows > 1) {
                 const qvRows = document.querySelectorAll('#qmri-view-wrap > .qv-row');
+                // Reset explicit widths so scrollWidth reflects natural content size
+                qvRows.forEach(r => { r.style.width = ''; });
                 let maxRowW = 0;
                 qvRows.forEach(r => { maxRowW = Math.max(maxRowW, r.scrollWidth); });
                 if (maxRowW > 0) {
@@ -8281,11 +8313,9 @@
             if (_compactActive) {
                 _compactManual = false;
                 setCompactMode(false);
-                showToast('compact mode off · K to toggle');
             } else {
                 _compactManual = true;
                 setCompactMode(true);
-                showToast('compact mode on · K to toggle');
             }
         }
 

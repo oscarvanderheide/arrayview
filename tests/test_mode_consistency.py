@@ -443,22 +443,15 @@ class TestQmriBlocks:
 # ---------------------------------------------------------------------------
 
 class TestCompactModeWithMultiview:
-    """Compact mode (K) must not break multiview layout."""
+    """Compact mode must not break multiview layout."""
 
     def test_compact_toggle_does_not_break_multiview_canvas_size(self, loaded_viewer, sid_3d):
         """Toggling compact mode while in multiview must still produce
         correctly-sized pane canvases (not zero-size or unchanged from pre-multiview)."""
         page = loaded_viewer(sid_3d)
         _enter_multiview(page)
-        # Get pane canvas sizes before compact toggle
-        sizes_before = page.evaluate("""
-            () => [...document.querySelectorAll('.mv-canvas')].map(c => {
-                const r = c.getBoundingClientRect();
-                return { w: Math.round(r.width), h: Math.round(r.height) };
-            })
-        """)
         _focus_kb(page)
-        page.keyboard.press("K")  # turn compact on
+        page.evaluate("toggleCompactMode()")  # turn compact on
         page.wait_for_timeout(300)
         sizes_compact = page.evaluate("""
             () => [...document.querySelectorAll('.mv-canvas')].map(c => {
@@ -466,7 +459,7 @@ class TestCompactModeWithMultiview:
                 return { w: Math.round(r.width), h: Math.round(r.height) };
             })
         """)
-        page.keyboard.press("K")  # turn compact off
+        page.evaluate("toggleCompactMode()")  # turn compact off
         page.wait_for_timeout(300)
         sizes_after = page.evaluate("""
             () => [...document.querySelectorAll('.mv-canvas')].map(c => {
