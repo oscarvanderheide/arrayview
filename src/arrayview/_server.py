@@ -1054,6 +1054,90 @@ def get_roi(
     }
 
 
+@app.get("/roi_floodfill/{sid}")
+def get_roi_floodfill(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    px: int,
+    py: int,
+    tolerance: float = 0.1,
+    complex_mode: int = 0,
+):
+    """Flood-fill ROI: grow connected region from seed pixel within tolerance."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    if not (0 <= py < h and 0 <= px < w):
+        return {"error": "seed out of bounds"}
+    seed_val = float(data[py, px])
+    # Use scipy flood_fill if available, else manual BFS
+    try:
+        from scipy.ndimage import label
+
+        abs_tol = tolerance * (np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10)
+        mask = np.abs(data - seed_val) <= abs_tol
+        # Label connected components and pick the one containing the seed
+        labeled, n_features = label(mask)
+        seed_label = labeled[py, px]
+        if seed_label == 0:
+            return {"error": "seed outside tolerance region"}
+        component = labeled == seed_label
+    except ImportError:
+        # Fallback: simple BFS flood fill
+        abs_tol = tolerance * (np.nanmax(np.abs(data)) - np.nanmin(np.abs(data)) + 1e-10)
+        component = np.zeros((h, w), dtype=bool)
+        stack = [(py, px)]
+        component[py, px] = True
+        while stack:
+            cy, cx = stack.pop()
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < h and 0 <= nx < w and not component[ny, nx]:
+                    if abs(float(data[ny, nx]) - seed_val) <= abs_tol:
+                        component[ny, nx] = True
+                        stack.append((ny, nx))
+    roi = data[component]
+    finite = roi[np.isfinite(roi)]
+    # Return mask as run-length bounding box for rendering
+    ys, xs = np.where(component)
+    bbox = {
+        "x0": int(xs.min()),
+        "y0": int(ys.min()),
+        "x1": int(xs.max()),
+        "y1": int(ys.max()),
+    } if len(xs) > 0 else {"x0": 0, "y0": 0, "x1": 0, "y1": 0}
+    return {
+        "min": _safe_float(finite.min()) if finite.size else None,
+        "max": _safe_float(finite.max()) if finite.size else None,
+        "mean": _safe_float(finite.mean()) if finite.size else None,
+        "std": _safe_float(finite.std()) if finite.size else None,
+        "n": int(finite.size),
+        "seed_value": _safe_float(seed_val),
+        "tolerance": tolerance,
+        "bbox": bbox,
+        # Encode mask as base64 for rendering
+        "mask_b64": _encode_mask_b64(component, bbox),
+    }
+
+
+def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
+    """Encode the mask region within bbox as base64 for frontend rendering."""
+    import base64
+
+    x0, y0 = bbox["x0"], bbox["y0"]
+    x1, y1 = bbox["x1"], bbox["y1"]
+    sub = mask[y0 : y1 + 1, x0 : x1 + 1].astype(np.uint8)
+    return base64.b64encode(sub.tobytes()).decode("ascii")
+
+
 @app.get("/line_profile/{sid}")
 def get_line_profile(
     sid: str,
