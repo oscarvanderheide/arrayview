@@ -1991,7 +1991,11 @@
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
             // Hide if colorbar is off or pane has no data yet
-            const cssW = parseInt(cv.style.width);
+            // Clamp width to the viewport (clipping container) so colorbars
+            // don't overflow their pane when zoomed.
+            const inner = cv.closest('.compare-canvas-inner');
+            const vpW = inner && inner.dataset.vpW ? parseInt(inner.dataset.vpW) : 0;
+            const cssW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
             if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
                 cbCanvas.style.display = 'none';
                 if (cbLabels) cbLabels.style.display = 'none';
@@ -2062,7 +2066,10 @@
             if (!diffPaneCb) return;
             const diffCanvas = document.getElementById('compare-diff-canvas');
             if (!diffCanvas) return;
-            const cssW = parseInt(diffCanvas.style.width);
+            // Clamp to viewport width so colorbar doesn't overflow when zoomed
+            const diffInner = diffCanvas.closest('.compare-canvas-inner');
+            const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
+            const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
             if (!colorbarVisible() || !cssW || cssW < 10) {
                 diffPaneCb.style.display = 'none';
                 if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
