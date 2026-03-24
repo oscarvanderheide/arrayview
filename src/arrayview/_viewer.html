@@ -979,8 +979,8 @@
                 <div class="help-row"><span class="key">w</span><span class="desc">histogram — expand colorbar to show value distribution; hover to highlight matching pixels</span></div>
                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
-                <div class="help-row"><span class="key">X</span><span class="desc">cycle compare center pane (2-pane compare): off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → off</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">in movie mode: fps; else: wipe position, overlay blend, overlay alpha, or arrow density</span></div>
+                <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">movie: fps · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                 <div class="help-row"><span class="key">U</span><span class="desc">toggle vector arrows</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -1215,7 +1215,12 @@
         let compareRegistrationFrame = null;
         let registrationMode = false;  // derived from compareCenterMode
         let _wipeActive = false;       // derived from compareCenterMode
-        let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe
+        let _flickerActive = false;    // derived from compareCenterMode
+        let _checkerActive = false;    // derived from compareCenterMode
+        let _flickerTimer = null;      // interval timer for flicker mode
+        let _flickerShowA = true;      // current flicker frame (true=A, false=B)
+        let _checkerSize = 32;         // tile size in image pixels for checkerboard
+        let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe,6=flicker,7=checker
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let pendingViewMode = null;
@@ -1872,7 +1877,7 @@
 
         // ── Compare center-pane mode (unified: diff / overlay / wipe) ─────────
         // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|, 4=overlay, 5=wipe
-        const COMPARE_CENTER_LABELS = ['off', 'A−B', '|A−B|', '|A−B|/|A|', 'overlay', 'wipe'];
+        const COMPARE_CENTER_LABELS = ['off', 'A−B', '|A−B|', '|A−B|/|A|', 'overlay', 'wipe', 'flicker', 'checker'];
 
         function _setCompareCenterMode(newMode) {
             const prev = compareCenterMode;
@@ -1881,6 +1886,14 @@
             diffMode       = (newMode >= 1 && newMode <= 3) ? newMode : 0;
             registrationMode = (newMode === 4);
             _wipeActive    = (newMode === 5);
+            _flickerActive = (newMode === 6);
+            _checkerActive = (newMode === 7);
+
+            // Stop flicker timer when leaving flicker mode
+            if (!_flickerActive && _flickerTimer) {
+                clearInterval(_flickerTimer);
+                _flickerTimer = null;
+            }
 
             // Clear focus mode when center pane is turned off
             if (newMode === 0 && compareFocusMode) {
@@ -1895,15 +1908,20 @@
                 diffPane.classList.toggle('overlay-center', registrationMode);
             }
 
-            // Update wipe pane visibility
+            // Update wipe pane visibility (reused for flicker and checker)
             const wipePaneEl = document.getElementById('compare-wipe-pane');
-            if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
-            compareWrap.classList.toggle('wipe-mode', _wipeActive);
+            const showWipePane = _wipeActive || _flickerActive || _checkerActive;
+            if (wipePaneEl) wipePaneEl.style.display = showWipePane ? 'flex' : 'none';
+            compareWrap.classList.toggle('wipe-mode', showWipePane);
+
+            // Hide range slider when not in wipe mode
+            const wipeRangeWrap = document.getElementById('wipe-range-wrap');
+            if (wipeRangeWrap) wipeRangeWrap.style.display = _wipeActive ? '' : 'none';
 
             // Prevent flex-wrap from pushing the third column to a new row
             // when a center pane (diff/overlay/wipe) creates a 3-column layout.
             const panesEl = document.getElementById('compare-panes');
-            const _hasCenterNow = (diffMode > 0 || registrationMode || _wipeActive);
+            const _hasCenterNow = (diffMode > 0 || registrationMode || showWipePane);
             if (panesEl) panesEl.style.flexWrap = (_hasCenterNow && compareDisplaySids.length === 2) ? 'nowrap' : '';
 
             // Update titles
@@ -1921,7 +1939,15 @@
             } else if (_wipeActive) {
                 compareScaleCanvases();
                 _drawWipe();
-                showStatus('wipe: drag slider · X to cycle');
+                showStatus('wipe: move cursor to sweep · X to cycle');
+            } else if (_flickerActive) {
+                compareScaleCanvases();
+                _startFlicker();
+                showStatus('flicker: auto-toggling A/B · X to cycle');
+            } else if (_checkerActive) {
+                compareScaleCanvases();
+                _drawCheckerboard();
+                showStatus('checker: [ ] tile size · X to cycle');
             }
             renderEggs();
             saveState();
@@ -3780,13 +3806,16 @@
             }
             if (typeof s.compareName === 'string') compareName = s.compareName;
             // Restore unified compare center mode (prefer new field, fall back to legacy)
-            if (Number.isInteger(s.compareCenterMode) && s.compareCenterMode >= 0 && s.compareCenterMode < 6) {
+            if (Number.isInteger(s.compareCenterMode) && s.compareCenterMode >= 0 && s.compareCenterMode < COMPARE_CENTER_LABELS.length) {
                 compareCenterMode = s.compareCenterMode;
             } else {
                 compareCenterMode = s.registrationMode ? 4 : 0;
             }
             registrationMode = (compareCenterMode === 4);
             diffMode = (compareCenterMode >= 1 && compareCenterMode <= 3) ? compareCenterMode : 0;
+            _wipeActive = (compareCenterMode === 5);
+            _flickerActive = (compareCenterMode === 6);
+            _checkerActive = (compareCenterMode === 7);
             if (Number.isFinite(Number(s.registrationAlpha))) {
                 registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
             }
@@ -4764,7 +4793,18 @@
                     return;
                 }
                 const step = e.key === ']' ? 0.05 : -0.05;
-                if (compareActive && _wipeActive) {
+                if (compareActive && _checkerActive) {
+                    // Checkerboard tile size
+                    const sizes = [8, 16, 24, 32, 48, 64, 96, 128];
+                    const curIdx = sizes.indexOf(_checkerSize);
+                    const nextIdx = e.key === ']'
+                        ? Math.min(sizes.length - 1, (curIdx < 0 ? 3 : curIdx) + 1)
+                        : Math.max(0, (curIdx < 0 ? 3 : curIdx) - 1);
+                    _checkerSize = sizes[nextIdx];
+                    _drawCheckerboard();
+                    showStatus(`checker tile: ${_checkerSize}px`);
+                    saveState();
+                } else if (compareActive && _wipeActive) {
                     // Wipe position
                     _wipeFrac = Math.max(0, Math.min(1, _wipeFrac + step));
                     _drawWipe();
@@ -6099,6 +6139,9 @@
             diffMode = 0;
             registrationMode = false;
             _wipeActive = false;
+            _flickerActive = false;
+            _checkerActive = false;
+            if (_flickerTimer) { clearInterval(_flickerTimer); _flickerTimer = null; }
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
             document.getElementById('compare-diff-pane').style.display = 'none';
@@ -8710,30 +8753,37 @@
             }, 1500);
         }
 
-        // ── 4. A/B wipe comparator (center pane + range slider) ──────
+        // ── 4. A/B wipe comparator (cursor-following) ──────────────
         let _wipeFrac = 0.5;
         const _wipeCanvas = document.getElementById('compare-wipe-canvas');
         const _wipeCtx = _wipeCanvas ? _wipeCanvas.getContext('2d') : null;
         const _wipeRange = document.getElementById('wipe-range');
 
-        function _drawWipe() {
-            if (!_wipeActive || !_wipeCtx || compareFrames.length < 2) return;
+        function _sizeWipeCanvas() {
+            if (!_wipeCtx || compareFrames.length < 2) return null;
             const f0 = compareFrames[0], f1 = compareFrames[1];
-            if (!f0 || !f1) return;
+            if (!f0 || !f1) return null;
             const W = f0.width, H = f0.height;
             _wipeCanvas.width = W; _wipeCanvas.height = H;
-            // Match CSS size of the reference compare canvas
             const refCv = compareCanvases[0];
             const cssW = parseInt(refCv.style.width)  || refCv.offsetWidth  || W;
             const cssH = parseInt(refCv.style.height) || refCv.offsetHeight || H;
             _wipeCanvas.style.width  = cssW + 'px';
             _wipeCanvas.style.height = cssH + 'px';
+            return { f0, f1, W, H, cssW, cssH };
+        }
+
+        function _drawWipe() {
+            if (!_wipeActive || !_wipeCtx) return;
+            const s = _sizeWipeCanvas();
+            if (!s) return;
+            const { f0, f1, W, H, cssW } = s;
             const xSplit = Math.round(_wipeFrac * W);
             const d0 = applyFlips(f0.imageData, f0.width, f0.height);
             const d1 = applyFlips(f1.imageData, f1.width, f1.height);
             _wipeCtx.putImageData(d0, 0, 0, 0, 0, xSplit, H);
             _wipeCtx.putImageData(d1, 0, 0, xSplit, 0, W - xSplit, H);
-            // Draw 1 CSS-pixel divider line (pixel-snapped for crisp rendering)
+            // Draw 1 CSS-pixel divider line
             _wipeCtx.save();
             _wipeCtx.strokeStyle = 'rgba(245,200,66,0.9)';
             const linePx = Math.max(1, W / cssW);
@@ -8756,6 +8806,20 @@
             }
         }
 
+        // Wipe follows cursor over the canvas
+        if (_wipeCanvas) {
+            _wipeCanvas.addEventListener('mousemove', (e) => {
+                if (!_wipeActive) return;
+                const rect = _wipeCanvas.getBoundingClientRect();
+                _wipeFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                _drawWipe();
+            });
+            _wipeCanvas.addEventListener('mouseleave', () => {
+                // Keep last position on leave (don't reset)
+            });
+            _wipeCanvas.style.cursor = 'ew-resize';
+        }
+
         function toggleWipeMode() {
             if (!compareActive) { showToast('wipe: only in 2-pane compare (P)'); return; }
             const nPanes = (_compareExplicitSids || compareDisplaySids).length;
@@ -8767,7 +8831,7 @@
             if (_wipeActive) {
                 compareScaleCanvases();
                 _drawWipe();
-                showStatus('wipe: drag slider · W to exit');
+                showStatus('wipe: move cursor to sweep · W to exit');
             } else {
                 showStatus('wipe: off');
             }
@@ -8781,37 +8845,80 @@
             });
         }
 
-        // Click-drag the wipe divider line on the canvas
-        let _wipeDragging = false;
-        if (_wipeCanvas) {
-            _wipeCanvas.addEventListener('mousedown', (e) => {
-                if (!_wipeActive || e.button !== 0) return;
-                const rect = _wipeCanvas.getBoundingClientRect();
-                const xRel = (e.clientX - rect.left) / rect.width;
-                // Start drag if click is near the divider (±5% of canvas width)
-                if (Math.abs(xRel - _wipeFrac) < 0.05) {
-                    _wipeDragging = true;
-                    e.preventDefault();
-                }
-            });
-            window.addEventListener('mousemove', (e) => {
-                if (!_wipeDragging) return;
-                const rect = _wipeCanvas.getBoundingClientRect();
-                _wipeFrac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                _drawWipe();
-            });
-            window.addEventListener('mouseup', () => { if (_wipeDragging) { _wipeDragging = false; saveState(); } });
-            // Update cursor when near the divider line
-            _wipeCanvas.addEventListener('mousemove', (e) => {
-                if (_wipeDragging) return;
-                const rect = _wipeCanvas.getBoundingClientRect();
-                const xRel = (e.clientX - rect.left) / rect.width;
-                _wipeCanvas.style.cursor = Math.abs(xRel - _wipeFrac) < 0.05 ? 'ew-resize' : 'crosshair';
-            });
+        // ── 4b. Flicker mode (auto-toggle A/B at ~3 Hz) ─────────────
+        function _startFlicker() {
+            if (_flickerTimer) clearInterval(_flickerTimer);
+            _flickerShowA = true;
+            _drawFlickerFrame();
+            _flickerTimer = setInterval(() => {
+                _flickerShowA = !_flickerShowA;
+                _drawFlickerFrame();
+            }, 333); // ~3 Hz
         }
 
-        // Re-draw wipe whenever compare frames update
-        function _maybeRedrawWipe() { if (_wipeActive) _drawWipe(); }
+        function _drawFlickerFrame() {
+            if (!_flickerActive || !_wipeCtx || compareFrames.length < 2) return;
+            const s = _sizeWipeCanvas();
+            if (!s) return;
+            const frame = _flickerShowA ? s.f0 : s.f1;
+            const d = applyFlips(frame.imageData, frame.width, frame.height);
+            _wipeCtx.putImageData(d, 0, 0);
+            // Update title to show which frame is visible
+            const wipeTitle = document.getElementById('compare-wipe-title');
+            if (wipeTitle) wipeTitle.textContent = _flickerShowA ? 'A' : 'B';
+        }
+
+        // ── 4c. Checkerboard compare ─────────────────────────────────
+        function _drawCheckerboard() {
+            if (!_checkerActive || !_wipeCtx || compareFrames.length < 2) return;
+            const s = _sizeWipeCanvas();
+            if (!s) return;
+            const { f0, f1, W, H } = s;
+            const d0 = applyFlips(f0.imageData, f0.width, f0.height);
+            const d1 = applyFlips(f1.imageData, f1.width, f1.height);
+            // Draw A as base
+            _wipeCtx.putImageData(d0, 0, 0);
+            // Create temporary canvas with B
+            const tmpCv = document.createElement('canvas');
+            tmpCv.width = W; tmpCv.height = H;
+            const tmpCtx = tmpCv.getContext('2d');
+            tmpCtx.putImageData(d1, 0, 0);
+            // Clip B through checkerboard pattern and draw on top
+            _wipeCtx.save();
+            _wipeCtx.beginPath();
+            const sz = _checkerSize;
+            for (let row = 0; row * sz < H; row++) {
+                for (let col = 0; col * sz < W; col++) {
+                    if ((row + col) % 2 === 1) {
+                        _wipeCtx.rect(col * sz, row * sz, sz, sz);
+                    }
+                }
+            }
+            _wipeCtx.clip();
+            _wipeCtx.drawImage(tmpCv, 0, 0);
+            _wipeCtx.restore();
+            // Draw subtle grid lines at tile boundaries
+            _wipeCtx.save();
+            _wipeCtx.strokeStyle = 'rgba(245,200,66,0.15)';
+            _wipeCtx.lineWidth = Math.max(1, W / (parseInt(_wipeCanvas.style.width) || W));
+            for (let x = sz; x < W; x += sz) {
+                _wipeCtx.beginPath(); _wipeCtx.moveTo(x, 0); _wipeCtx.lineTo(x, H); _wipeCtx.stroke();
+            }
+            for (let y = sz; y < H; y += sz) {
+                _wipeCtx.beginPath(); _wipeCtx.moveTo(0, y); _wipeCtx.lineTo(W, y); _wipeCtx.stroke();
+            }
+            _wipeCtx.restore();
+            // Update title
+            const wipeTitle = document.getElementById('compare-wipe-title');
+            if (wipeTitle) wipeTitle.textContent = `checker ${sz}px`;
+        }
+
+        // Re-draw center pane whenever compare frames update
+        function _maybeRedrawWipe() {
+            if (_wipeActive) _drawWipe();
+            else if (_flickerActive) _drawFlickerFrame();
+            else if (_checkerActive) _drawCheckerboard();
+        }
 
         // ── 5. Distance measurement ruler ────────────────────────────
         let _rulerMode = false;
