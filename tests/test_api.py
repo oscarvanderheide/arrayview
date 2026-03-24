@@ -846,6 +846,63 @@ class TestROI:
         assert r.status_code == 404
 
 
+class TestFloodFillROI:
+    def test_floodfill_returns_stats_and_mask(self, client, sid_2d):
+        r = client.get(
+            f"/roi_floodfill/{sid_2d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 40,
+                "py": 50,
+                "tolerance": 0.05,
+                "complex_mode": 0,
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "min" in body and "max" in body and "mean" in body
+        assert "n" in body and body["n"] > 0
+        assert "seed_value" in body
+        assert "bbox" in body
+        assert "mask_b64" in body
+
+    def test_floodfill_unknown_sid_is_404(self, client):
+        r = client.get(
+            "/roi_floodfill/doesnotexist000",
+            params={
+                "dim_x": 1,
+                "dim_y": 0,
+                "indices": "0,0",
+                "px": 0,
+                "py": 0,
+            },
+        )
+        assert r.status_code == 404
+
+    def test_floodfill_larger_tolerance_gives_more_pixels(self, client, sid_2d):
+        base = {
+            "dim_x": 1,
+            "dim_y": 0,
+            "indices": "0,0",
+            "px": 40,
+            "py": 50,
+            "complex_mode": 0,
+        }
+        r_small = client.get(
+            f"/roi_floodfill/{sid_2d}", params={**base, "tolerance": 0.01}
+        )
+        r_large = client.get(
+            f"/roi_floodfill/{sid_2d}", params={**base, "tolerance": 0.5}
+        )
+        assert r_small.status_code == 200
+        assert r_large.status_code == 200
+        n_small = r_small.json()["n"]
+        n_large = r_large.json()["n"]
+        assert n_large >= n_small
+
+
 # ---------------------------------------------------------------------------
 # /export_slice
 # ---------------------------------------------------------------------------
