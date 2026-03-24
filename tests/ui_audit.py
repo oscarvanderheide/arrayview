@@ -266,6 +266,52 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
             detail="" if not overlap else f"eggs={eggs_box} cb={cb_box}",
         ))
 
+    # R13: Colorbars don't overlap each other
+    # In compare mode, per-pane colorbars can overlap when zoomed.
+    # In normal mode, the slim colorbar can overlap with other elements.
+    all_cb_selectors = [
+        "#slim-cb-wrap",
+        ".compare-pane-cb",
+        ".mv-cb",
+        ".qv-cb",
+    ]
+    cb_boxes_all = []
+    for sel in all_cb_selectors:
+        boxes = page.evaluate(_JS_ALL_BOUNDING_BOXES, sel)
+        for box in boxes:
+            cb_boxes_all.append((sel, box))
+    # Check each pair for overlap
+    for i in range(len(cb_boxes_all)):
+        for j in range(i + 1, len(cb_boxes_all)):
+            sel_a, box_a = cb_boxes_all[i]
+            sel_b, box_b = cb_boxes_all[j]
+            overlap = _boxes_overlap(box_a, box_b)
+            if overlap:
+                results.append(AssertionResult(
+                    rule=f"R13 ({sel_a} overlaps {sel_b})",
+                    passed=False,
+                    detail=f"a={box_a} b={box_b}",
+                ))
+
+    # R14: Minimap within viewport and not overlapping colorbars
+    minimap_box = page.evaluate(_JS_BOUNDING_BOX, "#minimap-canvas")
+    minimap_visible = page.evaluate(_JS_IS_VISIBLE, "#minimap-canvas") if minimap_box else False
+    if minimap_box and minimap_visible:
+        within = _box_within_viewport(minimap_box, vp)
+        results.append(AssertionResult(
+            rule="R14 (minimap within viewport)",
+            passed=within,
+            detail="" if within else f"box={minimap_box}",
+        ))
+        # Check minimap doesn't overlap any colorbar
+        for sel, cb_b in cb_boxes_all:
+            if _boxes_overlap(minimap_box, cb_b):
+                results.append(AssertionResult(
+                    rule=f"R14 (minimap overlaps {sel})",
+                    passed=False,
+                    detail=f"minimap={minimap_box} cb={cb_b}",
+                ))
+
     # R8: ROI hover info within viewport (if present)
     roi_boxes = page.evaluate(_JS_ALL_BOUNDING_BOXES, ".cv-pixel-info")
     for i, box in enumerate(roi_boxes):
@@ -582,9 +628,7 @@ def run_scenarios(
                 _focus(page)
                 _press(page, "Shift+X", wait=800)
                 _shot(page, name)
-                # Diff mode has a center pane below the side panes that may
-                # extend past viewport — check with zoomed=True to skip R3.
-                assertion_results = run_assertions(page, name, zoomed=True)
+                assertion_results = run_assertions(page, name)
                 assertion_results.extend(run_diff_assertions(page))
                 _press(page, "Shift+X", wait=400)  # cycle through diff modes
                 for _ in range(5):
@@ -653,8 +697,7 @@ def run_scenarios(
                 _press(page, "Shift+X", wait=800)  # A-B
                 _press(page, "Shift+X", wait=800)  # |A-B|
                 _shot(page, name)
-                # Diff center pane extends below viewport by design
-                assertion_results = run_assertions(page, name, zoomed=True)
+                assertion_results = run_assertions(page, name)
                 assertion_results.extend(run_diff_assertions(page))
                 for _ in range(4):
                     _press(page, "Shift+X", wait=300)
@@ -665,7 +708,7 @@ def run_scenarios(
                 for _ in range(3):  # A-B → |A-B| → |A-B|/|A|
                     _press(page, "Shift+X", wait=800)
                 _shot(page, name)
-                assertion_results = run_assertions(page, name, zoomed=True)
+                assertion_results = run_assertions(page, name)
                 assertion_results.extend(run_diff_assertions(page))
                 for _ in range(3):
                     _press(page, "Shift+X", wait=300)
@@ -712,7 +755,7 @@ def run_scenarios(
                 _press(page, "Shift+X", wait=800)
                 _press(page, "Shift+A", wait=600)
                 _shot(page, name)
-                assertion_results = run_assertions(page, name, zoomed=True)
+                assertion_results = run_assertions(page, name)
                 for _ in range(3):
                     _press(page, "Shift+A", wait=300)
                 for _ in range(5):
