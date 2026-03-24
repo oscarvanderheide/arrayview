@@ -1,279 +1,119 @@
-# Competitor Feature Analysis
+# Feature Ideas for arrayview
 
-Research into two scientific array/image viewers to identify borrowable ideas for arrayview.
-
----
-
-## 1. 3D Slicer
-
-Desktop application (C++/Python/Qt) for medical image visualization and analysis. Massive ecosystem with extensions, but the core viewer has patterns worth studying.
-
-### Core Viewing Features
-
-- **Three-plane slice views** (Axial/Sagittal/Coronal) with colored bar identifiers (Red, Yellow, Green) -- similar to arrayview's multiview
-- **Slice offset slider** with adjustable step size (snaps to voxel spacing by default)
-- **Window/level adjustment**: left-click-drag in slice views; Ctrl+drag for auto-optimal W/L in a drawn region
-- **Reset W/L**: Ctrl+left-double-click resets to auto range
-- **Foreground/background blending**: opacity slider to fade between two overlaid volumes
-- **Interpolation toggle**: linear vs. nearest-neighbor (useful for label maps)
-- **Threshold transparency**: intensity range below/above threshold becomes transparent in foreground layer
-
-### Colormaps & Lookup Tables
-
-- Two types: discrete (named color lists) and continuous (smooth interpolation between arbitrary control points)
-- Categories: Discrete (Grey, Iron, Rainbow, Ocean, fMRI, fMRIPA), FreeSurfer (Heat, BlueRed), PET scales, Cartilage MRI (dGEMRIC), user-generated
-- Per-volume colormap assignment (each loaded volume can have its own LUT)
-- Predefined display presets that set both W/L and colormap together (e.g., "CT Bone", "CT Soft Tissue")
-
-### Histogram
-
-- Shown in Volumes module: pixel count (y) vs intensity (x), overlaid on the current W/L + threshold mapping
-- Serves as visual feedback while adjusting window/level
-
-### Crosshair & Linked Views
-
-- **Shift+mouse move** synchronizes crosshair position across ALL slice views simultaneously
-- **View linking**: groups of views share zoom, pan, and scroll position
-- **Hot-linked mode**: synchronization happens during drag, not just on release
-- Parallel views (same orientation) auto-sync center position
-
-### Compare Volumes Module
-
-- **Crossfade**: smooth blend between foreground/background
-- **Rock/Flicker**: animated toggling between two volumes to spot differences
-- **Layer Reveal Cursor**: checkerboard pattern of fg/bg follows cursor in real-time
-- **Side-by-side layouts**: configurable grid (1-up, 3-over-3, etc.)
-- **Common background**: overlay multiple volumes against one reference
-
-### Layout System
-
-- Predefined layouts: Four-Up (3 slices + 3D), Three-over-three, single/dual views
-- Layout persists between sessions
-- Double-click any view to maximize/restore
-- Views are independently configurable but can be linked
-
-### Mouse Interactions (Slice Views)
-
-| Action | Result |
-|--------|--------|
-| Right-drag up/down | Zoom |
-| Ctrl+scroll | Zoom |
-| Middle-drag | Pan |
-| Shift+left-drag | Pan |
-| Left/Right arrows, `b`/`f` | Prev/next slice |
-| `r` | Reset zoom & pan |
-| `v` | Toggle slice visibility in 3D |
-| `g` | Toggle segmentation overlay |
-| `t` | Toggle foreground visibility |
-| `[`/`]` | Cycle background volume |
-| `{`/`}` | Cycle foreground volume |
-
-### Measurements & Annotations
-
-- **Markups module**: point lists, lines, angles, curves, closed curves, planes, ROI boxes
-- **Ruler**: distance measurement between two points (Ctrl+m)
-- **Segment Statistics**: voxel count, volume (mm3/cm3), min/max/mean/median/stdev of intensity, surface area, shape descriptors (roundness, flatness, elongation), Feret diameter, centroid
-
-### Segmentation Tools
-
-Paint, Draw, Erase, Level Tracing, Threshold, Grow from Seeds, Fill Between Slices, Scissors, Islands, Smoothing, Hollow, Margin, Logical Operators, Mask Volume. Most relevant to arrayview: **Threshold** (interactive intensity-based selection) and **Level Tracing** (auto-outline at cursor intensity).
-
-### Screen Capture & Export
-
-- Single frame, 3D rotation video, slice sweep (animate through slices), slice fade (animate fg/bg blend), sequence playback
-- Output: image series, animated GIF (color/grayscale), MP4/AVI
-- "Capture all views" mode composites the full layout
-
-### Volume Rendering
-
-- CPU and GPU ray casting
-- Transfer function editing (opacity + color vs intensity)
-- Presets for anatomy types
-- MIP (maximum intensity projection), MinIP
-- ROI cropping box
-- Adaptive quality (frame-rate responsive)
-
-### Data Probe
-
-- Always-visible panel showing: slice name, RAS coordinates, orientation, voxel IJK, intensity value, segment name at cursor
-- Updates in real-time as cursor moves
+Based on analysis of 3D Slicer, arrShow, and original thinking.
+Items already in arrayview are excluded.
 
 ---
 
-## 2. arrShow (arrayShow)
+## From Existing Viewers (not yet in arrayview)
 
-MATLAB/Java desktop tool (v0.35) specifically designed for multidimensional complex-valued MRI data. Single-developer project by Tilman Sumpf. Much smaller scope than Slicer but highly relevant to arrayview's use case.
+### High Impact
 
-### Core Viewing Features
+1. **Rock / Flicker in Compare Mode** (from Slicer)
+   Auto-toggle between two arrays at 2-4 Hz so differences pop out visually. Timer-based
+   opacity swap between compare panes. Trivial to implement — arrayview already has compare
+   with overlay blend, wipe, and diff modes. Rock/flicker is the missing classic.
 
-- **N-dimensional array viewer** with value-changer controls per dimension (like sliders/spinners for each axis)
-- **True size mode**: pixel-perfect 1:1 rendering
-- **Aspect ratio control**: adjustable display aspect ratio
-- **Frame playback**: play/pause animation through a dimension at configurable FPS (default 50)
-- **Surface plot**: generate 3D surface visualization from 2D slice
+2. **Cursor-Following Wipe** (from Slicer "Layer Reveal Cursor")
+   The wipe line follows the mouse cursor instead of being slider-controlled. As you move
+   left/right, the split point moves with you. Arrayview has wipe mode (`X` cycle) but it's
+   slider-based. Making it cursor-aware is a small JS change.
 
-### Complex Data Handling (Unique Strength)
+3. **Auto W/L from ROI** (from Slicer)
+   Draw a rectangle, auto-set vmin/vmax from that region's percentiles. Solves "one bright
+   pixel ruins the dynamic range." Arrayview has ROI mode (`A`) with stats — just needs to
+   feed the stats back into vmin/vmax.
 
-- **Complex part chooser**: toggle between Magnitude, Phase, Real, Imaginary, and combined Complex view
-- **Phase overlay**: overlays phase as color on magnitude image (even when imaginary part is zero)
-- **Separate colormaps** for real data vs phase data
-- **Phase circle**: visual phase indicator drawn at cursor position
-- **Complex conjugate** and **negation** as one-click operations
+4. **Line Profile Plot** (from arrShow)
+   Click two points, show an intensity plot along that line as a small SVG overlay. Ruler
+   mode (`u`) already captures two points and computes distance — extend it to plot values.
 
-### Windowing (Dynamic Range)
+5. **Display Presets** (from Slicer)
+   Named W/L + colormap combos (e.g., "CT Bone", "MRI T1 weighted"). Save/recall via
+   localStorage. Especially useful for medical imaging where standard windows are well-known.
 
-- **Center/Width model**: interactive contrast via mouse drag (right-click)
-- **Absolute vs Relative windowing**: absolute uses fixed intensity values; relative uses percentage of data range
-- **Send windowing to relatives**: broadcast current W/L to all linked viewer instances
-- **CLim (color limit)** direct control
+6. **Interpolation Toggle** (from Slicer)
+   Switch between pixelated (current default) and bilinear smoothing when zoomed in.
+   Single CSS property toggle: `image-rendering: pixelated` vs `auto`. Useful for
+   continuous data where pixel boundaries are distracting.
 
-### ROI Tools
+### Medium Impact
 
-- **Freehand ROI drawing** with multiple vertices
-- **Circular ROI**: auto-convert 2-point selection to circle
-- **ROI statistics**: mean and standard deviation within region
-- **ROI position copy/paste**: transfer ROI definitions between views
-- **ROI persistence**: save/reload ROI definitions to disk
+7. **FOV Auto-Clamping** (from arrShow)
+   Prevent panning beyond image bounds. Simple bounds check in `_clampPan()`. Reduces
+   confusion when zoomed in.
 
-### Statistics & Analysis
+8. **Zoom-to-ROI** (from arrShow)
+   Draw a rectangle, zoom to fit exactly that region. Could reuse existing ROI drawing
+   and feed the coordinates into the zoom/pan system.
 
-- **Image statistics panel**: min, max, L2 norm displayed in control panel
-- **Cursor pixel readout**: real-time intensity at cursor position
-- **ROI-specific stats**: mean, stdev within selected region
-- **impixelregion** (Shift+Z): MATLAB's pixel inspection tool for detailed examination
-
-### Colormaps
-
-- Standard MATLAB colormaps + custom .mat-file colormaps
-- Separate phase colormap
-- Colormap editor integration (MATLAB's colormapeditor)
-- Colorbar toggle (disabled automatically in complex mode)
-- Colormap persistence: save current for reuse
-
-### Zoom & Navigation
-
-- **Mouse wheel zoom** with configurable zoom factor (default 1.5x per step)
-- **Zoom around centerpoint**: zoom relative to a specific coordinate
-- **Zoom copy/paste**: transfer zoom settings between instances
-- **FOV auto-clamping**: prevents zooming/panning outside image bounds
-- **Dimension permutation & reshaping** from within the viewer
-
-### Data Operations (In-Viewer)
-
-- **FFT/iFFT** with fftshift (Shift+F / Shift+D)
-- **90-degree rotation** (forward/backward)
-- **Complex conjugate**, **negation**
-- **Center-based and zoom-based cropping**
-- **Squeeze/Permute**: dimension manipulation without leaving the viewer
-- **Destructive selection** (Shift+S): subsetting data permanently
-- **Post-processing function hooks**: run custom MATLAB functions on every image update
-
-### Send/Broadcast System ("Relatives")
-
-- **Linked instances**: multiple arrShow windows share settings
-- **Selective broadcasting**: send by group or to all relatives
-- **Linkable properties**: selection (which slice), windowing, colormap, cursor position, zoom
-- **Global object registry** (asObjs): central management of all open viewers
-
-### Export
-
-- **Batch multi-frame export**: image series (PNG/BMP/EPS) or video (AVI)
-- **Configurable framerate** for video export
-- **Screenshot options**: include/exclude control panel, cursors, ROI overlays
-- **Metadata export**: dimensions, statistics, ROI data, version info
-- **NaN transparency**: automatic transparent pixels in PNG output
-
-### Markers & Annotations
-
-- **Pixel markers**: place colored markers on specific pixels
-- **Phase-aware marker colors**: white for phase data, yellow for real data
-- **Image text overlay**: render text directly onto image
-- **Title-as-text**: display figure title within the image area
-
-### GUI Layout
-
-- **Control panel** (top): dimension selectors, windowing controls, statistics readout, complex-part chooser
-- **Image panel** (center): main display area
-- **Bottom panel**: cursor coordinates, status
-- **Toolbar**: play/pause, zoom controls, lock, colorbar toggle, phase circle toggle
-- **Menu bar**: File, Operations, Tools, Relatives
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+E | Export current image |
-| Shift+F | FFT all images |
-| Shift+D | iFFT all images |
-| Ctrl+Shift+F | FFTshift |
-| Shift+S | Destructive selection |
-| Shift+Z | Pixel inspection (impixelregion) |
-| Mouse wheel | Scroll through dimensions |
-| +/- | Scroll through dimensions |
-| Right-click drag | Adjust windowing |
-| Double-click | Reset windowing |
+9. **Checkerboard Compare** (from Slicer)
+   Alternating tiles of array A and B in a grid pattern. Reveals local registration errors
+   that wipe mode misses. Render both arrays, composite with a tiled clip mask.
 
 ---
 
-## Borrowable Ideas for arrayview
+## Original Ideas — Things No Viewer Has
 
-Ranked by impact and feasibility for a web-based viewer.
+### Temporal Sparklines
+Hover a pixel in a 4D+ array and see a tiny inline chart showing how that voxel's value
+changes across the non-displayed dimensions (e.g., time). A mini time-series at your cursor.
+Implementation: fetch a 1D vector from the server at the hovered (x,y) across the
+slice dimension, render as a small SVG sparkline near the cursor.
 
-### High Impact, High Feasibility
+### Statistical Projections
+Beyond showing a single slice, offer max/min/mean/std projection along any axis.
+Toggle between "slice 42" and "max projection along dim 2" with one key. Extremely
+useful for finding features in 3D volumes (MIP is standard in radiology, but
+mean/std projections are novel for debugging).
 
-1. **Layer Reveal Cursor** (from Slicer Compare Volumes)
-   A checkerboard or wipe pattern that follows the cursor, showing array A on one side and array B on the other. Extremely useful for registration comparison. Would be a natural extension of arrayview's existing compare mode. Implementation: render both arrays, use a clip mask or canvas compositing at cursor position.
+### Auto-ROI from Click (Flood Fill)
+Click a pixel, auto-grow a connected region of similar intensity (flood-fill with
+adjustable tolerance via `[`/`]`). Show stats for the auto-selected region. Solves the
+"draw a precise ROI by hand" pain point. Server-side: `scipy.ndimage.label` on a
+thresholded neighborhood.
 
-2. **Crossfade / Rock / Flicker in Compare Mode** (from Slicer)
-   Animated toggling or smooth blending between two arrays. Rock/flicker are trivially implementable (timer-based opacity toggle). Crossfade just needs an opacity slider. All three are standard comparison techniques in medical imaging.
+### Shared Cursor / Co-Viewing
+Two researchers open the same URL. Both see each other's cursor position in real-time
+via WebSocket. One navigates, the other observes. Web-based advantage — impossible in
+desktop viewers without screen sharing. Critical for remote radiology review and
+mentoring.
 
-3. **Complex Part Chooser** (from arrShow)
-   Toggle between Magnitude, Phase, Real, Imaginary views of complex-valued arrays. If arrayview supports complex numpy arrays, this is essential. Could be a keyboard shortcut cycle (like `c` for colormap). Phase overlay on magnitude is a particularly compelling visualization.
+### Snapshot Gallery
+A persistent side panel collecting screenshots taken during a session (press `s`),
+showing thumbnails with slice position metadata. At the end, export as an HTML report
+or a grid image. Turns exploration into documentation automatically.
 
-4. **Broadcast/Link Settings Across Instances** (from arrShow "Relatives")
-   When multiple arrayview sessions are open (e.g., in shell tabs), allow linking zoom, slice position, colormap, and windowing across them. Partial overlap with compare mode, but more general.
+### Annotation Bookmarks
+Mark specific slice positions with short notes ("artifact here", "lesion boundary")
+that persist across sessions via URL state. Sharable — paste the URL and the recipient
+sees all bookmarks. Export as JSON for programmatic use.
 
-5. **Auto Window/Level from ROI** (from Slicer)
-   Ctrl+drag a rectangle, auto-compute optimal W/L from that region. Solves the "one bright pixel ruins the dynamic range" problem. Feasible: compute min/max or percentile from selected pixel region.
+### Dimension Reduction Preview
+For arrays with 5+ dimensions, show a small tree/diagram visualizing which dimensions
+are displayed (x, y), which are sliced (with current index), and which are collapsed.
+Makes navigation intuitive instead of "which dim is active again?"
 
-### High Impact, Medium Feasibility
+### Conditional Auto-Play
+"Show me only slices where the mean intensity exceeds X" — a filter that skips
+uninteresting slices during auto-play. Useful for sparse 4D data (e.g., fMRI
+activation maps where most time points are baseline).
 
-6. **Display Presets** (from Slicer)
-   Named W/L + colormap combinations (e.g., "CT Bone", "MRI T1", "Phase Map"). Users could save and recall presets. Needs a small persistence layer (localStorage or server-side).
+### Drag-and-Drop Compare
+Drag a .npy/.nii file from the OS file manager onto the viewer to instantly add it to
+compare mode. The browser drag-and-drop API makes this possible. No CLI round-trip.
 
-7. **Threshold Transparency** (from Slicer)
-   Make pixels below/above an intensity threshold transparent, revealing a background layer. Useful for overlaying masks or functional maps on structural images. Would need a dual-layer rendering approach.
+### Progressive Blur-Up Loading
+For large Zarr arrays over SSH: show a heavily downsampled preview immediately (2x2
+thumbnail) while the full-resolution slice streams in. Navigation feels instant even
+on slow connections. Server sends a low-res frame first, then upgrades.
 
-8. **Line Profile / Plot Along Dimension** (from arrShow)
-   Click a line across the image, see an intensity plot along that line. Common in scientific viewers. Could render as an SVG overlay or a small chart panel.
+### WebGPU Volume Rendering
+Use WebGPU compute shaders for real-time MIP / ray casting directly in the browser.
+No server round-trip for rotation. This would be a category-defining feature — no
+other web-based array viewer does GPU volume rendering.
 
-9. **Per-Pixel Data Probe Panel** (from Slicer)
-   Always-visible panel showing coordinates, intensity value, array name, dtype, and current slice position. arrayview already has hover info (`H` key), but a persistent pinned panel is more discoverable and useful during analysis.
-
-10. **In-Viewer FFT Toggle** (from arrShow)
-    One-key toggle to view the Fourier transform of the current slice. Very useful for MRI k-space inspection. Server-side computation via numpy, then display the result. Feasible but needs a round-trip.
-
-### Medium Impact, High Feasibility
-
-11. **Slice Sweep Animation** (from Slicer Screen Capture)
-    Animate through all slices as a GIF/video. arrayview already has GIF export, but adding a "sweep" mode that automatically cycles through a chosen dimension would be a nice UX improvement.
-
-12. **Zoom-to-ROI** (from arrShow)
-    Draw a rectangle, zoom to fit exactly that region. More precise than scroll-zoom. Could use the existing ROI mode infrastructure.
-
-13. **Colorbar with W/L Visualization** (from Slicer)
-    Show the current window/level range as highlighted region on the histogram/colorbar. arrayview already has histogram overlay on colorbar; adding W/L indicators (two lines or a shaded band) would give visual feedback during dynamic range adjustment.
-
-14. **Nearest-Neighbor Interpolation Toggle** (from Slicer)
-    When zoomed in, toggle between smooth (bilinear) and pixelated (nearest-neighbor) rendering. Useful when you want to see exact pixel boundaries vs smooth display. CSS `image-rendering: pixelated` makes this trivial in a browser.
-
-15. **FOV Auto-Clamping** (from arrShow)
-    Prevent panning beyond image bounds. Simple bounds check on the pan offset. Reduces user confusion when zoomed in.
-
-### Lower Priority / Niche
-
-16. **Phase Circle at Cursor** (from arrShow) -- visual phase indicator; niche but elegant for complex data
-17. **Surface Plot from 2D Slice** (from arrShow) -- 3D intensity surface; feasible with Three.js but niche
-18. **Dimension Permute/Reshape in Viewer** (from arrShow) -- useful for development/debugging
-19. **NaN Transparency in Export** (from arrShow) -- nice for compositing exported images
-20. **Segment Statistics** (from Slicer) -- min/max/mean/stdev within ROI; arrayview's ROI mode could show this in a tooltip or panel
+### Pixel History on Hover
+When `--watch` mode is active and the file changes on disk, track per-pixel changes
+over reloads. Hover a pixel to see "this value was 0.42, now 0.87 (+107%)". Useful
+for iterative reconstruction debugging.
