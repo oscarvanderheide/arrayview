@@ -628,6 +628,19 @@ class TestKeyboard:
             f"Expected screenshot status message, got: '{status}'"
         )
 
+    def test_border_toggle_uses_subtle_outline(self, loaded_viewer, sid_2d):
+        """Border toggle (b) should use 1px gray outline, not 2px highlight."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("b")
+        page.wait_for_timeout(200)
+        outline = page.evaluate(
+            "() => getComputedStyle(document.querySelector('#canvas-viewport')).outline"
+        )
+        # Should be 1px, not 2px; should NOT be pure white
+        assert "1px" in outline, f"expected 1px outline, got: {outline}"
+        assert "rgb(255, 255, 255)" not in outline, f"border should not be pure white: {outline}"
+
 
 # ---------------------------------------------------------------------------
 # Visual regression
