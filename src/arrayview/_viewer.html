@@ -6838,6 +6838,13 @@
                 }
                 wrap.appendChild(rowDiv);
             }
+            // Hide per-pane colorbars on non-bottom rows (shared colorbars at bottom)
+            if (compareMvSids.length >= 2) {
+                const allRows = wrap.querySelectorAll('.qv-row');
+                allRows.forEach((row, ri) => {
+                    if (ri < allRows.length - 1) row.classList.add('cq-inner-row');
+                });
+            }
             if (httpTransport) {
                 compareMvViews.forEach(v => compareMvRender(v));
             }
@@ -6992,12 +6999,14 @@
             const colGap = nRows >= 3 ? 12 : 24;
             const rowGap = nRows >= 3 ? 6 : 14;
             const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
-            const labelH = 24;  // column headers
+            const labelH = 0;  // no column headers in compare-multiview
             const cbH = 30;
+            // Only bottom row has colorbars (non-bottom rows hide them)
+            const cbRows = nRows >= 2 ? 1 : nRows;
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - labelH
-                         - nRows * cbH
+                         - cbRows * cbH
                          - (nRows - 1) * rowGap
                          - bottomPad;
             const absMaxScaleW = (window.innerWidth - sidePad - (nCols - 1) * colGap) / nCols;
