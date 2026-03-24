@@ -95,7 +95,10 @@ def _goto(page: Page, base: str, sid: str, wait: int = 1200):
 def _goto_compare(page: Page, base: str, sids: list[str], wait: int = 1500):
     sid_main = sids[0]
     compare_sids = ",".join(sids[1:])
-    page.evaluate("() => sessionStorage.clear()")
+    try:
+        page.evaluate("() => sessionStorage.clear()")
+    except Exception:
+        pass
     page.goto(f"{base}/?sid={sid_main}&compare_sids={compare_sids}")
     page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
     page.wait_for_timeout(wait)
