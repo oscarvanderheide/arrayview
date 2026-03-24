@@ -1730,6 +1730,13 @@
                     wipeInner.dataset.vpH = firstInner.dataset.vpH;
                 }
             }
+            // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
+            // from pushing the third column to a new row.
+            if (hasCenterPane && paneCount === 2) {
+                panesEl.style.flexWrap = 'nowrap';
+            } else {
+                panesEl.style.flexWrap = '';
+            }
             drawAllComparePaneCbs();
             if (registrationMode) drawRegBlendCb();
             drawSlimColorbar(cbMarkerFrac);
@@ -1849,12 +1856,19 @@
             if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
             compareWrap.classList.toggle('wipe-mode', _wipeActive);
 
+            // Prevent flex-wrap from pushing the third column to a new row
+            // when a center pane (diff/overlay/wipe) creates a 3-column layout.
+            const panesEl = document.getElementById('compare-panes');
+            const _hasCenterNow = (diffMode > 0 || registrationMode || _wipeActive);
+            if (panesEl) panesEl.style.flexWrap = (_hasCenterNow && compareDisplaySids.length === 2) ? 'nowrap' : '';
+
             // Update titles
             updateCompareTitles();
 
             if (newMode === 0) {
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
+                compareScaleCanvases();
                 fetchAndDrawDiff();
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
             } else if (registrationMode) {
