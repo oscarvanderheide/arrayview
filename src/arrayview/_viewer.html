@@ -473,6 +473,8 @@
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
         .qv-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .qv-row.cq-inner-row .qv-cb,
+        .qv-row.cq-inner-row .qv-cb-labels { display: none !important; }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         /* compare-qMRI: column header row for map names */
@@ -6503,6 +6505,13 @@
                 }
                 wrap.appendChild(rowDiv);
             }
+            // Hide per-pane colorbars on non-bottom rows (shared colorbars at bottom)
+            if (compareQmriSids.length >= 2) {
+                const allRows = wrap.querySelectorAll('.qv-row');
+                allRows.forEach((row, ri) => {
+                    if (ri < allRows.length - 1) row.classList.add('cq-inner-row');
+                });
+            }
             if (httpTransport) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
             }
@@ -6618,10 +6627,12 @@
             const sidePad = rows >= 3 ? 80 : 120;
             const labelH = 24;  // column headers
             const cbH = 30;
+            // Only the bottom row has colorbars (non-bottom rows hide them)
+            const cbRows = rows >= 2 ? 1 : rows;
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - labelH
-                         - rows * cbH
+                         - cbRows * cbH
                          - (rows - 1) * rowGap
                          - bottomPad;
             const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
