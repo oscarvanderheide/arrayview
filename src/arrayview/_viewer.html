@@ -399,7 +399,7 @@
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
-        #mv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
+        #mv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
         #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; transition: opacity 0.3s ease; }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
@@ -415,7 +415,7 @@
         #compare-diff-pane.overlay-center .compare-pane-cb,
         #compare-diff-pane.overlay-center .compare-pane-cb-labels { display: none !important; }
         #reg-blend-cb {
-            display: block; height: 8px; width: 100%; border-radius: 3px;
+            display: block; height: 11px; width: 100%; border-radius: 3px;
             border: 1px solid var(--border);
             margin-top: 4px; pointer-events: none;
         }
@@ -453,14 +453,14 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
+        .compare-pane-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
         .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
         }
         #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
         #compare-view-wrap.active #compare-cb-wrap { display: flex; justify-content: center; }
-        #compare-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
+        #compare-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
         #compare-cb-labels {
             display: flex; justify-content: center; gap: 0; font-size: 11px;
             color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto;
@@ -473,7 +473,7 @@
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
-        .qv-cb { display: block; margin: 0 auto; height: 8px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
+        .qv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
         .qv-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .qv-row.cq-inner-row .qv-cb,
         .qv-row.cq-inner-row .qv-cb-labels { display: none !important; }
@@ -529,15 +529,17 @@
             pointer-events: none;
         }
         body.compact-mode #info {
-            position: fixed; z-index: 6; font-size: 12px; margin: 0; padding: 2px 8px;
+            position: fixed; z-index: 6; font-size: 14px; margin: 0; padding: 4px 14px;
             transform: translateX(-50%); align-self: auto;
-            background: rgba(30, 30, 36, 0.75); border-radius: 4px;
-            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            background: rgba(30, 30, 30, 0.85); border-radius: 16px;
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
             transition: font-size 0.25s ease;
         }
         body.compact-mode #slim-cb-wrap.compact-overlay {
-            background: rgba(30, 30, 36, 0.72); border-radius: 3px;
-            padding: 2px 4px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            background: rgba(30, 30, 30, 0.85); border-radius: 12px;
+            padding: 5px 8px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
         }
         /* Hover reveals top chrome briefly in compact mode */
         body.compact-mode.compact-hover #array-name {
@@ -2017,7 +2019,7 @@
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
-            const stripH = 8;
+            const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.width = Math.round(cssW * dpr);
             cbCanvas.height = Math.round(stripH * dpr);
@@ -2054,7 +2056,7 @@
             if (!cv) return;
             const cssW = parseInt(cv.style.width);
             if (!cssW || cssW < 10) { regBlendCb.style.display = 'none'; return; }
-            const stripH = 8;
+            const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
             regBlendCb.width = Math.round(cssW * dpr);
             regBlendCb.height = Math.round(stripH * dpr);
@@ -2091,7 +2093,7 @@
             }
             const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
             if (!stops) return;
-            const stripH = 8;
+            const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
             diffPaneCb.width = Math.round(cssW * dpr);
             diffPaneCb.height = Math.round(stripH * dpr);
@@ -2208,7 +2210,7 @@
                     wrap.style.transform = '';
                     wrap.style.transformOrigin = '';
                     const cbLeft = canvasRect.left + (canvasRect.width - cssW) / 2 - 4;
-                    const cbTop = canvasRect.bottom - stripH - 14;
+                    const cbTop = canvasRect.bottom - stripH - 18;
                     wrap.style.top = cbTop + 'px';
                     wrap.style.left = cbLeft + 'px';
                     wrap.style.width = (cssW + 8) + 'px';
@@ -2252,7 +2254,7 @@
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
-            const cbTop = Math.min(canvasRect.bottom + 4, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            const cbTop = Math.min(canvasRect.bottom + 6, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 wrap.style.left = ((window.innerWidth - cssW) / 2) + 'px';
@@ -2269,9 +2271,9 @@
             sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
             sCtx.save();
             sCtx.scale(dpr, dpr);
-            // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode)
+            // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode and when histogram is expanded)
             const gradY = stripH - CB_COLLAPSED_H;
-            if (!lebesgueMode) {
+            if (!lebesgueMode && !_cbExpanded) {
                 const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
                 const n = stops.length;
                 for (let i = 0; i < n; i++) {
@@ -2301,14 +2303,19 @@
                 _drawClimLines(sCtx, cssW, stripH);
             }
             sCtx.restore();
-            slimCbLabels.style.display = '';
-            slimCbLabels.style.width = cssW + 'px';
-            slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+            // Hide labels when histogram is expanded — clim lines convey the range
+            if (_cbExpanded) {
+                slimCbLabels.style.display = 'none';
+            } else {
+                slimCbLabels.style.display = '';
+                slimCbLabels.style.width = cssW + 'px';
+                slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+            }
         }
 
         // ── Histogram-in-colorbar ────────────────────────────────────────────
-        const CB_COLLAPSED_H = 8;   // normal colorbar height in CSS px
-        const CB_EXPANDED_H  = 40;  // expanded height when histogram is shown
+        const CB_COLLAPSED_H = 11;  // normal colorbar height in CSS px
+        const CB_EXPANDED_H  = 53;  // expanded height when histogram is shown
 
         async function _fetchHistogram() {
             if (!sid || !indices.length || _histFetching) return;
@@ -6053,7 +6060,7 @@
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
             squareStretch = true;
-            userZoom = 1.4;
+            userZoom = 1.0;
             mvDims = dims;
             // Carry single-view flip state into per-dim flip map so rotations/flips are preserved
             flipDims[dim_x] = flip_x;
@@ -6655,7 +6662,7 @@
             const rowGap = rows >= 3 ? 4 : 14;
             const sidePad = rows >= 3 ? 80 : 120;
             const labelH = 24;  // column headers
-            const cbH = 30;
+            const cbH = 33;
             // Only the bottom row has colorbars (non-bottom rows hide them)
             const cbRows = rows >= 2 ? 1 : rows;
             const bottomPad = 16;
@@ -6668,10 +6675,12 @@
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            // Higher default zoom for multi-array grids
-            const defaultScale = absMaxScale * (rows >= 3 ? 0.88 : 0.65);
-            const scaledMin = Math.max(0.01, defaultScale * userZoom);
+            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
+            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
+            if (scaledMin > absMaxScale + 0.001) {
+                userZoom = 1.0;
+            }
             for (const v of ready) {
                 v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
@@ -7029,7 +7038,7 @@
             const rowGap = nRows >= 3 ? 6 : 14;
             const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
             const labelH = 0;  // no column headers in compare-multiview
-            const cbH = 30;
+            const cbH = 33;
             // Only bottom row has colorbars (non-bottom rows hide them)
             const cbRows = nRows >= 2 ? 1 : nRows;
             const bottomPad = 16;
@@ -7042,10 +7051,12 @@
             const absMaxScaleH = Math.max(10, totalH / nRows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            // Use higher default zoom for multi-array grids to fill more space
-            const defaultScale = absMaxScale * (nRows >= 3 ? 0.88 : 0.65);
-            const scaledMin = Math.max(0.01, defaultScale * userZoom);
+            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
+            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
+            if (scaledMin > absMaxScale + 0.001) {
+                userZoom = 1.0;
+            }
             for (const v of ready) {
                 const _sq = Math.round(Math.max(v.lastW, v.lastH) * cappedScale);
                 v.canvas.style.width  = squareStretch ? _sq + 'px' : Math.round(v.lastW * cappedScale) + 'px';
@@ -7185,8 +7196,8 @@
             const rowGap = 14;  // matches #qmri-view-wrap gap
             const sidePad = 80; // 40px each side from wrap padding
             const labelH = 24;  // qv-label above each canvas
-            // Reserve: colorbar strip (8px) + margin-top (2px) + label row (18px) + padding (2px) = 30px
-            const cbH = 30;
+            // Reserve: colorbar strip (11px) + margin-top (2px) + label row (18px) + padding (2px) = 33px
+            const cbH = 33;
             const bottomPad = 24; // breathing room below last colorbar
             const totalH = window.innerHeight - uiReserveV()
                          - rows * (labelH + cbH)
@@ -7196,10 +7207,12 @@
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            // Default zoom: 65 % of cap so there's a visible zoom-in range
-            const defaultScale = absMaxScale * 0.65;
-            const scaledMin = Math.max(0.01, defaultScale * userZoom);
+            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
+            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
+            if (scaledMin > absMaxScale + 0.001) {
+                userZoom = 1.0;
+            }
             const atMax = scaledMin > absMaxScale + 0.001;
             for (const v of ready) {
                 v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
@@ -7241,7 +7254,7 @@
             if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
-            const stripH = 8;
+            const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
             v.cbCanvas.width = Math.round(cssW * dpr);
             v.cbCanvas.height = Math.round(stripH * dpr);
@@ -7713,7 +7726,7 @@
             const wrap = document.getElementById('multi-view-wrap');
             if (!wrap) return;
             const cssW = Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
-            const cssH = _cbExpanded ? CB_EXPANDED_H : 8;
+            const cssH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.width = Math.round(cssW * dpr);
             cbCanvas.height = Math.round(cssH * dpr);
@@ -7724,10 +7737,10 @@
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
             sCtx.scale(dpr, dpr);
-            // Draw gradient strip at the bottom
+            // Draw gradient strip at the bottom (hidden when histogram is expanded)
             const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H) : 0;
             const gradH = _cbExpanded ? CB_COLLAPSED_H : cssH;
-            if (!lebesgueMode) {
+            if (!lebesgueMode && !_cbExpanded) {
                 const n = stops.length;
                 for (let col = 0; col < cssW; col++) {
                     const t = col / (cssW - 1);
@@ -7780,17 +7793,15 @@
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
             const uiReserveH = uiReserveV() + cbH + labelH;
             const gap = 16;
-            const availH = Math.max(50, (window.innerHeight - uiReserveH) * 0.65);
-            const availW = Math.max(50, (window.innerWidth - 80 - gap * 2) / 3 * 0.65);
             const absMaxT = Math.min(
                 Math.max(50, window.innerHeight - uiReserveH),
                 Math.max(50, (window.innerWidth - 80 - gap * 2) / 3)
             );
-            const requestedT = Math.max(50, Math.floor(Math.min(availH, availW) * userZoom));
+            const requestedT = Math.max(50, Math.floor(absMaxT * userZoom));
             const T = Math.min(requestedT, absMaxT);
             // Clamp userZoom so pressing + repeatedly doesn't overshoot the visual max
-            if (requestedT > absMaxT && Math.min(availH, availW) > 0) {
-                userZoom = absMaxT / Math.min(availH, availW);
+            if (requestedT > absMaxT) {
+                userZoom = 1.0;
             }
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
