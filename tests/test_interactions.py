@@ -183,11 +183,14 @@ class TestNoDoubleMessage:
         status = _get_status(page)
         assert "borders" in status.lower(), f"Expected borders status, got: '{status}'"
 
-    def test_K_compact_no_toast(self, loaded_viewer, sid_2d):
+    def test_K_key_does_nothing(self, loaded_viewer, sid_2d):
+        """K key is unbound — compact mode is auto-only."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("K")
         page.wait_for_timeout(200)
+        body_class = page.evaluate(_JS_BODY_CLASS)
+        assert "compact-mode" not in body_class, "K should not activate compact mode"
         self._assert_toast_empty(page)
 
     def test_Z_zen_no_toast(self, loaded_viewer, sid_2d):
@@ -1105,9 +1108,14 @@ class TestCompareModeSync:
         for _ in range(5):
             page.keyboard.press("+")
         page.wait_for_timeout(400)
-        minimap_visible = page.evaluate(
-            "() => document.getElementById('mini-map')?.classList.contains('visible') ?? false"
-        )
+        minimap_visible = page.evaluate("""
+            () => {
+                // Compare mode uses per-pane minimaps (.cmp-mini-map), not the global #mini-map
+                const perPane = document.querySelectorAll('.cmp-mini-map.visible');
+                if (perPane.length > 0) return true;
+                return document.getElementById('mini-map')?.classList.contains('visible') ?? false;
+            }
+        """)
         left_rect = page.evaluate(
             "() => { const c = document.querySelector('canvas#compare-left-canvas'); return c ? c.getBoundingClientRect() : null; }"
         )
@@ -1118,7 +1126,7 @@ class TestCompareModeSync:
             "Both compare canvases should be present when zoomed"
         )
         assert minimap_visible, (
-            "Compare zoom overflow should show the minimap so both panes can be panned together."
+            "Compare zoom overflow should show per-pane minimaps (.cmp-mini-map.visible)."
         )
         # Panes should be approximately at same vertical position (side-by-side layout)
         left_top = left_rect["y"]
@@ -1410,26 +1418,20 @@ class TestZenCompactMode:
             or "compare" in status.lower()
         ), f"Expected Z-blocked status in normal mode, got: '{status}'"
 
-    def test_K_toggles_compact_mode(self, loaded_viewer, sid_2d):
+    def test_compact_mode_activates_via_setCompactMode(self, loaded_viewer, sid_2d):
+        """Compact mode is auto-only (no K key); setCompactMode JS API activates it."""
         page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(300)
         body_class = page.evaluate(_JS_BODY_CLASS)
         assert "compact-mode" in body_class, (
-            f"Expected compact-mode class after K, got: '{body_class}'"
+            f"Expected compact-mode class after setCompactMode(true), got: '{body_class}'"
         )
-
-    def test_K_toggle_off_removes_class(self, loaded_viewer, sid_2d):
-        page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        page.keyboard.press("K")
-        page.wait_for_timeout(200)
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(200)
         body_class = page.evaluate(_JS_BODY_CLASS)
         assert "compact-mode" not in body_class, (
-            "compact-mode class should be removed after second K"
+            "compact-mode class should be removed after setCompactMode(false)"
         )
 
     def test_canvas_still_renders_in_zen_mode(self, loaded_viewer, sid_2d):

@@ -547,42 +547,39 @@ _JS_CB_IS_VERTICAL = """
 """
 
 class TestCompactMode:
-    def test_K_toggles_compact_mode(self, loaded_viewer, sid_2d):
-        """K key should toggle compact mode on and off."""
+    def test_compact_mode_activates(self, loaded_viewer, sid_2d):
+        """Compact mode activates via setCompactMode() — no K key (auto-only)."""
         page = loaded_viewer(sid_2d)
-        _focus_kb(page)
 
         assert not page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "Should not start in compact mode"
 
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(400)
-        assert page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "K should activate compact mode"
+        assert page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "setCompactMode(true) should activate compact mode"
         assert page.evaluate(_JS_ARRAY_NAME_HIDDEN), "Array name should be hidden in compact mode"
 
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(400)
-        assert not page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "K again should deactivate compact mode"
+        assert not page.evaluate(_JS_HAS_COMPACT_MODE_CLASS), "setCompactMode(false) should deactivate compact mode"
 
-    def test_compact_mode_vertical_colorbar(self, loaded_viewer, sid_2d):
-        """In compact mode, the colorbar should get the compact-vertical class."""
+    def test_compact_mode_hides_array_name(self, loaded_viewer, sid_2d):
+        """In compact mode, the array name should be hidden."""
         page = loaded_viewer(sid_2d)
-        _focus_kb(page)
 
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(500)
-        assert page.evaluate(_JS_CB_IS_VERTICAL), \
-            "Colorbar should have compact-vertical class in compact mode"
+        assert page.evaluate(_JS_ARRAY_NAME_HIDDEN), \
+            "Array name should be hidden in compact mode"
 
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(500)
-        assert not page.evaluate(_JS_CB_IS_VERTICAL), \
-            "Colorbar should not have compact-vertical class after exiting compact mode"
+        assert not page.evaluate(_JS_ARRAY_NAME_HIDDEN), \
+            "Array name should be visible after exiting compact mode"
 
     def test_compact_mode_info_still_visible(self, loaded_viewer, sid_2d):
         """In compact mode, the dim bar (#info) should still be visible (just smaller)."""
         page = loaded_viewer(sid_2d)
-        _focus_kb(page)
 
-        page.keyboard.press("K")
+        page.evaluate("toggleCompactMode()")
         page.wait_for_timeout(400)
         assert page.is_visible("#info"), "Info bar should remain visible in compact mode"
