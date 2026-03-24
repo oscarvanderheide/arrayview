@@ -52,6 +52,8 @@ from arrayview._render import (
     mosaic_shape,
     _compute_vmin_vmax,
     extract_slice,
+    extract_projection,
+    PROJECTION_OPS,
     apply_complex_mode,
     _compute_otsu_threshold,
     _prepare_display,
@@ -60,6 +62,7 @@ from arrayview._render import (
     _setup_rgb,
     render_rgb_rgba,
     render_rgba,
+    render_projection_rgba,
     _extract_overlay_mask,
     _composite_overlay_mask,
     _overlay_is_label_map,
@@ -381,6 +384,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             canvas_h = int(msg.get("canvas_h", 0))
             _mc = msg.get("mosaic_cols")
             mosaic_cols = int(_mc) if _mc is not None else None
+            projection_mode = int(msg.get("projection_mode", 0))
+            projection_dim = int(msg.get("projection_dim", -1))
 
             if session.rgb_axis is not None:
                 # RGB/RGBA mode — render directly from channel data; skip colormap.
@@ -408,6 +413,40 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 )
                 h, w = rgba.shape[:2]
                 raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                _, vmin, vmax = _prepare_display(
+                    session,
+                    raw,
+                    complex_mode,
+                    dr,
+                    log_scale,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
+            elif projection_mode > 0 and projection_dim >= 0:
+                # Statistical projection mode
+                _pm = projection_mode
+                _pd = projection_dim
+                rgba = await _render(
+                    loop,
+                    lambda: render_projection_rgba(
+                        session,
+                        dim_x,
+                        dim_y,
+                        idx_tuple,
+                        _pd,
+                        _pm,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
+                    ),
+                )
+                h, w = rgba.shape[:2]
+                raw = extract_projection(
+                    session, dim_x, dim_y, list(idx_tuple), _pd, _pm
+                )
                 _, vmin, vmax = _prepare_display(
                     session,
                     raw,
@@ -1281,12 +1320,36 @@ def get_slice(
     overlay_colors: str | None = None,
     overlay_alpha: float = 0.45,
     mosaic_cols: int | None = None,
+    projection_mode: int = 0,
+    projection_dim: int = -1,
 ):
     session = SESSIONS.get(sid)
     if not session:
         return Response(status_code=404)
     idx_tuple = tuple(int(x) for x in indices.split(","))
-    if dim_z >= 0:
+    if projection_mode > 0 and projection_dim >= 0:
+        rgba = render_projection_rgba(
+            session,
+            dim_x,
+            dim_y,
+            idx_tuple,
+            projection_dim,
+            projection_mode,
+            colormap,
+            dr,
+            complex_mode,
+            log_scale,
+            vmin_override,
+            vmax_override,
+        )
+        raw = extract_projection(
+            session, dim_x, dim_y, list(idx_tuple), projection_dim, projection_mode
+        )
+        _, vmin, vmax = _prepare_display(
+            session, raw, complex_mode, dr, log_scale,
+            vmin_override=vmin_override, vmax_override=vmax_override,
+        )
+    elif dim_z >= 0:
         rgba = render_mosaic(
             session,
             dim_x,

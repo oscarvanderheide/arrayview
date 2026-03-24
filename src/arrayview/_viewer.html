@@ -988,6 +988,7 @@
                   <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
+                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
@@ -1172,6 +1173,10 @@
         let flipDims = {}; // per-dimension flip state used in multi-view
         let _fftActive = false;
         let logScale = false;
+        // Statistical projection mode: 0=off, 1=MAX, 2=MIN, 3=MEAN, 4=STD, 5=SOS
+        let projectionMode = 0;
+        const PROJECTION_LABELS = ['off', 'MAX', 'MIN', 'MEAN', 'STD', 'SOS'];
+        const PROJECTION_COLORS = ['', '#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         const MASK_LEVELS = 8; // 0=off, 1–7 = increasing Otsu multipliers
         let maskLevel = 0;
         let multiViewActive = false;
@@ -1970,6 +1975,30 @@
             el.classList.add('visible');
             clearTimeout(_cmodStripTimer);
             _cmodStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
+        }
+
+        let _projStripTimer = null;
+        function showProjectionStrip() {
+            const el = document.getElementById('compare-mode-strip');
+            if (!el) return;
+            el.innerHTML = '';
+            const n = PROJECTION_LABELS.length;
+            for (let i = 0; i < n; i++) {
+                const thumb = document.createElement('div');
+                thumb.className = 'cmode-thumb' + (i === projectionMode ? ' active' : '');
+                if (i === projectionMode && PROJECTION_COLORS[i]) {
+                    thumb.style.borderColor = PROJECTION_COLORS[i];
+                    thumb.style.background = PROJECTION_COLORS[i] + '1a';
+                }
+                const lbl = document.createElement('span');
+                lbl.textContent = PROJECTION_LABELS[i];
+                if (i === projectionMode && PROJECTION_COLORS[i]) lbl.style.color = PROJECTION_COLORS[i];
+                thumb.appendChild(lbl);
+                el.appendChild(thumb);
+            }
+            el.classList.add('visible');
+            clearTimeout(_projStripTimer);
+            _projStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
         }
 
         function applyCompareLayout() {
@@ -3020,6 +3049,10 @@
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(current_slice_dim));
+                }
 
                 const frame = await fetchSliceFrame(params);
                 const vmin = frame.vmin;
@@ -3086,6 +3119,10 @@
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
                 });
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(current_slice_dim));
+                }
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
@@ -3402,6 +3439,10 @@
                 const diffLabel = COMPARE_CENTER_LABELS[compareCenterMode] || '';
                 html += `<span class="mode-badge mode-badge-diff">${diffLabel.toUpperCase()}</span>`;
             }
+            if (projectionMode > 0) {
+                const pColor = PROJECTION_COLORS[projectionMode];
+                html += `<span class="mode-badge" style="background:${pColor}1a;color:${pColor};border-color:${pColor}40">${PROJECTION_LABELS[projectionMode]}</span>`;
+            }
             if (rectRoiMode)
                 html += `<span class="mode-badge mode-badge-roi">ROI</span>`;
             el.innerHTML = html;
@@ -3706,6 +3747,7 @@
                 dr_idx,
                 indices: [...indices],
                 logScale,
+                projectionMode,
                 complexMode,
                 complexModeEverUsed,
                 flip_x,
@@ -3768,6 +3810,7 @@
                 });
             }
             logScale = s.logScale ?? false;
+            projectionMode = Number.isInteger(s.projectionMode) && s.projectionMode >= 0 && s.projectionMode < PROJECTION_LABELS.length ? s.projectionMode : 0;
             complexMode = s.complexMode ?? 0;
             complexModeEverUsed = s.complexModeEverUsed ?? false;
             flip_x = s.flip_x ?? false;
@@ -4084,6 +4127,8 @@
                 overlay_alpha: overlayAlpha,
                 canvas_w,
                 canvas_h,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -5405,6 +5450,21 @@
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 renderInfo();
                 renderEggs();
+                saveState();
+            } else if (e.key === 'p') {
+                // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
+                if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; }
+                if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; }
+                projectionMode = (projectionMode + 1) % PROJECTION_LABELS.length;
+                _eggsVisible = true;
+                updateView();
+                renderEggs();
+                showProjectionStrip();
+                if (projectionMode === 0) {
+                    showStatus('projection: off');
+                } else {
+                    showStatus(`projection: ${PROJECTION_LABELS[projectionMode]} along dim ${current_slice_dim}`);
+                }
                 saveState();
             } else if (e.key === 'i') {
                 const overlay = document.getElementById('info-overlay');
@@ -6742,6 +6802,8 @@
                 overlay_colors,
                 canvas_w: _qcw,
                 canvas_h: _qch,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
             }));
         }
 
@@ -6766,6 +6828,10 @@
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(current_slice_dim));
+                }
                 const frame = await fetchSliceFrame(params, v.sid);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
@@ -7093,6 +7159,8 @@
                 overlay_colors,
                 canvas_w: _cw,
                 canvas_h: _ch,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? v.sliceDir : -1,
             }));
         }
 
@@ -7115,6 +7183,10 @@
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(v.sliceDir));
+                }
                 if (v.lockedVmin !== null) {
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
@@ -7275,6 +7347,8 @@
                 overlay_colors,
                 canvas_w: _qcw,
                 canvas_h: _qch,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
             };
             if (qmriMosaicActive) _qmMsg.mosaic_cols = shape[_qmriMosaicZDim];
             v.ws.send(JSON.stringify(_qmMsg));
@@ -7300,6 +7374,10 @@
                     slice_dim: String(current_slice_dim),
                 });
                 if (qmriMosaicActive) params.set('mosaic_cols', String(shape[_qmriMosaicZDim]));
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(current_slice_dim));
+                }
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
@@ -7747,6 +7825,8 @@
                 overlay_colors,
                 canvas_w: _mvcw,
                 canvas_h: _mvch,
+                projection_mode: projectionMode,
+                projection_dim: projectionMode > 0 ? v.sliceDir : -1,
             }));
         }
 
@@ -7769,6 +7849,10 @@
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
+                if (projectionMode > 0) {
+                    params.set('projection_mode', String(projectionMode));
+                    params.set('projection_dim', String(v.sliceDir));
+                }
                 if (v.lockedVmin !== undefined && v.lockedVmin !== null && v.lockedVmax !== undefined && v.lockedVmax !== null) {
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));

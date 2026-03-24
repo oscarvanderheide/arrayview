@@ -384,6 +384,63 @@ class TestSlice:
         assert c[0] > c[2] + 20
 
 
+class TestProjection:
+    """Tests for statistical projection rendering (p key feature)."""
+
+    def test_max_projection_returns_jpeg(self, client, sid_3d):
+        r = client.get(
+            f"/slice/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "colormap": "gray",
+                "dr": 0,
+                "projection_mode": 1,  # MAX
+                "projection_dim": 0,  # project along dim 0
+            },
+        )
+        assert r.status_code == 200
+        assert "image/jpeg" in r.headers["content-type"]
+
+    def test_projection_modes_produce_different_images(self, client, sid_3d):
+        base = {
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "colormap": "gray",
+            "dr": 0,
+            "projection_dim": 0,
+        }
+        images = {}
+        for mode in [1, 2, 3, 4, 5]:  # MAX, MIN, MEAN, STD, SOS
+            r = client.get(
+                f"/slice/{sid_3d}",
+                params={**base, "projection_mode": mode},
+            )
+            assert r.status_code == 200
+            images[mode] = r.content
+        # MAX and MIN should differ
+        assert images[1] != images[2]
+        # MEAN and STD should differ
+        assert images[3] != images[4]
+
+    def test_projection_vs_normal_slice_differ(self, client, sid_3d):
+        base = {
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "colormap": "gray",
+            "dr": 0,
+        }
+        normal = client.get(f"/slice/{sid_3d}", params=base)
+        proj = client.get(
+            f"/slice/{sid_3d}",
+            params={**base, "projection_mode": 1, "projection_dim": 0},
+        )
+        assert normal.content != proj.content
+
+
 class TestOverlayWebSocket:
     def test_overlay_visible_over_transparent_base(self, tmp_path):
         from arrayview._app import app
