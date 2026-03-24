@@ -1054,6 +1054,43 @@ def get_roi(
     }
 
 
+@app.get("/line_profile/{sid}")
+def get_line_profile(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+):
+    """Return intensity values sampled along a line between two points."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(v) for v in indices.split(","))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    if log_scale:
+        data = np.where(data > 0, np.log10(data), 0.0)
+    h, w = data.shape
+    n_samples = 200
+    xs = np.linspace(float(x0), float(x1), n_samples)
+    ys = np.linspace(float(y0), float(y1), n_samples)
+    # Nearest-neighbor sampling, clamped to valid range
+    xi = np.clip(xs.astype(int), 0, w - 1)
+    yi = np.clip(ys.astype(int), 0, h - 1)
+    values = data[yi, xi]
+    distance = float(math.hypot(x1 - x0, y1 - y0))
+    return {
+        "values": [_safe_float(v) for v in values],
+        "distance": distance,
+    }
+
+
 @app.get("/histogram/{sid}")
 def get_histogram(
     sid: str,
@@ -1993,7 +2030,15 @@ async def load_upload(file: UploadFile = File(...)):
     session = await asyncio.to_thread(Session, data, name=name)
     SESSIONS[session.sid] = session
     await _notify_shells(session.sid, name, wait=False)
-    return {"sid": session.sid, "name": name}
+    resp_shape = [
+        int(s)
+        for s in (
+            session.spatial_shape
+            if session.rgb_axis is not None
+            else session.shape
+        )
+    ]
+    return {"sid": session.sid, "name": name, "shape": resp_shape}
 
 
 @app.post("/load_bytes")

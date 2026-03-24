@@ -1218,3 +1218,50 @@ class TestMultipleOverlays:
         # The mask region should have been tinted red
         assert result[25, 25, 0] > 0  # red channel non-zero in masked area
         assert result[0, 0, 0] == 0  # outside mask unchanged
+
+
+# ---------------------------------------------------------------------------
+# /line_profile
+# ---------------------------------------------------------------------------
+
+
+class TestLineProfile:
+    def test_line_profile_returns_values_and_distance(self, client, sid_3d):
+        r = client.get(
+            f"/line_profile/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "x0": 0,
+                "y0": 0,
+                "x1": 63,
+                "y1": 63,
+                "complex_mode": 0,
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "values" in body
+        assert "distance" in body
+        assert isinstance(body["values"], list)
+        assert isinstance(body["distance"], float)
+        assert body["distance"] > 0
+
+    def test_line_profile_values_length(self, client, sid_3d):
+        r = client.get(
+            f"/line_profile/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "x0": 0,
+                "y0": 0,
+                "x1": 30,
+                "y1": 30,
+                "complex_mode": 0,
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["values"]) == 200
