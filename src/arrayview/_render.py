@@ -603,10 +603,11 @@ def render_mosaic(
     dr,
     complex_mode=0,
     log_scale=False,
+    mosaic_cols=None,
 ):
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
-    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale)
+    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols)
     if key in session.mosaic_cache:
         session.mosaic_cache.move_to_end(key)
         return session.mosaic_cache[key]
@@ -633,7 +634,11 @@ def render_mosaic(
     else:
         vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
 
-    rows, cols = mosaic_shape(n)
+    if mosaic_cols is not None:
+        cols = mosaic_cols
+        rows = 1
+    else:
+        rows, cols = mosaic_shape(n)
     H, W = frames[0].shape
     GAP = 2
     total_h = rows * H + (rows - 1) * GAP

@@ -379,6 +379,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
             # so we skip transmitting pixels the browser discards anyway.
             canvas_w = int(msg.get("canvas_w", 0))
             canvas_h = int(msg.get("canvas_h", 0))
+            _mc = msg.get("mosaic_cols")
+            mosaic_cols = int(_mc) if _mc is not None else None
 
             if session.rgb_axis is not None:
                 # RGB/RGBA mode — render directly from channel data; skip colormap.
@@ -401,6 +403,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                         dr,
                         complex_mode,
                         log_scale,
+                        mosaic_cols=mosaic_cols,
                     ),
                 )
                 h, w = rgba.shape[:2]
@@ -1277,6 +1280,7 @@ def get_slice(
     overlay_sid: str | None = None,
     overlay_colors: str | None = None,
     overlay_alpha: float = 0.45,
+    mosaic_cols: int | None = None,
 ):
     session = SESSIONS.get(sid)
     if not session:
@@ -1293,6 +1297,7 @@ def get_slice(
             dr,
             complex_mode,
             log_scale,
+            mosaic_cols=mosaic_cols,
         )
         idx_norm = list(idx_tuple)
         idx_norm[dim_z] = 0
