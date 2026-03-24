@@ -280,6 +280,9 @@
                               border: 1px solid rgba(210,90,200,0.25); }
         .mode-badge-diff    { background: rgba(255,130,90,0.15); color: #ff8a5c;
                               border: 1px solid rgba(255,130,90,0.25); }
+        .mode-badge-roi     { background: rgba(45,90,39,0.8); color: #7ec87e;
+                              border: 1px solid rgba(80,160,70,0.35); }
+        :root.light .mode-badge-roi { background: rgba(45,90,39,0.6); color: #3a7a34; border-color: rgba(45,90,39,0.4); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
@@ -559,6 +562,20 @@
         .cmap-thumb.active canvas { border-color: var(--help-key); height:12px; width:72px; }
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--fg); }
+
+        /* ── ROI shape preview strip ───────────────────────────── */
+        #roi-shape-strip {
+            position:fixed; display:flex; flex-direction:row; align-items:center; gap:12px;
+            opacity:0; pointer-events:none; transition:opacity 0.25s ease;
+            z-index:8;
+        }
+        #roi-shape-strip.visible { opacity:1; }
+        .roi-shape-icon { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.45; transition:opacity 0.15s ease; }
+        .roi-shape-icon.active { opacity:1; }
+        .roi-shape-icon svg { width:24px; height:24px; stroke:var(--muted); stroke-width:1.5; }
+        .roi-shape-icon.active svg { width:30px; height:30px; stroke:var(--help-key); stroke-width:2; }
+        .roi-shape-icon span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; }
+        .roi-shape-icon.active span { color:var(--fg); }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -875,6 +892,7 @@
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
+    <div id="roi-shape-strip"></div>
     <div id="compare-mode-strip"></div>
     <div id="inline-prompt">
         <div id="inline-prompt-box">
@@ -3348,6 +3366,8 @@
                 const diffLabel = COMPARE_CENTER_LABELS[compareCenterMode] || '';
                 html += `<span class="mode-badge mode-badge-diff">${diffLabel.toUpperCase()}</span>`;
             }
+            if (rectRoiMode)
+                html += `<span class="mode-badge mode-badge-roi">ROI</span>`;
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
@@ -4489,6 +4509,11 @@
                         _rois[roiIdx].stats = d;
                         _updateRoiPanel();
                     });
+                    // Auto-exit ROI mode after freehand draw
+                    setTimeout(() => {
+                        rectRoiMode = false; _roiShape = 'rect';
+                        renderEggs();
+                    }, 1000);
                 } else {
                     const rw = Math.abs(roiEnd.x - roiStart.x);
                     const rh = Math.abs(roiEnd.y - roiStart.y);
@@ -4974,6 +4999,8 @@
                 }
                 canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
                 showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · A to cycle · drag to draw` : 'ROI mode: off');
+                showRoiShapeStrip();
+                renderEggs();
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'N') {
@@ -8380,6 +8407,43 @@
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
+                if (cbWrap) cbWrap.style.opacity = '1';
+            }, 1500);
+        }
+
+        // ── 3b. ROI shape preview strip ───────────────────────────────
+        const _roiStrip = document.getElementById('roi-shape-strip');
+        let _roiStripTimer = null;
+        function showRoiShapeStrip() {
+            if (!_roiStrip) return;
+            const shapes = [
+                { id: 'rect',     label: 'rect',     svg: '<rect x="4" y="4" width="16" height="16" rx="1" fill="none"/>' },
+                { id: 'circle',   label: 'circle',   svg: '<circle cx="12" cy="12" r="9" fill="none"/>' },
+                { id: 'freehand', label: 'freehand', svg: '<path d="M4 16 C6 4, 18 4, 20 16 C18 20, 6 20, 4 16Z" fill="none"/>' },
+            ];
+            const curShape = rectRoiMode ? _roiShape : null;
+            _roiStrip.innerHTML = '';
+            shapes.forEach(s => {
+                const icon = document.createElement('div');
+                icon.className = 'roi-shape-icon' + (s.id === curShape ? ' active' : '');
+                const sz = s.id === curShape ? 30 : 24;
+                icon.innerHTML = `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
+                    + `<span>${s.label}</span>`;
+                _roiStrip.appendChild(icon);
+            });
+            // Position strip centered on the colorbar
+            const cbWrap = document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
+            if (cbWrap) {
+                const cbRect = cbWrap.getBoundingClientRect();
+                _roiStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
+                _roiStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
+                _roiStrip.style.transform = 'translateX(-50%)';
+                cbWrap.style.opacity = '0';
+            }
+            _roiStrip.classList.add('visible');
+            clearTimeout(_roiStripTimer);
+            _roiStripTimer = setTimeout(() => {
+                _roiStrip.classList.remove('visible');
                 if (cbWrap) cbWrap.style.opacity = '1';
             }, 1500);
         }
