@@ -543,6 +543,87 @@ class TestKeyboard:
         page.wait_for_timeout(150)
         assert "playing" not in page.inner_text("#status").lower()
 
+    def test_playing_dim_gets_orange_class(self, loaded_viewer, sid_3d):
+        """Playing dim should get .playing-dim class (orange), not .active-dim."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Space")
+        page.wait_for_timeout(300)
+        has_playing = page.evaluate("""
+            () => document.querySelector('#info .playing-dim') !== null
+        """)
+        assert has_playing, "playing dim should have .playing-dim class during playback"
+        page.keyboard.press("Space")  # stop
+
+    def test_play_allows_independent_dim_navigation(self, loaded_viewer, sid_3d):
+        """During playback, user can change activeDim without affecting playingDim."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Space")
+        page.wait_for_timeout(300)
+        # The playing dim should be shown with .playing-dim class
+        playing_dim_idx = page.evaluate("""
+            () => {
+                const el = document.querySelector('#info .playing-dim');
+                return el ? parseInt(el.dataset.dim) : -1;
+            }
+        """)
+        assert playing_dim_idx >= 0, "playingDim should be set during playback"
+        # Initially activeDim == playingDim, so .playing-dim takes priority
+        # and there's no separate .active-dim element.
+        # Press h to change activeDim to a different dim.
+        page.keyboard.press("h")
+        page.wait_for_timeout(200)
+        # After h, activeDim moved to a different dim which should get .active-dim
+        active_after = page.evaluate("""
+            () => {
+                const el = document.querySelector('#info .active-dim');
+                return el ? parseInt(el.dataset.dim) : -1;
+            }
+        """)
+        assert active_after >= 0 and active_after != playing_dim_idx, (
+            f"Expected .active-dim on a different dim than playing ({playing_dim_idx}), "
+            f"got {active_after}"
+        )
+        # playingDim should still be marked with .playing-dim in the DOM
+        still_playing_idx = page.evaluate("""
+            () => {
+                const el = document.querySelector('#info .playing-dim');
+                return el ? parseInt(el.dataset.dim) : -1;
+            }
+        """)
+        assert still_playing_idx == playing_dim_idx, (
+            f"playingDim changed from {playing_dim_idx} to {still_playing_idx} after pressing h"
+        )
+        assert "playing" in page.inner_text("#status").lower(), \
+            "should still be playing after changing activeDim"
+        page.keyboard.press("Space")  # stop
+
+    def test_jk_on_playing_dim_stops_playback(self, loaded_viewer, sid_3d):
+        """Pressing j/k on the actively playing dim should stop playback."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Space")
+        page.wait_for_timeout(300)
+        # Ensure we're playing
+        assert "playing" in page.inner_text("#status").lower()
+        # Get the playing dim index from the DOM
+        playing_dim_idx = page.evaluate("""
+            () => {
+                const el = document.querySelector('#info .playing-dim');
+                return el ? parseInt(el.dataset.dim) : -1;
+            }
+        """)
+        assert playing_dim_idx >= 0
+        # Navigate activeDim to match the playing dim by pressing h/l until we get there
+        # For 3D array: activeDim starts at 2 (current_slice_dim), playing_dim is also 2
+        # So activeDim should already be on the playing dim — just press j
+        page.keyboard.press("j")
+        page.wait_for_timeout(200)
+        status = page.inner_text("#status").lower()
+        assert "playing" not in status, \
+            "playback should stop when j/k pressed on playing dim"
+
     def test_i_shows_data_info_overlay(self, loaded_viewer, sid_2d):
         # i shows the info overlay (#info-overlay gains .visible class)
         page = loaded_viewer(sid_2d)
