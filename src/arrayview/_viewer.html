@@ -9,7 +9,7 @@
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(180,180,180,0.35);
-            --active-dim: #f5c842; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
+            --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
             --help-key: #f5c842; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
         }
@@ -18,7 +18,7 @@
             --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
             --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
             --highlight: #000; --canvas-border: rgba(180,180,180,0.35);
-            --active-dim: #c47d00; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
+            --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
             --help-key: #c47d00; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
         }
@@ -27,7 +27,7 @@
             --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
             --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
             --highlight: #073642; --canvas-border: rgba(180,180,180,0.35);
-            --active-dim: #b58900; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
+            --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
             --help-key: #b58900; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
         }
@@ -36,7 +36,7 @@
             --border: #3b4252; --border-subtle: rgba(216,222,233,0.07);
             --text: #d8dee9; --muted: #616e88; --subtle: #3b4252;
             --highlight: #eceff4; --canvas-border: rgba(180,180,180,0.35);
-            --active-dim: #ebcb8b; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
+            --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #ebcb8b; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
             --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
         }
@@ -83,6 +83,7 @@
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
+        .playing-dim { color: var(--playing-dim); font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
         .vfield-t-dim .dim-track-fill { background: var(--vfield-t-dim); opacity: 0.45; }
         .active-vfield-t { font-weight: bold; }
@@ -102,6 +103,7 @@
         }
         .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
         .active-dim .dim-track-fill { background: var(--active-dim); }
+        .playing-dim .dim-track-fill { background: var(--playing-dim); }
         #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
                   white-space: nowrap; pointer-events: none; z-index: 5; }
@@ -1036,6 +1038,7 @@
         let _sessionName = ''; // set from metadata; restored when leaving compare mode
         let colormap_idx = 0, dr_idx = 1;
         let isPlaying = false, playInterval = null, playingVfieldT = false;
+        let playingDim = -1;  // -1 = not playing; set to dim index during playback
         let dim_z = -1;
         let lastDirection = 1;
         let isDark = true;
@@ -3376,9 +3379,11 @@
         function renderInfo() {
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
+                const playing = (playingDim >= 0 && i === playingDim);
+                const dimCls = playing ? 'playing-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
                 if ((qmriActive && i === qmriDim) || (compareQmriActive && i === compareQmriDim)) {
-                    return active ? `<span class="active-dim q-dim dim-label" ${d}>q</span>`
+                    return (active || playing) ? `<span class="${dimCls} q-dim dim-label" ${d}>q</span>`
                                   : `<span class="q-dim dim-label" ${d}>q</span>`;
                 }
                 if (multiViewActive || compareMvActive) {
@@ -3389,36 +3394,36 @@
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
                         const prefix = flipDims[i] ? '-' : '';
-                        const cls = active ? 'active-dim dim-label' : 'spatial-dim dim-label';
+                        const cls = (active || playing) ? `${dimCls} dim-label` : 'spatial-dim dim-label';
                         return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size">/${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
                     const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
                     const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
-                    if (active) return `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`;
+                    if (active || playing) return `<span class="${dimCls} dim-label dim-chip" ${d}>${inner}</span>`;
                     return `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-size">/${shape[i]}</span>`;
-                    return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
                     const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y' + `<span class="dim-size">/${shape[i]}</span>`;
-                    return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
                     const inner = `z<span class="dim-size">/${shape[i]}</span>`;
-                    return active ? `<span class="active-dim dim-label" ${d}>${inner}</span>`
+                    return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                 const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
                 const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
                 const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
-                return active ? `<span class="active-dim dim-label dim-chip" ${d}>${inner}</span>`
+                return (active || playing) ? `<span class="${dimCls} dim-label dim-chip" ${d}>${inner}</span>`
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
             }).join(', ');
             if (vfieldNTimes > 1) {
@@ -3976,7 +3981,7 @@
         function stopPlay() {
             if (_playRafId) { cancelAnimationFrame(_playRafId); _playRafId = null; }
             if (playInterval) { clearTimeout(playInterval); playInterval = null; }
-            isPlaying = false; playingVfieldT = false; setStatus('');
+            isPlaying = false; playingVfieldT = false; playingDim = -1; setStatus('');
         }
 
         function playNext() {
@@ -3986,7 +3991,7 @@
                 if (!isPlaying) return;
                 if (ts - playLastFrameTime >= targetMs) {
                     playLastFrameTime = ts;
-                    indices[current_slice_dim] = (indices[current_slice_dim] + 1) % shape[current_slice_dim];
+                    indices[playingDim] = (indices[playingDim] + 1) % shape[playingDim];
                     updateView();
                     // updateView will call playNext() again after render completes
                 } else {
@@ -4013,9 +4018,11 @@
             setStatus(`▶ playing  (Space to stop · [ / ] fps: ${playFps})`);
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
+                playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
                 playLastFrameTime = performance.now();
                 playNextVfieldT();
             } else {
+                playingDim = current_slice_dim;
                 playNext();
             }
         }
@@ -5060,6 +5067,7 @@
                 showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
+                if (isPlaying && activeDim === playingDim) { stopPlay(); }
                 if (activeDim === VFIELD_T_DIM) {
                     vfieldT = Math.max(0, vfieldT - 1);
                     drawVectorOverlay(); renderInfo(); saveState();
@@ -5084,6 +5092,7 @@
                 }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault();
+                if (isPlaying && activeDim === playingDim) { stopPlay(); }
                 if (activeDim === VFIELD_T_DIM) {
                     vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
                     drawVectorOverlay(); renderInfo(); saveState();
