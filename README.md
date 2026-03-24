@@ -211,7 +211,7 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | Scroll wheel | Previous / next slice |
 | `h` `l` / Left Right | Move cursor to previous / next dimension |
 | `j` `k` / Down Up | Previous / next index along active dimension |
-| `r` | Reverse active axis direction |
+| `r` | Reverse active axis direction; in multi-view: swap axes globally across all panes |
 | Space | Toggle auto-play |
 | `+` / `-` / `0` | Zoom in / out / fit to window |
 
