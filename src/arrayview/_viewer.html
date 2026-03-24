@@ -6613,12 +6613,12 @@
             const nMaps = ready.length / nRows || 1;
             const cols = Math.ceil(nMaps);
             const rows = nRows;
-            const colGap = 24;
-            const rowGap = 14;
-            const sidePad = 120; // extra for row labels
+            const colGap = rows >= 3 ? 10 : 24;
+            const rowGap = rows >= 3 ? 4 : 14;
+            const sidePad = rows >= 3 ? 80 : 120;
             const labelH = 24;  // column headers
             const cbH = 30;
-            const bottomPad = 24;
+            const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - labelH
                          - rows * cbH
@@ -6628,7 +6628,8 @@
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const defaultScale = absMaxScale * 0.65;
+            // Higher default zoom for multi-array grids
+            const defaultScale = absMaxScale * (rows >= 3 ? 0.88 : 0.65);
             const scaledMin = Math.max(0.01, defaultScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
             for (const v of ready) {
@@ -6641,6 +6642,10 @@
                 const paneW = Math.round(ready[0].lastW * cappedScale);
                 headerLabels.forEach(el => { el.style.width = paneW + 'px'; });
             }
+            // Apply dynamic gaps to DOM elements
+            const wrapEl = document.getElementById('qmri-view-wrap');
+            if (wrapEl) wrapEl.style.gap = rowGap + 'px';
+            wrapEl.querySelectorAll('.qv-row, .cq-header-row').forEach(r => r.style.gap = colGap + 'px');
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (compareQmriActive) {
@@ -6973,12 +6978,12 @@
             if (!ready.length) return;
             const nRows = compareMvSids.length;
             const nCols = 3; // always 3 planes
-            const colGap = 24;
-            const rowGap = 14;
-            const sidePad = 120; // extra for row labels
+            const colGap = nRows >= 3 ? 12 : 24;
+            const rowGap = nRows >= 3 ? 6 : 14;
+            const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
             const labelH = 24;  // column headers
             const cbH = 30;
-            const bottomPad = 24;
+            const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - labelH
                          - nRows * cbH
@@ -6988,7 +6993,8 @@
             const absMaxScaleH = Math.max(10, totalH / nRows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const defaultScale = absMaxScale * 0.65;
+            // Use higher default zoom for multi-array grids to fill more space
+            const defaultScale = absMaxScale * (nRows >= 3 ? 0.88 : 0.65);
             const scaledMin = Math.max(0.01, defaultScale * userZoom);
             const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
             for (const v of ready) {
@@ -7002,6 +7008,10 @@
                 const paneW = Math.round(ready[0].lastW * cappedScale);
                 headerLabels.forEach(el => { el.style.width = paneW + 'px'; });
             }
+            // Apply dynamic gaps to DOM elements
+            const wrapEl = document.getElementById('qmri-view-wrap');
+            if (wrapEl) wrapEl.style.gap = rowGap + 'px';
+            wrapEl.querySelectorAll('.qv-row, .cq-header-row').forEach(r => r.style.gap = colGap + 'px');
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (compareMvActive) {
