@@ -534,8 +534,8 @@
             transition: font-size 0.25s ease;
         }
         body.compact-mode #slim-cb-wrap.compact-overlay {
-            background: rgba(30, 30, 36, 0.75); border-radius: 4px;
-            padding: 3px 6px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            background: rgba(30, 30, 36, 0.72); border-radius: 3px;
+            padding: 2px 4px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         }
         /* Hover reveals top chrome briefly in compact mode */
         body.compact-mode.compact-hover #array-name {
@@ -2183,11 +2183,11 @@
                     wrap.classList.add('compact-overlay');
                     wrap.style.transform = '';
                     wrap.style.transformOrigin = '';
-                    const cbLeft = canvasRect.left + (canvasRect.width - cssW) / 2 - 6;
-                    const cbTop = canvasRect.bottom - stripH - 22;
+                    const cbLeft = canvasRect.left + (canvasRect.width - cssW) / 2 - 4;
+                    const cbTop = canvasRect.bottom - stripH - 14;
                     wrap.style.top = cbTop + 'px';
                     wrap.style.left = cbLeft + 'px';
-                    wrap.style.width = (cssW + 12) + 'px';
+                    wrap.style.width = (cssW + 8) + 'px';
                     wrap.style.display = '';
                 }
                 const dpr = window.devicePixelRatio || 1;
@@ -2212,9 +2212,8 @@
                     sCtx.fillRect(0, 0, cssW, stripH);
                 }
                 sCtx.restore();
-                slimCbLabels.style.display = '';
-                slimCbLabels.style.width = cssW + 'px';
-                slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+                // Hide labels in compact mode — clean slim bar only
+                slimCbLabels.style.display = 'none';
                 return;
             }
 
