@@ -711,6 +711,26 @@ class TestSessionStorage:
         )
 
 
+class TestMinimapCursor:
+    def test_minimap_cursor_grab(self, loaded_viewer, sid_2d):
+        """Mini-map should show grab cursor, grabbing while dragging."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        # Zoom in far enough to trigger mini-map
+        for _ in range(8):
+            page.keyboard.press("Equal")
+            page.wait_for_timeout(80)
+        page.wait_for_timeout(300)
+        visible = page.evaluate(
+            "() => document.querySelector('#mini-map').classList.contains('visible')"
+        )
+        assert visible, "mini-map should be visible after zooming in"
+        cursor = page.evaluate(
+            "() => getComputedStyle(document.querySelector('#mini-map')).cursor"
+        )
+        assert cursor == "grab", f"expected grab cursor, got {cursor}"
+
+
 class TestVisualRegression:
     """
     On first run: saves screenshots to tests/snapshots/ as baselines.
