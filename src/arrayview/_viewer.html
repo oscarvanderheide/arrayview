@@ -6249,7 +6249,7 @@
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${nMaps}`;
-            // Group canvases into rows: n≤4 → single row; 5 → [3,2]; 6 → [3,3]
+            // Group canvases into rows: n≤4 → single row; 5,6 → 2×3 grid
             const rowSizes = nMaps <= 4 ? [nMaps] : [3, nMaps - 3];
             qmriViews = [];
             let cmapIdx = 0;
@@ -7175,6 +7175,19 @@
             for (const v of ready) {
                 v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+            }
+            // For multi-row layouts (n=5,6): set all rows to same width
+            // and left-align items so columns align across rows.
+            if (rows > 1) {
+                const qvRows = document.querySelectorAll('#qmri-view-wrap > .qv-row');
+                let maxRowW = 0;
+                qvRows.forEach(r => { maxRowW = Math.max(maxRowW, r.scrollWidth); });
+                if (maxRowW > 0) {
+                    qvRows.forEach(r => {
+                        r.style.width = maxRowW + 'px';
+                        r.style.justifyContent = 'flex-start';
+                    });
+                }
             }
             fixWrapperAlignment();
             requestAnimationFrame(() => {
