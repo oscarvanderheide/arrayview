@@ -67,6 +67,8 @@ from arrayview._render import (  # noqa: F401
     mosaic_shape,
     _compute_vmin_vmax,
     extract_slice,
+    extract_projection,
+    PROJECTION_OPS,
     apply_complex_mode,
     _compute_otsu_threshold,
     _prepare_display,
@@ -79,6 +81,7 @@ from arrayview._render import (  # noqa: F401
     _extract_overlay_mask,
     _composite_overlay_mask,
     render_mosaic,
+    render_projection_rgba,
     _run_preload,
 )
 

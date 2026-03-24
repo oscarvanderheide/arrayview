@@ -145,6 +145,57 @@ def extract_slice(session, dim_x, dim_y, idx_list):
     return result
 
 
+PROJECTION_OPS = {
+    1: ("max", np.max),
+    2: ("min", np.min),
+    3: ("mean", np.mean),
+    4: ("std", np.std),
+    5: ("sos", None),  # sum of squares — custom implementation
+}
+
+
+def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
+    """Extract a 2D projection by collapsing proj_dim with the given operation.
+
+    proj_mode: 1=max, 2=min, 3=mean, 4=std, 5=sos (sum of squares)
+    """
+    key = ("proj", dim_x, dim_y, tuple(idx_list), proj_dim, proj_mode)
+    if key in session.raw_cache:
+        session.raw_cache.move_to_end(key)
+        return session.raw_cache[key]
+
+    # Build slicer: display dims + projection dim get slice(None), rest use idx
+    slicer = []
+    for i in range(len(session.shape)):
+        if i in (dim_x, dim_y, proj_dim):
+            slicer.append(slice(None))
+        else:
+            slicer.append(idx_list[i])
+    vol = np.array(session.data[tuple(slicer)])
+
+    # Determine the axis of proj_dim in the extracted sub-array
+    kept_dims = sorted([dim_x, dim_y, proj_dim])
+    proj_axis = kept_dims.index(proj_dim)
+
+    if proj_mode == 5:  # SOS
+        result = np.sum(vol.astype(np.float64) ** 2, axis=proj_axis).astype(np.float32)
+    else:
+        _, op = PROJECTION_OPS[proj_mode]
+        result = op(vol, axis=proj_axis).astype(np.float32)
+
+    # Transpose to match extract_slice convention (dim_x < dim_y → transpose)
+    if dim_x < dim_y:
+        result = result.T
+
+    result = np.nan_to_num(result).astype(np.float32)
+    session.raw_cache[key] = result
+    session._raw_bytes += result.nbytes
+    while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
+        _, v = session.raw_cache.popitem(last=False)
+        session._raw_bytes -= v.nbytes
+    return result
+
+
 def apply_complex_mode(raw, complex_mode):
     if np.iscomplexobj(raw):
         if complex_mode == 1:
@@ -408,6 +459,37 @@ def render_rgba(
         while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
             _, v = session.rgba_cache.popitem(last=False)
             session._rgba_bytes -= v.nbytes
+    return rgba
+
+
+def render_projection_rgba(
+    session,
+    dim_x,
+    dim_y,
+    idx_tuple,
+    proj_dim,
+    proj_mode,
+    colormap,
+    dr,
+    complex_mode=0,
+    log_scale=False,
+    vmin_override=None,
+    vmax_override=None,
+):
+    """Render a statistical projection (max/min/mean/std/sos) to RGBA."""
+    raw = extract_projection(
+        session, dim_x, dim_y, list(idx_tuple), proj_dim, proj_mode
+    )
+    rgba = apply_colormap_rgba(
+        session,
+        raw,
+        colormap,
+        dr,
+        complex_mode,
+        log_scale,
+        vmin_override=vmin_override,
+        vmax_override=vmax_override,
+    )
     return rgba
 
 
