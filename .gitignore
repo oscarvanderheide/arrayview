@@ -16,6 +16,8 @@ wheels/
 CLAUDE.md
 debug/
 tests/snapshots/
+tests/ui_audit/
+tests/smoke_output/
 
 *.jl
 *.ipynb
