@@ -540,14 +540,17 @@
 
         /* ── Colormap preview strip ──────────────────────────────── */
         #colormap-strip {
-            position:fixed; display:flex; flex-direction:row; align-items:center; gap:4px;
+            position:fixed; display:flex; flex-direction:row; align-items:center; gap:8px;
             opacity:0; pointer-events:none; transition:opacity 0.25s ease;
             z-index:8;
         }
         #colormap-strip.visible { opacity:1; }
-        .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:1px; }
-        .cmap-thumb canvas { display:block; width:56px; height:10px; border-radius:3px; border:1px solid transparent; }
-        .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:64px; overflow:hidden; text-overflow:ellipsis; }
+        .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.5; transition:opacity 0.15s ease; }
+        .cmap-thumb.active { opacity:1; }
+        .cmap-thumb canvas { display:block; width:60px; height:10px; border-radius:3px; border:1px solid rgba(255,255,255,0.1); }
+        .cmap-thumb.active canvas { border-color: var(--help-key); height:12px; width:72px; }
+        .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
+        .cmap-thumb.active span { color:var(--fg); }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -8190,53 +8193,47 @@
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
             const SIDE = 2; // show 2 before and 2 after current
             _cmapStrip.innerHTML = '';
-            function _makeThumb(idx) {
+            function _makeThumb(idx, isCurrent) {
                 const name = pool[((idx) % pool.length + pool.length) % pool.length];
                 const stops = COLORMAP_GRADIENT_STOPS[name];
                 const thumb = document.createElement('div');
-                thumb.className = 'cmap-thumb';
+                thumb.className = 'cmap-thumb' + (isCurrent ? ' active' : '');
+                const cvW = isCurrent ? 72 : 60;
+                const cvH = isCurrent ? 12 : 10;
                 const cv = document.createElement('canvas');
-                cv.width = 56; cv.height = 10;
+                cv.width = cvW; cv.height = cvH;
                 if (stops) {
                     const g = cv.getContext('2d');
-                    const grad = g.createLinearGradient(0, 0, 56, 0);
+                    const grad = g.createLinearGradient(0, 0, cvW, 0);
                     stops.forEach(([r, gv, b], i) => {
                         grad.addColorStop(i / (stops.length - 1), `rgb(${r},${gv},${b})`);
                     });
                     g.fillStyle = grad;
-                    g.fillRect(0, 0, 56, 10);
+                    g.fillRect(0, 0, cvW, cvH);
                 }
                 const lbl = document.createElement('span');
-                lbl.textContent = name.length > 8 ? name.slice(0, 7) + '…' : name;
+                lbl.textContent = name.length > 10 ? name.slice(0, 9) + '…' : name;
                 thumb.appendChild(cv);
                 thumb.appendChild(lbl);
                 return thumb;
             }
-            // Left side (previous colormaps)
-            for (let offs = -SIDE; offs < 0; offs++) _cmapStrip.appendChild(_makeThumb(ci + offs));
-            // Gap placeholder for colorbar (CSS positions strip to flank it)
-            const gap = document.createElement('div');
-            gap.className = 'cmap-center-gap';
-            _cmapStrip.appendChild(gap);
-            // Right side (next colormaps)
-            for (let offs = 1; offs <= SIDE; offs++) _cmapStrip.appendChild(_makeThumb(ci + offs));
-            // Position strip centered on the colorbar (use mv-cb-wrap in multiview)
+            // Continuous filmstrip: [prev2] [prev1] [CURRENT] [next1] [next2]
+            for (let offs = -SIDE; offs <= SIDE; offs++) {
+                _cmapStrip.appendChild(_makeThumb(ci + offs, offs === 0));
+            }
+            // Position strip centered on the colorbar
             const cbWrap = document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
-                const cbW = cbRect.width;
-                gap.style.width = cbW + 'px';
-                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 14) + 'px';
-                _cmapStrip.style.left = (cbRect.left + cbW / 2) + 'px';
+                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
+                _cmapStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
-                // Fade out the colorbar/histogram while preview is visible
                 cbWrap.style.opacity = '0';
             }
             _cmapStrip.classList.add('visible');
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
-                // Fade colorbar back in
                 if (cbWrap) cbWrap.style.opacity = '1';
             }, 1500);
         }
