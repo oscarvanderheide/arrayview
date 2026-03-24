@@ -53,9 +53,25 @@
         }
         #wrapper.mode-fade { opacity: 0; }
         #info {
-            margin-bottom: 10px; font-size: 20px; white-space: nowrap;
+            margin-bottom: 10px; font-size: 18px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums; align-self: center;
+            padding: 5px 16px; border-radius: 18px;
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        :root.light #info {
+            background: rgba(240, 240, 240, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.solarized #info {
+            background: rgba(238, 232, 213, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.nord #info {
+            background: rgba(36, 41, 56, 0.85);
+            border-color: rgba(216, 222, 233, 0.07);
         }
         #viewer-row {
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -76,10 +92,31 @@
             color: rgba(190, 190, 190, 0.8);
         }
         .axes-lbl-x, .axes-lbl-y { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
-        #slim-cb-wrap { text-align: center; padding-top: 4px; padding-bottom: 2px; position: fixed; z-index: 2; transition: opacity 0.3s ease; }
+        #slim-cb-wrap {
+            text-align: center; padding: 5px 14px; position: fixed; z-index: 2;
+            transition: opacity 0.3s ease, height 0.2s ease;
+            border-radius: 14px;
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex; align-items: center; gap: 8px;
+        }
+        :root.light #slim-cb-wrap {
+            background: rgba(240, 240, 240, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.solarized #slim-cb-wrap {
+            background: rgba(238, 232, 213, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.nord #slim-cb-wrap {
+            background: rgba(36, 41, 56, 0.85);
+            border-color: rgba(216, 222, 233, 0.07);
+        }
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
-        #slim-cb { display: block; margin: 0 auto; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; }
-        #slim-cb-labels { display: flex; justify-content: space-between; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; }
+        #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex-shrink: 0; }
+        #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
+        .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -90,6 +127,7 @@
         .vfield-t-dim .dim-track-fill { background: var(--vfield-t-dim); opacity: 0.45; }
         .active-vfield-t { font-weight: bold; }
         .active-vfield-t .dim-track-fill { opacity: 1; }
+        .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
         .dim-label {
@@ -542,15 +580,11 @@
         body.compact-mode #info {
             position: fixed; z-index: 6; font-size: 14px; margin: 0; padding: 4px 14px;
             transform: translateX(-50%); align-self: auto;
-            background: rgba(30, 30, 30, 0.85); border-radius: 16px;
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
             transition: font-size 0.25s ease;
         }
         body.compact-mode #slim-cb-wrap.compact-overlay {
-            background: rgba(30, 30, 30, 0.85); border-radius: 12px;
-            padding: 5px 8px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            /* Island styling already in base #slim-cb-wrap; just adjust padding */
+            padding: 4px 10px;
         }
         /* Hover reveals top chrome briefly in compact mode */
         body.compact-mode.compact-hover #array-name {
@@ -644,6 +678,14 @@
         .ruler-lbl { font-family:monospace; font-size:9px; fill:var(--active-dim); paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
 
         /* ── 1D Intensity profile ────────────────────────────────── */
+        #line-profile-overlay {
+            position: absolute; pointer-events: none; z-index: 60;
+            background: rgba(20,20,25,0.85); border-radius: 6px;
+            padding: 6px 8px; display: none;
+        }
+        #line-profile-overlay.active { display: block; }
+        .lp-axis-label { font-family: monospace; font-size: 8px; fill: #aaa; }
+        .lp-line { fill: none; stroke: #f5c842; stroke-width: 1.5px; }
         /* ── Mini-map ────────────────────────────────────────────── */
         #mini-map {
             position:absolute; top:6px; right:6px; z-index:4;
@@ -701,6 +743,7 @@
                 <div id="roi-hover-tooltip" style="display:none"></div>
                 <canvas id="viewer-fade"></canvas>
                 <svg id="ruler-svg" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+                <div id="line-profile-overlay"></div>
                 <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
                     <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
                     <polygon points="32,39 37,42 32,45" fill="currentColor"/>
@@ -713,7 +756,9 @@
             <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
             <div id="slim-cb-wrap" style="display:none">
+                <span class="slim-cb-val" id="slim-cb-vmin"></span>
                 <canvas id="slim-cb"></canvas>
+                <span class="slim-cb-val" id="slim-cb-vmax" style="text-align:right"></span>
                 <div id="slim-cb-labels"></div>
                 <div id="slim-cb-tooltip"></div>
             </div>
@@ -2340,8 +2385,10 @@
             const cbTop = Math.min(canvasRect.bottom + 6, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
-                wrap.style.left = ((window.innerWidth - cssW) / 2) + 'px';
-                wrap.style.width = cssW + 'px';
+                // Width auto-sizes from flex content; center the island
+                wrap.style.width = '';
+                wrap.style.left = '50%';
+                wrap.style.transform = 'translateX(-50%)';
             }
             const dpr = window.devicePixelRatio || 1;
             slimCbCanvas.width = Math.round(cssW * dpr);
@@ -2386,13 +2433,17 @@
                 _drawClimLines(sCtx, cssW, stripH);
             }
             sCtx.restore();
-            // Hide labels when histogram is expanded — clim lines convey the range
-            if (_cbExpanded) {
-                slimCbLabels.style.display = 'none';
-            } else {
-                slimCbLabels.style.display = '';
-                slimCbLabels.style.width = cssW + 'px';
-                slimCbLabels.innerHTML = `<span>${_cbFmt(manualVmin ?? currentVmin)}</span><span>${_cbFmt(manualVmax ?? currentVmax)}</span>`;
+            // Update inline vmin/vmax values (flanking the colorbar strip)
+            const slimVmin = document.getElementById('slim-cb-vmin');
+            const slimVmax = document.getElementById('slim-cb-vmax');
+            if (slimVmin && slimVmax) {
+                if (_cbExpanded) {
+                    slimVmin.textContent = '';
+                    slimVmax.textContent = '';
+                } else {
+                    slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                    slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                }
             }
         }
 
@@ -3585,7 +3636,7 @@
                 const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
                 return (active || playing) ? `<span class="${dimCls} dim-label dim-chip" ${d}>${inner}</span>`
                               : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
-            }).join(', ');
+            }).join('<span class="dim-sep"> · </span>');
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
@@ -3593,9 +3644,9 @@
                 const paddedT = String(vfieldT + 1).padStart(String(vfieldNTimes).length, '\u2007');
                 const inner = `<span class="dim-text">${paddedT}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label dim-chip' : 'vfield-t-dim dim-label dim-chip';
-                idxStr += `, <span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
+                idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
-            let text = `[${idxStr}]`;
+            let text = idxStr;
             document.getElementById('info').innerHTML = text;
             renderEggs();
         }
@@ -4018,8 +4069,16 @@
             saveState();
         }
 
+        // ── Shape compatibility check for compare-on-drop ─────────────────────
+        function _shapesCompatibleForCompare(shapeA, shapeB) {
+            if (!shapeA || !shapeB) return false;
+            if (shapeA.length !== shapeB.length) return false;
+            // All dimensions must match
+            return shapeA.every((s, i) => s === shapeB[i]);
+        }
+
         // ── Drag-and-drop array files ──────────────────────────────────────────
-        // Drop any supported file anywhere on the viewer to open it in a new tab.
+        // Drop a compatible file to enter compare mode; otherwise open in a new tab.
         const _SUPPORTED_EXTS = new Set(['npy', 'npz', 'nii', 'gz', 'zarr', 'pt', 'pth', 'h5', 'hdf5', 'tif', 'tiff', 'mat']);
         document.body.addEventListener('dragover', (e) => {
             if (e.dataTransfer.types.includes('Files')) {
@@ -4049,6 +4108,11 @@
                 if (!sid) {
                     // Welcome screen — navigate in-place (replaces the welcome tab)
                     window.location.href = '/?sid=' + body.sid;
+                } else if (!compareActive && body.shape && shape && shape.length > 0
+                           && _shapesCompatibleForCompare(shape, body.shape)) {
+                    // Shapes are compatible — enter compare mode with dropped array
+                    await enterCompareModeBySid(body.sid, body.name || file.name);
+                    showStatus(`Compare: ${body.name || file.name}`);
                 } else if (window.parent !== window && window.parent.__arrayviewShell) {
                     // Shell with real array — server WS will add the tab
                     showStatus(`Opened: ${body.name}`);
@@ -9008,16 +9072,20 @@
         let _rulerMode = false;
         let _rulerPtA = null, _rulerPtB = null;
         const _rulerSvg = document.getElementById('ruler-svg');
+        const _lineProfileOverlay = document.getElementById('line-profile-overlay');
 
         function toggleRulerMode() {
             _rulerMode = !_rulerMode;
             document.body.classList.toggle('ruler-mode', _rulerMode);
             if (_rulerSvg) _rulerSvg.classList.toggle('active', _rulerMode);
-            if (!_rulerMode) { _rulerPtA = null; _rulerPtB = null; _clearRuler(); }
+            if (!_rulerMode) { _rulerPtA = null; _rulerPtB = null; _clearRuler(); _hideLineProfile(); }
             showStatus(_rulerMode ? 'ruler: click two points to measure · u to exit' : 'ruler: off');
         }
         function _clearRuler() {
             if (_rulerSvg) _rulerSvg.innerHTML = '';
+        }
+        function _hideLineProfile() {
+            if (_lineProfileOverlay) _lineProfileOverlay.classList.remove('active');
         }
         function _drawRuler(ax, ay, bx, by) {
             if (!_rulerSvg) return;
@@ -9039,6 +9107,73 @@
             _rulerSvg.style.width = canvas.style.width;
             _rulerSvg.style.height = canvas.style.height;
         }
+        function _fetchAndShowLineProfile(ax, ay, bx, by) {
+            if (!_lineProfileOverlay || !sid) return;
+            const params = new URLSearchParams({
+                dim_x: String(dim_x), dim_y: String(dim_y),
+                indices: indices.join(','),
+                x0: String(Math.round(ax)), y0: String(Math.round(ay)),
+                x1: String(Math.round(bx)), y1: String(Math.round(by)),
+                complex_mode: String(complexMode),
+                log_scale: String(logScale),
+            });
+            fetch(`/line_profile/${sid}?${params}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.values || !data.values.length) return;
+                    _renderLineProfileSVG(data.values, data.distance, ax, ay, bx, by);
+                })
+                .catch(() => {});
+        }
+        function _renderLineProfileSVG(values, distance, ax, ay, bx, by) {
+            const W = 300, H = 150, pad = {l: 40, r: 10, t: 10, b: 20};
+            const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+            const finite = values.filter(v => v !== null && isFinite(v));
+            if (!finite.length) return;
+            const vMin = Math.min(...finite), vMax = Math.max(...finite);
+            const vRange = vMax - vMin || 1;
+            // Build polyline points
+            const pts = values.map((v, i) => {
+                const x = pad.l + (i / (values.length - 1)) * pw;
+                const y = (v !== null && isFinite(v))
+                    ? pad.t + ph - ((v - vMin) / vRange) * ph
+                    : pad.t + ph;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
+            const distLabel = distance.toFixed(1) + ' px';
+            const fmtVal = v => {
+                if (v === null || !isFinite(v)) return '?';
+                return Math.abs(v) < 0.01 || Math.abs(v) >= 1e4 ? v.toExponential(2) : v.toFixed(2);
+            };
+            _lineProfileOverlay.innerHTML = `
+                <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+                    <polyline class="lp-line" points="${pts}"/>
+                    <text class="lp-axis-label" x="${pad.l}" y="${H - 2}"
+                          text-anchor="start">0</text>
+                    <text class="lp-axis-label" x="${W - pad.r}" y="${H - 2}"
+                          text-anchor="end">${distLabel}</text>
+                    <text class="lp-axis-label" x="${pad.l - 3}" y="${pad.t + 8}"
+                          text-anchor="end">${fmtVal(vMax)}</text>
+                    <text class="lp-axis-label" x="${pad.l - 3}" y="${pad.t + ph}"
+                          text-anchor="end">${fmtVal(vMin)}</text>
+                </svg>`;
+            // Position the overlay near the midpoint of the ruler line
+            const canvasRect = canvas.getBoundingClientRect();
+            const scaleX = canvasRect.width / canvas.width;
+            const scaleY = canvasRect.height / canvas.height;
+            const midX = ((ax + bx) / 2) * scaleX + canvasRect.left;
+            const midY = ((ay + by) / 2) * scaleY + canvasRect.top;
+            const parent = _lineProfileOverlay.offsetParent || document.body;
+            const parentRect = parent.getBoundingClientRect();
+            let left = midX - parentRect.left - W / 2;
+            let top = midY - parentRect.top + 16;
+            // Clamp to stay within viewport
+            left = Math.max(4, Math.min(left, parentRect.width - W - 4));
+            top = Math.max(4, Math.min(top, parentRect.height - H - 4));
+            _lineProfileOverlay.style.left = left + 'px';
+            _lineProfileOverlay.style.top = top + 'px';
+            _lineProfileOverlay.classList.add('active');
+        }
         canvas.addEventListener('click', (e) => {
             if (!_rulerMode || e.button !== 0) return;
             const rect = canvas.getBoundingClientRect();
@@ -9047,15 +9182,18 @@
             if (!_rulerPtA) {
                 _rulerPtA = [px, py];
                 _clearRuler();
+                _hideLineProfile();
                 if (_rulerSvg) {
                     _updateRulerSize();
                     _rulerSvg.innerHTML = `<circle class="ruler-dot" cx="${px}" cy="${py}" r="3"/>`;
                 }
                 showStatus('ruler: click second point');
             } else {
+                const savedA = _rulerPtA;
                 _rulerPtB = [px, py];
                 _updateRulerSize();
-                _drawRuler(_rulerPtA[0], _rulerPtA[1], px, py);
+                _drawRuler(savedA[0], savedA[1], px, py);
+                _fetchAndShowLineProfile(savedA[0], savedA[1], px, py);
                 // Reset for next measurement
                 _rulerPtA = null; _rulerPtB = null;
             }
