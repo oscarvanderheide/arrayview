@@ -641,6 +641,47 @@ class TestKeyboard:
         assert "1px" in outline, f"expected 1px outline, got: {outline}"
         assert "rgb(255, 255, 255)" not in outline, f"border should not be pure white: {outline}"
 
+    def test_multiview_rotate_updates_all_panes(self, loaded_viewer, sid_3d):
+        """Pressing r in multiview should swap axes globally across all 3 panes."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        # Trigger a saveState() by cycling colormap, so we have a baseline in sessionStorage
+        page.keyboard.press("c")
+        page.wait_for_timeout(300)
+
+        before = page.evaluate("""(sid) => {
+            const raw = sessionStorage.getItem('av_' + sid);
+            if (!raw) return null;
+            const s = JSON.parse(raw);
+            return {dim_x: s.dim_x, dim_y: s.dim_y, mvDims: s.mvDims};
+        }""", sid_3d)
+        assert before is not None, "No saved state found before rotation"
+
+        # Press r to rotate
+        page.keyboard.press("r")
+        page.wait_for_timeout(500)
+
+        after = page.evaluate("""(sid) => {
+            const raw = sessionStorage.getItem('av_' + sid);
+            if (!raw) return null;
+            const s = JSON.parse(raw);
+            return {dim_x: s.dim_x, dim_y: s.dim_y, mvDims: s.mvDims};
+        }""", sid_3d)
+        assert after is not None, "No saved state found after rotation"
+
+        # Global rotation should swap dim_x and dim_y
+        assert before["dim_x"] == after["dim_y"] and before["dim_y"] == after["dim_x"], (
+            f"Expected dim_x/dim_y swap: before={before}, after={after}"
+        )
+        # mvDims should also have changed
+        assert before["mvDims"] != after["mvDims"], (
+            f"Expected mvDims to change: before={before['mvDims']}, after={after['mvDims']}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Visual regression

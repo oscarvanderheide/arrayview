@@ -4748,16 +4748,38 @@
                 saveState();
             } else if (e.key === 'r') {
                 if (multiViewActive) {
-                    if (!mvDims.includes(activeDim)) return;
-                    // Rotate 90° CW the pane that slices along activeDim
-                    const pane = mvViews.find(v => v.sliceDir === activeDim);
-                    if (!pane) return;
-                    const odx = pane.dimX, ody = pane.dimY;
-                    const ofx = flipDims[odx] || false, ofy = flipDims[ody] || false;
-                    pane.dimX = ody; pane.dimY = odx;
-                    flipDims[pane.dimX] = ofy; flipDims[pane.dimY] = !ofx;
-                    pane.seq++;
-                    mvDrawFrame(pane); mvRender(pane);
+                    // Global axis swap: swap dim_x and dim_y, rebuild all pane definitions
+                    const oldDimX = dim_x, oldDimY = dim_y;
+                    dim_x = oldDimY; dim_y = oldDimX;
+                    // Transfer flip state
+                    const ofx = flipDims[oldDimX] || false, ofy = flipDims[oldDimY] || false;
+                    flipDims[dim_x] = ofy; flipDims[dim_y] = !ofx;
+                    // Recompute mvDims and pane definitions in-place
+                    const third = mvDims.find(d => d !== oldDimX && d !== oldDimY);
+                    mvDims = [dim_y, dim_x, third];
+                    const newDefs = [
+                        { dimX: mvDims[1], dimY: mvDims[0], sliceDir: mvDims[2] },
+                        { dimX: mvDims[2], dimY: mvDims[0], sliceDir: mvDims[1] },
+                        { dimX: mvDims[2], dimY: mvDims[1], sliceDir: mvDims[0] },
+                    ];
+                    mvViews.forEach((v, i) => {
+                        v.dimX = newDefs[i].dimX; v.dimY = newDefs[i].dimY;
+                        v.sliceDir = newDefs[i].sliceDir;
+                        v.seq++;
+                    });
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    // Update axis labels — axLblX/axLblY are strings on the view object,
+                    // DOM text lives in v.axesSvg querySelector('.axes-lbl-x'/'.axes-lbl-y')
+                    const _axLetters = ['x', 'y', 'z'];
+                    mvViews.forEach((v, i) => {
+                        const newX = _axLetters[mvDims.indexOf(v.dimX)] || '?';
+                        const newY = _axLetters[mvDims.indexOf(v.dimY)] || '?';
+                        v.axLblX = newX; v.axLblY = newY;
+                        if (v.axesSvg) {
+                            v.axesSvg.querySelector('.axes-lbl-x').textContent = newX;
+                            v.axesSvg.querySelector('.axes-lbl-y').textContent = newY;
+                        }
+                    });
                     showStatus('rotated 90°');
                     renderInfo(); saveState();
                 } else if (activeDim === dim_x) {
