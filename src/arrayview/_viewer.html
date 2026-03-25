@@ -2391,12 +2391,13 @@
                 if (wrap) {
                     wrap.classList.remove('compact-vertical');
                     wrap.classList.add('compact-overlay');
-                    wrap.style.transform = '';
-                    wrap.style.transformOrigin = '';
-                    const cbLeft = canvasRect.left + (canvasRect.width - cssW) / 2 - 4;
                     const cbTop = canvasRect.bottom - stripH - 18;
                     wrap.style.top = cbTop + 'px';
-                    wrap.style.left = cbLeft + 'px';
+                    // Center the island over the viewport using transform
+                    const vpCenter = canvasRect.left + canvasRect.width / 2;
+                    wrap.style.left = vpCenter + 'px';
+                    wrap.style.transform = 'translateX(-50%)';
+                    wrap.style.transformOrigin = '';
                     wrap.style.width = (cssW + 8) + 'px';
                     wrap.style.display = '';
                 }
@@ -2424,6 +2425,11 @@
                 sCtx.restore();
                 // Hide labels in compact mode — clean slim bar only
                 slimCbLabels.style.display = 'none';
+                // Also hide inline vmin/vmax flanking spans so they don't widen the bar
+                const _cvmin = document.getElementById('slim-cb-vmin');
+                const _cvmax = document.getElementById('slim-cb-vmax');
+                if (_cvmin) _cvmin.style.display = 'none';
+                if (_cvmax) _cvmax.style.display = 'none';
                 return;
             }
 
@@ -2433,6 +2439,11 @@
                 wrap.style.transform = '';
                 wrap.style.transformOrigin = '';
             }
+            // Restore inline vmin/vmax spans (hidden in compact overlay mode)
+            const _nvmin = document.getElementById('slim-cb-vmin');
+            const _nvmax = document.getElementById('slim-cb-vmax');
+            if (_nvmin) _nvmin.style.display = '';
+            if (_nvmax) _nvmax.style.display = '';
             const rawW = multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
