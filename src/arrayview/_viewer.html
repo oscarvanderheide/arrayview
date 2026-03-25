@@ -170,9 +170,7 @@
             background-clip: text !important;
             -webkit-text-fill-color: transparent !important;
         }
-        #status { position: fixed; bottom: 42px; left: 20px;
-                  font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
-                  white-space: nowrap; pointer-events: none; z-index: 5; }
+        #status { display: none !important; }
         #toast  { display: none; } /* showToast() writes here but display trumped by showStatus() */
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -4062,21 +4060,7 @@
         }
 
         function showStatus(msg, duration) {
-            duration = duration ?? 2500;
-            const el = document.getElementById('status');
-            if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
-            el.style.transition = 'none';
-            el.style.opacity = '1';
-            el.textContent = msg;
-            statusFadeTimer = setTimeout(() => {
-                el.style.transition = 'opacity 0.8s ease';
-                el.style.opacity = '0';
-                statusFadeTimer = setTimeout(() => {
-                    if (el.style.opacity === '0') el.textContent = '';
-                    el.style.transition = 'none';
-                    statusFadeTimer = null;
-                }, 800);
-            }, duration);
+            /* no-op: status text removed for minimal UI */
         }
 
         function showInlinePrompt(message, defaultValue = '') {
