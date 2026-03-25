@@ -237,6 +237,7 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `d` | Cycle dynamic range (0-100%, 1-99%, 5-95%, 10-90%) |
 | `D` | Set vmin / vmax manually |
 | `L` | Toggle log scale |
+| `p` | Cycle statistical projection (off / MAX / MIN / MEAN / STD / SOS) |
 | `m` | Cycle complex mode (mag / phase / real / imag) |
 | `f` | Toggle centered FFT |
 | `M` | Cycle mask threshold (Otsu + 7 levels) |
@@ -256,8 +257,8 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `P` | Open picker (compare) |
 | `O` | Open picker (open / navigate sessions) |
 | `n` | Cycle compare target |
-| `X` | Cycle center pane (off / A−B / \|A−B\| / \|A−B\|/\|A\| / overlay / wipe) |
-| `[` / `]` | Decrease / increase overlay blend |
+| `X` | Cycle center pane (off / A−B / \|A−B\| / \|A−B\|/\|A\| / overlay / wipe / flicker / checker) |
+| `[` / `]` | Overlay blend / checker tile size / flood fill tolerance |
 | `Z` | Focus center pane |
 
 ### Info and Export
@@ -267,7 +268,8 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | Mouse hover | Show pixel value on colorbar |
 | `H` | Toggle pixel hover tooltip |
 | `i` | Show data info (shape, dtype, size, path) |
-| `s` | Save screenshot (PNG) |
+| `s` | Save screenshot (PNG) + add to gallery |
+| `G` | Toggle snapshot gallery panel |
 | `g` | Save GIF of current slice dimension |
 | `e` | Copy reusable URL to clipboard |
 | `?` | Toggle help overlay |
@@ -279,8 +281,10 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | Drag on colorbar | Shift window level |
 | Scroll on colorbar | Zoom window range |
 | Double-click colorbar | Reset window/level |
+| Shift+drag | Zoom to region (normal mode) |
 | Shift+drag (3-plane) | Oblique rotation |
 | Drag (3-plane) | Move crosshair |
+| Drop file | Compare (compatible shape) or open new tab |
 
 ## Viewing Modes
 
@@ -289,7 +293,8 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | **Normal** | Default | Single 2D slice with dimension navigation |
 | **Multi-view** | `v` / `V` | 3-plane orthogonal view (axial/coronal/sagittal) with oblique rotation |
 | **Compare** | `P` (picker) | Side-by-side comparison of up to 6 arrays |
-| **Center pane** | `X` (in compare) | Difference (A−B, \|A−B\|, \|A−B\|/\|A\|), overlay, or wipe |
+| **Center pane** | `X` (in compare) | Diff, overlay, wipe (cursor-following), flicker (3Hz A/B toggle), checkerboard |
+| **Projection** | `p` | Statistical projection along scroll axis: MAX, MIN, MEAN, STD, SOS |
 | **qMRI** | `q` | Quantitative MRI: auto-detects parameter dimension, shows each with a dedicated colormap |
 
 ## VS Code Integration
