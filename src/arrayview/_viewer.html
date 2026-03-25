@@ -533,8 +533,8 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb-island { margin-top: 4px; display: flex; flex-direction: row; align-items: center; gap: 8px; align-self: stretch; }
-        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 40px; }
+        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; }
+        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .compare-canvas {
@@ -2284,8 +2284,9 @@
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.width = Math.round(cssW * dpr);
             cbCanvas.height = Math.round(stripH * dpr);
+            cbCanvas.style.width = cssW + 'px';
             cbCanvas.style.display = '';
-            if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = ''; }
+            if (cbIsland) cbIsland.style.display = '';
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
@@ -2360,7 +2361,8 @@
             diffPaneCb.width = Math.round(cssW * dpr);
             diffPaneCb.height = Math.round(stripH * dpr);
             diffPaneCb.style.display = 'block';
-            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = ''; }
+            diffPaneCb.style.width = cssW + 'px';
+            if (diffCbIsland) diffCbIsland.style.display = '';
             const ctx2 = diffPaneCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
             const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
