@@ -359,6 +359,8 @@
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; }
+        body.compact-mode .mode-badge { background-color: rgba(30, 30, 30, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+        body.compact-mode :root.light .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
 
@@ -555,9 +557,10 @@
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
-        .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: column; align-items: center; }
-        .qv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; pointer-events: none; }
-        .qv-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; }
+        .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
+        .qv-cb-labels { display: none; }
+        .qv-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .qv-row.cq-inner-row .qv-cb-island { display: none !important; }
         .qv-row.cq-inner-row .qv-cb,
         .qv-row.cq-inner-row .qv-cb-labels { display: none !important; }
@@ -2619,6 +2622,15 @@
             const windowVmax = manualVmax ?? currentVmax;
             const windowRange = windowVmax - windowVmin || 1;
 
+            // Draw explicit background matching the dynamic island aesthetic
+            // so the histogram area doesn't look like the plain theme background
+            const histAreaH = stripH - CB_COLLAPSED_H;
+            sCtx.fillStyle = isDark ? 'rgba(30, 30, 30, 0.6)'
+                : document.documentElement.classList.contains('solarized') ? 'rgba(238, 232, 213, 0.5)'
+                : document.documentElement.classList.contains('nord') ? 'rgba(36, 41, 56, 0.5)'
+                : 'rgba(240, 240, 240, 0.5)';
+            sCtx.fillRect(0, 0, cssW, histAreaH);
+
             // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
             // zeros / flat background) use log(count+1) for bar heights so the
             // non-dominant bins are still visible.
@@ -2647,7 +2659,6 @@
                 _cmapData = oCtx.getImageData(0, 0, _cmapSz, 1).data;
             }
             // Histogram area is the top portion (above the gradient strip)
-            const histAreaH = stripH - CB_COLLAPSED_H;
             const binW = cssW / nBins;
             for (let i = 0; i < nBins; i++) {
                 const barH = Math.max(0.5, barFrac(counts[i]) * (histAreaH - 2));
@@ -7075,7 +7086,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbLabels.className = 'qv-cb-labels';
                     const cbIsland = document.createElement('div');
                     cbIsland.className = 'cb-island qv-cb-island';
+                    const cbVmin = document.createElement('span');
+                    cbVmin.className = 'qv-cb-val';
+                    const cbVmax = document.createElement('span');
+                    cbVmax.className = 'qv-cb-val';
+                    cbIsland.appendChild(cbVmin);
                     cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbVmax);
                     cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
                     cvWrap.appendChild(cbIsland);
@@ -7089,7 +7106,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
+                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
@@ -7250,7 +7267,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbLabels.className = 'qv-cb-labels';
                     const cbIsland = document.createElement('div');
                     cbIsland.className = 'cb-island qv-cb-island';
+                    const cbVmin = document.createElement('span');
+                    cbVmin.className = 'qv-cb-val';
+                    const cbVmax = document.createElement('span');
+                    cbVmax.className = 'qv-cb-val';
+                    cbIsland.appendChild(cbVmin);
                     cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbVmax);
                     cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
                     cvWrap.appendChild(cbIsland);
@@ -7263,7 +7286,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         sid: sidVal, colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, pixelInfoEl: qvPiEl,
+                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
@@ -7587,7 +7610,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbLabels.className = 'qv-cb-labels';
                     const cbIsland = document.createElement('div');
                     cbIsland.className = 'cb-island qv-cb-island';
+                    const cbVmin = document.createElement('span');
+                    cbVmin.className = 'qv-cb-val';
+                    const cbVmax = document.createElement('span');
+                    cbVmax.className = 'qv-cb-val';
+                    cbIsland.appendChild(cbVmin);
                     cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbVmax);
                     cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cbIsland);
                     const piEl = document.createElement('div');
@@ -7600,7 +7629,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         sid: sidVal,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, pixelInfoEl: piEl,
+                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
@@ -8185,7 +8214,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rows = (n === 5 || n === 6) ? 2 : 1;
             const colGap = 24;  // matches .qv-row gap
             const rowGap = 14;  // matches #qmri-view-wrap gap
-            const sidePad = 80; // 40px each side from wrap padding
+            const sidePad = 120; // 40px padding + colorbar label flanks
             const labelH = 24;  // qv-label above each canvas
             // Reserve: colorbar strip (11px) + margin-top (2px) + label row (18px) + padding (2px) = 33px
             const cbH = 33;
@@ -8238,12 +8267,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!v.cbCanvas) return;
             const qvCbIsland = v.cbCanvas.closest('.cb-island');
             const canvasCssW = parseInt(v.canvas.style.width);
-            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
+            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
             // Use canvas CSS width directly — qvScaleAllCanvases already caps the canvas
             // to fit within the pane, so no clientWidth clamping needed (and clientWidth
             // may be 0 before browser layout settles on first render).
             const cssW = canvasCssW;
-            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
+            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
@@ -8253,7 +8282,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.cbCanvas.style.width = cssW + 'px';
             v.cbCanvas.style.height = stripH + 'px';
             v.cbCanvas.style.display = '';
-            if (qvCbIsland) qvCbIsland.style.display = '';
+            if (v.cbVmin) v.cbVmin.style.display = '';
+            if (v.cbVmax) v.cbVmax.style.display = '';
+            if (qvCbIsland) { qvCbIsland.style.display = ''; qvCbIsland.style.width = cssW + 'px'; }
             const sCtx = v.cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, v.cbCanvas.width, v.cbCanvas.height);
             sCtx.save();
@@ -8268,16 +8299,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sCtx.fillStyle = grad;
             sCtx.fillRect(0, 0, cssW, stripH);
             sCtx.restore();
-            if (v.cbLabels) {
+            {
                 const fmt = val => {
                     const av = Math.abs(val);
                     if (av === 0) return '0';
                     if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
                     return parseFloat(val.toPrecision(3)).toString();
                 };
-                v.cbLabels.style.display = '';
-                v.cbLabels.style.width = cssW + 'px';
-                v.cbLabels.innerHTML = `<span>${fmt(v.vmin)}</span><span>${fmt(v.vmax)}</span>`;
+                if (v.cbVmin) v.cbVmin.textContent = fmt(v.vmin);
+                if (v.cbVmax) v.cbVmax.textContent = fmt(v.vmax);
             }
         }
 
