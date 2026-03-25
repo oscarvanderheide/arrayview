@@ -529,7 +529,7 @@
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: flex-start; justify-content: center;
-            padding: 4px 8px 32px; box-sizing: border-box; overflow: visible;
+            padding: 4px 8px 8px; box-sizing: border-box; overflow: visible;
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
@@ -539,16 +539,6 @@
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
-        }
-        #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding: 5px 14px; margin-top: 6px; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
-        :root.light #compare-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
-        :root.solarized #compare-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
-        :root.nord #compare-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
-        #compare-view-wrap.active #compare-cb-wrap { display: none; }
-        #compare-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
-        #compare-cb-labels {
-            display: flex; justify-content: center; gap: 0; font-size: 11px;
-            color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto;
         }
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
@@ -838,14 +828,14 @@
             </div>
             <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
-            <div id="slim-cb-wrap" style="display:none">
-                <span class="slim-cb-val" id="slim-cb-vmin"></span>
-                <canvas id="slim-cb"></canvas>
-                <span class="slim-cb-val" id="slim-cb-vmax" style="text-align:right"></span>
-                <div id="slim-cb-labels"></div>
-                <div id="slim-cb-tooltip"></div>
-            </div>
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
+        </div>
+        <div id="slim-cb-wrap" style="display:none">
+            <span class="slim-cb-val" id="slim-cb-vmin"></span>
+            <canvas id="slim-cb"></canvas>
+            <span class="slim-cb-val" id="slim-cb-vmax" style="text-align:right"></span>
+            <div id="slim-cb-labels"></div>
+            <div id="slim-cb-tooltip"></div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -1034,10 +1024,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-            <div id="compare-cb-wrap">
-                <canvas id="compare-cb"></canvas>
-                <div id="compare-cb-labels"></div>
             </div>
         </div>
         <div id="multi-view-wrap"></div>
@@ -1526,8 +1512,6 @@
                 compareTitles.forEach(t => t && t.classList.remove('drag-over'));
             });
         });
-        const compareCbCanvas = document.getElementById('compare-cb');
-        const compareCbLabels = document.getElementById('compare-cb-labels');
         // Per-pane colorbar elements (one per compare canvas)
         const comparePaneCbs = [
             document.getElementById('compare-left-pane-cb'),
@@ -1845,7 +1829,7 @@
             if (!panesEl) return;
             const titleReserve = 28;
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
-            const panePadY = 36; // .compare-canvas-area bottom-heavy vertical padding
+            const panePadY = 12; // .compare-canvas-area vertical padding (per-pane colorbars removed)
             const fitSlack = 0.96;
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
@@ -2285,16 +2269,16 @@
             return out;
         }
 
-        function drawCompareColorbar() {
-            // Per-pane colorbars are used; hide the shared compare colorbar
-            compareCbCanvas.style.display = 'none';
-            compareCbLabels.textContent = '';
-        }
-
         function drawComparePaneCb(idx) {
             const cbCanvas = comparePaneCbs[idx];
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
+            const cbIsland = cbCanvas.closest('.cb-island');
+            // In non-diff mode, hide per-pane colorbars (shared colorbar is used)
+            if (!diffMode) {
+                if (cbIsland) cbIsland.style.display = 'none';
+                return;
+            }
             const paneNames = ['left', 'right', 'third', 'fourth', 'fifth', 'sixth'];
             const cbVmin = document.getElementById(`compare-${paneNames[idx]}-pane-cb-vmin`);
             const cbVmax = document.getElementById(`compare-${paneNames[idx]}-pane-cb-vmax`);
@@ -2303,7 +2287,6 @@
             const inner = cv.closest('.compare-canvas-inner');
             const vpW = inner && inner.dataset.vpW ? parseInt(inner.dataset.vpW) : 0;
             const cssW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
-            const cbIsland = cbCanvas.closest('.cb-island');
             if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
                 cbCanvas.style.display = 'none';
                 if (cbVmin) cbVmin.style.display = 'none';
@@ -2473,13 +2456,8 @@
         function drawSlimColorbar(markerFrac) {
             const wrap = document.getElementById('slim-cb-wrap');
             if (compareActive) {
-                // Per-pane colorbars replace the shared one in compare mode
+                // Draw per-pane colorbars only in diff mode; otherwise hide them
                 drawAllComparePaneCbs();
-                drawCompareColorbar();
-                slimCbCanvas.style.display = 'none';
-                slimCbLabels.style.display = 'none';
-                if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
-                return;
             }
             if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
@@ -2490,8 +2468,9 @@
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const vpEl = document.getElementById('canvas-viewport');
-            // In multiview, position relative to the panes row, not the hidden main canvas
-            const _cbRefEl = multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
+            // In compare mode, position relative to the panes grid; in multiview, use mv-panes
+            const _cbRefEl = compareActive ? (document.getElementById('compare-panes') || vpEl)
+                : multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
             const canvasRect = (_cbRefEl || canvas).getBoundingClientRect();
 
             // ── Compact vertical colorbar mode ──────────────────────
@@ -2558,15 +2537,25 @@
             const _nvmax = document.getElementById('slim-cb-vmax');
             if (_nvmin) _nvmin.style.display = '';
             if (_nvmax) _nvmax.style.display = '';
-            const rawW = multiViewActive ? Math.round(canvasRect.width)
+            const rawW = compareActive ? Math.round(canvasRect.width)
+                : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
-            const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
+            // In compare mode, don't cap at 600px — multi-array grids can be wider
+            const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40))
+                : Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
-            // Mirror the gap between name-bar bottom and canvas-viewport top
-            const nameEl = document.getElementById('array-name');
-            const dimGap = nameEl ? (canvasRect.top - nameEl.getBoundingClientRect().bottom) : 10;
-            const cbTop = Math.min(canvasRect.bottom + dimGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            // Mirror the gap between name-bar/title bottom and canvas top
+            let chromeGap;
+            if (compareActive) {
+                // In compare mode, measure gap from dim bar (#info) to compare panes
+                const infoEl = document.getElementById('info');
+                chromeGap = infoEl ? (canvasRect.top - infoEl.getBoundingClientRect().bottom) : 10;
+            } else {
+                const nameEl = document.getElementById('array-name');
+                chromeGap = nameEl ? (canvasRect.top - nameEl.getBoundingClientRect().bottom) : 10;
+            }
+            const cbTop = Math.min(canvasRect.bottom + chromeGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
@@ -2630,8 +2619,16 @@
                 } else {
                     slimVmin.style.display = '';
                     slimVmax.style.display = '';
-                    slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                    slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                    if (compareActive) {
+                        // Shared colorbar: union of all loaded arrays' ranges
+                        const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
+                        const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
+                        slimVmin.textContent = _cbFmt(sharedVmin);
+                        slimVmax.textContent = _cbFmt(sharedVmax);
+                    } else {
+                        slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                        slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                    }
                 }
             }
         }
@@ -3750,20 +3747,22 @@
                 // Add 4px gap below the canvas (colorbars are inside qv-canvas-wrap, already above)
                 eggsTop = maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
             } else if (compareActive) {
-                // Use the bottommost edge of all active compare canvas-wraps.
-                // Per-pane colorbars live inside canvas-wrap, so this naturally
-                // tracks the real visual bottom after they're added.
-                let maxBottom = 0;
-                compareCanvases.forEach(cv => {
-                    if (!cv) return;
-                    const pane = cv.closest('.compare-pane');
-                    if (pane && pane.classList.contains('active')) {
-                        const wrap = cv.closest('.compare-canvas-wrap') || cv;
-                        const r = wrap.getBoundingClientRect();
-                        if (r.bottom > maxBottom) maxBottom = r.bottom;
-                    }
-                });
-                eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
+                // Use the shared colorbar position if visible, else panes bottom
+                const cbWrap = document.getElementById('slim-cb-wrap');
+                if (cbWrap && cbWrap.style.display !== 'none') {
+                    eggsTop = cbWrap.getBoundingClientRect().bottom + 4;
+                } else {
+                    let maxBottom = 0;
+                    compareCanvases.forEach(cv => {
+                        if (!cv) return;
+                        const pane = cv.closest('.compare-pane');
+                        if (pane && pane.classList.contains('active')) {
+                            const r = cv.getBoundingClientRect();
+                            if (r.bottom > maxBottom) maxBottom = r.bottom;
+                        }
+                    });
+                    eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
+                }
             } else {
                 // Normal mode: use slim colorbar if visible, else canvas bottom.
                 // In compact mode, stack eggs vertically to the left of the canvas.
