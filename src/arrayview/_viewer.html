@@ -533,8 +533,8 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; }
-        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; }
+        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; }
+        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 0; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .compare-canvas {
@@ -2282,16 +2282,18 @@
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
-            cbCanvas.width = Math.round(cssW * dpr);
-            cbCanvas.height = Math.round(stripH * dpr);
-            cbCanvas.style.width = cssW + 'px';
+            cbCanvas.style.width = '';
             cbCanvas.style.display = '';
-            if (cbIsland) cbIsland.style.display = '';
+            if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = cssW + 'px'; }
+            // Canvas uses flex:1 inside the island; measure after layout
+            const actualCbW = cbCanvas.clientWidth || cssW;
+            cbCanvas.width = Math.round(actualCbW * dpr);
+            cbCanvas.height = Math.round(stripH * dpr);
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
             sCtx.scale(dpr, dpr);
-            const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
+            const grad = sCtx.createLinearGradient(0, 0, actualCbW, 0);
             const n = stops.length;
             for (let i = 0; i < n; i++) {
                 const t = n <= 1 ? 0 : i / (n - 1);
@@ -2358,14 +2360,15 @@
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
-            diffPaneCb.width = Math.round(cssW * dpr);
-            diffPaneCb.height = Math.round(stripH * dpr);
+            diffPaneCb.style.width = '';
             diffPaneCb.style.display = 'block';
-            diffPaneCb.style.width = cssW + 'px';
-            if (diffCbIsland) diffCbIsland.style.display = '';
+            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = cssW + 'px'; }
+            const actualDiffCbW = diffPaneCb.clientWidth || cssW;
+            diffPaneCb.width = Math.round(actualDiffCbW * dpr);
+            diffPaneCb.height = Math.round(stripH * dpr);
             const ctx2 = diffPaneCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
-            const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
+            const grad = ctx2.createLinearGradient(0, 0, actualDiffCbW, 0);
             const n = stops.length;
             for (let i = 0; i < n; i++) {
                 const t = n <= 1 ? 0 : i / (n - 1);
