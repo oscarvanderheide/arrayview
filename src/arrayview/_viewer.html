@@ -94,7 +94,7 @@
         .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--canvas-border); }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 48px; height: 48px;
-            pointer-events: none; overflow: visible;
+            pointer-events: none; overflow: visible; z-index: 2;
             opacity: 0; transition: opacity 0.6s ease;
             color: rgba(190, 190, 190, 0.8);
         }
@@ -849,15 +849,15 @@
                 <canvas id="viewer-fade"></canvas>
                 <svg id="ruler-svg" xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
                 <div id="line-profile-overlay"></div>
-                <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                    <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
-                    <polygon points="32,39 37,42 32,45" fill="currentColor"/>
-                    <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
-                    <polygon points="3,16 6,11 9,16" fill="currentColor"/>
-                    <text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>
-                    <text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>
-                </svg>
             </div>
+            <svg id="main-axes-svg" class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
+                <polygon points="32,39 37,42 32,45" fill="currentColor"/>
+                <line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>
+                <polygon points="3,16 6,11 9,16" fill="currentColor"/>
+                <text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>
+                <text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>
+            </svg>
             <div id="mini-map"><canvas id="mini-map-canvas"></canvas><div id="mini-viewport"></div></div>
             </div><!-- #canvas-viewport -->
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
@@ -1491,6 +1491,9 @@
         function _cmpApplyPan() {
             const tx = (_cmpPanX || _cmpPanY) ? `translate(${_cmpPanX}px,${_cmpPanY}px)` : '';
             document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
+            // Counter-translate axes indicators so they stay anchored in the viewport
+            const atx = (_cmpPanX || _cmpPanY) ? `translate(${-_cmpPanX}px,${-_cmpPanY}px)` : '';
+            document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
         }
 
         // ── compare-title drag-to-reorder ──────────────────────────────────────
@@ -6863,6 +6866,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.querySelectorAll('.compare-canvas-inner').forEach(el => {
                 el.style.width = ''; el.style.height = ''; el.style.transform = '';
                 delete el.dataset.vpW; delete el.dataset.vpH;
+                const ax = el.querySelector('.axes-indicator');
+                if (ax) ax.style.transform = '';
             });
             // Reset all center-pane mode state
             compareCenterMode = 0;
