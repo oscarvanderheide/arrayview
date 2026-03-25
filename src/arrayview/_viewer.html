@@ -1396,6 +1396,7 @@
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
+        let _diffDrIdx = null; // override dynamic range for diff pane; null = use global dr_idx
         const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
@@ -2104,7 +2105,9 @@
             const prev = compareCenterMode;
             compareCenterMode = newMode;
             // Derive legacy state variables from unified mode
+            const prevDiffMode = diffMode;
             diffMode       = (newMode >= 1 && newMode <= 3) ? newMode : 0;
+            if (prevDiffMode > 0 && diffMode === 0) _diffDrIdx = null; // reset diff DR on exit
             registrationMode = (newMode === 4);
             _wipeActive    = (newMode === 5);
             _flickerActive = (newMode === 6);
@@ -2149,6 +2152,8 @@
             updateCompareTitles();
 
             if (newMode === 0) {
+                // Restore shared colorbar (per-pane colorbars hidden via drawAllComparePaneCbs)
+                drawSlimColorbar(cbMarkerFrac);
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
                 compareScaleCanvases();
@@ -2484,6 +2489,13 @@
             if (compareActive) {
                 // Draw per-pane colorbars only in diff mode; otherwise hide them
                 drawAllComparePaneCbs();
+                // In diff mode, per-pane colorbars replace the shared colorbar
+                if (diffMode > 0) {
+                    slimCbCanvas.style.display = 'none';
+                    slimCbLabels.style.display = 'none';
+                    if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
+                    return;
+                }
             }
             if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
@@ -3516,7 +3528,7 @@
                 dim_y: String(dim_y),
                 dim_z: String(dim_z),
                 indices: indices.join(','),
-                dr: String(dr_idx),
+                dr: String(_diffDrIdx !== null ? _diffDrIdx : dr_idx),
                 complex_mode: String(complexMode),
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
@@ -5953,6 +5965,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         saveState();
                     });
             } else if (e.key === 'd') {
+                // In diff mode, hovering center pane cycles diff DR only
+                if (_mouseOverCenterPane && compareActive && diffMode > 0) {
+                    if (_diffDrIdx === null) _diffDrIdx = dr_idx;
+                    _diffDrIdx = (_diffDrIdx + 1) % DR_LABELS.length;
+                    fetchAndDrawDiff();
+                    showStatus(`Diff dynamic range: ${DR_LABELS[_diffDrIdx]}`);
+                    return;
+                }
                 manualVmin = manualVmax = null;
                 cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
@@ -6920,6 +6940,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_flickerTimer) { clearInterval(_flickerTimer); _flickerTimer = null; }
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
+            _diffDrIdx = null;
             document.getElementById('compare-diff-pane').style.display = 'none';
             document.getElementById('compare-diff-pane').classList.remove('overlay-center');
             const _wp = document.getElementById('compare-wipe-pane');
