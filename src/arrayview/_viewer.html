@@ -152,9 +152,7 @@
         .active-dim { color: var(--active-dim); font-weight: bold; }
         .playing-dim { color: var(--playing-dim); font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
-        .vfield-t-dim .dim-track-fill { background: var(--vfield-t-dim); opacity: 0.45; }
         .active-vfield-t { font-weight: bold; }
-        .active-vfield-t .dim-track-fill { opacity: 1; }
         .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
         .muted { color: var(--muted); }
@@ -163,15 +161,13 @@
             border-radius: 4px; transition: background 0.12s;
         }
         .dim-label:hover { background: transparent; }
-        .dim-chip { display: inline-flex; flex-direction: column; align-items: center; }
-        .dim-text { display: inline-block; min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
-        .dim-track {
-            width: 100%; height: 3px; background: var(--border);
-            border-radius: 1px; margin-top: 2px; min-width: 20px; overflow: hidden;
+        .dim-idx { font-variant-numeric: tabular-nums; }
+        .dim-slash {
+            font-weight: bold;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        .dim-track-fill { height: 100%; background: var(--muted); border-radius: 1px; }
-        .active-dim .dim-track-fill { background: var(--active-dim); }
-        .playing-dim .dim-track-fill { background: var(--playing-dim); }
         #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
                   white-space: nowrap; pointer-events: none; z-index: 5; }
@@ -3805,6 +3801,22 @@
             el.style.transform = 'translateX(-50%)';
         }
 
+        /* Build a slash with a bottom-to-top gradient fill indicating scroll progress.
+           fillColor = bright color for the filled portion, mutedColor for unfilled. */
+        function slashFill(pct, fillColor, mutedColor) {
+            if (pct <= 0) return `<span class="dim-slash" style="background:linear-gradient(to top,${mutedColor} 0%,${mutedColor} 100%);">/</span>`;
+            return `<span class="dim-slash" style="background:linear-gradient(to top,${fillColor} ${pct}%,${mutedColor} ${pct}%);">/</span>`;
+        }
+        function dimSlash(pct, active, playing, isVfieldT) {
+            const style = getComputedStyle(document.documentElement);
+            const muted = style.getPropertyValue('--muted').trim();
+            let fill;
+            if (isVfieldT) fill = style.getPropertyValue('--vfield-t-dim').trim();
+            else if (playing) fill = style.getPropertyValue('--playing-dim').trim();
+            else if (active) fill = style.getPropertyValue('--active-dim').trim();
+            else fill = muted;
+            return slashFill(pct, fill, muted);
+        }
         function renderInfo() {
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
@@ -3832,11 +3844,11 @@
                         return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size">/${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                    const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
                     const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
-                    const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
-                    if (active || playing) return `<span class="${dimCls} dim-label dim-chip" ${d}>${inner}</span>`;
-                    return `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
+                    const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
+                    const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
+                    if (active || playing) return `<span class="${dimCls} dim-label" ${d}>${inner}</span>`;
+                    return `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
                     const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-size">/${shape[i]}</span>`;
@@ -3854,19 +3866,19 @@
                                   : `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
-                const track = shape[i] > 1 ? `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>` : '';
                 const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
-                const inner = `<span class="dim-text">${padded}<span class="dim-size">/${shape[i]}</span></span>${track}`;
-                return (active || playing) ? `<span class="${dimCls} dim-label dim-chip" ${d}>${inner}</span>`
-                              : `<span class="dim-label dim-chip" ${d}>${inner}</span>`;
+                const slash = shape[i] > 1 ? dimSlash(pct, active, playing, false) : '<span class="dim-size">/</span>';
+                const inner = `<span class="dim-idx">${padded}</span>${slash}<span class="dim-size">${shape[i]}</span>`;
+                return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
+                              : `<span class="dim-label" ${d}>${inner}</span>`;
             }).join('<span class="dim-sep"> · </span>');
             if (vfieldNTimes > 1) {
                 const tActive = activeDim === VFIELD_T_DIM;
                 const pct = Math.round(vfieldT / Math.max(1, vfieldNTimes - 1) * 100);
-                const track = `<div class="dim-track"><div class="dim-track-fill" style="width:${pct}%"></div></div>`;
                 const paddedT = String(vfieldT + 1).padStart(String(vfieldNTimes).length, '\u2007');
-                const inner = `<span class="dim-text">${paddedT}<span class="dim-size">/${vfieldNTimes}</span></span>${track}`;
-                const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label dim-chip' : 'vfield-t-dim dim-label dim-chip';
+                const slash = dimSlash(pct, tActive, false, true);
+                const inner = `<span class="dim-idx">${paddedT}</span>${slash}<span class="dim-size">${vfieldNTimes}</span>`;
+                const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
                 idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
             let text = idxStr;
@@ -8984,14 +8996,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const d = parseInt(span.dataset.dim);
             activeDim = d;
             if (d === VFIELD_T_DIM) {
-                const track = e.target.closest('.dim-track');
-                if (track && vfieldNTimes > 1) {
-                    const rect = track.getBoundingClientRect();
-                    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                    vfieldT = Math.round(pct * (vfieldNTimes - 1));
-                    drawVectorOverlay();
-                    saveState();
-                }
                 renderInfo();
                 sink.focus();
                 return;
@@ -9008,20 +9012,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; triggerPreload();
             }
-            const track = e.target.closest('.dim-track');
-            if (track && shape[d] > 1) {
-                const rect = track.getBoundingClientRect();
-                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                indices[d] = Math.round(pct * (shape[d] - 1));
-                updateView();
-                saveState();
-            } else {
-                renderInfo();
-            }
+            renderInfo();
             sink.focus();
         });
 
-        // Drag on a dim-track slider to scrub through that dimension
+        // Drag on a dim label to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
         infoEl.addEventListener('mousedown', (e) => {
             const span = e.target.closest('[data-dim]');
@@ -9038,10 +9033,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         document.addEventListener('mousemove', (e) => {
             if (!_trackDrag) return;
             const { d, isVfield } = _trackDrag;
-            // Re-query the track each move in case info re-rendered
-            const track = infoEl.querySelector(`[data-dim="${d}"]`)?.querySelector('.dim-track');
-            if (!track) return;
-            const rect = track.getBoundingClientRect();
+            // Use the whole dim-label span as the scrub target
+            const label = infoEl.querySelector(`[data-dim="${d}"]`);
+            if (!label) return;
+            const rect = label.getBoundingClientRect();
             const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
             if (isVfield) {
                 vfieldT = Math.round(pct * (vfieldNTimes - 1));
