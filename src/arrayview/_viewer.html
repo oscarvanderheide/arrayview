@@ -107,6 +107,7 @@
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
             display: flex; align-items: center; gap: 8px;
+            box-sizing: border-box;
         }
         :root.light #slim-cb-wrap {
             background: rgba(240, 240, 240, 0.85);
@@ -189,7 +190,7 @@
         #array-name {
             font-size: 13px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
-            margin-bottom: 4px; min-height: 1em; text-align: center;
+            margin-bottom: 10px; min-height: 1em; text-align: center;
             display: flex; align-items: center; justify-content: center; gap: 7px;
         }
         #array-name svg { flex-shrink: 0; }
@@ -473,7 +474,7 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; pointer-events: none; flex: 1; min-width: 60px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; flex-shrink: 0; padding: 5px 14px; margin-top: 6px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; margin-top: 10px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; width: 60%; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -2504,7 +2505,8 @@
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
-            const cbTop = Math.min(canvasRect.bottom + 6, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            // Match the 10px gap used by #info margin-bottom (dim bar to canvas top)
+            const cbTop = Math.min(canvasRect.bottom + 10, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
