@@ -1322,3 +1322,78 @@ class TestLineProfile:
         assert r.status_code == 200
         body = r.json()
         assert len(body["values"]) == 200
+
+
+# ---------------------------------------------------------------------------
+# Complex-aware projections
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def complex_sid(client, tmp_path):
+    """Load a 3D complex array for projection tests."""
+    arr = np.array(
+        [[[1 + 2j, 3 + 4j], [5 + 6j, 7 + 8j]],
+         [[2 + 1j, 4 + 3j], [6 + 5j, 8 + 7j]]],
+        dtype=np.complex64,
+    )
+    path = tmp_path / "complex.npy"
+    np.save(str(path), arr)
+    resp = client.post("/load", json={"filepath": str(path), "name": "complex_test"})
+    return resp.json()["sid"]
+
+
+class TestComplexProjections:
+    """Projections on complex data must not trigger ComplexWarning."""
+
+    def test_complex_projection_max(self, client, complex_sid):
+        import warnings
+        from numpy.exceptions import ComplexWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ComplexWarning)
+            resp = client.get(
+                f"/slice/{complex_sid}",
+                params={"indices": "0,0,0", "dim_x": 1, "dim_y": 0,
+                        "projection_dim": 2, "projection_mode": 1},
+            )
+        assert resp.status_code == 200
+
+    def test_complex_projection_min(self, client, complex_sid):
+        import warnings
+        from numpy.exceptions import ComplexWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ComplexWarning)
+            resp = client.get(
+                f"/slice/{complex_sid}",
+                params={"indices": "0,0,0", "dim_x": 1, "dim_y": 0,
+                        "projection_dim": 2, "projection_mode": 2},
+            )
+        assert resp.status_code == 200
+
+    def test_complex_projection_sos(self, client, complex_sid):
+        import warnings
+        from numpy.exceptions import ComplexWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ComplexWarning)
+            resp = client.get(
+                f"/slice/{complex_sid}",
+                params={"indices": "0,0,0", "dim_x": 1, "dim_y": 0,
+                        "projection_dim": 2, "projection_mode": 5},
+            )
+        assert resp.status_code == 200
+
+    def test_complex_projection_mean(self, client, complex_sid):
+        import warnings
+        from numpy.exceptions import ComplexWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ComplexWarning)
+            resp = client.get(
+                f"/slice/{complex_sid}",
+                params={"indices": "0,0,0", "dim_x": 1, "dim_y": 0,
+                        "projection_dim": 2, "projection_mode": 3},
+            )
+        assert resp.status_code == 200
