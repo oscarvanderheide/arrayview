@@ -3693,13 +3693,18 @@
                     const vpEl = document.getElementById('canvas-viewport');
                     if (!vpEl) return;
                     const vpRect = vpEl.getBoundingClientRect();
-                    el.style.flexDirection = 'column';
-                    el.style.alignItems    = 'flex-start';
-                    el.style.top           = vpRect.top + 'px';
-                    el.style.bottom        = '';
-                    el.style.right         = Math.round(window.innerWidth - vpRect.left + 4) + 'px';
-                    el.style.left          = '';
-                    el.style.transform     = '';
+                    const cbWrap = document.getElementById('slim-cb-wrap');
+                    const cbRect = cbWrap ? cbWrap.getBoundingClientRect() : null;
+                    // Position inside canvas, centered, just above colorbar
+                    el.style.flexDirection = 'row';
+                    el.style.alignItems    = 'center';
+                    el.style.left          = vpRect.left + vpRect.width / 2 + 'px';
+                    el.style.transform     = 'translateX(-50%)';
+                    el.style.top           = '';
+                    el.style.right         = '';
+                    el.style.bottom        = cbRect
+                        ? (window.innerHeight - cbRect.top + 6) + 'px'
+                        : (window.innerHeight - vpRect.bottom + 30) + 'px';
                     return;
                 }
                 el.style.flexDirection = '';
