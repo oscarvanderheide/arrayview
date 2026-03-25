@@ -2574,9 +2574,11 @@
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax) {
                 if (_cbExpanded) {
-                    slimVmin.textContent = '';
-                    slimVmax.textContent = '';
+                    slimVmin.style.display = 'none';
+                    slimVmax.style.display = 'none';
                 } else {
+                    slimVmin.style.display = '';
+                    slimVmax.style.display = '';
                     slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
                     slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
                 }
