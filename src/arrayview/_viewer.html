@@ -78,7 +78,7 @@
             width: 100%; padding: 8px; box-sizing: border-box;
         }
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
-        #canvas-viewport { position: relative; overflow: hidden; display: inline-block; }
+        #canvas-viewport { position: relative; overflow: hidden; display: inline-block; user-select: none; -webkit-user-select: none; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
         .zoom-select-rect {
             position: absolute;
@@ -424,6 +424,8 @@
         #roi-panel th:first-child { text-align: center; }
         #roi-panel td { text-align: right; padding: 1px 6px; }
         #roi-panel td:first-child { text-align: center; padding-right: 6px; }
+        .roi-delete { opacity: 0.4; cursor: pointer; font-size: 12px; text-align: center !important; padding: 0 4px !important; }
+        .roi-delete:hover { opacity: 0.8; }
         #roi-panel .roi-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
         #roi-panel .roi-header span { font-weight: bold; color: var(--active-dim); }
         #roi-panel .roi-section { margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
@@ -4594,8 +4596,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         canvas.addEventListener('mousedown', e => {
             sink.focus();
             // Right-click drag: scrub slices (fit) or pan (zoomed)
+            // Skip when in ROI mode — right-click is used for ROI deletion
             if (e.button === 2) {
                 e.preventDefault();
+                if (rectRoiMode) return;
                 if (_isCanvasOverflowing()) {
                     _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
                 } else {
@@ -4833,7 +4837,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
                 return parseFloat(v.toPrecision(4)).toString();
             };
-            let html = '<table><tr><th></th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th></tr>';
+            let html = '<table><tr><th></th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th><th></th></tr>';
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
                 const c = _roiColors[i % _roiColors.length];
@@ -4844,7 +4848,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 html += `<td>${fmt(s.min)}</td>`;
                 html += `<td>${fmt(s.max)}</td>`;
                 html += `<td>${fmt(s.mean)}</td>`;
-                html += `<td>${fmt(s.std)}</td></tr>`;
+                html += `<td>${fmt(s.std)}</td>`;
+                html += `<td class="roi-delete" data-roi="${i}" title="Delete ROI ${i + 1}">\u00d7</td></tr>`;
             }
             html += '</table>';
             content.innerHTML = html;
@@ -4869,6 +4874,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
         document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
+        document.getElementById('roi-content').addEventListener('click', e => {
+            const del = e.target.closest('.roi-delete');
+            if (!del) return;
+            const idx = parseInt(del.dataset.roi);
+            if (isNaN(idx) || idx < 0 || idx >= _rois.length) return;
+            _rois.splice(idx, 1);
+            _drawAllRois();
+            _updateRoiPanel();
+            showStatus(`ROI ${idx + 1} deleted`);
+        });
         // Zoom-to-region: mousemove updates the selection rectangle
         canvas.addEventListener('mousemove', e => {
             if (!_zoomSelectDrag) return;
@@ -5060,6 +5075,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         canvas.addEventListener('contextmenu', e => {
             if (!rectRoiMode) return;
             e.preventDefault();
+            e.stopImmediatePropagation();
             const rect = canvas.getBoundingClientRect();
             const cx = (e.clientX - rect.left) * canvas.width / rect.width;
             const cy = (e.clientY - rect.top) * canvas.height / rect.height;
