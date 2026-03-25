@@ -786,7 +786,6 @@
 </head>
 <body>
 <div id="wrapper">
-    <div id="info">Connecting...</div>
     <div id="array-name">
         <svg id="av-logo-svg" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
             <rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>
@@ -802,6 +801,7 @@
         </svg>
         <span id="array-name-text"></span>
     </div>
+    <div id="info">Connecting...</div>
     <div id="viewer-row">
         <div id="canvas-wrap" style="display:none">
             <div id="canvas-viewport">
@@ -2548,14 +2548,9 @@
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
             // Mirror the gap between name-bar/title bottom and canvas top
             let chromeGap;
-            if (compareActive) {
-                // In compare mode, measure gap from dim bar (#info) to compare panes
-                const infoEl = document.getElementById('info');
-                chromeGap = infoEl ? (canvasRect.top - infoEl.getBoundingClientRect().bottom) : 10;
-            } else {
-                const nameEl = document.getElementById('array-name');
-                chromeGap = nameEl ? (canvasRect.top - nameEl.getBoundingClientRect().bottom) : 10;
-            }
+            // In both modes, #info (dim bar) is the element directly above the canvas area
+            const infoEl = document.getElementById('info');
+            chromeGap = infoEl ? (canvasRect.top - infoEl.getBoundingClientRect().bottom) : 10;
             const cbTop = Math.min(canvasRect.bottom + chromeGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
