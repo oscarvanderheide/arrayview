@@ -4388,6 +4388,24 @@
             }
         }
 
+        // Download helper: tries <a download> first, falls back to server POST (for PyWebView)
+        function _downloadFile(dataUrl, filename) {
+            // Try <a download> first
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = dataUrl;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            // Also POST to server as fallback for native webviews
+            fetch('/save_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename, data: dataUrl })
+            }).catch(() => {});
+        }
+
         function saveScreenshot() {
             // Build annotation lines: name + slice index info
             function _buildAnnotation() {
@@ -4407,21 +4425,29 @@
                 return lines;
             }
             function _annotateCanvas(src, lines) {
-                if (!lines || !lines.length) return src;
-                const dst = document.createElement('canvas');
-                dst.width = src.width; dst.height = src.height;
-                const ctx = dst.getContext('2d');
-                ctx.drawImage(src, 0, 0, src.width, src.height);
+                // Render screenshot at CSS display size for crisp output
+                const cssW = parseInt(src.style.width) || src.width;
+                const cssH = parseInt(src.style.height) || src.height;
                 const dpr = window.devicePixelRatio || 1;
-                const fontSize = Math.max(10, Math.round(12 * dpr));
+                const outW = Math.round(cssW * dpr);
+                const outH = Math.round(cssH * dpr);
+                const dst = document.createElement('canvas');
+                dst.width = outW; dst.height = outH;
+                const ctx = dst.getContext('2d');
+                // Draw source scaled up to CSS display size
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(src, 0, 0, outW, outH);
+                if (!lines || !lines.length) return dst;
+                // Annotation text scaled for output resolution
+                const fontSize = Math.max(12, Math.round(14 * dpr));
                 ctx.font = `${fontSize}px monospace`;
-                const lineH = fontSize + 2;
-                const pad = Math.round(4 * dpr);
+                const lineH = fontSize + 3;
+                const pad = Math.round(6 * dpr);
                 const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
                 const boxW = maxW + pad * 2;
                 const boxH = lineH * lines.length + pad * 2;
                 const bx = pad;
-                const by = src.height - boxH - pad;
+                const by = outH - boxH - pad;
                 ctx.fillStyle = 'rgba(0,0,0,0.55)';
                 ctx.fillRect(bx, by, boxW, boxH);
                 ctx.fillStyle = '#ffffff';
@@ -4453,13 +4479,7 @@
                 dataUrl = _annotateCanvas(canvas, lines).toDataURL('image/png');
                 filename = `slice_${indices.join('-')}.png`;
             }
-            const link = document.createElement('a');
-            link.download = filename;
-            link.href = dataUrl;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            _downloadFile(dataUrl, filename);
             // Capture to gallery
             _galleryAdd(dataUrl);
             setStatus('Screenshot saved to Downloads.');
@@ -4546,15 +4566,8 @@
 <style>body{background:#0c0c0c;color:#d8d8d8;font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;}
 h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style></head>
 <body><h1>ArrayView Report</h1>${items}</body></html>`;
-            const blob = new Blob([html], { type: 'text/html' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'arrayview-report.html';
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            const dataUrl = 'data:text/html;base64,' + btoa(unescape(encodeURIComponent(html)));
+            _downloadFile(dataUrl, 'arrayview-report.html');
             showStatus('Report exported.');
         }
         // Wire gallery buttons
@@ -4582,14 +4595,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             const blob = await res.blob();
-            const link = document.createElement('a');
-            link.download = `dim${current_slice_dim}.gif`;
-            link.href = URL.createObjectURL(blob);
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setStatus('GIF saved.');
+            const gifFilename = `dim${current_slice_dim}.gif`;
+            // Convert blob to data URL for _downloadFile
+            const reader = new FileReader();
+            reader.onload = () => {
+                _downloadFile(reader.result, gifFilename);
+                setStatus('GIF saved.');
+            };
+            reader.readAsDataURL(blob);
+            setStatus('GIF saving...');
             setTimeout(() => setStatus(''), 2000);
         }
 
@@ -4937,15 +4951,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!s) continue;
                 rows.push([i + 1, s.n, s.min, s.max, s.mean, s.std].join(','));
             }
-            const blob = new Blob([rows.join('\n')], { type: 'application/octet-stream' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'roi_stats.csv';
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            const csvText = rows.join('\n');
+            const dataUrl = 'data:text/csv;base64,' + btoa(csvText);
+            _downloadFile(dataUrl, 'roi_stats.csv');
         }
         document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
         document.getElementById('roi-content').addEventListener('click', e => {

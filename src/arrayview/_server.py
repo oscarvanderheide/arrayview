@@ -1287,6 +1287,28 @@ def export_slice(
     )
 
 
+@app.post("/save_file")
+async def save_file(request: Request):
+    """Save a client-generated file (screenshot, CSV, GIF) to the Downloads folder.
+
+    Accepts JSON: { "filename": "name.png", "data": "<base64-encoded>" }
+    Used as fallback when <a download>.click() doesn't work (e.g. PyWebView).
+    """
+    body = await request.json()
+    filename = body.get("filename", "arrayview_export")
+    data_b64 = body.get("data", "")
+    # Strip data URL prefix if present
+    if "," in data_b64:
+        data_b64 = data_b64.split(",", 1)[1]
+    import base64, pathlib
+    raw = base64.b64decode(data_b64)
+    # Save to Downloads or current directory
+    downloads = pathlib.Path.home() / "Downloads"
+    dest = downloads / filename if downloads.is_dir() else pathlib.Path(filename)
+    dest.write_bytes(raw)
+    return JSONResponse({"path": str(dest)})
+
+
 @app.get("/info/{sid}")
 def get_info(sid: str):
     session = SESSIONS.get(sid)
