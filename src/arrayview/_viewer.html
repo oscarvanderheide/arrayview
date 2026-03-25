@@ -1349,7 +1349,7 @@
         let _mvPrevSquareStretch = false;
         let _cmvPrevSquareStretch = false;
         let _eggsVisible = true;
-        let _fullscreenCheckPending = false;
+        // (auto-compact check removed — fullscreen mode is manual only via K key)
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
         let pixelHoverPending = false;
@@ -2555,7 +2555,7 @@
                 wrap.style.transform = '';
                 wrap.style.transformOrigin = '';
             }
-            // Restore inline vmin/vmax spans (hidden in compact overlay mode)
+            // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
             if (_nvmin) _nvmin.style.display = '';
@@ -3830,8 +3830,8 @@
                 }
             } else {
                 // Normal mode: use slim colorbar if visible, else canvas bottom.
-                // In compact mode, stack eggs vertically to the left of the canvas.
-                if (_compactActive) {
+                // In fullscreen mode, stack eggs vertically to the left of the canvas.
+                if (_fullscreenActive) {
                     const vpEl = document.getElementById('canvas-viewport');
                     if (!vpEl) return;
                     const vpRect = vpEl.getBoundingClientRect();
@@ -5470,8 +5470,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
                     // No buffered input: reset zoom and pan
-                    // Exit auto-compact first so the layout matches the initial auto-fit state
-                    if (_compactActive && !_compactManual) setCompactMode(false);
                     userZoom = 1.0;
                     _zoomAdjustedByUser = false;
                     _panX = 0; _panY = 0; _applyCanvasPan();
@@ -6368,6 +6366,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     document.querySelectorAll('.mv-view, .compare-canvas-wrap, .qv-canvas-wrap').forEach(el => el.classList.remove('canvas-bordered'));
                 }
                 toggleZenMode();
+            } else if (e.key === 'K') {
+                toggleFullscreenMode();
+                showToast(_fullscreenActive ? 'fullscreen: on' : 'fullscreen: off');
             } else if (e.key === 'U') {
                 if (!hasVectorfield) {
                     showStatus('U: no vector field loaded');
@@ -9420,88 +9421,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         });
 
-        // ── 2b. Compact mode (auto-collapse on small windows) ─────────
-        let _compactActive = false;
-        let _compactManual = false; // true when user toggled via K key
-        let _compactHoverTimer = null;
+        // ── 2b. Fullscreen mode (K key — manual toggle only) ─────────
+        let _fullscreenActive = false;
 
-        function _positionCompactInfo() {
-            if (!_compactActive) return;
-            const vpEl = document.getElementById('canvas-viewport');
-            const ref = multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
-            if (!ref) return;
-            const r = ref.getBoundingClientRect();
-            const infoEl = document.getElementById('info');
-            if (!infoEl) return;
-            infoEl.style.top = (r.top + 6) + 'px';
-            infoEl.style.left = (r.left + r.width / 2) + 'px';
+        function _positionFullscreenInfo() {
+            // In fullscreen mode, CSS handles positioning (position:fixed, top:8px, left:50%).
+            // No JS positioning needed — just ensure the info element is visible.
         }
 
-        function setCompactMode(on) {
-            if (_compactActive === on) return;
-            _compactActive = on;
-            document.body.classList.toggle('compact-mode', on);
+        function setFullscreenMode(on) {
+            if (_fullscreenActive === on) return;
+            _fullscreenActive = on;
+            document.body.classList.toggle('fullscreen-mode', on);
             // Recalc layout with new reserves
-            if (multiViewActive) mvScaleAllCanvases();
+            if (compareActive) compareScaleCanvases();
+            else if (multiViewActive) mvScaleAllCanvases();
             else if (lastImageData) scaleCanvas(lastImgW, lastImgH);
-            if (on) {
-                document.addEventListener('mousemove', _compactMouseMove);
-                _positionCompactInfo();
-            } else {
-                document.removeEventListener('mousemove', _compactMouseMove);
-                document.body.classList.remove('compact-hover');
-                clearTimeout(_compactHoverTimer);
+            if (!on) {
                 // Restore normal colorbar positioning
                 const wrap = document.getElementById('slim-cb-wrap');
-                if (wrap) wrap.classList.remove('compact-overlay');
+                if (wrap) {
+                    wrap.classList.remove('compact-overlay');
+                    wrap.style.width = '';
+                }
                 // Reset info position
                 const infoEl = document.getElementById('info');
                 if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
+                // Reset wrapper padding
+                const wrapper = document.getElementById('wrapper');
+                if (wrapper) { wrapper.style.paddingTop = ''; }
             }
         }
 
-        function _compactMouseMove(e) {
-            if (!_compactActive) return;
-            // Show top chrome when mouse is in the top 40px
-            if (e.clientY < 40) {
-                document.body.classList.add('compact-hover');
-                clearTimeout(_compactHoverTimer);
-                _compactHoverTimer = setTimeout(() => {
-                    document.body.classList.remove('compact-hover');
-                }, 2000);
-            }
-        }
-
-        function _checkAutoCompact() {
-            // Don't auto-toggle when user manually set it
-            if (_compactManual || _zenActive || compareActive || multiViewActive || _isWelcomeScreen) {
-                return;
-            }
-            // Auto-compact when the viewport is clipped (canvas overflows) and user is zoomed in
-            const vp = document.getElementById('canvas-viewport');
-            if (!vp || !canvas) return;
-            const vpH = parseInt(vp.style.height) || 0;
-            // Check if canvas would benefit from more space:
-            // viewport height is close to max available AND canvas actually overflows
-            // (userZoom > 1 alone isn't sufficient — auto-fit sets userZoom > 1 without overflow)
-            const maxH = Math.max(50, window.innerHeight - uiReserveV() - 72);
-            const canvasH = parseInt(canvas.style.height) || 0;
-            const constrained = vpH >= maxH - 2 && _zoomAdjustedByUser && userZoom > 1.0 && canvasH > vpH + 2;
-            if (constrained && !_compactActive) {
-                setCompactMode(true);
-            } else if (!constrained && _compactActive) {
-                setCompactMode(false);
-            }
-        }
-
-        function toggleCompactMode() {
-            if (_compactActive) {
-                _compactManual = false;
-                setCompactMode(false);
-            } else {
-                _compactManual = true;
-                setCompactMode(true);
-            }
+        function toggleFullscreenMode() {
+            setFullscreenMode(!_fullscreenActive);
         }
 
         // ── 3. Colormap preview strip ─────────────────────────────────
