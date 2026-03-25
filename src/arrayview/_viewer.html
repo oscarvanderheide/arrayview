@@ -163,10 +163,12 @@
         .dim-label:hover { background: transparent; }
         .dim-idx { font-variant-numeric: tabular-nums; }
         .dim-slash {
+            display: inline;
             font-weight: bold;
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: transparent;
+            -webkit-background-clip: text !important;
+            background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
         }
         #status { position: fixed; bottom: 42px; left: 20px;
                   font-size: 15px; color: var(--muted); transition: opacity 0.7s ease;
