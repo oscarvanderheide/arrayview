@@ -623,9 +623,8 @@
             pointer-events: none;
         }
         body.compact-mode #info {
-            position: fixed; z-index: 6; font-size: 14px; margin: 0; padding: 4px 14px;
+            position: fixed; z-index: 6; margin: 0; padding: 4px 14px;
             transform: translateX(-50%); align-self: auto;
-            transition: font-size 0.25s ease;
         }
         body.compact-mode #slim-cb-wrap.compact-overlay {
             /* Island styling already in base #slim-cb-wrap; just adjust padding */
@@ -1724,8 +1723,14 @@
 
         function uiReserveV() {
             if (_compactActive) {
-                // In compact mode: array-name is hidden, info is tiny
-                return 50; // wrapper padding + small info bar
+                // In compact mode: array-name is hidden but info bar keeps full size
+                let h = 30; // wrapper padding
+                const infoEl = document.getElementById('info');
+                if (infoEl) {
+                    const s = getComputedStyle(infoEl);
+                    h += infoEl.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
+                }
+                return Math.max(80, h);
             }
             let h = 30; // wrapper padding
             for (const id of ['array-name', 'info']) {
@@ -2505,8 +2510,10 @@
             const cssW = Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
-            // Match the 10px gap used by #info margin-bottom (dim bar to canvas top)
-            const cbTop = Math.min(canvasRect.bottom + 10, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            // Mirror the gap between dim-bar bottom and canvas-viewport top
+            const infoEl = document.getElementById('info');
+            const dimGap = infoEl ? (canvasRect.top - infoEl.getBoundingClientRect().bottom) : 10;
+            const cbTop = Math.min(canvasRect.bottom + dimGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
