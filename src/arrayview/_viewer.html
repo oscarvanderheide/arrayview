@@ -2601,9 +2601,13 @@
             // In multiview, histogram version uses the first pane's dims, not the main canvas dims
             const _histSliceDimX = multiViewActive && mvViews.length ? mvViews[0].dimX : dim_x;
             const _histSliceDimY = multiViewActive && mvViews.length ? mvViews[0].dimY : dim_y;
-            if (_cbExpanded && _histDataVersion !== (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY)) {
+            const _expectedHistVer = compareActive
+                ? (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY + ':compare')
+                : (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY);
+            if (_cbExpanded && _histDataVersion !== _expectedHistVer) {
                 if (!_histFetching) {
-                    _fetchHistogram().then(() => { if (_cbExpanded) drawSlimColorbar(cbMarkerFrac); });
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                    fetcher().then(() => { if (_cbExpanded) drawSlimColorbar(cbMarkerFrac); });
                 }
                 return;  // always return — don't draw with stale/null data
             }
@@ -2658,6 +2662,44 @@
                 if (!resp.ok) { _histFetching = false; return; }
                 _histData = await resp.json();
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY;
+            } catch (_) { _histData = null; }
+            _histFetching = false;
+        }
+
+        /** Fetch histogram for all compare sessions and merge bins element-wise. */
+        async function _fetchHistogramCompare() {
+            if (_histFetching) return;
+            _histFetching = true;
+            const allSids = getCompareRenderSids();
+            const fetchDimX = dim_x;
+            const fetchDimY = dim_y;
+            const params = new URLSearchParams({
+                dim_x: fetchDimX,
+                dim_y: fetchDimY,
+                indices: indices.join(','),
+                complex_mode: complexMode,
+                bins: 64,
+            });
+            try {
+                const histPromises = allSids.map(s =>
+                    fetch(`/histogram/${s}?${params}`).then(r => r.ok ? r.json() : null)
+                );
+                const allHists = await Promise.all(histPromises);
+                const valid = allHists.filter(Boolean);
+                if (!valid.length) { _histFetching = false; return; }
+                // Start from first valid result, then sum counts from the rest
+                const merged = JSON.parse(JSON.stringify(valid[0]));
+                for (let i = 1; i < valid.length; i++) {
+                    const h = valid[i];
+                    for (let j = 0; j < merged.counts.length && j < h.counts.length; j++) {
+                        merged.counts[j] += h.counts[j];
+                    }
+                    // Expand vmin/vmax to union range
+                    if (h.vmin < merged.vmin) merged.vmin = h.vmin;
+                    if (h.vmax > merged.vmax) merged.vmax = h.vmax;
+                }
+                _histData = merged;
+                _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':compare';
             } catch (_) { _histData = null; }
             _histFetching = false;
         }
@@ -2907,14 +2949,19 @@
             }
 
             async function _expandColorbar() {
-                if (_cbExpanded || compareActive || !colorbarVisible()) return;
+                if (_cbExpanded || !colorbarVisible()) return;
                 // Fetch histogram data if not already cached for current slice
                 const curVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
-                if (!_histData || _histDataVersion !== curVersion) {
+                const cmpVersion = curVersion + ':compare';
+                if (compareActive) {
+                    if (!_histData || _histDataVersion !== cmpVersion) {
+                        await _fetchHistogramCompare();
+                    }
+                } else if (!_histData || _histDataVersion !== curVersion) {
                     await _fetchHistogram();
                 }
-                // Also fetch raw slice for Lebesgue mode
-                if (lebesgueMode) {
+                // Also fetch raw slice for Lebesgue mode (not in compare mode)
+                if (lebesgueMode && !compareActive) {
                     const lbVer = curVersion + ':' + complexMode + ':' + logScale;
                     if (!_lebesgueSlice || _lebesgueVersion !== lbVer) {
                         await _fetchLebesgueSlice();
@@ -5650,8 +5697,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null;
                 // Toggle histogram mode (expands colorbar + pixel-matching overlay on hover)
                 // In multiview, only histogram expansion works — pixel overlay requires main canvas
-                if (compareActive || rgbMode) {
+                if (rgbMode) {
                     showStatus('histogram: not available in this mode'); return;
+                }
+                if (compareActive) {
+                    _cbExpanded = !_cbExpanded;
+                    if (_cbExpanded) {
+                        _fetchHistogramCompare().then(() => drawSlimColorbar(cbMarkerFrac));
+                        showStatus('histogram: on');
+                    } else {
+                        _histData = null; _histVminX = null; _histVmaxX = null;
+                        drawSlimColorbar(cbMarkerFrac);
+                        showStatus('histogram: off');
+                    }
+                    return;
                 }
                 if (qmriActive && qmriMosaicActive) {
                     _cbExpanded = !_cbExpanded;
@@ -5871,7 +5930,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView(); triggerPreload();
-                    if (!compareActive && !rgbMode) {
+                    if (!rgbMode) {
                         _histData = null; _histDataVersion = null;
                         if (qmriActive && qmriMosaicActive) {
                             Promise.all(qmriViews.map(v => _fetchQmriMosaicHist(v))).then(() => {
@@ -5879,7 +5938,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 qmriViews.forEach(v => drawQmriMosaicVCb(v));
                             });
                         } else {
-                            _fetchHistogram().then(() => {
+                            const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                            fetcher().then(() => {
                                 _cbExpanded = true;
                                 if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
                             });
@@ -5887,7 +5947,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 });
                 showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
-                if (!compareActive && !rgbMode) {
+                if (!rgbMode) {
                     clearTimeout(_histAutoDismissTimer);
                     if (!lebesgueMode) {
                         _histAutoDismissTimer = setTimeout(() => {
