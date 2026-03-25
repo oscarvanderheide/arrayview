@@ -80,6 +80,13 @@
         #canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; align-self: flex-start; }
         #canvas-viewport { position: relative; overflow: hidden; display: inline-block; }
         #canvas-inner { position: relative; display: inline-flex; justify-content: center; align-items: center; }
+        .zoom-select-rect {
+            position: absolute;
+            border: 2px dashed var(--active-dim);
+            background: rgba(245, 200, 66, 0.08);
+            pointer-events: none;
+            z-index: 50;
+        }
         canvas {
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
@@ -711,6 +718,41 @@
         .cmp-xhair-h, .cmp-xhair-v { position:absolute; pointer-events:none; z-index:5; display:none; }
         .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
         .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
+        /* ── Snapshot Gallery ────────────────────────────────────── */
+        .gallery-panel {
+            position: fixed; top: 0; right: 0; bottom: 0; width: 240px;
+            background: var(--surface); border-left: 1px solid var(--border);
+            transform: translateX(100%); transition: transform 0.25s ease;
+            z-index: 100; display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .gallery-panel.open { transform: translateX(0); }
+        .gallery-header {
+            display: flex; align-items: center; padding: 12px;
+            border-bottom: 1px solid var(--border); gap: 8px;
+            font-size: 13px; color: var(--text);
+        }
+        .gallery-count {
+            background: var(--active-dim); color: #000; border-radius: 10px;
+            padding: 1px 7px; font-size: 11px; min-width: 18px; text-align: center;
+        }
+        .gallery-thumb { width: 100%; border-radius: 4px; cursor: pointer; }
+        .gallery-item {
+            padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
+            position: relative;
+        }
+        .gallery-meta { font-size: 10px; color: var(--muted); font-family: monospace; margin-top: 4px; }
+        .gallery-remove {
+            position: absolute; top: 4px; right: 4px; background: none; border: none;
+            color: var(--muted); cursor: pointer; font-size: 14px; opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .gallery-item:hover .gallery-remove { opacity: 1; }
+        .gallery-export, .gallery-close {
+            background: none; border: none; color: var(--muted); cursor: pointer;
+            font-size: 16px; padding: 2px 4px;
+        }
+        .gallery-export:hover, .gallery-close:hover { color: var(--text); }
     </style>
 </head>
 <body>
@@ -998,6 +1040,7 @@
                 <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
                 <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
                 <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
+                <div class="help-row"><span class="key">Shift+drag</span><span class="desc">Zoom to region (normal mode)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="axes">
                 <div class="help-panel-title">Axes &amp; Views</div>
@@ -1013,7 +1056,7 @@
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
-                 <div class="help-row"><span class="key">A</span><span class="desc">cycle ROI mode: rect → circle → freehand → off; drag to draw · hover for stats · right-click to delete</span></div>
+                 <div class="help-row"><span class="key">A</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -1047,7 +1090,8 @@
                 <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
                 <div class="help-row"><span class="key">H</span><span class="desc">toggle pixel hover tooltip</span></div>
                 <div class="help-row"><span class="key">i</span><span class="desc">show data info overlay</span></div>
-                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG → Downloads)</span></div>
+                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG → Downloads + gallery)</span></div>
+                <div class="help-row"><span class="key">G</span><span class="desc">toggle snapshot gallery</span></div>
                 <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy (→ Downloads)</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
                 <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
@@ -4328,9 +4372,108 @@
             link.download = filename;
             link.href = dataUrl;
             link.click();
+            // Capture to gallery
+            _galleryAdd(dataUrl);
             setStatus('Screenshot saved to Downloads.');
             setTimeout(() => setStatus(''), 2000);
         }
+
+        // ── Snapshot Gallery ─────────────────────────────────────
+        const _gallerySnapshots = [];
+        function _galleryAdd(dataUrl) {
+            const now = new Date();
+            const ts = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const snap = {
+                dataUrl,
+                indices: [...indices],
+                colormap: currentColormap(),
+                dim_x, dim_y,
+                timestamp: ts,
+                label: document.getElementById('array-name-text')?.textContent?.trim() || ''
+            };
+            _gallerySnapshots.push(snap);
+            _galleryRenderItem(snap, _gallerySnapshots.length - 1);
+            _galleryUpdateCount();
+        }
+        function _galleryRenderItem(snap, idx) {
+            const container = document.querySelector('#snapshot-gallery .gallery-items');
+            if (!container) return;
+            const div = document.createElement('div');
+            div.className = 'gallery-item';
+            div.dataset.idx = idx;
+            const img = document.createElement('img');
+            img.className = 'gallery-thumb';
+            img.src = snap.dataUrl;
+            img.title = 'Click to open full size';
+            img.addEventListener('click', () => {
+                const w = window.open('');
+                if (w) { w.document.write('<img src="' + snap.dataUrl + '" style="max-width:100%">'); w.document.title = 'Snapshot'; }
+            });
+            const meta = document.createElement('div');
+            meta.className = 'gallery-meta';
+            const idxSpan = document.createElement('span');
+            idxSpan.className = 'gallery-idx';
+            idxSpan.textContent = '[' + snap.indices.join(', ') + ']';
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'gallery-time';
+            timeSpan.textContent = ' ' + snap.timestamp;
+            meta.appendChild(idxSpan);
+            meta.appendChild(timeSpan);
+            const rm = document.createElement('button');
+            rm.className = 'gallery-remove';
+            rm.title = 'Remove';
+            rm.textContent = '\u00d7';
+            rm.addEventListener('click', () => {
+                _gallerySnapshots[idx] = null;
+                div.remove();
+                _galleryUpdateCount();
+            });
+            div.appendChild(img);
+            div.appendChild(meta);
+            div.appendChild(rm);
+            container.appendChild(div);
+        }
+        function _galleryUpdateCount() {
+            const count = _gallerySnapshots.filter(s => s !== null).length;
+            const el = document.querySelector('#snapshot-gallery .gallery-count');
+            if (el) el.textContent = count;
+        }
+        function _galleryToggle() {
+            const panel = document.getElementById('snapshot-gallery');
+            if (panel) panel.classList.toggle('open');
+        }
+        function _galleryExport() {
+            const snaps = _gallerySnapshots.filter(s => s !== null);
+            if (!snaps.length) { showStatus('No snapshots to export'); return; }
+            const items = snaps.map(s => `
+                <div style="margin-bottom:24px;">
+                    <img src="${s.dataUrl}" style="max-width:100%; border-radius:6px;" />
+                    <div style="font-size:12px; color:#999; font-family:monospace; margin-top:6px;">
+                        idx: [${s.indices.join(', ')}] &middot; cmap: ${s.colormap} &middot; ${s.timestamp}
+                        ${s.label ? ' &middot; ' + s.label : ''}
+                    </div>
+                </div>`).join('\n');
+            const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>ArrayView Report</title>
+<style>body{background:#0c0c0c;color:#d8d8d8;font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;}
+h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style></head>
+<body><h1>ArrayView Report</h1>${items}</body></html>`;
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'arrayview-report.html'; a.click();
+            URL.revokeObjectURL(url);
+            showStatus('Report exported.');
+        }
+        // Wire gallery buttons
+        (function() {
+            const panel = document.getElementById('snapshot-gallery');
+            if (!panel) return;
+            const closeBtn = panel.querySelector('.gallery-close');
+            if (closeBtn) closeBtn.addEventListener('click', () => panel.classList.remove('open'));
+            const exportBtn = panel.querySelector('.gallery-export');
+            if (exportBtn) exportBtn.addEventListener('click', _galleryExport);
+        })();
 
         async function saveGif() {
             setStatus('Generating GIF...');
@@ -4418,6 +4561,16 @@
             const cssH = parseInt(canvas.style.height) || canvas.height;
             return cssW > vp.offsetWidth + 2 || cssH > vp.offsetHeight + 2;
         }
+        // Zoom-to-region: Shift+drag draws a selection rectangle, zooms on release
+        let _zoomSelectDrag = null; // {startX, startY} in image-pixel coords, or null
+        let _zoomSelectRect = null; // the overlay div element
+        function _removeZoomSelectRect() {
+            if (_zoomSelectRect) { _zoomSelectRect.remove(); _zoomSelectRect = null; }
+        }
+        function _canZoomSelect() {
+            return !rectRoiMode && !_rulerMode && !compareActive && !multiViewActive && !qmriActive;
+        }
+
         canvas.addEventListener('contextmenu', e => e.preventDefault());
         canvas.addEventListener('mousedown', e => {
             sink.focus();
@@ -4431,7 +4584,32 @@
                 }
                 return;
             }
-            roiDragging = rectRoiMode; // only start ROI drag when mode is active
+            // Shift+left-click: start zoom-to-region selection
+            if (e.button === 0 && e.shiftKey && _canZoomSelect()) {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const imgX = (e.clientX - rect.left) * canvas.width / rect.width;
+                const imgY = (e.clientY - rect.top) * canvas.height / rect.height;
+                _zoomSelectDrag = { startX: imgX, startY: imgY };
+                // Create the selection rectangle overlay inside canvas-inner
+                _removeZoomSelectRect();
+                const sel = document.createElement('div');
+                sel.className = 'zoom-select-rect';
+                sel.style.left = '0'; sel.style.top = '0';
+                sel.style.width = '0'; sel.style.height = '0';
+                document.getElementById('canvas-inner').appendChild(sel);
+                _zoomSelectRect = sel;
+                return;
+            }
+            roiDragging = rectRoiMode && _roiShape !== 'floodfill'; // flood fill uses click, not drag
+            // Flood fill: single click to seed
+            if (rectRoiMode && _roiShape === 'floodfill') {
+                const ffRect = canvas.getBoundingClientRect();
+                const ffPx = Math.round((e.clientX - ffRect.left) * canvas.width / ffRect.width);
+                const ffPy = Math.round((e.clientY - ffRect.top) * canvas.height / ffRect.height);
+                _performFloodFill(ffPx, ffPy);
+                return;
+            }
             // Left-click pan when zoomed in and not in ROI mode
             if (!rectRoiMode && _isCanvasOverflowing()) {
                 _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
@@ -4479,6 +4657,77 @@
             roiOverlayCanvas.style.display = 'none';
             if (roiOverlayCtx) roiOverlayCtx.clearRect(0, 0, roiOverlayCanvas.width, roiOverlayCanvas.height);
         }
+        async function _performFloodFill(px, py) {
+            showStatus(`flood fill: seeding at (${px}, ${py})...`);
+            try {
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x),
+                    dim_y: String(dim_y),
+                    indices: indices.join(','),
+                    px: String(px),
+                    py: String(py),
+                    tolerance: String(_floodFillTolerance),
+                    complex_mode: String(complexMode),
+                });
+                const resp = await fetch(`/roi_floodfill/${sid}?${params}`);
+                if (!resp.ok) { showStatus('flood fill: failed'); return; }
+                const data = await resp.json();
+                if (data.error) { showStatus(`flood fill: ${data.error}`); return; }
+                // Draw the flood fill region on the ROI overlay
+                if (roiOverlayCanvas) {
+                    const bbox = data.bbox;
+                    const bw = bbox.x1 - bbox.x0 + 1;
+                    const bh = bbox.y1 - bbox.y0 + 1;
+                    // Decode mask
+                    const raw = atob(data.mask_b64);
+                    const maskBytes = new Uint8Array(raw.length);
+                    for (let i = 0; i < raw.length; i++) maskBytes[i] = raw.charCodeAt(i);
+                    roiOverlayCanvas.width = canvas.width;
+                    roiOverlayCanvas.height = canvas.height;
+                    roiOverlayCanvas.style.width = canvas.style.width;
+                    roiOverlayCanvas.style.height = canvas.style.height;
+                    roiOverlayCanvas.style.display = '';
+                    const rctx = roiOverlayCtx;
+                    rctx.clearRect(0, 0, roiOverlayCanvas.width, roiOverlayCanvas.height);
+                    rctx.fillStyle = 'rgba(245,200,66,0.18)';
+                    rctx.strokeStyle = 'rgba(245,200,66,0.7)';
+                    rctx.lineWidth = 1;
+                    // Draw filled pixels
+                    for (let y = 0; y < bh; y++) {
+                        for (let x = 0; x < bw; x++) {
+                            if (maskBytes[y * bw + x]) {
+                                rctx.fillRect(bbox.x0 + x, bbox.y0 + y, 1, 1);
+                            }
+                        }
+                    }
+                    // Draw border: pixels at edges of mask
+                    rctx.fillStyle = 'rgba(245,200,66,0.6)';
+                    for (let y = 0; y < bh; y++) {
+                        for (let x = 0; x < bw; x++) {
+                            if (!maskBytes[y * bw + x]) continue;
+                            const atEdge = (x === 0 || !maskBytes[y * bw + (x-1)])
+                                || (x === bw-1 || !maskBytes[y * bw + (x+1)])
+                                || (y === 0 || !maskBytes[(y-1) * bw + x])
+                                || (y === bh-1 || !maskBytes[(y+1) * bw + x]);
+                            if (atEdge) rctx.fillRect(bbox.x0 + x, bbox.y0 + y, 1, 1);
+                        }
+                    }
+                }
+                // Show stats in ROI panel
+                const panel = document.getElementById('roi-panel');
+                if (panel) {
+                    panel.style.display = '';
+                    panel.innerHTML = `<b>Flood Fill</b> · n=${data.n}<br>`
+                        + `min: ${_cbFmt(data.min)} · max: ${_cbFmt(data.max)}<br>`
+                        + `mean: ${_cbFmt(data.mean)} · std: ${_cbFmt(data.std)}<br>`
+                        + `seed: ${_cbFmt(data.seed_value)} · tol: ${(_floodFillTolerance * 100).toFixed(0)}%`;
+                }
+                showStatus(`flood fill: ${data.n} pixels · [ ] to adjust tolerance`);
+            } catch (e) {
+                showStatus(`flood fill error: ${e.message}`);
+            }
+        }
+
         function _drawRoiShapeOnCtx(rctx, r, sx, sy) {
             if (r.type === 'circle') {
                 rctx.beginPath();
@@ -4598,6 +4847,80 @@
             URL.revokeObjectURL(a.href);
         }
         document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
+        // Zoom-to-region: mousemove updates the selection rectangle
+        canvas.addEventListener('mousemove', e => {
+            if (!_zoomSelectDrag) return;
+            const rect = canvas.getBoundingClientRect();
+            const imgX = (e.clientX - rect.left) * canvas.width / rect.width;
+            const imgY = (e.clientY - rect.top) * canvas.height / rect.height;
+            const x0 = Math.min(_zoomSelectDrag.startX, imgX);
+            const y0 = Math.min(_zoomSelectDrag.startY, imgY);
+            const x1 = Math.max(_zoomSelectDrag.startX, imgX);
+            const y1 = Math.max(_zoomSelectDrag.startY, imgY);
+            if (_zoomSelectRect) {
+                // Position in CSS pixels (display scale)
+                const cssW = parseInt(canvas.style.width) || canvas.width;
+                const cssH = parseInt(canvas.style.height) || canvas.height;
+                const sx = cssW / canvas.width;
+                const sy = cssH / canvas.height;
+                _zoomSelectRect.style.left   = (x0 * sx) + 'px';
+                _zoomSelectRect.style.top    = (y0 * sy) + 'px';
+                _zoomSelectRect.style.width  = ((x1 - x0) * sx) + 'px';
+                _zoomSelectRect.style.height = ((y1 - y0) * sy) + 'px';
+            }
+        });
+        // Zoom-to-region: mouseup applies the zoom
+        canvas.addEventListener('mouseup', e => {
+            if (!_zoomSelectDrag) return;
+            const rect = canvas.getBoundingClientRect();
+            const imgX = (e.clientX - rect.left) * canvas.width / rect.width;
+            const imgY = (e.clientY - rect.top) * canvas.height / rect.height;
+            const x0 = Math.min(_zoomSelectDrag.startX, imgX);
+            const y0 = Math.min(_zoomSelectDrag.startY, imgY);
+            const x1 = Math.max(_zoomSelectDrag.startX, imgX);
+            const y1 = Math.max(_zoomSelectDrag.startY, imgY);
+            _zoomSelectDrag = null;
+            _removeZoomSelectRect();
+            // Minimum 10 CSS-px selection to count as a drag (not a click)
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            const sx = cssW / canvas.width;
+            const sy = cssH / canvas.height;
+            if ((x1 - x0) * sx < 10 || (y1 - y0) * sy < 10) return;
+            // Calculate zoom: fit the selected region into the viewport
+            const vp = document.getElementById('canvas-viewport');
+            const vpW = vp ? vp.offsetWidth : cssW;
+            const vpH = vp ? vp.offsetHeight : cssH;
+            const selW = x1 - x0; // image pixels
+            const selH = y1 - y0;
+            const baseScale = getBaseScale(canvas.width, canvas.height);
+            // fitZoom: scale that maps the selection to fill the viewport
+            const fitZoom = Math.min(vpW / (selW * baseScale), vpH / (selH * baseScale));
+            userZoom = Math.max(0.1, Math.min(10.0, fitZoom));
+            _zoomAdjustedByUser = true;
+            // First scale the canvas so we can compute correct pan
+            scaleCanvas(canvas.width, canvas.height);
+            // Now compute pan to center the selected region
+            const newCssW = parseInt(canvas.style.width) || canvas.width;
+            const newCssH = parseInt(canvas.style.height) || canvas.height;
+            const newVpW = vp ? vp.offsetWidth : newCssW;
+            const newVpH = vp ? vp.offsetHeight : newCssH;
+            // Center of selection in fraction of image
+            const centerFx = (x0 + x1) / 2 / canvas.width;
+            const centerFy = (y0 + y1) / 2 / canvas.height;
+            // Pan so that center of selection is at center of viewport
+            _panX = -(centerFx * newCssW - newVpW / 2);
+            _panY = -(centerFy * newCssH - newVpH / 2);
+            _clampPan();
+            _applyCanvasPan();
+            updateMiniMap();
+            showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
+            saveState();
+        });
+        // Clean up zoom-select if mouse released outside canvas
+        window.addEventListener('mouseup', () => {
+            if (_zoomSelectDrag) { _zoomSelectDrag = null; _removeZoomSelectRect(); }
+        });
         canvas.addEventListener('mousemove', e => {
             if (!roiDragging) return;
             const rect = canvas.getBoundingClientRect();
@@ -4902,6 +5225,12 @@
                     return;
                 }
                 const step = e.key === ']' ? 0.05 : -0.05;
+                if (rectRoiMode && _roiShape === 'floodfill') {
+                    // Adjust flood fill tolerance
+                    _floodFillTolerance = Math.max(0.01, Math.min(1.0, _floodFillTolerance + step));
+                    showStatus(`flood fill tolerance: ${(_floodFillTolerance * 100).toFixed(0)}% · click to reseed`);
+                    return;
+                }
                 if (compareActive && _checkerActive) {
                     // Checkerboard tile size
                     const sizes = [8, 16, 24, 32, 48, 64, 96, 128];
@@ -5185,7 +5514,7 @@
                 else scaleCanvas(lastImgW, lastImgH);
                 showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
             } else if (e.key === 'A') {
-                // Toggle/cycle ROI mode: off → rect → circle → freehand → off
+                // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
                 if (compareActive || multiViewActive || qmriActive) {
                     showStatus('ROI mode: not available in this mode'); return;
                 }
@@ -5195,14 +5524,18 @@
                     _roiShape = 'circle';
                 } else if (_roiShape === 'circle') {
                     _roiShape = 'freehand';
+                } else if (_roiShape === 'freehand') {
+                    _roiShape = 'floodfill';
                 } else {
                     rectRoiMode = false; _roiShape = 'rect';
                     _rois = []; _roiFreehandPts = [];
+                    _floodFillTolerance = 0.1;
                     document.getElementById('roi-panel').style.display = 'none';
                     _clearRoiOverlay();
                 }
                 canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
-                showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · A to cycle · drag to draw` : 'ROI mode: off');
+                const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
+                showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · A to cycle · ${modeHint}` : 'ROI mode: off');
                 showRoiShapeStrip();
                 renderEggs();
             } else if (e.key === 's') {
@@ -5229,7 +5562,8 @@
                 saveGif();
             } else if (e.key === 'G') {
                 // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
-                if (!compareActive || registrationMode || compareMvActive || compareQmriActive) return;
+                // When not in compare mode, toggle snapshot gallery instead
+                if (!compareActive || registrationMode || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
                 const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
                 const paneCount = Math.max(1, sidsLen);
                 const canGrid = paneCount >= 3 && paneCount <= 4;
@@ -8873,6 +9207,7 @@
                 { id: 'rect',     label: 'rect',     svg: '<rect x="4" y="4" width="16" height="16" rx="1" fill="none"/>' },
                 { id: 'circle',   label: 'circle',   svg: '<circle cx="12" cy="12" r="9" fill="none"/>' },
                 { id: 'freehand', label: 'freehand', svg: '<path d="M4 16 C6 4, 18 4, 20 16 C18 20, 6 20, 4 16Z" fill="none"/>' },
+                { id: 'floodfill', label: 'flood',   svg: '<path d="M12 4 L8 12 L12 8 L16 12 L12 4Z M6 14 Q12 22, 18 14 Q12 18, 6 14Z" fill="none"/>' },
             ];
             const curShape = rectRoiMode ? _roiShape : null;
             _roiStrip.innerHTML = '';
@@ -9455,5 +9790,14 @@
 
         init();
     </script>
+<div id="snapshot-gallery" class="gallery-panel">
+    <div class="gallery-header">
+        <span>Snapshots</span>
+        <span class="gallery-count">0</span>
+        <button class="gallery-export" title="Export HTML report">&#x2913;</button>
+        <button class="gallery-close" title="Close">&times;</button>
+    </div>
+    <div class="gallery-items"></div>
+</div>
 </body>
 </html>
