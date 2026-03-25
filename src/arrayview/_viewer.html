@@ -2519,7 +2519,7 @@
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
-                wrap.style.width = rawW + 'px';
+                wrap.style.width = Math.max(160, rawW) + 'px';
                 wrap.style.left = '50%';
                 wrap.style.transform = 'translateX(-50%)';
             }
