@@ -4858,12 +4858,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!s) continue;
                 rows.push([i + 1, s.n, s.min, s.max, s.mean, s.std].join(','));
             }
-            const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+            const blob = new Blob([rows.join('\n')], { type: 'application/octet-stream' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = 'roi_stats.csv';
+            a.style.display = 'none';
+            document.body.appendChild(a);
             a.click();
-            URL.revokeObjectURL(a.href);
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
         document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
         // Zoom-to-region: mousemove updates the selection rectangle
