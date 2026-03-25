@@ -83,7 +83,7 @@ LOADING ANIMATION
 WELCOME SCREEN / DEMO
   empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
   dim-label active no hover highlight       ✓ 52 (hover bg transparent for all labels)
-  dim-track drag scrubs index               ✓ 53 (mousedown+move on track)
+  dim-label drag scrubs index               ✓ 53 (mousedown+move on label)
   colorbar width clamped [120, 600]px       ✓ 65 (bounding_box check on slim-cb-wrap)
 
 AXES INDICATOR (edge labels)
@@ -1002,31 +1002,35 @@ def run_smoke(page, base, client, tmp):
             f"  WARNING: dim-label hover CSS rule not transparent ({hover_rule_ok}) — labels may still highlight"
         )
 
-    # ── 53: dim-track drag to scrub ─────────────────────────────────────────
-    print("53: dim-track drag scrubs dimension index")
+    # ── 53: dim-label drag to scrub ─────────────────────────────────────────
+    print("53: dim-label drag scrubs dimension index")
     _goto(page, base, sid3d, wait=800)
     _focus(page)
-    # Get the track element for a scroll dim (not x/y)
-    # Move to the far-left of the track and drag to far-right, index should change
+    # Get the dim-label element for a scroll dim (first [data-dim] that isn't x/y)
+    # Move to the far-left and drag to far-right, index should change
     idx_before = page.evaluate(
         "() => window._arrayviewState ? window._arrayviewState.indices : null"
     )
-    track_box = page.evaluate(
+    label_box = page.evaluate(
         "() => {"
-        "  const track = document.querySelector('.dim-label.dim-chip .dim-track');"
-        "  if (!track) return null;"
-        "  const r = track.getBoundingClientRect();"
-        "  return { x: r.left, y: r.top + r.height / 2, w: r.width };"
+        "  const labels = document.querySelectorAll('#info [data-dim]');"
+        "  for (const l of labels) {"
+        "    if (!l.classList.contains('spatial-dim') && !l.textContent.match(/^-?[xyz]/)) {"
+        "      const r = l.getBoundingClientRect();"
+        "      return { x: r.left, y: r.top + r.height / 2, w: r.width };"
+        "    }"
+        "  }"
+        "  return null;"
         "}"
     )
-    if track_box:
-        page.mouse.move(track_box["x"] + track_box["w"] * 0.1, track_box["y"])
+    if label_box:
+        page.mouse.move(label_box["x"] + label_box["w"] * 0.1, label_box["y"])
         page.mouse.down()
-        page.mouse.move(track_box["x"] + track_box["w"] * 0.9, track_box["y"])
+        page.mouse.move(label_box["x"] + label_box["w"] * 0.9, label_box["y"])
         page.wait_for_timeout(200)
         page.mouse.up()
         page.wait_for_timeout(300)
-    _shot(page, "53_dim_track_drag")
+    _shot(page, "53_dim_label_drag")
 
     # ── 54: histogram-in-colorbar (Lebesgue mode expands it) ─────────────────────
     print("54: w key (Lebesgue mode) expands colorbar with histogram bars")
