@@ -141,7 +141,7 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
-        #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex-shrink: 0; }
+        #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex: 1; min-width: 60px; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
@@ -345,6 +345,8 @@
                               border: 1px solid rgba(210,90,200,0.25); }
         .mode-badge-diff    { background: rgba(255,130,90,0.15); color: #ff8a5c;
                               border: 1px solid rgba(255,130,90,0.25); }
+        .mode-badge-proj    { background: rgba(140,100,240,0.15); color: #a78bfa;
+                              border: 1px solid rgba(140,100,240,0.25); }
         .mode-badge-roi     { background: rgba(45,90,39,0.8); color: #7ec87e;
                               border: 1px solid rgba(80,160,70,0.35); }
         :root.light .mode-badge-roi { background: rgba(45,90,39,0.6); color: #3a7a34; border-color: rgba(45,90,39,0.4); }
@@ -354,6 +356,7 @@
         :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
         :root.light .mode-badge-rgb  { background: rgba(170,50,160,0.1); color: #a030a0; border-color: rgba(170,50,160,0.25); }
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
+        :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
@@ -469,8 +472,8 @@
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
-        #mv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
-        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding: 5px 14px; margin-top: 6px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
+        #mv-cb { display: block; height: 11px; border-radius: 3px; pointer-events: none; flex: 1; min-width: 60px; transition: height 0.15s ease; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; flex-shrink: 0; padding: 5px 14px; margin-top: 6px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -2504,18 +2507,21 @@
             const cbTop = Math.min(canvasRect.bottom + 6, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
-                // Width auto-sizes from flex content; center the island
-                wrap.style.width = '';
+                // Island spans full canvas width; colorbar canvas fills remaining space
+                wrap.style.width = rawW + 'px';
                 wrap.style.left = '50%';
                 wrap.style.transform = 'translateX(-50%)';
             }
             const dpr = window.devicePixelRatio || 1;
-            slimCbCanvas.width = Math.round(cssW * dpr);
-            slimCbCanvas.height = Math.round(stripH * dpr);
-            slimCbCanvas.style.width = cssW + 'px';
+            // Canvas fills remaining space via flex:1; set explicit height only
+            slimCbCanvas.style.width = '';
             slimCbCanvas.style.height = stripH + 'px';
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
+            // After layout, measure actual canvas width for backing store
+            const actualCbW = slimCbCanvas.clientWidth || cssW;
+            slimCbCanvas.width = Math.round(actualCbW * dpr);
+            slimCbCanvas.height = Math.round(stripH * dpr);
             const sCtx = slimCbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
             sCtx.save();
@@ -2523,7 +2529,7 @@
             // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode and when histogram is expanded)
             const gradY = stripH - CB_COLLAPSED_H;
             if (!lebesgueMode && !_cbExpanded) {
-                const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
+                const grad = sCtx.createLinearGradient(0, 0, actualCbW, 0);
                 const n = stops.length;
                 for (let i = 0; i < n; i++) {
                     const t = n <= 1 ? 0 : i / (n - 1);
@@ -2531,11 +2537,11 @@
                     grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
                 }
                 sCtx.fillStyle = grad;
-                sCtx.fillRect(0, gradY, cssW, CB_COLLAPSED_H);
+                sCtx.fillRect(0, gradY, actualCbW, CB_COLLAPSED_H);
             }
             // Draw histogram bars when expanded and data is available
             if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
-                _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops);
+                _drawHistogramBarsOnColorbar(sCtx, actualCbW, stripH, stops);
             }
             // Auto-refresh histogram when expanded but data is stale
             // In multiview, histogram version uses the first pane's dims, not the main canvas dims
@@ -2549,7 +2555,7 @@
             }
             // Draw vmin/vmax vertical lines when expanded
             if (_cbExpanded && _histData) {
-                _drawClimLines(sCtx, cssW, stripH);
+                _drawClimLines(sCtx, actualCbW, stripH);
             }
             sCtx.restore();
             // Update inline vmin/vmax values (flanking the colorbar strip)
@@ -3610,8 +3616,7 @@
                 html += `<span class="mode-badge mode-badge-diff">${diffLabel.toUpperCase()}</span>`;
             }
             if (projectionMode > 0) {
-                const pColor = PROJECTION_COLORS[projectionMode - 1];
-                html += `<span class="mode-badge" style="background:${pColor}1a;color:${pColor};border-color:${pColor}40">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
+                html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
             if (rectRoiMode)
                 html += `<span class="mode-badge mode-badge-roi">ROI</span>`;
@@ -6784,9 +6789,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Horizontal colorbar below panes
             const cbWrap = document.createElement('div');
             cbWrap.id = 'mv-cb-wrap';
+            const mvCbVmin = document.createElement('span');
+            mvCbVmin.className = 'slim-cb-val';
+            mvCbVmin.id = 'mv-cb-vmin';
+            cbWrap.appendChild(mvCbVmin);
             const mvCbCanvas = document.createElement('canvas');
             mvCbCanvas.id = 'mv-cb';
             cbWrap.appendChild(mvCbCanvas);
+            const mvCbVmax = document.createElement('span');
+            mvCbVmax.className = 'slim-cb-val';
+            mvCbVmax.id = 'mv-cb-vmax';
+            mvCbVmax.style.textAlign = 'right';
+            cbWrap.appendChild(mvCbVmax);
             const mvCbLabels = document.createElement('div');
             mvCbLabels.id = 'mv-cb-labels';
             cbWrap.appendChild(mvCbLabels);
@@ -8662,20 +8676,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function drawMvColorbar() {
             const cbCanvas = document.getElementById('mv-cb');
             const labelsEl = document.getElementById('mv-cb-labels');
-            if (!cbCanvas || !labelsEl) return;
-            if (!colorbarVisible()) { cbCanvas.style.display = 'none'; labelsEl.style.display = 'none'; return; }
+            const mvVminEl = document.getElementById('mv-cb-vmin');
+            const mvVmaxEl = document.getElementById('mv-cb-vmax');
+            if (!cbCanvas) return;
+            if (!colorbarVisible()) {
+                cbCanvas.style.display = 'none';
+                if (labelsEl) labelsEl.style.display = 'none';
+                if (mvVminEl) mvVminEl.style.display = 'none';
+                if (mvVmaxEl) mvVmaxEl.style.display = 'none';
+                return;
+            }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const wrap = document.getElementById('multi-view-wrap');
             if (!wrap) return;
-            const cssW = Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
             const cssH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
-            cbCanvas.width = Math.round(cssW * dpr);
-            cbCanvas.height = Math.round(cssH * dpr);
-            cbCanvas.style.width = cssW + 'px';
+            cbCanvas.style.width = '';
             cbCanvas.style.height = cssH + 'px';
             cbCanvas.style.display = 'block';
+            if (mvVminEl) mvVminEl.style.display = '';
+            if (mvVmaxEl) mvVmaxEl.style.display = '';
+            const cssW = cbCanvas.clientWidth || Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
+            cbCanvas.width = Math.round(cssW * dpr);
+            cbCanvas.height = Math.round(cssH * dpr);
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
@@ -8712,19 +8736,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             sCtx.restore();
-            // Min/max labels
+            // Min/max labels — populate inline spans flanking the canvas
             const v0 = mvViews.find(v => v.lastW);
-            if (v0) {
+            if (v0 && mvVminEl && mvVmaxEl) {
                 const fmt = val => {
                     const av = Math.abs(val);
                     if (av === 0) return '0';
                     if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
                     return parseFloat(val.toPrecision(3)).toString();
                 };
-                labelsEl.style.display = 'flex';
-                labelsEl.style.width = cssW + 'px';
-                labelsEl.innerHTML = `<span style="flex:1;text-align:left">${fmt(v0.vmin)}</span><span style="flex:1;text-align:right">${fmt(v0.vmax)}</span>`;
+                if (_cbExpanded) {
+                    mvVminEl.textContent = '';
+                    mvVmaxEl.textContent = '';
+                } else {
+                    mvVminEl.textContent = fmt(v0.vmin);
+                    mvVmaxEl.textContent = fmt(v0.vmax);
+                }
             }
+            if (labelsEl) labelsEl.style.display = 'none';
             positionEggs();
         }
 
