@@ -2486,11 +2486,13 @@
                 sCtx.restore();
                 // Hide labels in compact mode — clean slim bar only
                 slimCbLabels.style.display = 'none';
-                // Also hide inline vmin/vmax flanking spans so they don't widen the bar
+                // Show inline vmin/vmax flanking spans same as normal mode
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) _cvmin.style.display = 'none';
-                if (_cvmax) _cvmax.style.display = 'none';
+                if (_cvmin) _cvmin.style.display = '';
+                if (_cvmax) _cvmax.style.display = '';
+                if (_cvmin) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                if (_cvmax) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
                 return;
             }
 
