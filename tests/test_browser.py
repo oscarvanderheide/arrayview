@@ -356,8 +356,8 @@ class TestKeyboard:
         page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
-        # Per-pane colorbars are used (shared compare-cb is hidden)
-        assert page.is_visible("canvas#compare-left-pane-cb")
+        # Shared colorbar is used (per-pane colorbars hidden in non-diff mode)
+        assert page.is_visible("#slim-cb-wrap")
         assert "arr2d_compare" in page.inner_text("#compare-right-title").lower()
 
         page.keyboard.press("B")
@@ -432,7 +432,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
         assert page.is_visible("canvas#compare-right-canvas")
         assert not page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("canvas#compare-left-pane-cb")
+        assert page.is_visible("#slim-cb-wrap")
 
         # Cycle compare center mode to overlay (mode 4): X×4 = off→A-B→|A-B|→|A-B|/|A|→overlay
         for _ in range(4):
@@ -484,7 +484,7 @@ class TestKeyboard:
         page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
         page.wait_for_timeout(500)
         assert page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("canvas#compare-left-pane-cb")
+        assert page.is_visible("#slim-cb-wrap")
 
         _focus_kb(page)
         page.keyboard.press("B")
@@ -762,6 +762,16 @@ class TestKeyboard:
         assert before["mvDims"] != after["mvDims"], (
             f"Expected mvDims to change: before={before['mvDims']}, after={after['mvDims']}"
         )
+
+    def test_fullscreen_toggle(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+K")
+        page.wait_for_timeout(200)
+        assert "fullscreen-mode" in (page.locator("body").get_attribute("class") or "")
+        page.keyboard.press("Shift+K")
+        page.wait_for_timeout(200)
+        assert "fullscreen-mode" not in (page.locator("body").get_attribute("class") or "")
 
 
 # ---------------------------------------------------------------------------
