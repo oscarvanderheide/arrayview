@@ -2650,15 +2650,17 @@
             for (let i = 0; i < nBins; i++) {
                 const barH = Math.max(0.5, barFrac(counts[i]) * (histAreaH - 2));
                 const x = i * binW;
-                const y = histAreaH - barH; // bars grow upward from the gradient strip
+                const y = histAreaH - barH;
+                const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / nBins;
+                const inRange = binCenter >= windowVmin && binCenter <= windowVmax;
+                const alpha = inRange ? 0.85 : 0.2;
                 let fillStyle;
                 if (_cmapData) {
-                    const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / nBins;
                     const frac = Math.max(0, Math.min(1, (binCenter - windowVmin) / windowRange));
                     const px = Math.min(_cmapSz - 1, Math.round(frac * (_cmapSz - 1))) * 4;
-                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},0.85)`;
+                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},${alpha})`;
                 } else {
-                    fillStyle = isDark ? 'rgba(180,180,200,0.55)' : 'rgba(80,80,100,0.5)';
+                    fillStyle = isDark ? `rgba(180,180,200,${alpha * 0.65})` : `rgba(80,80,100,${alpha * 0.6})`;
                 }
                 sCtx.fillStyle = fillStyle;
                 sCtx.fillRect(x, y, binW - 0.5, barH);
@@ -2679,21 +2681,36 @@
         function _drawClimLines(sCtx, cssW, stripH) {
             const { vmin: dmin, vmax: dmax } = _histData;
             const range = dmax - dmin || 1;
-            const vminF = ((manualVmin ?? currentVmin) - dmin) / range; // 0..1 fraction
+            const vminF = ((manualVmin ?? currentVmin) - dmin) / range;
             const vmaxF = ((manualVmax ?? currentVmax) - dmin) / range;
-            const hlineColor = isDark ? 'rgba(255,255,100,0.8)' : 'rgba(180,100,0,0.8)';
-            sCtx.strokeStyle = hlineColor;
+            const histAreaH = stripH - CB_COLLAPSED_H;
+            const bracketColor = isDark ? 'rgba(255,255,100,0.85)' : 'rgba(180,100,0,0.85)';
+            const bracketH = Math.min(6, histAreaH * 0.25);
+            const bracketW = 5;
+            sCtx.strokeStyle = bracketColor;
             sCtx.lineWidth = 1.5;
             _histVminX = null; _histVmaxX = null;
+            // Vmin bracket: ⌐ at top-left, ⌊ at bottom-left
             if (vminF >= 0 && vminF <= 1) {
                 const x = Math.round(vminF * (cssW - 1)) + 0.5;
                 _histVminX = x - 0.5;
-                sCtx.beginPath(); sCtx.moveTo(x, 0); sCtx.lineTo(x, stripH); sCtx.stroke();
+                sCtx.beginPath();
+                sCtx.moveTo(x, bracketH); sCtx.lineTo(x, 0); sCtx.lineTo(x + bracketW, 0);
+                sCtx.stroke();
+                sCtx.beginPath();
+                sCtx.moveTo(x, histAreaH - bracketH); sCtx.lineTo(x, histAreaH); sCtx.lineTo(x + bracketW, histAreaH);
+                sCtx.stroke();
             }
+            // Vmax bracket: mirrored
             if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
                 const x = Math.round(vmaxF * (cssW - 1)) + 0.5;
                 _histVmaxX = x - 0.5;
-                sCtx.beginPath(); sCtx.moveTo(x, 0); sCtx.lineTo(x, stripH); sCtx.stroke();
+                sCtx.beginPath();
+                sCtx.moveTo(x, bracketH); sCtx.lineTo(x, 0); sCtx.lineTo(x - bracketW, 0);
+                sCtx.stroke();
+                sCtx.beginPath();
+                sCtx.moveTo(x, histAreaH - bracketH); sCtx.lineTo(x, histAreaH); sCtx.lineTo(x - bracketW, histAreaH);
+                sCtx.stroke();
             }
         }
 
