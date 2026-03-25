@@ -1431,6 +1431,13 @@
         let compareQmriDim = -1;       // which dim is qMRI in compare-qMRI mode
         let compareMvActive = false;   // compare + 3-plane multiview combined mode
         let compareMvViews = [];       // flat array of {sid, dimX, dimY, sliceDir, canvas, ...}
+        let _mvCrosshairAlpha = 0;     // current crosshair opacity for regular multiview (0..1)
+        let _mvCrosshairTarget = 0;    // target crosshair opacity for regular multiview
+        let _mvCrosshairAnim = null;   // animation frame id for crosshair fade
+        let _cmvCrosshairSid = null;   // SID of hovered row in compare-mv (null = hide all)
+        let _cmvCrosshairAlpha = 0;    // current crosshair opacity for compare-mv
+        let _cmvCrosshairTarget = 0;   // target opacity for compare-mv
+        let _cmvCrosshairAnim = null;  // animation frame id for compare-mv crosshair fade
         let compareMvSids = [];        // SIDs being compared in compare-mv mode
         let compareMvDims = [];        // [dimX, dimY, sliceDir×3] spatial dims used
         const QMRI_COLORMAPS = {
@@ -7082,6 +7089,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         view.axesSvg.querySelector('.axes-lbl-y').textContent = view.axLblY;
                     }
                 });
+                // Show crosshair lines only when hovering over any multiview pane
+                pane.addEventListener('mouseenter', () => { _mvSetCrosshairTarget(1); });
+                pane.addEventListener('mouseleave', () => { _mvSetCrosshairTarget(0); });
                 return view;
             });
             // Pre-size panes using known array shape so all panes are equal from the start.
@@ -7122,6 +7132,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
+            _mvCrosshairAlpha = 0; _mvCrosshairTarget = 0;
+            if (_mvCrosshairAnim) { cancelAnimationFrame(_mvCrosshairAnim); _mvCrosshairAnim = null; }
             obliqueVecs = null; obliqueDrag = null;
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
@@ -7791,6 +7803,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         view.ws.onclose = () => { view.rendering = false; };
                         view.ws.onerror = () => { view.rendering = false; if (v.ws) view.ws.close(); };
                     }
+                    // Show crosshair lines only for the 3 panes of the hovered array
+                    pane.addEventListener('mouseenter', () => { _cmvSetCrosshairTarget(1, sidVal); });
+                    pane.addEventListener('mouseleave', () => { _cmvSetCrosshairTarget(0, null); });
                     compareMvViews.push(view);
                 }
                 wrap.appendChild(rowDiv);
@@ -7831,6 +7846,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             squareStretch = _cmvPrevSquareStretch;
             compareMvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             compareMvViews = [];
+            _cmvCrosshairAlpha = 0; _cmvCrosshairTarget = 0; _cmvCrosshairSid = null;
+            if (_cmvCrosshairAnim) { cancelAnimationFrame(_cmvCrosshairAnim); _cmvCrosshairAnim = null; }
             compareMvSids = [];
             compareMvDims = [];
             document.getElementById('mv-orientation').style.display = 'none';
@@ -7935,10 +7952,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
             // Draw colored crosshair lines (same colors as regular 3-plane view)
+            // Only show when hovering over panes belonging to this view's array (SID)
+            const _cmvAlpha = (_cmvCrosshairSid === v.sid) ? _cmvCrosshairAlpha : 0;
             v.ctx.save();
+            if (_cmvAlpha > 0.005) {
             let _scale = 1;
             try { const rw = v.canvas.getBoundingClientRect().width; _scale = rw && v.lastW ? rw / v.lastW : 1; } catch (_) {}
             v.ctx.lineWidth = Math.max(0.5, 1 / _scale);
+            v.ctx.globalAlpha = _cmvAlpha;
             const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
             const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
@@ -7950,6 +7971,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
             v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            }
             v.ctx.restore();
             drawMvOrientation();
         }
@@ -8722,6 +8744,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
          *  or -1 if no hit. px/py are in canvas (image pixel) coordinates. */
         function mvCrossHairHit(v, px, py) {
             if (!v.lastW || !v.lastH) return -1;
+            // Don't register hits when crosshairs are hidden
+            if (_mvCrosshairAlpha < 0.3) return -1;
             const i = mvViews.indexOf(v);
             if (i < 0) return -1;
             const rect = v.canvas.getBoundingClientRect();
@@ -8768,6 +8792,44 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Crosshair colors match the miniview plane colors (red, green, blue).
         const MV_PLANE_STROKES = ['rgba(255,90,90,0.75)', 'rgba(100,210,130,0.75)', 'rgba(80,170,255,0.75)'];
 
+        // ── Crosshair fade animation helpers ──
+        // Smoothly animate crosshair opacity for multiview panes on hover.
+        function _mvAnimateCrosshairs() {
+            const speed = 0.12; // per frame step (~7 frames to full transition at 60fps)
+            const diff = _mvCrosshairTarget - _mvCrosshairAlpha;
+            if (Math.abs(diff) < 0.01) {
+                _mvCrosshairAlpha = _mvCrosshairTarget;
+                _mvCrosshairAnim = null;
+                mvViews.forEach(v => mvDrawFrame(v));
+                return;
+            }
+            _mvCrosshairAlpha += diff > 0 ? Math.min(speed, diff) : Math.max(-speed, diff);
+            mvViews.forEach(v => mvDrawFrame(v));
+            _mvCrosshairAnim = requestAnimationFrame(_mvAnimateCrosshairs);
+        }
+        function _mvSetCrosshairTarget(target) {
+            _mvCrosshairTarget = target;
+            if (!_mvCrosshairAnim) _mvCrosshairAnim = requestAnimationFrame(_mvAnimateCrosshairs);
+        }
+        function _cmvAnimateCrosshairs() {
+            const speed = 0.12;
+            const diff = _cmvCrosshairTarget - _cmvCrosshairAlpha;
+            if (Math.abs(diff) < 0.01) {
+                _cmvCrosshairAlpha = _cmvCrosshairTarget;
+                _cmvCrosshairAnim = null;
+                compareMvViews.forEach(v => compareMvDrawFrame(v));
+                return;
+            }
+            _cmvCrosshairAlpha += diff > 0 ? Math.min(speed, diff) : Math.max(-speed, diff);
+            compareMvViews.forEach(v => compareMvDrawFrame(v));
+            _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
+        }
+        function _cmvSetCrosshairTarget(target, sid) {
+            _cmvCrosshairSid = sid;
+            _cmvCrosshairTarget = target;
+            if (!_cmvCrosshairAnim) _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
+        }
+
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
@@ -8787,6 +8849,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 scale = rectW && v.lastW ? rectW / v.lastW : 1;
             } catch (e) {}
             v.ctx.lineWidth = Math.max(0.5, 1 / scale);
+            // Crosshair lines fade in/out on hover
+            const _chAlpha = _mvCrosshairAlpha;
+            if (_chAlpha > 0.005) {
+            v.ctx.globalAlpha = _chAlpha;
             const i = mvViews.indexOf(v);
             if (obliqueVecs && i >= 0) {
                 const vi = obliqueVecs[i];
@@ -8823,6 +8889,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.ctx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
+            } // end if (_chAlpha > 0.005)
             v.ctx.restore();
             drawMvOrientation();
         }
