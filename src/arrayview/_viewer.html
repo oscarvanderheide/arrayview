@@ -4335,7 +4335,7 @@
                 const dst = document.createElement('canvas');
                 dst.width = src.width; dst.height = src.height;
                 const ctx = dst.getContext('2d');
-                ctx.drawImage(src, 0, 0);
+                ctx.drawImage(src, 0, 0, src.width, src.height);
                 const dpr = window.devicePixelRatio || 1;
                 const fontSize = Math.max(10, Math.round(12 * dpr));
                 ctx.font = `${fontSize}px monospace`;
@@ -4380,7 +4380,10 @@
             const link = document.createElement('a');
             link.download = filename;
             link.href = dataUrl;
+            link.style.display = 'none';
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
             // Capture to gallery
             _galleryAdd(dataUrl);
             setStatus('Screenshot saved to Downloads.');
@@ -4470,7 +4473,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const blob = new Blob([html], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = 'arrayview-report.html'; a.click();
+            a.href = url; a.download = 'arrayview-report.html';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
             showStatus('Report exported.');
         }
@@ -4502,7 +4509,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const link = document.createElement('a');
             link.download = `dim${current_slice_dim}.gif`;
             link.href = URL.createObjectURL(blob);
+            link.style.display = 'none';
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
             setStatus('GIF saved.');
             setTimeout(() => setStatus(''), 2000);
         }
