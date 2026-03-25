@@ -177,17 +177,31 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
     kept_dims = sorted([dim_x, dim_y, proj_dim])
     proj_axis = kept_dims.index(proj_dim)
 
-    if proj_mode == 5:  # SOS
-        result = np.sum(vol.astype(np.float64) ** 2, axis=proj_axis).astype(np.float32)
+    if proj_mode == 5:  # SOS — sum of magnitude-squared
+        if np.iscomplexobj(vol):
+            result = np.sum((vol * np.conj(vol)).real, axis=proj_axis).astype(np.float32)
+        else:
+            result = np.sum(vol.astype(np.float64) ** 2, axis=proj_axis).astype(np.float32)
+    elif proj_mode == 1 and np.iscomplexobj(vol):  # max by magnitude
+        mag = np.abs(vol)
+        idx = np.expand_dims(np.argmax(mag, axis=proj_axis), axis=proj_axis)
+        result = np.take_along_axis(vol, idx, axis=proj_axis).squeeze(axis=proj_axis)
+    elif proj_mode == 2 and np.iscomplexobj(vol):  # min by magnitude
+        mag = np.abs(vol)
+        idx = np.expand_dims(np.argmin(mag, axis=proj_axis), axis=proj_axis)
+        result = np.take_along_axis(vol, idx, axis=proj_axis).squeeze(axis=proj_axis)
     else:
         _, op = PROJECTION_OPS[proj_mode]
-        result = op(vol, axis=proj_axis).astype(np.float32)
+        result = op(vol, axis=proj_axis)
 
     # Transpose to match extract_slice convention (dim_x < dim_y → transpose)
     if dim_x < dim_y:
         result = result.T
 
-    result = np.nan_to_num(result).astype(np.float32)
+    if np.iscomplexobj(result):
+        result = np.nan_to_num(result).astype(np.complex64)
+    else:
+        result = np.nan_to_num(result).astype(np.float32)
     session.raw_cache[key] = result
     session._raw_bytes += result.nbytes
     while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
