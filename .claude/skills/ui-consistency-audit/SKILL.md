@@ -184,6 +184,8 @@ After the audit script runs, you MUST:
 
 7. **Multi-array consistency** — when multiple arrays are loaded, all canvases zoom/scroll/navigate together. Colormaps on side panes match; diff center pane uses an independent colormap and dynamic range.
 
+8. **Compare panes stay close** — pane slots shrink-wrap their canvas viewport when zoomed out so that panes remain adjacent for easy visual comparison. Never use fixed pane widths that create large gaps between canvases.
+
 ---
 
 ## Section 5b: Specific Rules (Growing Catalog)
@@ -206,6 +208,25 @@ These rules are codified as DOM assertions in `tests/ui_audit.py`. When a new in
 | R12 | Histogram not visible when colorbar is in slim mode | Lebesgue expanded state is mutually exclusive with slim colorbar |
 | R13 | Colorbars don't overlap each other | No pair of colorbar elements (slim, compare-pane, mv, qv) have intersecting bounding boxes |
 | R14 | Minimap within viewport and not overlapping colorbars | `#minimap-canvas` bounding box is within viewport and doesn't intersect any colorbar |
+| R15 | Colorbar labels flank horizontally in all modes | Every `.cb-island`, `.compare-pane-cb-island`, `.qv-cb-island` uses `flex-direction: row` with vmin/vmax spans flanking the gradient canvas — never column layout with labels below |
+| R16 | Per-pane colorbar width matches canvas viewport width | Each `.compare-pane-cb` and `.qv-cb` canvas CSS width equals its data canvas viewport width (`data-vpW` or `style.width`). Island must not overflow the pane |
+| R17 | Compact mode eggs are visible over image | `#mode-eggs .mode-badge` elements have sufficient background opacity (>= 0.5) when `body.compact-mode` is active, since they overlay the canvas |
+| R18 | Histogram has visible background distinct from page | When `_cbExpanded`, the histogram area has an explicit background fill matching the dynamic island aesthetic, not transparent over the page background |
+| R19 | Compare colorbar gap matches single-mode gap | `.compare-pane-cb-island` `margin-top` is ≥10px, visually similar to single-mode's `dimGap`-based spacing |
+| R20 | Compare panes shrink-wrap when zoomed out | Pane slot width ≤ viewport canvas width + padding, not fixed to max available. Panes stay close for visual comparison |
+
+---
+
+## Section 5c: Colorbar Layout Invariant
+
+All colorbars across ALL modes follow the same structure: `[vmin span] [gradient canvas] [vmax span]` in a horizontal flex row inside a `.cb-island` container. This applies to:
+- Normal mode: `#slim-cb-wrap` with `#slim-cb-vmin`, `#slim-cb`, `#slim-cb-vmax`
+- Compare/diff: `.compare-pane-cb-island` with `.compare-pane-cb-val` spans + `.compare-pane-cb` canvas
+- qMRI: `.qv-cb-island` with `.qv-cb-val` spans + `.qv-cb` canvas
+
+**Never** use column layout with labels below. **Never** use `flex: 1` on colorbar canvases inside inline-flex islands (causes sizing loops). Always set explicit island width = viewport canvas width, with `box-sizing: border-box` so `.cb-island` padding doesn't inflate the width beyond the canvas. Always test with non-square arrays — square arrays hide width mismatches.
+
+**Colorbar-to-canvas gap**: The gap between canvas and colorbar must be visually consistent across modes. Single mode uses a dynamic `dimGap` (~10-18px). Compare mode uses `margin-top: 10px` on `.compare-pane-cb-island` (with `panePadY=36` and `padding-bottom: 32px` in `.compare-canvas-area`). Do not reduce this gap below 10px.
 
 ---
 

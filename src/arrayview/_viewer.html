@@ -529,11 +529,11 @@
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: flex-start; justify-content: center;
-            padding: 4px 8px 26px; box-sizing: border-box; overflow: visible;
+            padding: 4px 8px 32px; box-sizing: border-box; overflow: visible;
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; }
+        .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 0; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
@@ -1845,7 +1845,7 @@
             if (!panesEl) return;
             const titleReserve = 28;
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
-            const panePadY = 30; // .compare-canvas-area bottom-heavy vertical padding
+            const panePadY = 36; // .compare-canvas-area bottom-heavy vertical padding
             const fitSlack = 0.96;
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
@@ -1915,6 +1915,27 @@
                     inner.dataset.vpH = vpH;
                 }
             }
+            // Shrink pane slots to wrap content when zoomed out so panes
+            // stay close together for easy visual comparison.
+            for (let i = 0; i < paneCount; i++) {
+                const cv = compareCanvases[i];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                const pane = comparePaneEls[i];
+                if (!inner || !pane || !inner.dataset.vpW) continue;
+                const vpW = parseInt(inner.dataset.vpW);
+                const vpH = parseInt(inner.dataset.vpH);
+                const neededW = vpW + panePadX;
+                const neededH = titleReserve + vpH + panePadY;
+                if (neededW < slotW) {
+                    pane.style.flex = `0 0 ${neededW}px`;
+                    pane.style.width = neededW + 'px';
+                    pane.style.maxWidth = neededW + 'px';
+                }
+                if (neededH < slotH) {
+                    pane.style.height = neededH + 'px';
+                    pane.style.maxHeight = neededH + 'px';
+                }
+            }
             // When first overflowing, center the pan
             if (_cmpIsOverflowing() && _cmpPanX === 0 && _cmpPanY === 0) {
                 const cv = compareCanvases[0];
@@ -1955,6 +1976,18 @@
                     wipeInner.style.height = firstInner.style.height;
                     wipeInner.dataset.vpW = firstInner.dataset.vpW;
                     wipeInner.dataset.vpH = firstInner.dataset.vpH;
+                }
+            }
+            // Shrink center pane (diff/wipe) to match data pane shrinking
+            if (hasCenterPane && paneCount === 2) {
+                const centerPane = document.getElementById(_wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane');
+                const firstPane = comparePaneEls[0];
+                if (centerPane && firstPane) {
+                    centerPane.style.flex = firstPane.style.flex;
+                    centerPane.style.width = firstPane.style.width;
+                    centerPane.style.maxWidth = firstPane.style.maxWidth;
+                    centerPane.style.height = firstPane.style.height;
+                    centerPane.style.maxHeight = firstPane.style.maxHeight;
                 }
             }
             // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
