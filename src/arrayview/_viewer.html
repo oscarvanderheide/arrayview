@@ -121,6 +121,26 @@
             border-color: rgba(216, 222, 233, 0.07);
         }
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
+        /* Shared dynamic island glassmorphism for all colorbar containers */
+        .cb-island {
+            border-radius: 14px;
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 5px 10px;
+        }
+        :root.light .cb-island {
+            background: rgba(240, 240, 240, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.solarized .cb-island {
+            background: rgba(238, 232, 213, 0.85);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        :root.nord .cb-island {
+            background: rgba(36, 41, 56, 0.85);
+            border-color: rgba(216, 222, 233, 0.07);
+        }
         #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex-shrink: 0; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
@@ -450,7 +470,10 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; transition: height 0.15s ease; }
-        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding-bottom: 2px; margin-top: 6px; transition: opacity 0.3s ease; }
+        #mv-cb-wrap { text-align: center; flex-shrink: 0; padding: 5px 14px; margin-top: 6px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
+        :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
+        :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
+        :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
@@ -462,6 +485,7 @@
             display: none; flex-direction: column; align-items: stretch; width: 100%;
         }
         #compare-diff-pane.overlay-center #reg-blend-bar-wrap { display: flex; cursor: ew-resize; }
+        #compare-diff-pane.overlay-center .compare-pane-cb-island,
         #compare-diff-pane.overlay-center .compare-pane-cb,
         #compare-diff-pane.overlay-center .compare-pane-cb-labels { display: none !important; }
         #reg-blend-cb {
@@ -503,12 +527,16 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; margin-top: 4px; }
+        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: column; align-items: center; }
+        .compare-pane-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; }
         .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
         }
-        #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding-bottom: 2px; margin-top: 2px; }
+        #compare-cb-wrap { display: none; flex: 0 0 auto; text-align: center; padding: 5px 14px; margin-top: 6px; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; }
+        :root.light #compare-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
+        :root.solarized #compare-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
+        :root.nord #compare-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
         #compare-view-wrap.active #compare-cb-wrap { display: flex; justify-content: center; }
         #compare-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; pointer-events: none; max-width: 80%; border: none; }
         #compare-cb-labels {
@@ -523,18 +551,22 @@
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
-        .qv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; pointer-events: none; margin-top: 4px; }
+        .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: column; align-items: center; }
+        .qv-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; pointer-events: none; }
         .qv-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .qv-row.cq-inner-row .qv-cb-island { display: none !important; }
         .qv-row.cq-inner-row .qv-cb,
         .qv-row.cq-inner-row .qv-cb-labels { display: none !important; }
         /* qMRI mosaic z-mode: one parameter per row with label + vertical colorbar */
         .qv-row.qmri-mosaic-row { justify-content: center; align-items: center; gap: 0; }
         .qv-row.qmri-mosaic-row .qv-pane { flex-direction: row; align-items: center; gap: 0; }
         .qv-row.qmri-mosaic-row .qv-label { display: none; }
+        .qv-row.qmri-mosaic-row .qv-cb-island { display: none !important; }
         .qv-row.qmri-mosaic-row .qv-cb { display: none !important; }
         .qv-row.qmri-mosaic-row .qv-cb-labels { display: none !important; }
         .qmri-mosaic-label { font-size: 13px; font-family: monospace; font-weight: bold; color: var(--muted); width: 28px; text-align: right; flex-shrink: 0; margin-right: 8px; }
-        .qmri-mosaic-vcb { flex-shrink: 0; margin-left: 8px; border-radius: 3px; display: block; }
+        .qmri-mosaic-vcb { flex-shrink: 0; border-radius: 3px; display: block; }
+        .qmri-mosaic-vcb-island { display: flex; flex-direction: row; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; padding: 4px 6px; }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         /* compare-qMRI: column header row for map names */
@@ -826,8 +858,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -838,8 +872,10 @@
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
+                            </div>
                             <div id="reg-blend-bar-wrap">
                                 <canvas id="reg-blend-cb"></canvas>
                                 <div id="reg-blend-labels"><span></span><span></span></div>
@@ -878,8 +914,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -899,8 +937,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -920,8 +960,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -941,8 +983,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -962,8 +1006,10 @@
                                     <text class="axes-lbl-y" x="0" y="12" font-size="13" font-family="monospace" fill="currentColor">y</text>
                                 </svg>
                             </div>
-                            <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
-                            <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
+                            <div class="cb-island compare-pane-cb-island">
+                                <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
+                                <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2196,9 +2242,11 @@
             const inner = cv.closest('.compare-canvas-inner');
             const vpW = inner && inner.dataset.vpW ? parseInt(inner.dataset.vpW) : 0;
             const cssW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
+            const cbIsland = cbCanvas.closest('.cb-island');
             if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
                 cbCanvas.style.display = 'none';
                 if (cbLabels) cbLabels.style.display = 'none';
+                if (cbIsland) cbIsland.style.display = 'none';
                 return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
@@ -2210,6 +2258,7 @@
             cbCanvas.style.width = cssW + 'px';
             cbCanvas.style.height = stripH + 'px';
             cbCanvas.style.display = '';
+            if (cbIsland) cbIsland.style.display = '';
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
@@ -2270,9 +2319,11 @@
             const diffInner = diffCanvas.closest('.compare-canvas-inner');
             const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
             const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
+            const diffCbIsland = diffPaneCb.closest('.cb-island');
             if (!colorbarVisible() || !cssW || cssW < 10) {
                 diffPaneCb.style.display = 'none';
                 if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
+                if (diffCbIsland) diffCbIsland.style.display = 'none';
                 return;
             }
             const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
@@ -2284,6 +2335,7 @@
             diffPaneCb.style.width = cssW + 'px';
             diffPaneCb.style.height = stripH + 'px';
             diffPaneCb.style.display = 'block';
+            if (diffCbIsland) diffCbIsland.style.display = '';
             const ctx2 = diffPaneCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
             const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
@@ -6964,9 +7016,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbCv.className = 'qv-cb';
                     const cbLabels = document.createElement('div');
                     cbLabels.className = 'qv-cb-labels';
+                    const cbIsland = document.createElement('div');
+                    cbIsland.className = 'cb-island qv-cb-island';
+                    cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
-                    cvWrap.appendChild(cbCv);
-                    cvWrap.appendChild(cbLabels);
+                    cvWrap.appendChild(cbIsland);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
@@ -7136,9 +7191,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbCv.className = 'qv-cb';
                     const cbLabels = document.createElement('div');
                     cbLabels.className = 'qv-cb-labels';
+                    const cbIsland = document.createElement('div');
+                    cbIsland.className = 'cb-island qv-cb-island';
+                    cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
-                    cvWrap.appendChild(cbCv);
-                    cvWrap.appendChild(cbLabels);
+                    cvWrap.appendChild(cbIsland);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
@@ -7470,8 +7528,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbCv.className = 'qv-cb';
                     const cbLabels = document.createElement('div');
                     cbLabels.className = 'qv-cb-labels';
-                    cvWrap.appendChild(cbCv);
-                    cvWrap.appendChild(cbLabels);
+                    const cbIsland = document.createElement('div');
+                    cbIsland.className = 'cb-island qv-cb-island';
+                    cbIsland.appendChild(cbCv);
+                    cbIsland.appendChild(cbLabels);
+                    cvWrap.appendChild(cbIsland);
                     const piEl = document.createElement('div');
                     piEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(piEl);
@@ -7871,7 +7932,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrap = document.getElementById('qmri-view-wrap');
             if (!wrap) return;
             // Remove existing mosaic labels and vcb elements
-            wrap.querySelectorAll('.qmri-mosaic-label, .qmri-mosaic-vcb, .qmri-mosaic-vcb-labels').forEach(el => el.remove());
+            wrap.querySelectorAll('.qmri-mosaic-label, .qmri-mosaic-vcb-island, .qmri-mosaic-vcb, .qmri-mosaic-vcb-labels').forEach(el => el.remove());
             const rows = wrap.querySelectorAll('.qv-row');
             rows.forEach(r => r.classList.remove('qmri-mosaic-row'));
 
@@ -7897,17 +7958,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     lbl.textContent = QMRI_LABELS[v.colormap] || v.colormap;
                     rowDiv.appendChild(lbl);
                     rowDiv.appendChild(pane);
-                    // Vertical colorbar canvas
+                    // Vertical colorbar canvas wrapped in island
+                    const vcbIsland = document.createElement('div');
+                    vcbIsland.className = 'cb-island qmri-mosaic-vcb-island';
                     const vcbCv = document.createElement('canvas');
                     vcbCv.className = 'qmri-mosaic-vcb';
-                    rowDiv.appendChild(vcbCv);
-                    v._mosaicVcb = vcbCv;
+                    vcbIsland.appendChild(vcbCv);
                     // Vertical colorbar labels (vmin/vmax)
                     const vcbLabels = document.createElement('div');
                     vcbLabels.className = 'qmri-mosaic-vcb-labels';
-                    vcbLabels.style.cssText = 'display:flex;flex-direction:column;justify-content:space-between;font-size:10px;color:var(--muted);font-family:monospace;margin-left:4px;flex-shrink:0;';
+                    vcbLabels.style.cssText = 'display:flex;flex-direction:column;justify-content:space-between;font-size:10px;color:var(--muted);font-family:monospace;flex-shrink:0;';
                     vcbLabels.innerHTML = '<span></span><span></span>';
-                    rowDiv.appendChild(vcbLabels);
+                    vcbIsland.appendChild(vcbLabels);
+                    rowDiv.appendChild(vcbIsland);
+                    v._mosaicVcb = vcbCv;
                     v._mosaicVcbLabels = vcbLabels;
                     wrap.appendChild(rowDiv);
                 });
@@ -7938,9 +8002,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Draw vertical colorbar for qMRI mosaic view
         function drawQmriMosaicVCb(v) {
             if (!v._mosaicVcb) return;
+            const mosaicCbIsland = v._mosaicVcb.closest('.cb-island');
             const canvasCssH = parseInt(v.canvas.style.height);
-            if (!canvasCssH || canvasCssH < 10) { v._mosaicVcb.style.display = 'none'; return; }
-            if (!colorbarVisible()) { v._mosaicVcb.style.display = 'none'; if (v._mosaicVcbLabels) v._mosaicVcbLabels.style.display = 'none'; return; }
+            if (!canvasCssH || canvasCssH < 10) { v._mosaicVcb.style.display = 'none'; if (mosaicCbIsland) mosaicCbIsland.style.display = 'none'; return; }
+            if (!colorbarVisible()) { v._mosaicVcb.style.display = 'none'; if (v._mosaicVcbLabels) v._mosaicVcbLabels.style.display = 'none'; if (mosaicCbIsland) mosaicCbIsland.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
             const vcbW = _cbExpanded ? 30 : 8;
@@ -7951,6 +8016,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v._mosaicVcb.style.width = vcbW + 'px';
             v._mosaicVcb.style.height = cssH + 'px';
             v._mosaicVcb.style.display = '';
+            if (mosaicCbIsland) mosaicCbIsland.style.display = '';
             const sCtx = v._mosaicVcb.getContext('2d');
             sCtx.clearRect(0, 0, v._mosaicVcb.width, v._mosaicVcb.height);
             sCtx.save();
@@ -8113,13 +8179,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function drawQvSlimCb(v) {
             if (!v.cbCanvas) return;
+            const qvCbIsland = v.cbCanvas.closest('.cb-island');
             const canvasCssW = parseInt(v.canvas.style.width);
-            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
+            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
             // Use canvas CSS width directly — qvScaleAllCanvases already caps the canvas
             // to fit within the pane, so no clientWidth clamping needed (and clientWidth
             // may be 0 before browser layout settles on first render).
             const cssW = canvasCssW;
-            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; return; }
+            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbLabels) v.cbLabels.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
             const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
@@ -8129,6 +8196,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.cbCanvas.style.width = cssW + 'px';
             v.cbCanvas.style.height = stripH + 'px';
             v.cbCanvas.style.display = '';
+            if (qvCbIsland) qvCbIsland.style.display = '';
             const sCtx = v.cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, v.cbCanvas.width, v.cbCanvas.height);
             sCtx.save();
