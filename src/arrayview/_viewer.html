@@ -533,9 +533,10 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: column; align-items: center; }
-        .compare-pane-cb { display: block; margin: 0 auto; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; }
-        .compare-pane-cb-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: monospace; padding-top: 2px; width: 100%; }
+        .compare-pane-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; }
+        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 40px; }
+        .compare-pane-cb-labels { display: none; }
+        .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
         }
@@ -865,7 +866,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-left-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-left-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -879,7 +882,9 @@
                                 <canvas id="compare-diff-canvas" class="compare-canvas"></canvas>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
                             </div>
                             <div id="reg-blend-bar-wrap">
@@ -921,7 +926,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-right-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-right-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -944,7 +951,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-third-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-third-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -967,7 +976,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-fourth-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-fourth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -990,7 +1001,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-fifth-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-fifth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -1013,7 +1026,9 @@
                                 </svg>
                             </div>
                             <div class="cb-island compare-pane-cb-island">
+                                <span class="compare-pane-cb-val" id="compare-sixth-pane-cb-vmin"></span>
                                 <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
+                                <span class="compare-pane-cb-val" id="compare-sixth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
                             </div>
                         </div>
@@ -2245,10 +2260,11 @@
 
         function drawComparePaneCb(idx) {
             const cbCanvas = comparePaneCbs[idx];
-            const cbLabels = comparePaneCbLabels[idx];
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
-            // Hide if colorbar is off or pane has no data yet
+            const paneNames = ['left', 'right', 'third', 'fourth', 'fifth', 'sixth'];
+            const cbVmin = document.getElementById(`compare-${paneNames[idx]}-pane-cb-vmin`);
+            const cbVmax = document.getElementById(`compare-${paneNames[idx]}-pane-cb-vmax`);
             // Clamp width to the viewport (clipping container) so colorbars
             // don't overflow their pane when zoomed.
             const inner = cv.closest('.compare-canvas-inner');
@@ -2257,7 +2273,8 @@
             const cbIsland = cbCanvas.closest('.cb-island');
             if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
                 cbCanvas.style.display = 'none';
-                if (cbLabels) cbLabels.style.display = 'none';
+                if (cbVmin) cbVmin.style.display = 'none';
+                if (cbVmax) cbVmax.style.display = 'none';
                 if (cbIsland) cbIsland.style.display = 'none';
                 return;
             }
@@ -2267,10 +2284,8 @@
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.width = Math.round(cssW * dpr);
             cbCanvas.height = Math.round(stripH * dpr);
-            cbCanvas.style.width = cssW + 'px';
-            cbCanvas.style.height = stripH + 'px';
             cbCanvas.style.display = '';
-            if (cbIsland) cbIsland.style.display = '';
+            if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = cssW + 'px'; }
             const sCtx = cbCanvas.getContext('2d');
             sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
             sCtx.save();
@@ -2285,14 +2300,11 @@
             sCtx.fillStyle = grad;
             sCtx.fillRect(0, 0, cssW, stripH);
             sCtx.restore();
-            if (cbLabels) {
-                const frame = compareFrames[idx];
-                const labelVmin = cmpManualVmin[idx] ?? frame.vmin;
-                const labelVmax = cmpManualVmax[idx] ?? frame.vmax;
-                cbLabels.style.display = '';
-                cbLabels.style.width = cssW + 'px';
-                cbLabels.innerHTML = `<span>${_cbFmt(labelVmin)}</span><span>${_cbFmt(labelVmax)}</span>`;
-            }
+            const frame = compareFrames[idx];
+            const labelVmin = cmpManualVmin[idx] ?? frame.vmin;
+            const labelVmax = cmpManualVmax[idx] ?? frame.vmax;
+            if (cbVmin) { cbVmin.style.display = ''; cbVmin.textContent = _cbFmt(labelVmin); }
+            if (cbVmax) { cbVmax.style.display = ''; cbVmax.textContent = _cbFmt(labelVmax); }
         }
 
         function drawRegBlendCb() {
@@ -2332,9 +2344,12 @@
             const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
             const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
             const diffCbIsland = diffPaneCb.closest('.cb-island');
+            const diffCbVmin = document.getElementById('compare-diff-pane-cb-vmin');
+            const diffCbVmax = document.getElementById('compare-diff-pane-cb-vmax');
             if (!colorbarVisible() || !cssW || cssW < 10) {
                 diffPaneCb.style.display = 'none';
-                if (diffPaneCbLabels) diffPaneCbLabels.style.display = 'none';
+                if (diffCbVmin) diffCbVmin.style.display = 'none';
+                if (diffCbVmax) diffCbVmax.style.display = 'none';
                 if (diffCbIsland) diffCbIsland.style.display = 'none';
                 return;
             }
@@ -2344,10 +2359,8 @@
             const dpr = window.devicePixelRatio || 1;
             diffPaneCb.width = Math.round(cssW * dpr);
             diffPaneCb.height = Math.round(stripH * dpr);
-            diffPaneCb.style.width = cssW + 'px';
-            diffPaneCb.style.height = stripH + 'px';
             diffPaneCb.style.display = 'block';
-            if (diffCbIsland) diffCbIsland.style.display = '';
+            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = cssW + 'px'; }
             const ctx2 = diffPaneCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
             const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
@@ -2359,11 +2372,8 @@
             }
             ctx2.fillStyle = grad; ctx2.fillRect(0, 0, cssW, stripH);
             ctx2.restore();
-            if (diffPaneCbLabels) {
-                diffPaneCbLabels.style.display = 'flex';
-                diffPaneCbLabels.style.width = cssW + 'px';
-                diffPaneCbLabels.innerHTML = `<span>${_cbFmt(vmin)}</span><span>${_cbFmt(vmax)}</span>`;
-            }
+            if (diffCbVmin) { diffCbVmin.style.display = ''; diffCbVmin.textContent = _cbFmt(vmin); }
+            if (diffCbVmax) { diffCbVmax.style.display = ''; diffCbVmax.textContent = _cbFmt(vmax); }
         }
 
         function drawAllComparePaneCbs() {
