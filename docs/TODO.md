@@ -1,8 +1,6 @@
 # TODO
 
-- cycle X when having two arrays loaded. make screenshots. you will see many issues with
-  colorbars and positioning of panes. fix them, then take screenshots to see if the issues
-  are resolved. also eggs are in wrong positions. 
+- ~~X diff mode layout — pane sizing, colorbars, eggs~~ ✅ DONE — flicker/checker included in hasCenterPane, egg positioning below colorbars
 
 - ~~in X flicker mode, use [ and ] to change flickering rate~~ ✅ DONE
 
