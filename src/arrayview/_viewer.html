@@ -1863,7 +1863,9 @@
             if (!panesEl) return;
             const titleReserve = 28;
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
-            const panePadY = 12; // .compare-canvas-area vertical padding (per-pane colorbars removed)
+            // .compare-canvas-area vertical padding; add colorbar height when per-pane colorbars are visible (diff mode)
+            const cbExtra = (diffMode > 0) ? (10 + CB_COLLAPSED_H + 4) : 0; // margin-top + strip + gap
+            const panePadY = 12 + cbExtra;
             const fitSlack = 0.96;
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
@@ -1933,38 +1935,8 @@
                     inner.dataset.vpH = vpH;
                 }
             }
-            // Shrink pane slots to wrap content when zoomed out so panes
-            // stay close together for easy visual comparison.
-            for (let i = 0; i < paneCount; i++) {
-                const cv = compareCanvases[i];
-                const inner = cv && cv.closest('.compare-canvas-inner');
-                const pane = comparePaneEls[i];
-                if (!inner || !pane || !inner.dataset.vpW) continue;
-                const vpW = parseInt(inner.dataset.vpW);
-                const vpH = parseInt(inner.dataset.vpH);
-                const neededW = vpW + panePadX;
-                const neededH = titleReserve + vpH + panePadY;
-                if (neededW < slotW) {
-                    pane.style.flex = `0 0 ${neededW}px`;
-                    pane.style.width = neededW + 'px';
-                    pane.style.maxWidth = neededW + 'px';
-                }
-                if (neededH < slotH) {
-                    pane.style.height = neededH + 'px';
-                    pane.style.maxHeight = neededH + 'px';
-                }
-            }
-            // When first overflowing, center the pan
-            if (_cmpIsOverflowing() && _cmpPanX === 0 && _cmpPanY === 0) {
-                const cv = compareCanvases[0];
-                const inner = cv && cv.closest('.compare-canvas-inner');
-                if (inner) {
-                    _cmpPanX = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
-                    _cmpPanY = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
-                }
-            }
-            _cmpClampPan();
-            _cmpApplyPan();
+            // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
+            // the center pane can be shrunk based on its actual inner dimensions.
             // Keep diff canvas (also used for overlay) sized to match the first compare canvas
             if ((diffMode > 0 || registrationMode) && compareCanvases[0] && compareCanvases[0].style.width) {
                 const diffCanvas = document.getElementById('compare-diff-canvas');
@@ -1972,7 +1944,7 @@
                     diffCanvas.style.width = compareCanvases[0].style.width;
                     diffCanvas.style.height = compareCanvases[0].style.height;
                 }
-                // Diff/wipe canvas inner also needs viewport sizing
+                // Diff canvas inner also needs viewport sizing
                 const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
                 const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
                 if (diffInner && firstInner) {
@@ -1996,18 +1968,71 @@
                     wipeInner.dataset.vpH = firstInner.dataset.vpH;
                 }
             }
-            // Shrink center pane (diff/wipe) to match data pane shrinking
-            if (hasCenterPane && paneCount === 2) {
-                const centerPane = document.getElementById(_wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane');
-                const firstPane = comparePaneEls[0];
-                if (centerPane && firstPane) {
-                    centerPane.style.flex = firstPane.style.flex;
-                    centerPane.style.width = firstPane.style.width;
-                    centerPane.style.maxWidth = firstPane.style.maxWidth;
-                    centerPane.style.height = firstPane.style.height;
-                    centerPane.style.maxHeight = firstPane.style.maxHeight;
+            // Shrink pane slots to wrap content when zoomed out so panes
+            // stay close together for easy visual comparison.
+            for (let i = 0; i < paneCount; i++) {
+                const cv = compareCanvases[i];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                const pane = comparePaneEls[i];
+                if (!inner || !pane || !inner.dataset.vpW) continue;
+                const vpW = parseInt(inner.dataset.vpW);
+                const vpH = parseInt(inner.dataset.vpH);
+                const neededW = vpW + panePadX;
+                const neededH = titleReserve + vpH + panePadY;
+                if (neededW < slotW) {
+                    pane.style.flex = `0 0 ${neededW}px`;
+                    pane.style.width = neededW + 'px';
+                    pane.style.maxWidth = neededW + 'px';
+                }
+                if (neededH < slotH) {
+                    pane.style.height = neededH + 'px';
+                    pane.style.maxHeight = neededH + 'px';
                 }
             }
+            // Shrink center pane (diff/wipe) using its own inner dimensions
+            if (hasCenterPane && paneCount === 2) {
+                const centerPaneId = _wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane';
+                const centerPane = document.getElementById(centerPaneId);
+                const centerCvId = _wipeActive ? 'compare-wipe-canvas' : 'compare-diff-canvas';
+                const centerCv = document.getElementById(centerCvId);
+                const centerInner = centerCv && centerCv.closest('.compare-canvas-inner');
+                if (centerPane && centerInner && centerInner.dataset.vpW) {
+                    const vpW = parseInt(centerInner.dataset.vpW);
+                    const vpH = parseInt(centerInner.dataset.vpH);
+                    const neededW = vpW + panePadX;
+                    const neededH = titleReserve + vpH + panePadY;
+                    if (neededW < slotW) {
+                        centerPane.style.flex = `0 0 ${neededW}px`;
+                        centerPane.style.width = neededW + 'px';
+                        centerPane.style.maxWidth = neededW + 'px';
+                    }
+                    if (neededH < slotH) {
+                        centerPane.style.height = neededH + 'px';
+                        centerPane.style.maxHeight = neededH + 'px';
+                    }
+                } else if (centerPane) {
+                    // Fallback: copy from first data pane so layout doesn't collapse
+                    const firstPane = comparePaneEls[0];
+                    if (firstPane) {
+                        centerPane.style.flex = firstPane.style.flex;
+                        centerPane.style.width = firstPane.style.width;
+                        centerPane.style.maxWidth = firstPane.style.maxWidth;
+                        centerPane.style.height = firstPane.style.height;
+                        centerPane.style.maxHeight = firstPane.style.maxHeight;
+                    }
+                }
+            }
+            // When first overflowing, center the pan
+            if (_cmpIsOverflowing() && _cmpPanX === 0 && _cmpPanY === 0) {
+                const cv = compareCanvases[0];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                if (inner) {
+                    _cmpPanX = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
+                    _cmpPanY = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
+                }
+            }
+            _cmpClampPan();
+            _cmpApplyPan();
             // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
             // from pushing the third column to a new row.
             if (hasCenterPane && paneCount === 2) {
