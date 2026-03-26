@@ -1887,7 +1887,7 @@
                 : compareLayoutMode === 'grid'       ? 2
                 : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
             // When diff/overlay/wipe mode is active with 2 data panes there are 3 visible columns
-            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive);
+            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             const cols = (hasCenterPane && paneCount === 2) ? 3 : baseCols;
             const rows = Math.max(1, Math.ceil(paneCount / baseCols));
             const cs = getComputedStyle(panesEl);
@@ -1918,7 +1918,7 @@
                 if (idx < paneCount) applyPaneSlot(pane);
             });
             if (hasCenterPane && paneCount === 2) {
-                applyPaneSlot(document.getElementById(_wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane'));
+                applyPaneSlot(document.getElementById((_wipeActive || _flickerActive || _checkerActive) ? 'compare-wipe-pane' : 'compare-diff-pane'));
             }
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
@@ -1966,8 +1966,8 @@
                     diffInner.dataset.vpH = firstInner.dataset.vpH;
                 }
             }
-            // Wipe canvas inner viewport sizing
-            if (_wipeActive) {
+            // Wipe canvas inner viewport sizing (also used by flicker and checkerboard)
+            if (_wipeActive || _flickerActive || _checkerActive) {
                 const wipeCv = document.getElementById('compare-wipe-canvas');
                 const wipeInner = wipeCv && wipeCv.closest('.compare-canvas-inner');
                 const firstInner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
@@ -2003,9 +2003,10 @@
             }
             // Shrink center pane (diff/wipe) using its own inner dimensions
             if (hasCenterPane && paneCount === 2) {
-                const centerPaneId = _wipeActive ? 'compare-wipe-pane' : 'compare-diff-pane';
+                const _useWipePane = _wipeActive || _flickerActive || _checkerActive;
+                const centerPaneId = _useWipePane ? 'compare-wipe-pane' : 'compare-diff-pane';
                 const centerPane = document.getElementById(centerPaneId);
-                const centerCvId = _wipeActive ? 'compare-wipe-canvas' : 'compare-diff-canvas';
+                const centerCvId = _useWipePane ? 'compare-wipe-canvas' : 'compare-diff-canvas';
                 const centerCv = document.getElementById(centerCvId);
                 const centerInner = centerCv && centerCv.closest('.compare-canvas-inner');
                 if (centerPane && centerInner && centerInner.dataset.vpW) {
@@ -3902,14 +3903,24 @@
                     eggsTop = cbWrap.getBoundingClientRect().bottom + 4;
                 } else {
                     let maxBottom = 0;
-                    compareCanvases.forEach(cv => {
-                        if (!cv) return;
-                        const pane = cv.closest('.compare-pane');
-                        if (pane && pane.classList.contains('active')) {
-                            const r = cv.getBoundingClientRect();
-                            if (r.bottom > maxBottom) maxBottom = r.bottom;
-                        }
+                    // In diff mode, per-pane colorbars sit below canvases — use their bottom
+                    const paneCbIslands = diffMode > 0 ? document.querySelectorAll('.compare-pane-cb-island') : [];
+                    let usedCbBottom = false;
+                    paneCbIslands.forEach(island => {
+                        if (island.style.display === 'none' || !island.offsetParent) return;
+                        const r = island.getBoundingClientRect();
+                        if (r.height > 2 && r.bottom > maxBottom) { maxBottom = r.bottom; usedCbBottom = true; }
                     });
+                    if (!usedCbBottom) {
+                        compareCanvases.forEach(cv => {
+                            if (!cv) return;
+                            const pane = cv.closest('.compare-pane');
+                            if (pane && pane.classList.contains('active')) {
+                                const r = cv.getBoundingClientRect();
+                                if (r.bottom > maxBottom) maxBottom = r.bottom;
+                            }
+                        });
+                    }
                     eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
                 }
             } else {
@@ -5973,7 +5984,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
                 if (rgbMode) return;
                 // If hovering over center pane, cycle its colormap instead
-                if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive)) {
+                if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive)) {
                     const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                     const idx = pool.indexOf(_diffCenterColormap);
                     const next = (idx + 1) % pool.length;
