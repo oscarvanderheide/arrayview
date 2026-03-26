@@ -83,6 +83,7 @@ view(
     height=500,         # IFrame height in pixels
     window=None,        # see below
     rgb=False,          # treat as RGB/RGBA (first or last dim must be 3 or 4)
+    overlay=None,       # segmentation mask overlay (binary 0/1, same spatial shape)
 )
 ```
 
@@ -188,6 +189,10 @@ arrayview [FILES...] [OPTIONS]
 | `--vectorfield FILE` | Deformation vector field overlay (one axis of size 3 for xyz components) |
 | `--vectorfield-components-dim DIM` | Axis index of the xyz component dimension in `--vectorfield` |
 | `--rgb` | Interpret as RGB/RGBA |
+| `--relay [HOST:]PORT` | Send array to an existing server (multi-hop SSH) |
+| `--watch` | Auto-reload when file is modified |
+| `--dims SPEC` | Force initial x/y dims (e.g. `x,y,:,:` or `2,3`) |
+| `--diagnose` | Print environment detection results and exit |
 | `--compare FILE` | Deprecated: use positional args instead |
 | `--browser` | Deprecated: use `--window browser` |
 | `--verbose` | Verbose internal output |
@@ -211,9 +216,12 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | Scroll wheel | Previous / next slice |
 | `h` `l` / Left Right | Move cursor to previous / next dimension |
 | `j` `k` / Down Up | Previous / next index along active dimension |
-| `r` | Reverse active axis direction; in multi-view: swap axes globally across all panes |
+| `0–9` + Enter | Jump to slice index |
+| `r` | Reverse active axis (x or y dim); rotate 90° CW when slice dim active; in multi-view: swap axes globally |
 | Space | Toggle auto-play |
-| `+` / `-` / `0` | Zoom in / out / fit to window |
+| `+` / `-` | Zoom in / out |
+| Ctrl+scroll | Zoom in / out (pinch on touchscreen) |
+| `0` | Reset zoom (fit to window) |
 
 ### Axes and Views
 
@@ -222,55 +230,61 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 | `x` | Swap horizontal dim with slice dim |
 | `y` | Swap vertical dim with slice dim |
 | `t` | Transpose x and y axes |
-| `z` | Claim dim as z (mosaic grid) |
-| `v` | Toggle 3-plane multi-view (dims 0,1,2) |
+| `z` | Claim dim as z (mosaic grid), scroll through next dim |
+| `v` | Toggle 3-plane multi-view (dims 0,1,2); in compare: rows × 3-planes grid |
 | `V` | Toggle 3-plane multi-view (custom dims) |
 | `o` | Reset oblique slices and crosshair to center |
-| `q` | Toggle qMRI mode |
+| `q` | Toggle qMRI mode (compact / full view; also works in compare) |
 
 ### Display
 
 | Key | Action |
 |-----|--------|
-| `c` | Cycle colormap (gray, lipari, navia, viridis, plasma, RdBu_r, twilight_shifted) |
+| `c` | Cycle colormap |
 | `C` | Enter custom matplotlib colormap name |
-| `d` | Cycle dynamic range (0-100%, 1-99%, 5-95%, 10-90%) |
-| `D` | Set vmin / vmax manually |
+| `d` | Cycle dynamic range |
+| `D` | Set vmin / vmax manually (locked until next `d`) |
 | `L` | Toggle log scale |
-| `p` | Cycle statistical projection (off / MAX / MIN / MEAN / STD / SOS) |
+| `p` | Cycle projection (off / MAX / MIN / MEAN / STD / SOS) |
 | `m` | Cycle complex mode (mag / phase / real / imag) |
-| `f` | Toggle centered FFT |
-| `M` | Cycle mask threshold (Otsu + 7 levels) |
-| `R` | Toggle RGB mode |
+| `f` | Toggle centered FFT (prompts for axes) |
+| `M` | Cycle mask threshold (Otsu) |
+| `R` | Toggle RGB mode on active dim (size 3 or 4) |
 | `T` | Cycle theme (dark / light / solarized / nord) |
 | `b` | Toggle canvas border |
-| `F` | Zen mode — hide chrome, go fullscreen |
-| `K` | Compact mode — collapse top chrome, vertical colorbar (auto-activates when zoomed) |
-| `[` / `]` | Adjust arrow density in vectorfield mode |
-| `{` / `}` | Adjust arrow length in vectorfield mode |
+| `a` | Stretch panes to square box (all modes; auto-on in 3-plane view) |
+| `A` | Cycle ROI: rect → circle → freehand → flood fill → off |
+| `F` | Zen mode — hide chrome, go fullscreen; move mouse to reveal briefly |
+| `u` | Ruler — click two points to measure pixel distance; `u` again to exit |
+| `[` / `]` | Context-sensitive: movie fps / flicker rate / checker tile size / overlay blend / arrow density |
+| `{` / `}` | Arrow length shorter / longer (vector field mode) |
 | `U` | Toggle vector arrows |
 
 ### Compare Mode
 
 | Key | Action |
 |-----|--------|
-| `P` | Open picker (compare) |
-| `O` | Open picker (open / navigate sessions) |
-| `n` | Cycle compare target |
-| `X` | Cycle center pane (off / A−B / \|A−B\| / \|A−B\|/\|A\| / overlay / wipe / flicker / checker) |
-| `[` / `]` | Overlay blend / checker tile size / flood fill tolerance |
-| `Z` | Focus center pane |
+| `B` | Toggle compare mode |
+| `P` | Open picker in compare mode (Tab cycles Open / Compare / Overlay) |
+| Cmd/Ctrl+O or Shift+O | Open picker — Space selects, Enter opens (1 sel) or compares (2–4 sel) |
+| `n` | Cycle compare target session |
+| `X` | Cycle center pane: off → A−B → \|A−B\| → \|A−B\|/\|A\| → overlay → wipe → flicker → checker |
+| `G` | Cycle compare layout: horizontal → vertical → grid (3–4 panes) |
+| `Z` | Focus center pane (when compare center is active) |
+| Panel title drag | Drag a compare panel title to swap pane order |
 
 ### Info and Export
 
 | Key | Action |
 |-----|--------|
-| Mouse hover | Show pixel value on colorbar |
-| `H` | Toggle pixel hover tooltip |
-| `i` | Show data info (shape, dtype, size, path) |
-| `s` | Save screenshot (PNG) + add to gallery |
-| `G` | Toggle snapshot gallery panel |
-| `g` | Save GIF of current slice dimension |
+| Hover | Show pixel value on colorbar |
+| Click | Copy pixel value to clipboard |
+| `i` | Toggle pixel hover tooltip |
+| `I` | Show data info overlay (shape, dtype, size, path) |
+| `s` | Save screenshot (PNG → Downloads + gallery) |
+| `G` | Toggle snapshot gallery (when not in compare mode) |
+| `N` | Export current slice as .npy |
+| `g` | Save GIF of current slice dim |
 | `e` | Copy reusable URL to clipboard |
 | `?` | Toggle help overlay |
 
@@ -278,11 +292,13 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 
 | Input | Action |
 |-------|--------|
-| Drag on colorbar | Shift window level |
-| Scroll on colorbar | Zoom window range |
-| Double-click colorbar | Reset window/level |
+| Colorbar drag | Shift window level |
+| Colorbar scroll | Zoom window range (narrow / widen) |
+| Colorbar double-click | Reset window / level to auto |
 | Shift+drag | Zoom to region (normal mode) |
 | Shift+drag (3-plane) | Oblique rotation |
+| Left-drag | Pan image when zoomed in |
+| Right-drag | Scrub slices (fit) or pan image (zoomed) |
 | Drag (3-plane) | Move crosshair |
 | Drop file | Compare (compatible shape) or open new tab |
 
@@ -292,10 +308,13 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 |------|---------|-------------|
 | **Normal** | Default | Single 2D slice with dimension navigation |
 | **Multi-view** | `v` / `V` | 3-plane orthogonal view (axial/coronal/sagittal) with oblique rotation |
-| **Compare** | `P` (picker) | Side-by-side comparison of up to 6 arrays |
-| **Center pane** | `X` (in compare) | Diff, overlay, wipe (cursor-following), flicker (3Hz A/B toggle), checkerboard |
+| **Compare** | `B` / picker | Side-by-side comparison of up to 6 arrays |
+| **Center pane** | `X` (in compare) | Diff, overlay, wipe (cursor-following), flicker (A/B toggle), checkerboard |
 | **Projection** | `p` | Statistical projection along scroll axis: MAX, MIN, MEAN, STD, SOS |
 | **qMRI** | `q` | Quantitative MRI: auto-detects parameter dimension, shows each with a dedicated colormap |
+| **ROI** | `A` | Region-of-interest measurement: rect, circle, freehand, flood fill |
+| **FFT** | `f` | Centered FFT display (prompts for axes) |
+| **Ruler** | `u` | Click two points to measure pixel distance |
 
 ## VS Code Integration
 
