@@ -1,5 +1,43 @@
 # TODO
 
+- single-array, normal mode: when i zoom in, i get into immersive mode. but when i zoom back
+  out, the behaviour is not reverse of zooming in. fix it.
+
+- two-array, diff mode: when i press c (not hovering over diff pane), i only see the
+  colormap previewer underneath the left array, the exact same miniviewer (a copy) should be
+  visible underneath the right array
+
+- two-arrays, multi-view: no colorbar. if you check with borders on you'll see the top of
+  the panes in the first row go outside of the viewport. the miniviewer with the three
+  planes cannot go over a pane. prevent zoooming when thats about to happen and/or make the
+  miniview smaller~~ ✅ DONE 
+
+- In normal mode, when pressing c, the colorbar fades out and a colormap previewer appears
+  in its place. In diff mode, the left and right panes for the two arrays have their own
+  colorbar. When pressing c, both those colorbars should fade out and in both locations the
+  preview should appear that do exactly the same thing. Only when the hovering over the
+  middle pane should the behaviour be different: then, if there is a colorbar for that pane,
+  a previewer should appear there (of course after fading out the colorbar) and it has a
+  subset of colormaps that are appropriate for whatever that particular diff mode is
+  showing. Like, for A-B mode, the default RdBl_r makes sense because it shows positive and
+  negative deviations. For |A-B|, RdBl_r does not make sense and instead I set the default
+  to amfhot I think. but there may be other colormaps there that do make sense. I mean, even
+  gray could be used there. Also note that some of the diff modes do not have their own
+  colorbar. in that case, of course no previewer should appear. ~~ ✅ DONE 
+
+- in X overlay mode, get rid of the bar below the middle canvas. ~~ ✅ DONE 
+
+- i dont want the X mode eggs I think. These types of things are not persistent across modes
+  anyways like Log and FFT are. And I can display the X mode on top of the middle pane like
+  already happens. Would be nice to make it nicer for some of the modes. For example, for
+  overlay mode, would be nice to have something with a green A and a magenta B and have
+  something indicate them overlapping (although putting them on top of one another would be
+  visually unpleasing). for wipe also get rid of the bar below the pane, mouse movement
+  already takes care of changing the yellow line. no need for that trackbar anymore. for
+  indicator on top, im thinking of half an A, a yellow vertical line, and then half a B.
+  flicker already has nice flickering of A and B. for checkerboard, we can use a black &
+  white version of the logo.~~ ✅ DONE 
+
 - ~~X diff mode layout — pane sizing, colorbars, eggs~~ ✅ DONE — flicker/checker included in hasCenterPane, egg positioning below colorbars
 
 - ~~in X flicker mode, use [ and ] to change flickering rate~~ ✅ DONE
