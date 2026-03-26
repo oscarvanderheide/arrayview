@@ -184,7 +184,7 @@ class TestNoDoubleMessage:
         assert "borders" in status.lower(), f"Expected borders status, got: '{status}'"
 
     def test_K_key_does_nothing(self, loaded_viewer, sid_2d):
-        """K key is unbound — compact mode is auto-only."""
+        """K key is unbound — immersive mode is automatic."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("K")
