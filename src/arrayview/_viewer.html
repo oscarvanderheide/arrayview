@@ -2604,7 +2604,7 @@
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
-                wrap.style.width = Math.max(160, rawW) + 'px';
+                wrap.style.width = Math.max(160, cssW) + 'px';
                 wrap.style.left = '50%';
                 wrap.style.transform = 'translateX(-50%)';
             }
@@ -3792,8 +3792,10 @@
             const el = document.getElementById('mode-eggs');
             if (!el) return;
             if (!_eggsVisible) { el.innerHTML = ''; return; }
-            // Hide eggs during loading — no data received yet
+            // Hide eggs during loading / welcome — no data received yet
+            if (_isWelcomeScreen) { el.innerHTML = ''; return; }
             if (compareActive && (!compareFrames.length || !compareFrames.some(Boolean))) { el.innerHTML = ''; return; }
+            if (!lastImgW && !lastImgH && !compareActive) { el.innerHTML = ''; return; }
             let html = '';
             if (rgbMode)
                 html += `<span class="mode-badge mode-badge-rgb">RGB</span>`;
@@ -7735,9 +7737,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmvPrevSquareStretch = squareStretch;
             squareStretch = true;
 
-            // Hide compare panes, show qmri-view-wrap (shared container)
+            // Hide compare panes + shared colorbar, show qmri-view-wrap (shared container)
             compareWrap.classList.remove('active');
             document.getElementById('canvas-wrap').style.display = 'none';
+            const slimWrap = document.getElementById('slim-cb-wrap');
+            if (slimWrap) slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
