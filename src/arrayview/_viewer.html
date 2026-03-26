@@ -2507,8 +2507,8 @@
                     return;
                 }
             }
-            if (multiViewActive && !compareActive) {
-                // Multiview draws its own colorbars via drawMvCbs()
+            if ((multiViewActive && !compareActive) || compareMvActive) {
+                // Multiview / compare-multiview draw their own per-pane colorbars
                 if (wrap) wrap.style.display = 'none';
                 return;
             }
