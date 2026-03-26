@@ -2353,8 +2353,9 @@
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
             const cbIsland = cbCanvas.closest('.cb-island');
-            // In non-diff mode, hide per-pane colorbars (shared colorbar is used)
-            if (!diffMode) {
+            // In non-diff/center-pane mode, hide per-pane colorbars (shared colorbar is used)
+            const _hasCenterPaneCb = diffMode > 0 || _wipeActive || _flickerActive || _checkerActive;
+            if (!_hasCenterPaneCb) {
                 if (cbIsland) cbIsland.style.display = 'none';
                 return;
             }
@@ -2537,8 +2538,8 @@
             if (compareActive) {
                 // Draw per-pane colorbars only in diff mode; otherwise hide them
                 drawAllComparePaneCbs();
-                // In diff mode, per-pane colorbars replace the shared colorbar
-                if (diffMode > 0) {
+                // In diff/center-pane modes, per-pane colorbars replace the shared colorbar
+                if (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive) {
                     slimCbCanvas.style.display = 'none';
                     slimCbLabels.style.display = 'none';
                     if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
