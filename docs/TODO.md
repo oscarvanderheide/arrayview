@@ -1,14 +1,24 @@
 # TODO
 
+- cycle X when having two arrays loaded. make screenshots. you will see many issues with
+  colorbars and positioning of panes. fix them, then take screenshots to see if the issues
+  are resolved. also eggs are in wrong positions. 
+
+- ~~in X flicker mode, use [ and ] to change flickering rate~~ ✅ DONE
+
+- pinch to zoom and ctrl/cmd scroll to zoom are both way too sensitive to the point where
+  they are unusable. ~~ ✅ DONE
+  
+- the dim bar island and colorbar island should have the same height. make the colorbar
+  island a bit thicker to match the dim bar height. font for the vmin and vmax can be
+  slightly larger ~~ ✅ DONE
+
+- ~~in jupyter inline mode, hide logo+array name~~ ✅ DONE — body.inline-embed #array-name hidden
+
 - ~~in multi-view, only show the red/green/blue lines when hovering over the panes~~ ✅ DONE
 
-- when pressing p, make the behaviour the same as when pressing m for now: just switch up
-  the eggs only, no previewer. the eggs are now all purple, in the preview the options all
-  have different colors. the p in the dimbar also uses those colors. give the p the same
-  color as used for the egg so that its fixed for this mode.
-
-- when pressing p, and then h or l to change active scroll dim, it changes the p mode to
-  that new active scroll dim which is then no longer scrollable. fix this bug.
+- ~~P key matches M key egg-only behavior, fixed purple color~~ ✅ DONE
+- ~~P mode independent of h/l scroll dim change~~ ✅ DONE — projectionDim locked on activation
 
 - ~~when pressing d, histogram auto-disappears when hovering~~ ✅ DONE — histogram stays open while mouse is over it
 
