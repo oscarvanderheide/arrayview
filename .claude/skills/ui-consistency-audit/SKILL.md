@@ -200,7 +200,7 @@ These rules are codified as DOM assertions in `tests/ui_audit.py`. When a new in
 | R4 | Diff colormaps: sides same, center different | Colormap name on diff center pane differs from side panes |
 | R5 | Diff dynamic range is independent | vmin/vmax on diff center canvas differs from side panes |
 | R6 | Eggs don't overlap colorbar | Bounding boxes of `#mode-eggs` children don't intersect `#slim-cb-wrap` |
-| R7 | Compact mode collapses top chrome | `#info`, `#array-name` are reduced/hidden in compact mode |
+| R7 | Fullscreen mode overlays chrome on canvas | `#info`, `#slim-cb-wrap` have `position:fixed` and glassmorphic styling when `body.fullscreen-mode` is active |
 | R8 | ROI hover info within viewport | `.cv-pixel-info` bounding box is within viewport |
 | R9 | No element jump on mode toggle | Pressing a mode toggle key then pressing it again returns bounding boxes to ±2px of original |
 | R10 | Compare panes aligned | All `.compare-canvas` elements share the same `y` coordinate (horizontal layout) or same `x` (vertical layout) |
@@ -209,11 +209,19 @@ These rules are codified as DOM assertions in `tests/ui_audit.py`. When a new in
 | R13 | Colorbars don't overlap each other | No pair of colorbar elements (slim, compare-pane, mv, qv) have intersecting bounding boxes |
 | R14 | Minimap within viewport and not overlapping colorbars | `#minimap-canvas` bounding box is within viewport and doesn't intersect any colorbar |
 | R15 | Colorbar labels flank horizontally in all modes | Every `.cb-island`, `.compare-pane-cb-island`, `.qv-cb-island` uses `flex-direction: row` with vmin/vmax spans flanking the gradient canvas — never column layout with labels below |
-| R16 | Per-pane colorbar width matches canvas viewport width | Each `.compare-pane-cb` and `.qv-cb` canvas CSS width equals its data canvas viewport width (`data-vpW` or `style.width`). Island must not overflow the pane |
-| R17 | Compact mode eggs are visible over image | `#mode-eggs .mode-badge` elements have sufficient background opacity (>= 0.5) when `body.compact-mode` is active, since they overlay the canvas |
+| R16 | Per-pane colorbar width matches canvas viewport width (diff mode only) | Each `.compare-pane-cb` and `.qv-cb` canvas CSS width equals its data canvas viewport width. Per-pane colorbars only visible in diff mode. |
+| R17 | Fullscreen mode eggs are visible over image | `#mode-eggs .mode-badge` elements have sufficient background opacity (>= 0.5) when `body.fullscreen-mode` is active, since they overlay the canvas |
 | R18 | Histogram has visible background distinct from page | When `_cbExpanded`, the histogram area has an explicit background fill matching the dynamic island aesthetic, not transparent over the page background |
-| R19 | Compare colorbar gap matches single-mode gap | `.compare-pane-cb-island` `margin-top` is ≥10px, visually similar to single-mode's `dimGap`-based spacing |
+| R19 | Shared colorbar visible in all non-diff compare modes | `#slim-cb-wrap` is visible when `compareActive && !diffMode`. Per-pane colorbars hidden. |
 | R20 | Compare panes shrink-wrap when zoomed out | Pane slot width ≤ viewport canvas width + padding, not fixed to max available. Panes stay close for visual comparison |
+| R21 | Per-pane colorbars visible only in diff mode | `.compare-pane-cb-island` elements visible only when `diffMode > 0`. Three colorbars (left, center, right) at same vertical position. |
+| R22 | Array names include logo in compare mode | Each `.compare-title` contains SVG logo + name text, styled like `#array-name` |
+| R23 | Fullscreen mode overlays are glassmorphic islands | When `body.fullscreen-mode`, `#info` and `#slim-cb-wrap` have glassmorphic styling with `backdrop-filter: blur(12px)` |
+| R24 | Diff c/d keys are mouse-aware | When `diffMode > 0`, `c` and `d` keys affect center pane when `_mouseOverCenterPane`, side panes otherwise |
+| R25 | No duplicate colorbars in multiview | `#slim-cb-wrap` hidden when `multiViewActive` or `compareMvActive` (multiview has its own per-pane colorbars) |
+| R26 | Shared colorbar width capped in compare mode | `#slim-cb-wrap` width ≤ 500px in compare mode |
+| R27 | Mode eggs hidden during loading | `#mode-eggs` empty/hidden until at least one frame has been received |
+| R28 | Compare+multiview crosshair fade works | Crosshair lines in compare+multiview fade in/out on hover, scoped to the hovered array's panes |
 
 ---
 
@@ -226,7 +234,9 @@ All colorbars across ALL modes follow the same structure: `[vmin span] [gradient
 
 **Never** use column layout with labels below. **Never** use `flex: 1` on colorbar canvases inside inline-flex islands (causes sizing loops). Always set explicit island width = viewport canvas width, with `box-sizing: border-box` so `.cb-island` padding doesn't inflate the width beyond the canvas. Always test with non-square arrays — square arrays hide width mismatches.
 
-**Colorbar-to-canvas gap**: The gap between canvas and colorbar must be visually consistent across modes. Single mode uses a dynamic `dimGap` (~10-18px). Compare mode uses `margin-top: 10px` on `.compare-pane-cb-island` (with `panePadY=36` and `padding-bottom: 32px` in `.compare-canvas-area`). Do not reduce this gap below 10px.
+**Colorbar-to-canvas gap**: The gap between canvas and colorbar must be visually consistent across modes. Both single and compare mode use the shared `#slim-cb-wrap` colorbar positioned via `chromeGap` (measured from `#info` bottom to canvas top). Per-pane colorbars (`.compare-pane-cb-island`) are only visible in diff mode.
+
+**Compare mode colorbar**: A single shared `#slim-cb-wrap` replaces per-pane colorbars. All arrays share colormap and dynamic range (union of all vmins/vmaxes). Histogram aggregates bins from all sessions. Per-pane colorbars only appear in diff mode (3 colorbars: left, center, right).
 
 ---
 
