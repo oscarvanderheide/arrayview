@@ -717,7 +717,7 @@
         /* Wipe range control that sits below the center canvas */
         #wipe-range-wrap {
             width: 100%; padding: 2px 4px 0;
-            display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+            display: none; flex-direction: column; align-items: stretch; gap: 2px;
         }
         #wipe-range {
             -webkit-appearance: none; appearance: none;
@@ -2186,9 +2186,7 @@
             if (wipePaneEl) wipePaneEl.style.display = showWipePane ? 'flex' : 'none';
             compareWrap.classList.toggle('wipe-mode', showWipePane);
 
-            // Hide range slider when not in wipe mode
-            const wipeRangeWrap = document.getElementById('wipe-range-wrap');
-            if (wipeRangeWrap) wipeRangeWrap.style.display = _wipeActive ? '' : 'none';
+            // Wipe range slider is always hidden — mouse controls wipe position
 
             // Prevent flex-wrap from pushing the third column to a new row
             // when a center pane (diff/overlay/wipe) creates a 3-column layout.
