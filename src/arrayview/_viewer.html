@@ -8897,6 +8897,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (Math.abs(diff) < 0.01) {
                 _cmvCrosshairAlpha = _cmvCrosshairTarget;
                 _cmvCrosshairAnim = null;
+                if (_cmvCrosshairAlpha === 0) _cmvCrosshairSid = null;
                 compareMvViews.forEach(v => compareMvDrawFrame(v));
                 return;
             }
@@ -8905,7 +8906,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
         }
         function _cmvSetCrosshairTarget(target, sid) {
-            _cmvCrosshairSid = sid;
+            if (sid !== null) _cmvCrosshairSid = sid;  // keep sid during fade-out
             _cmvCrosshairTarget = target;
             if (!_cmvCrosshairAnim) _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
         }
