@@ -6985,6 +6985,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (compareActive) exitCompareMode();
             multiViewActive = true;
             document.getElementById('mini-map').classList.remove('visible');
+            // Hide shared colorbar — multiview draws its own via drawMvCbs()
+            const slimWrap = document.getElementById('slim-cb-wrap');
+            if (slimWrap) slimWrap.style.display = 'none';
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
             squareStretch = true;
