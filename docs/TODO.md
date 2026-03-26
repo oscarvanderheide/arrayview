@@ -1,7 +1,43 @@
 # TODO
 
-All items completed.
+- ~~in multi-view, only show the red/green/blue lines when hovering over the panes~~ ✅ DONE
 
+- when pressing p, make the behaviour the same as when pressing m for now: just switch up
+  the eggs only, no previewer. the eggs are now all purple, in the preview the options all
+  have different colors. the p in the dimbar also uses those colors. give the p the same
+  color as used for the egg so that its fixed for this mode.
+
+- when pressing p, and then h or l to change active scroll dim, it changes the p mode to
+  that new active scroll dim which is then no longer scrollable. fix this bug.
+
+- ~~when pressing d, histogram auto-disappears when hovering~~ ✅ DONE — histogram stays open while mouse is over it
+
+- the indicators in the histogram for vmin and vmax suck. use upward pointing triangles
+  beneath the bins, they should be draggable. show the value at the arrows (vmin vmax) above
+  the histogram. maybe like rotated 45 degrees? im sure you can think of some nice, minimal,
+  non-intrusive yet informative way. the histograms are in a rectangle whose
+  background color should be that of the dynamic island its in. right now thats not the case. 
+
+- ~~get rid of w keymap, remap i→I, H→i~~ ✅ DONE
+
+- ~~axes indicator stays in bottom-left during zoom~~ ✅ DONE
+
+- ~~remove gray fading status text~~ ✅ DONE — showStatus() is now a no-op
+
+- bring back compact mode. the default zoom for all modes i think is already to have the
+  panes at maximum size before UI elements start overlapping. in compact mode - wait what a
+  stupid name, i guess theres a better name - the canvas for single array normal mode should
+  grow until its almost at a viewport boundary. for single array, the colorbar and dimbar
+  island go within the canvas at the bottom and top respectively. the eggs go above the
+  colorbar. the array name goes below the dimbar. for multiple array situations i dont know
+  yet. for single-array but stuff like qmri mode, do the same behaviour as for normal mode.
+
+- after pressing = another time when in compact mode, enter zoom mode where the miniviewer appears.
+
+- for some edge cases like really thin arrays where the dynamic island does not fit within
+  the array or would overlap with the miniviewer, maybe just not go into compact mode but
+  zoom mode directly.similarlty for wide arrays where there is not enough vertical space to
+  fit all the ui elements.
 
 When working through the TODO list, always:
 - Make a plan first and write it down.
