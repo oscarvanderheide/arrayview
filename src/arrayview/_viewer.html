@@ -2119,6 +2119,20 @@
             el.textContent = _sessionName;
         }
 
+        function _centerModeIndicatorHTML(mode, extra) {
+            const s = 'style';
+            switch (mode) {
+                case 1: return `<span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span>`;
+                case 2: return `<span ${s}="opacity:0.5">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="opacity:0.5">|</span>`;
+                case 3: return `<span ${s}="opacity:0.5">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="opacity:0.5">| / |</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5">|</span>`;
+                case 4: return `<span ${s}="color:#44ff44">A</span><span ${s}="opacity:0.5"> + </span><span ${s}="color:#ff44ff">B</span>` + (extra ? `<span ${s}="opacity:0.4;margin-left:4px;font-size:10px">${extra}</span>` : '');
+                case 5: return `<span ${s}="color:#6db3f2">A</span><span ${s}="color:#e8d050;margin:0 2px">│</span><span ${s}="color:#f2916d">B</span>`;
+                case 6: return extra || '<span>A</span>';
+                case 7: return `<svg width="12" height="12" viewBox="0 0 4 4" style="vertical-align:middle;margin-right:4px"><rect x="0" y="0" width="1" height="1" fill="#fff"/><rect x="1" y="0" width="1" height="1" fill="#000"/><rect x="2" y="0" width="1" height="1" fill="#fff"/><rect x="3" y="0" width="1" height="1" fill="#000"/><rect x="0" y="1" width="1" height="1" fill="#000"/><rect x="1" y="1" width="1" height="1" fill="#fff"/><rect x="2" y="1" width="1" height="1" fill="#000"/><rect x="3" y="1" width="1" height="1" fill="#fff"/><rect x="0" y="2" width="1" height="1" fill="#fff"/><rect x="1" y="2" width="1" height="1" fill="#000"/><rect x="2" y="2" width="1" height="1" fill="#fff"/><rect x="3" y="2" width="1" height="1" fill="#000"/><rect x="0" y="3" width="1" height="1" fill="#000"/><rect x="1" y="3" width="1" height="1" fill="#fff"/><rect x="2" y="3" width="1" height="1" fill="#000"/><rect x="3" y="3" width="1" height="1" fill="#fff"/></svg><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.4"> · </span><span ${s}="color:#f2916d">B</span>` + (extra ? `<span ${s}="opacity:0.4;margin-left:4px;font-size:10px">${extra}</span>` : '');
+                default: return '';
+            }
+        }
+
         function updateCompareTitles() {
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
@@ -2129,7 +2143,7 @@
                 labels[1] = compareName || 'other';
                 // Set the diff pane title for the overlay blend
                 const diffTitle = document.getElementById('compare-diff-title');
-                if (diffTitle) diffTitle.textContent = `overlay (${movingPct}% moving)`;
+                if (diffTitle) diffTitle.innerHTML = _centerModeIndicatorHTML(4, `(${movingPct}% moving)`);
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
@@ -2202,6 +2216,8 @@
                 drawSlimColorbar(cbMarkerFrac);
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
+                const dt = document.getElementById('compare-diff-title');
+                if (dt) dt.innerHTML = _centerModeIndicatorHTML(diffMode);
                 compareScaleCanvases();
                 fetchAndDrawDiff();
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
@@ -2209,14 +2225,20 @@
                 drawCompareFramesFromCache();
                 showStatus(`overlay: on (moving ${Math.round(registrationAlpha * 100)}%)`);
             } else if (_wipeActive) {
+                const wt = document.getElementById('compare-wipe-title');
+                if (wt) wt.innerHTML = _centerModeIndicatorHTML(5);
                 compareScaleCanvases();
                 _drawWipe();
                 showStatus('wipe: move cursor to sweep · X to cycle');
             } else if (_flickerActive) {
+                const wt = document.getElementById('compare-wipe-title');
+                if (wt) wt.innerHTML = _centerModeIndicatorHTML(6, '<span style="color:#6db3f2">A</span><span style="opacity:0.3;margin:0 3px">⇄</span><span style="color:#f2916d;opacity:0.25">B</span>');
                 compareScaleCanvases();
                 _startFlicker();
                 showStatus('flicker: auto-toggling A/B · [ ] rate · X to cycle');
             } else if (_checkerActive) {
+                const wt = document.getElementById('compare-wipe-title');
+                if (wt) wt.innerHTML = _centerModeIndicatorHTML(7, `${_checkerSize}px`);
                 compareScaleCanvases();
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
@@ -3620,9 +3642,8 @@
                     diffCanvas.style.width = refCanvas.style.width;
                     diffCanvas.style.height = refCanvas.style.height;
                 }
-                const titles = ['', 'A − B', '|A − B|', '|A − B| / |A|'];
                 const titleEl = document.getElementById('compare-diff-title');
-                if (titleEl) titleEl.textContent = titles[diffMode];
+                if (titleEl) titleEl.innerHTML = _centerModeIndicatorHTML(diffMode);
                 _lastDiffVmin = isNaN(hdrVmin) ? 0 : hdrVmin;
                 _lastDiffVmax = isNaN(hdrVmax) ? 1 : hdrVmax;
                 // Cache gradient stops for the colormap used by the server
@@ -9831,14 +9852,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _wipeRange.value = Math.round(_wipeFrac * 100);
                 _wipeRange.style.setProperty('--wipe-pct', (_wipeFrac * 100).toFixed(1) + '%');
             }
-            // Update pane title to show short names
+            // Update pane title with styled wipe indicator
             const wipeTitle = document.getElementById('compare-wipe-title');
-            const tA = document.getElementById('compare-left-title');
-            const tB = document.getElementById('compare-right-title');
-            if (wipeTitle && tA && tB) {
-                const shorten = s => (s || '').trim().split('/').pop().replace(/\.(npy|nii|zarr).*/, '').slice(0, 10);
-                wipeTitle.textContent = `${shorten(tA.textContent)} ◁▷ ${shorten(tB.textContent)}`;
-            }
+            if (wipeTitle) wipeTitle.innerHTML = _centerModeIndicatorHTML(5);
         }
 
         // Wipe follows cursor over the canvas
@@ -9898,9 +9914,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const frame = _flickerShowA ? s.f0 : s.f1;
             const d = applyFlips(frame.imageData, frame.width, frame.height);
             _wipeCtx.putImageData(d, 0, 0);
-            // Update title to show which frame is visible
+            // Update title to show which frame is visible with styled indicator
             const wipeTitle = document.getElementById('compare-wipe-title');
-            if (wipeTitle) wipeTitle.textContent = _flickerShowA ? 'A' : 'B';
+            if (wipeTitle) {
+                const aStyle = _flickerShowA ? 'color:#6db3f2;opacity:1' : 'color:#6db3f2;opacity:0.25';
+                const bStyle = _flickerShowA ? 'color:#f2916d;opacity:0.25' : 'color:#f2916d;opacity:1';
+                wipeTitle.innerHTML = `<span style="${aStyle}">A</span><span style="opacity:0.3;margin:0 3px">⇄</span><span style="${bStyle}">B</span>`;
+            }
         }
 
         // ── 4c. Checkerboard compare ─────────────────────────────────
@@ -9943,9 +9963,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _wipeCtx.beginPath(); _wipeCtx.moveTo(0, y); _wipeCtx.lineTo(W, y); _wipeCtx.stroke();
             }
             _wipeCtx.restore();
-            // Update title
+            // Update title with styled checkerboard indicator
             const wipeTitle = document.getElementById('compare-wipe-title');
-            if (wipeTitle) wipeTitle.textContent = `checker ${sz}px`;
+            if (wipeTitle) wipeTitle.innerHTML = _centerModeIndicatorHTML(7, `${sz}px`);
         }
 
         // Re-draw center pane whenever compare frames update
