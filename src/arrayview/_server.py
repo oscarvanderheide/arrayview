@@ -856,10 +856,18 @@ def get_vectorfield(
         )
 
         H, W = vf_slice.shape[:2]
+        n_comp = vf_slice.shape[2]
+        n_spatial = len(spatial_axes)
 
-        # Component mapping: component index == original image spatial dim index
-        vy_comp = vf_slice[:, :, dim_y]  # displacement along dim_y → vertical arrows
-        vx_comp = vf_slice[:, :, dim_x]  # displacement along dim_x → horizontal arrows
+        # Component mapping: when the image has more spatial dims than the VF
+        # has components (e.g. 4-D image with a time-like leading dim but only
+        # 3 displacement components), the components align to the *last*
+        # n_comp spatial dims.  Dims before that offset have no displacement.
+        comp_offset = n_spatial - n_comp
+        cy = dim_y - comp_offset
+        cx = dim_x - comp_offset
+        vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
+        vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
 
         # Uniform random sampling with a fixed seed derived from (H, W) so that
         # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
