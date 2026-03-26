@@ -1368,6 +1368,7 @@
         let logScale = false;
         // Statistical projection mode: 0=off, 1=MAX, 2=MIN, 3=MEAN, 4=STD, 5=SOS
         let projectionMode = 0;
+        let projectionDim = -1;  // locked dim for projection, independent of h/l scroll changes
         const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         const MASK_LEVELS = 8; // 0=off, 1–7 = increasing Otsu multipliers
@@ -3457,7 +3458,7 @@
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
-                    params.set('projection_dim', String(current_slice_dim));
+                    params.set('projection_dim', String(projectionDim));
                 }
 
                 const frame = await fetchSliceFrame(params);
@@ -3527,7 +3528,7 @@
                 });
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
-                    params.set('projection_dim', String(current_slice_dim));
+                    params.set('projection_dim', String(projectionDim));
                 }
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
                 const requests = renderSids.map((sidVal, i) => {
@@ -3980,7 +3981,7 @@
                     return (active || playing) ? `<span class="${dimCls} q-dim dim-label" ${d}>q</span>`
                                   : `<span class="q-dim dim-label" ${d}>q</span>`;
                 }
-                if (projectionMode > 0 && i === current_slice_dim) {
+                if (projectionMode > 0 && i === projectionDim) {
                     const pColor = '#a78bfa';  // match mode-badge-proj egg color
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     return `<span class="${cls}" ${d} style="color:${pColor}">p<span class="dim-size">/${shape[i]}</span></span>`;
@@ -4173,6 +4174,7 @@
                 indices: [...indices],
                 logScale,
                 projectionMode,
+                projectionDim,
                 complexMode,
                 complexModeEverUsed,
                 flip_x,
@@ -4236,6 +4238,7 @@
             }
             logScale = s.logScale ?? false;
             projectionMode = Number.isInteger(s.projectionMode) && s.projectionMode >= 0 && s.projectionMode < PROJECTION_LABELS.length + 1 ? s.projectionMode : 0;
+            projectionDim = Number.isInteger(s.projectionDim) && s.projectionDim >= 0 && s.projectionDim < shape.length ? s.projectionDim : (projectionMode > 0 ? current_slice_dim : -1);
             complexMode = s.complexMode ?? 0;
             complexModeEverUsed = s.complexModeEverUsed ?? false;
             flip_x = s.flip_x ?? false;
@@ -4566,7 +4569,7 @@
                 canvas_w,
                 canvas_h,
                 projection_mode: projectionMode,
-                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
+                projection_dim: projectionMode > 0 ? projectionDim : -1,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -6227,10 +6230,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; }
                 if (projectionMode === 0) {
                     projectionMode = 1;
+                    projectionDim = current_slice_dim;
                 } else if (projectionMode < PROJECTION_LABELS.length) {
                     projectionMode++;
                 } else {
                     projectionMode = 0;
+                    projectionDim = -1;
                 }
                 _eggsVisible = true;
                 updateView();
@@ -6238,7 +6243,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (projectionMode === 0) {
                     showStatus('projection: off');
                 } else {
-                    showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${current_slice_dim}`);
+                    showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${projectionDim}`);
                 }
                 saveState();
             } else if (e.key === 'I') {
@@ -7639,7 +7644,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
-                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
+                projection_dim: projectionMode > 0 ? projectionDim : -1,
             }));
         }
 
@@ -7666,7 +7671,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
-                    params.set('projection_dim', String(current_slice_dim));
+                    params.set('projection_dim', String(projectionDim));
                 }
                 const frame = await fetchSliceFrame(params, v.sid);
                 v.vmin = frame.vmin;
@@ -8222,7 +8227,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
-                projection_dim: projectionMode > 0 ? current_slice_dim : -1,
+                projection_dim: projectionMode > 0 ? projectionDim : -1,
             };
             if (qmriMosaicActive) _qmMsg.mosaic_cols = shape[_qmriMosaicZDim];
             v.ws.send(JSON.stringify(_qmMsg));
@@ -8250,7 +8255,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (qmriMosaicActive) params.set('mosaic_cols', String(shape[_qmriMosaicZDim]));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
-                    params.set('projection_dim', String(current_slice_dim));
+                    params.set('projection_dim', String(projectionDim));
                 }
                 if (overlay_sid) params.set('overlay_sid', overlay_sid);
                 if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
