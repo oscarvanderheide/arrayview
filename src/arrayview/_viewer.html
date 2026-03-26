@@ -1174,6 +1174,7 @@
                 <div class="help-panel" data-help-panel="info">
                 <div class="help-panel-title">Info &amp; Export</div>
                 <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
+                <div class="help-row"><span class="key">click</span><span class="desc">copy pixel value to clipboard</span></div>
                 <div class="help-row"><span class="key">i</span><span class="desc">toggle pixel hover tooltip</span></div>
                 <div class="help-row"><span class="key">I</span><span class="desc">show data info overlay</span></div>
                 <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG → Downloads + gallery)</span></div>
@@ -5430,6 +5431,44 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (piEl) piEl.style.display = 'none';
         });
 
+        // Click-to-copy pixel value: shared helper
+        function _fmtPixelForCopy(v) {
+            if (v === null || v === undefined || !isFinite(v)) return null;
+            if (Number.isInteger(v)) return String(v);
+            return parseFloat(v.toPrecision(6)).toString();
+        }
+        async function _copyPixelValue(cvSid, cvDimX, cvDimY, cvIndices, px, py) {
+            try {
+                const resp = await fetch(`/pixel/${cvSid}?dim_x=${cvDimX}&dim_y=${cvDimY}&indices=${cvIndices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`);
+                const d = await resp.json();
+                if (d.value === undefined || d.value === null || !isFinite(d.value)) return;
+                const txt = _fmtPixelForCopy(d.value);
+                if (!txt) return;
+                await navigator.clipboard.writeText(txt);
+                showToast(`copied: ${txt}`);
+            } catch (e) { /* clipboard may fail in non-secure contexts */ }
+        }
+
+        // Click-to-copy: main canvas — track mousedown position
+        let _clickCopyDown = null; // {x, y} client coords at mousedown
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) _clickCopyDown = { x: e.clientX, y: e.clientY };
+        });
+        canvas.addEventListener('mouseup', (e) => {
+            if (e.button !== 0 || !_clickCopyDown) { _clickCopyDown = null; return; }
+            const dx = e.clientX - _clickCopyDown.x, dy = e.clientY - _clickCopyDown.y;
+            _clickCopyDown = null;
+            if (Math.hypot(dx, dy) >= 3) return; // was a drag, not a click
+            // Skip if a mode consumed this click
+            if (rectRoiMode || _rulerMode || _zoomSelectDrag) return;
+            if (multiViewActive || compareActive) return;
+            if (dim_z >= 0 || rgbMode) return;
+            const rect = canvas.getBoundingClientRect();
+            const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
+            const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+            _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
+        });
+
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -7089,6 +7128,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         view.axesSvg.querySelector('.axes-lbl-y').textContent = view.axLblY;
                     }
                 });
+                // Click-to-copy: multiview canvases
+                let _mvClickDown = null;
+                cv.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) _mvClickDown = { x: e.clientX, y: e.clientY };
+                });
+                cv.addEventListener('mouseup', (e) => {
+                    if (e.button !== 0 || !_mvClickDown) { _mvClickDown = null; return; }
+                    const ddx = e.clientX - _mvClickDown.x, ddy = e.clientY - _mvClickDown.y;
+                    _mvClickDown = null;
+                    if (Math.hypot(ddx, ddy) >= 3) return;
+                    if (obliqueDrag || mvDraggingView) return;
+                    if (!view.lastW || !view.lastH) return;
+                    const rect = cv.getBoundingClientRect();
+                    const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+                    const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                    _copyPixelValue(sid, view.dimX, view.dimY, indices, ipx, ipy);
+                });
                 // Show crosshair lines only when hovering over any multiview pane
                 pane.addEventListener('mouseenter', () => { _mvSetCrosshairTarget(1); });
                 pane.addEventListener('mouseleave', () => { _mvSetCrosshairTarget(0); });
@@ -7793,6 +7849,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (!cmvDraggingView) {
                             compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         }
+                    });
+                    // Click-to-copy: compare-multiview canvases
+                    let _cmvClickDown = null;
+                    cv.addEventListener('mousedown', (e) => {
+                        if (e.button === 0) _cmvClickDown = { x: e.clientX, y: e.clientY };
+                    });
+                    cv.addEventListener('mouseup', (e) => {
+                        if (e.button !== 0 || !_cmvClickDown) { _cmvClickDown = null; return; }
+                        const ddx = e.clientX - _cmvClickDown.x, ddy = e.clientY - _cmvClickDown.y;
+                        _cmvClickDown = null;
+                        if (Math.hypot(ddx, ddy) >= 3) return;
+                        if (cmvDraggingView) return;
+                        if (!view.lastW || !view.lastH) return;
+                        const rect = cv.getBoundingClientRect();
+                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
+                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
+                        _copyPixelValue(view.sid, view.dimX, view.dimY, indices, ipx, ipy);
                     });
                     if (!httpTransport) {
                         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -9323,6 +9396,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 hideCompareCrosshairs();
             });
          });
+        // Click-to-copy: compare canvases
+        let _cmpClickDown = null;
+        compareCanvases.forEach((cv, i) => {
+            cv.addEventListener('mousedown', (e) => {
+                if (e.button === 0) _cmpClickDown = { x: e.clientX, y: e.clientY, idx: i };
+            });
+            cv.addEventListener('mouseup', (e) => {
+                if (e.button !== 0 || !_cmpClickDown || _cmpClickDown.idx !== i) { _cmpClickDown = null; return; }
+                const dx = e.clientX - _cmpClickDown.x, dy = e.clientY - _cmpClickDown.y;
+                _cmpClickDown = null;
+                if (Math.hypot(dx, dy) >= 3) return;
+                if (!compareActive || _cmpPanDrag) return;
+                const cvSid = compareDisplaySids[i];
+                if (!cvSid) return;
+                const rect = cv.getBoundingClientRect();
+                const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
+                const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
+                _copyPixelValue(cvSid, dim_x, dim_y, indices, ipx, ipy);
+            });
+        });
 
         // Diff canvas crosshair sync (hover → sync to all panes)
         const _diffCvForXhair = document.getElementById('compare-diff-canvas');
