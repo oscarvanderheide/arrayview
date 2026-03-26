@@ -1349,6 +1349,7 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
+        let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _zoomAdjustedByUser = false;
         let _autoFitPending = true; // auto-fit to viewport on first render
         let _mvPrevZoom = 1.0;
@@ -1835,6 +1836,7 @@
             if (_autoFitPending && !_isWelcomeScreen) {
                 _autoFitPending = false;
                 userZoom = Math.max(1.0, capScale / baseScale);
+                _fitZoom = userZoom;
             }
             // Canvas CSS size grows freely with userZoom (no cap/snap)
             const finalScale = baseScale * userZoom;
@@ -5578,12 +5580,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             if (e.key === '+' || e.key === '=') {
                 userZoom = userZoom * 1.1;
-                _zoomAdjustedByUser = true;
-                // Auto-enter immersive mode on first zoom past 1.0
-                if (!_fullscreenActive && userZoom > 1.0 &&
-                    !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
-                    _canFitImmersive()) {
-                    setFullscreenMode(true);
+                if (!_snapZoomToFit()) {
+                    _zoomAdjustedByUser = true;
+                    // Auto-enter immersive mode on first zoom past fit level
+                    if (!_fullscreenActive && userZoom > _fitZoom &&
+                        !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
+                        _canFitImmersive()) {
+                        setFullscreenMode(true);
+                    }
                 }
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
@@ -5591,14 +5595,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 else if (compareActive) compareScaleCanvases();
                 else if (qmriActive)    qvScaleAllCanvases();
                 else                    scaleCanvas(canvas.width, canvas.height);
-                showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
+                showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
-                _zoomAdjustedByUser = true;
-                // Auto-exit immersive mode when zooming back to fit
-                if (_fullscreenActive && userZoom <= 1.0) {
-                    setFullscreenMode(false);
+                if (!_snapZoomToFit()) {
+                    _zoomAdjustedByUser = true;
+                    // Auto-exit immersive mode when zooming back to fit
+                    if (_fullscreenActive && userZoom <= _fitZoom) {
+                        setFullscreenMode(false);
+                        userZoom = _fitZoom;
+                        _zoomAdjustedByUser = false;
+                        _panX = 0; _panY = 0; _applyCanvasPan();
+                        _autoFitPending = true;
+                    }
                 }
                 if (compareQmriActive) compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
@@ -5606,7 +5616,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 else if (compareActive) compareScaleCanvases();
                 else if (qmriActive) qvScaleAllCanvases();
                 else scaleCanvas(canvas.width, canvas.height);
-                showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
+                showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
                 // If there's buffered input, '0' is part of slice jump; otherwise it's zoom reset
@@ -9462,11 +9472,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 userZoom = e.deltaY > 0
                     ? Math.max(userZoom / zoomFactor, 0.1)
                     : Math.min(userZoom * zoomFactor, 10.0);
-                _zoomAdjustedByUser = true;
-                // Auto-enter/exit immersive on scroll zoom
-                if (!multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive) {
-                    if (!_fullscreenActive && userZoom > 1.0 && _canFitImmersive()) setFullscreenMode(true);
-                    else if (_fullscreenActive && userZoom <= 1.0) setFullscreenMode(false);
+                if (!_snapZoomToFit()) {
+                    _zoomAdjustedByUser = true;
+                    // Auto-enter/exit immersive on scroll zoom
+                    if (!multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive) {
+                        if (!_fullscreenActive && userZoom > _fitZoom && _canFitImmersive()) setFullscreenMode(true);
+                        else if (_fullscreenActive && userZoom <= _fitZoom) {
+                            setFullscreenMode(false);
+                            userZoom = _fitZoom;
+                            _zoomAdjustedByUser = false;
+                            _panX = 0; _panY = 0; _applyCanvasPan();
+                            _autoFitPending = true;
+                        }
+                    }
                 }
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
@@ -9709,6 +9727,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _positionFullscreenInfo() {
             _positionFullscreenChrome();
+        }
+
+        // Snap userZoom to the auto-fit level when within tolerance (fixes float
+        // rounding from ×1.1 / ÷1.1 not round-tripping). Returns true if snapped.
+        function _snapZoomToFit() {
+            if (Math.abs(userZoom - _fitZoom) < 0.02) {
+                userZoom = _fitZoom;
+                _zoomAdjustedByUser = false;
+                _panX = 0; _panY = 0; _applyCanvasPan();
+                _autoFitPending = true;
+                if (_fullscreenActive) setFullscreenMode(false);
+                return true;
+            }
+            return false;
         }
 
         function _canFitImmersive() {
