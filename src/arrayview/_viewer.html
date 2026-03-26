@@ -103,12 +103,12 @@
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
             text-align: center; padding: 7px 16px; position: fixed; z-index: 2;
-            transition: opacity 0.3s ease, height 0.2s ease;
+            transition: opacity 0.3s ease;
             border-radius: 14px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            display: flex; align-items: center; gap: 8px;
+            display: flex; align-items: flex-end; gap: 8px;
             box-sizing: border-box;
         }
         :root.light #slim-cb-wrap {
@@ -144,7 +144,22 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
-        #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex: 1; min-width: 60px; }
+        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
+        #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
+        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
+        #slim-cb-tri-zone.expanded { height: 10px; }
+        .slim-cb-tri {
+            position: absolute; bottom: 0; width: 0; height: 0;
+            border-left: 5px solid transparent; border-right: 5px solid transparent;
+            border-bottom: 6px solid rgba(255,255,100,0.9);
+            transform: translateX(-5px);
+            cursor: ew-resize; pointer-events: auto;
+            transition: opacity 0.3s ease;
+            opacity: 0;
+        }
+        :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
+        :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
+        #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
@@ -877,7 +892,13 @@
         </div>
         <div id="slim-cb-wrap" style="display:none">
             <span class="slim-cb-val" id="slim-cb-vmin"></span>
-            <canvas id="slim-cb"></canvas>
+            <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
+                <canvas id="slim-cb"></canvas>
+                <div id="slim-cb-tri-zone">
+                    <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
+                    <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
+                </div>
+            </div>
             <span class="slim-cb-val" id="slim-cb-vmax" style="text-align:right"></span>
             <div id="slim-cb-labels"></div>
             <div id="slim-cb-tooltip"></div>
@@ -2754,7 +2775,7 @@
             const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
                 : Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
-            const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
+            const stripH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT;
             // Mirror the gap between name-bar/title bottom and canvas top
             let chromeGap;
             // In both modes, #info (dim bar) is the element directly above the canvas area
@@ -2776,7 +2797,7 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - 38 - (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT);
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
@@ -2784,39 +2805,10 @@
                 wrap.style.left = '50%';
                 wrap.style.transform = 'translateX(-50%)';
             }
-            const dpr = window.devicePixelRatio || 1;
-            // Canvas fills remaining space via flex:1; set explicit height only
             slimCbCanvas.style.width = '';
-            slimCbCanvas.style.height = stripH + 'px';
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
-            // After layout, measure actual canvas width for backing store
-            const actualCbW = slimCbCanvas.clientWidth || cssW;
-            slimCbCanvas.width = Math.round(actualCbW * dpr);
-            slimCbCanvas.height = Math.round(stripH * dpr);
-            const sCtx = slimCbCanvas.getContext('2d');
-            sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
-            sCtx.save();
-            sCtx.scale(dpr, dpr);
-            // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode and when histogram is expanded)
-            const gradY = _cbExpanded ? (stripH - CB_COLLAPSED_H - CB_TRI_ZONE) : 0;
-            if (!lebesgueMode && !_cbExpanded) {
-                const grad = sCtx.createLinearGradient(0, 0, actualCbW, 0);
-                const n = stops.length;
-                for (let i = 0; i < n; i++) {
-                    const t = n <= 1 ? 0 : i / (n - 1);
-                    const rgb = stops[i];
-                    grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-                }
-                sCtx.fillStyle = grad;
-                sCtx.fillRect(0, gradY, actualCbW, CB_COLLAPSED_H);
-            }
-            // Draw histogram bars when expanded and data is available
-            if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
-                _drawHistogramBarsOnColorbar(sCtx, actualCbW, stripH, stops);
-            }
             // Auto-refresh histogram when expanded but data is stale
-            // In multiview, histogram version uses the first pane's dims, not the main canvas dims
             const _histSliceDimX = multiViewActive && mvViews.length ? mvViews[0].dimX : dim_x;
             const _histSliceDimY = multiViewActive && mvViews.length ? mvViews[0].dimY : dim_y;
             const _expectedHistVer = compareActive
@@ -2825,43 +2817,219 @@
             if (_cbExpanded && _histDataVersion !== _expectedHistVer) {
                 if (!_histFetching) {
                     const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                    fetcher().then(() => { if (_cbExpanded) drawSlimColorbar(cbMarkerFrac); });
+                    fetcher().then(() => {
+                        if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
+                    });
                 }
-                return;  // always return — don't draw with stale/null data
             }
-            // Draw vmin/vmax vertical lines when expanded
-            if (_cbExpanded && _histData) {
-                _drawClimLines(sCtx, actualCbW, stripH);
-            }
-            sCtx.restore();
-            // Update inline vmin/vmax values (flanking the colorbar strip)
+            // Build KDE if we have histogram data but no smoothed curve yet
+            if (_histData && !_kdeSmooth) _buildKDE();
+            // Draw via morph renderer
+            _cbMorphDraw();
+            // Toggle triangle zone visibility
+            const triZone = document.getElementById('slim-cb-tri-zone');
+            if (triZone) triZone.classList.toggle('expanded', _cbAnimT > 0.5);
+            // Update inline vmin/vmax values (always visible, yellow when expanded)
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax) {
-                if (_cbExpanded) {
-                    slimVmin.style.display = 'none';
-                    slimVmax.style.display = 'none';
+                slimVmin.style.display = '';
+                slimVmax.style.display = '';
+                const activeColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
+                slimVmin.style.color = _cbAnimT > 0.5 ? activeColor : '';
+                slimVmax.style.color = _cbAnimT > 0.5 ? activeColor : '';
+                if (compareActive) {
+                    const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
+                    const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
+                    slimVmin.textContent = _cbFmt(sharedVmin);
+                    slimVmax.textContent = _cbFmt(sharedVmax);
                 } else {
-                    slimVmin.style.display = '';
-                    slimVmax.style.display = '';
-                    if (compareActive) {
-                        // Shared colorbar: union of all loaded arrays' ranges
-                        const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
-                        const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
-                        slimVmin.textContent = _cbFmt(sharedVmin);
-                        slimVmax.textContent = _cbFmt(sharedVmax);
-                    } else {
-                        slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                        slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
-                    }
+                    slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                    slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
                 }
             }
         }
 
-        // ── Histogram-in-colorbar ────────────────────────────────────────────
-        const CB_COLLAPSED_H = 13;  // normal colorbar height in CSS px
-        const CB_TRI_ZONE    = 7;   // space below colorbar for triangle indicators
-        const CB_EXPANDED_H  = 66;  // histogram (46) + colorbar (13) + triangles (7)
+        // ── Histogram-in-colorbar (morph) ────────────────────────────────────
+        const CB_COLLAPSED_H = 13;  // flat colorbar height in CSS px
+        const CB_EXPANDED_H  = 50;  // expanded morph height (smooth distribution)
+        let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
+        let _cbAnimating = false;
+        let _cbAnimTarget = 0;
+        let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
+        const _KDE_NPTS = 300;      // resolution of the smooth curve
+
+        function _buildKDE() {
+            if (!_histData || !_histData.counts || !_histData.counts.length) { _kdeSmooth = null; return; }
+            const { counts } = _histData;
+            const nBins = counts.length;
+            // Auto log-scale for dominant peaks
+            const sorted = [...counts].sort((a, b) => a - b);
+            const medianCount = sorted[Math.floor(sorted.length / 2)] || 1;
+            const maxCount = Math.max(...counts, 1);
+            const useLog = maxCount > 20 * medianCount;
+            const vals = useLog ? counts.map(c => Math.log1p(c)) : [...counts];
+            const vMax = Math.max(...vals, 1);
+            // Gaussian kernel smoothing
+            const out = new Float64Array(_KDE_NPTS);
+            const sigma = _KDE_NPTS / nBins * 1.2; // kernel width in output units
+            for (let i = 0; i < nBins; i++) {
+                const center = (i + 0.5) / nBins * _KDE_NPTS;
+                const h = vals[i] / vMax;
+                const r = Math.ceil(sigma * 3);
+                for (let j = Math.max(0, Math.floor(center - r)); j < Math.min(_KDE_NPTS, Math.ceil(center + r)); j++) {
+                    const d = (j - center) / sigma;
+                    out[j] += h * Math.exp(-0.5 * d * d);
+                }
+            }
+            // Normalize to [0, 1]
+            let oMax = 0;
+            for (let j = 0; j < _KDE_NPTS; j++) if (out[j] > oMax) oMax = out[j];
+            if (oMax > 0) for (let j = 0; j < _KDE_NPTS; j++) out[j] /= oMax;
+            _kdeSmooth = out;
+        }
+
+        function _kdeAt(t) {
+            if (!_kdeSmooth) return 0;
+            const idx = Math.max(0, Math.min(_KDE_NPTS - 1, Math.floor(t * _KDE_NPTS)));
+            const idx2 = Math.min(idx + 1, _KDE_NPTS - 1);
+            const f = t * _KDE_NPTS - idx;
+            return _kdeSmooth[idx] + (_kdeSmooth[idx2] - _kdeSmooth[idx]) * f;
+        }
+
+        function _cbStartAnim(expand) {
+            _cbAnimTarget = expand ? 1 : 0;
+            if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+        }
+
+        function _cbAnimStep() {
+            const diff = _cbAnimTarget - _cbAnimT;
+            if (Math.abs(diff) < 0.003) {
+                _cbAnimT = _cbAnimTarget;
+                _cbAnimating = false;
+                _cbMorphDraw();
+                return;
+            }
+            _cbAnimT += diff * 0.15;
+            _cbMorphDraw();
+            requestAnimationFrame(_cbAnimStep);
+        }
+
+        /** Core morph renderer — draws the colorbar/histogram as one shape. */
+        function _cbMorphDraw() {
+            if (!slimCbCanvas) return;
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops || !stops.length) return;
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = slimCbCanvas.clientWidth || 200;
+            const aT = _cbAnimT;
+            const cssH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * aT;
+            slimCbCanvas.width = Math.round(cssW * dpr);
+            slimCbCanvas.height = Math.round(cssH * dpr);
+            slimCbCanvas.style.height = cssH + 'px';
+            const ctx = slimCbCanvas.getContext('2d');
+            ctx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
+            ctx.save();
+            ctx.scale(dpr, dpr);
+
+            // Compute window fractions in data range
+            let vminFrac = 0, vmaxFrac = 1;
+            if (_histData) {
+                const { vmin: dmin, vmax: dmax } = _histData;
+                const range = dmax - dmin || 1;
+                vminFrac = ((manualVmin ?? currentVmin) - dmin) / range;
+                vmaxFrac = ((manualVmax ?? currentVmax) - dmin) / range;
+            }
+            // Animated window edges: full-range when collapsed, window when expanded
+            const effVmin = vminFrac * aT;
+            const effVmax = 1 - (1 - vmaxFrac) * aT;
+            const effW = effVmax - effVmin;
+
+            // Build colormap lookup table (256 entries)
+            const cmSz = 256;
+            const cmLut = new Uint8Array(cmSz * 3);
+            const ns = stops.length;
+            for (let i = 0; i < cmSz; i++) {
+                const t = i / (cmSz - 1);
+                const fi = t * (ns - 1);
+                const lo = Math.floor(fi), hi = Math.min(lo + 1, ns - 1), f = fi - lo;
+                cmLut[i * 3]     = Math.round(stops[lo][0] * (1 - f) + stops[hi][0] * f);
+                cmLut[i * 3 + 1] = Math.round(stops[lo][1] * (1 - f) + stops[hi][1] * f);
+                cmLut[i * 3 + 2] = Math.round(stops[lo][2] * (1 - f) + stops[hi][2] * f);
+            }
+            function cmAt(frac) {
+                const idx = Math.max(0, Math.min(cmSz - 1, Math.round(frac * (cmSz - 1)))) * 3;
+                return [cmLut[idx], cmLut[idx + 1], cmLut[idx + 2]];
+            }
+
+            const hasKDE = _kdeSmooth && aT > 0;
+
+            for (let px = 0; px < cssW; px++) {
+                const t = px / cssW; // position in data range [0,1]
+                const inRange = t >= effVmin && t <= effVmax;
+
+                // Colormap: stretched across [effVmin, effVmax]
+                const cmapT = effW > 0.001 ? (t - effVmin) / effW : 0.5;
+
+                let r, g, b;
+                if (inRange) {
+                    [r, g, b] = cmAt(cmapT);
+                } else {
+                    // Gray fades from original colormap color at aT=0 to gray at aT=1
+                    const [cr, cg, cb] = cmAt(t); // full-range color
+                    r = Math.round(cr + (60 - cr) * aT);
+                    g = Math.round(cg + (60 - cg) * aT);
+                    b = Math.round(cb + (60 - cb) * aT);
+                }
+
+                // Column height: flat at aT=0, KDE-shaped at aT=1
+                let colH;
+                if (hasKDE) {
+                    const kdeH = Math.max(2, _kdeAt(t) * CB_EXPANDED_H);
+                    colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                } else {
+                    colH = cssH; // no histogram data: just fill
+                }
+
+                const y = cssH - colH;
+                const alpha = inRange ? (1 - 0.15 * aT) : (1 - 0.7 * aT);
+                ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+                ctx.fillRect(px, y, 1, colH);
+            }
+
+            // Dashed guide lines for vmin/vmax
+            if (aT > 0.1 && (vminFrac > 0.005 || vmaxFrac < 0.995)) {
+                ctx.globalAlpha = aT;
+                ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                ctx.lineWidth = 0.75;
+                ctx.setLineDash([2, 2]);
+                [effVmin, effVmax].forEach(f => {
+                    if (f <= 0.003 || f >= 0.997) return;
+                    const x = Math.round(f * cssW) + 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, cssH);
+                    ctx.stroke();
+                });
+                ctx.setLineDash([]);
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.restore();
+
+            // Update triangle positions
+            const triZone = document.getElementById('slim-cb-tri-zone');
+            const triVmin = document.getElementById('slim-cb-tri-vmin');
+            const triVmax = document.getElementById('slim-cb-tri-vmax');
+            if (triZone && triVmin && triVmax) {
+                triVmin.style.left = (effVmin * 100) + '%';
+                triVmax.style.left = (effVmax * 100) + '%';
+            }
+
+            // Update hit-test positions for drag interaction
+            _histVminX = Math.round(effVmin * cssW);
+            _histVmaxX = Math.round(effVmax * cssW);
+        }
 
         async function _fetchHistogram() {
             if (!sid || !indices.length || _histFetching) return;
@@ -2933,7 +3101,7 @@
 
             // Histogram area is transparent — the dynamic island's glassmorphic
             // background (#slim-cb-wrap backdrop-filter) shows through.
-            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
+            const histAreaH = stripH - CB_COLLAPSED_H;
 
             // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
             // zeros / flat background) use log(count+1) for bar heights so the
@@ -3002,7 +3170,7 @@
             const wVmax = manualVmax ?? currentVmax;
             const vminF = (wVmin - dmin) / range;
             const vmaxF = (wVmax - dmin) / range;
-            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
+            const histAreaH = stripH - CB_COLLAPSED_H;
             const markerColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,100,0,0.9)';
             const guideColor = isDark ? 'rgba(255,255,100,0.25)' : 'rgba(180,100,0,0.25)';
             const labelColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
@@ -3128,26 +3296,20 @@
             });
         }
 
-        /** Highlight a single histogram bin on the colorbar with a bright outline. */
+        /** Highlight a single histogram bin region on the morph with a bright column. */
         function _highlightHistBin(binIdx) {
             if (!_histData || !_histData.counts || !_histData.counts.length) return;
             const nBins = _histData.counts.length;
             if (binIdx < 0 || binIdx >= nBins) return;
             const sCtx = slimCbCanvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
-            const cssW = parseInt(slimCbCanvas.style.width) || slimCbCanvas.width / dpr;
-            const stripH = CB_EXPANDED_H;
-            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
+            const cssW = slimCbCanvas.clientWidth || slimCbCanvas.width / dpr;
+            const cssH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT;
             const binW = cssW / nBins;
-            const maxCount = Math.max(..._histData.counts, 1);
-            const barH = Math.max(0.5, (_histData.counts[binIdx] / maxCount) * (histAreaH - 2));
+            const binCenter = (binIdx + 0.5) / nBins;
+            const colH = _kdeSmooth ? Math.max(2, _kdeAt(binCenter) * CB_EXPANDED_H) : cssH;
             const x = binIdx * binW;
-            const y = histAreaH - barH;
-            sCtx.save();
-            sCtx.scale(dpr, dpr);
-            sCtx.strokeStyle = 'rgba(255,255,100,0.95)';
-            sCtx.lineWidth = 1.5;
-            sCtx.strokeRect(x + 0.5, y + 0.5, binW - 1, barH - 1);
+            const y = cssH - colH;
             sCtx.restore();
         }
 
@@ -3277,6 +3439,8 @@
                     }
                 }
                 _cbExpanded = true;
+                _buildKDE();
+                _cbStartAnim(true);
                 _redrawActiveColorbar();
             }
 
@@ -3291,6 +3455,7 @@
                 _histVminX = null; _histVmaxX = null;
                 cbTooltip.style.display = 'none';
                 _clearLebesgueOverlay();
+                _cbStartAnim(false);
                 _redrawActiveColorbar();
             }
 
@@ -3307,7 +3472,8 @@
                 // If auto-dismiss was deferred because mouse was over histogram, collapse now
                 if (_histAutoDismissPending) {
                     _histAutoDismissPending = false;
-                    _cbExpanded = false; _histData = null;
+                    _cbExpanded = false; _histData = null; _kdeSmooth = null;
+                    _cbStartAnim(false);
                     if (qmriActive && qmriMosaicActive) {
                         qmriViews.forEach(v => { v._histData = null; });
                         qvScaleAllCanvases();
@@ -6343,6 +6509,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Reset per-pane qMRI DR overrides when cycling globally
                 qmriViews.forEach(v => { v.drIdx = null; });
                 _cbExpanded = false;
+                _kdeSmooth = null;
+                _cbStartAnim(false);
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView(); triggerPreload();
@@ -6357,6 +6525,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
                             fetcher().then(() => {
                                 _cbExpanded = true;
+                                _buildKDE();
+                                _cbStartAnim(true);
                                 if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
                             });
                         }
@@ -6375,7 +6545,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _histAutoDismissPending = true;
                                     return;
                                 }
-                                _cbExpanded = false; _histData = null;
+                                _cbExpanded = false; _histData = null; _kdeSmooth = null;
+                                _cbStartAnim(false);
                                 if (qmriActive && qmriMosaicActive) {
                                     qmriViews.forEach(v => { v._histData = null; });
                                     qvScaleAllCanvases();
@@ -6410,6 +6581,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _cbExpanded = true;
                     const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
                     fetcher().then(() => {
+                        _buildKDE();
+                        _cbStartAnim(true);
                         _fetchLebesgueSlice();
                         _redrawActiveColorbar();
                     });
@@ -6417,6 +6590,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 } else {
                     _clearLebesgueOverlay();
                     _cbExpanded = false;
+                    _cbStartAnim(false);
                     _redrawActiveColorbar();
                     showStatus('Lebesgue mode off');
                 }
@@ -9556,7 +9730,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sCtx.save();
             sCtx.scale(dpr, dpr);
             // Draw gradient strip at the bottom (hidden when histogram is expanded)
-            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H - CB_TRI_ZONE) : 0;
+            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H) : 0;
             const gradH = _cbExpanded ? CB_COLLAPSED_H : cssH;
             if (!lebesgueMode && !_cbExpanded) {
                 const n = stops.length;
