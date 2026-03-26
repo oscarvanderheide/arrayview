@@ -529,7 +529,7 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
-        .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; }
+        .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 0; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
@@ -6004,20 +6004,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (rgbMode) return;
                 // If hovering over center pane, cycle its colormap instead
                 if (_mouseOverCenterPane && compareActive && (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive)) {
+                    // Only diff modes 1-3 have their own center colorbar; overlay/wipe/flicker/checker do not
+                    if (diffMode === 0) return;
                     const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                     const idx = pool.indexOf(_diffCenterColormap);
                     const next = (idx + 1) % pool.length;
                     _diffCenterColormap = pool[next];
                     _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
-                    if (diffMode > 0) fetchAndDrawDiff();
-                    showColormapStrip(_diffCenterColormap, pool);
+                    fetchAndDrawDiff();
+                    // Position previewer on the center (diff) pane colorbar
+                    const diffCbIsland = diffPaneCb ? diffPaneCb.closest('.cb-island') : null;
+                    _cmapStripMode = 'diff-center';
+                    showColormapStrip(_diffCenterColormap, pool, diffCbIsland);
                     return;
                 }
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 refreshAxesColor();
-                showColormapStrip();
+                // In diff/center-pane mode, show previewer on per-pane colorbars (both fade out)
+                if (compareActive && (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive)) {
+                    const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
+                    const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
+                    _cmapStripMode = 'diff-side';
+                    showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
+                } else {
+                    _cmapStripMode = 'normal';
+                    showColormapStrip();
+                }
                 saveState();
             } else if (e.key === 'C') {
                 if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
@@ -6164,10 +6178,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap backward
                 if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
-                    colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
-                    customColormap = null; customGradientStops = null;
-                    fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                    refreshAxesColor(); showColormapStrip(); saveState();
+                    if (_cmapStripMode === 'diff-center') {
+                        const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
+                        const idx = pool.indexOf(_diffCenterColormap);
+                        _diffCenterColormap = pool[(idx <= 0 ? pool.length - 1 : idx - 1)];
+                        _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
+                        fetchAndDrawDiff();
+                        const diffCbIsland = diffPaneCb ? diffPaneCb.closest('.cb-island') : null;
+                        showColormapStrip(_diffCenterColormap, pool, diffCbIsland);
+                    } else if (_cmapStripMode === 'diff-side') {
+                        colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
+                        customColormap = null; customGradientStops = null;
+                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        refreshAxesColor();
+                        const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
+                        const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
+                        showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
+                        saveState();
+                    } else {
+                        colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
+                        customColormap = null; customGradientStops = null;
+                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        refreshAxesColor(); showColormapStrip(); saveState();
+                    }
                     return;
                 }
                 if (multiViewActive) {
@@ -6192,10 +6225,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap forward
                 if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
-                    customColormap = null; customGradientStops = null;
-                    colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                    fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                    refreshAxesColor(); showColormapStrip(); saveState();
+                    if (_cmapStripMode === 'diff-center') {
+                        const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
+                        const idx = pool.indexOf(_diffCenterColormap);
+                        _diffCenterColormap = pool[(idx + 1) % pool.length];
+                        _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
+                        fetchAndDrawDiff();
+                        const diffCbIsland = diffPaneCb ? diffPaneCb.closest('.cb-island') : null;
+                        showColormapStrip(_diffCenterColormap, pool, diffCbIsland);
+                    } else if (_cmapStripMode === 'diff-side') {
+                        customColormap = null; customGradientStops = null;
+                        colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
+                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        refreshAxesColor();
+                        const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
+                        const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
+                        showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
+                        saveState();
+                    } else {
+                        customColormap = null; customGradientStops = null;
+                        colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
+                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        refreshAxesColor(); showColormapStrip(); saveState();
+                    }
                     return;
                 }
                 if (multiViewActive) {
@@ -9720,7 +9772,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // ── 3. Colormap preview strip ─────────────────────────────────
         const _cmapStrip = document.getElementById('colormap-strip');
         let _cmapStripTimer = null;
-        function showColormapStrip(overrideName, overridePool) {
+        let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
+        // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
+        // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
+        function showColormapStrip(overrideName, overridePool, anchorEl, extraFadeEls) {
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
             const pool = overridePool || COLORMAPS;
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
@@ -9754,20 +9809,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (let offs = -SIDE; offs <= SIDE; offs++) {
                 _cmapStrip.appendChild(_makeThumb(ci + offs, offs === 0));
             }
-            // Position strip centered on the colorbar
-            const cbWrap = document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
+            // Position strip centered on the colorbar (or custom anchor)
+            const cbWrap = anchorEl || document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
+            const _fadeEls = extraFadeEls || [];
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
                 _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
                 _cmapStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
                 cbWrap.style.opacity = '0';
+                _fadeEls.forEach(el => { if (el) el.style.opacity = '0'; });
             }
             _cmapStrip.classList.add('visible');
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
                 if (cbWrap) cbWrap.style.opacity = '1';
+                _fadeEls.forEach(el => { if (el) el.style.opacity = '1'; });
             }, 1500);
         }
 
