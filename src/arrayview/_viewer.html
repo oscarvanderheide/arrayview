@@ -99,6 +99,8 @@
             color: rgba(190, 190, 190, 0.8);
         }
         .axes-lbl-x, .axes-lbl-y { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+        .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
+        .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
             text-align: center; padding: 7px 16px; position: fixed; z-index: 2;
             transition: opacity 0.3s ease, height 0.2s ease;
@@ -696,12 +698,12 @@
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
-            position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+            position:fixed; left:50%; transform:translateX(-50%);
             display:flex; flex-direction:row; align-items:center; gap:6px;
             background:var(--surface); border:1px solid var(--border);
             border-radius:var(--radius); padding:7px 12px;
             opacity:0; pointer-events:none; transition:opacity 0.25s ease;
-            z-index:8;
+            z-index:8; bottom:32px;
         }
         #compare-mode-strip.visible { opacity:1; }
         .cmode-thumb { display:flex; align-items:center; justify-content:center;
@@ -1433,6 +1435,7 @@
         let qmriActive = false;
         let qmriDim = -1;
         let qmriViews = [];
+        let _hoveredQmriView = null; // which qmriViews[] entry the mouse is over (null = none)
         let qmriCompact = false; // false = full view (all maps), true = compact (T₁, T₂, |PD| only)
         let qmriMosaicActive = false;  // true when Z mosaic is active in qMRI mode
         let _qmriMosaicZDim = -1;      // which dimension is z in qMRI mosaic
@@ -1633,7 +1636,9 @@
             const step = e.deltaY > 0 ? 0.05 : -0.05;
             registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
             applyCompareLayout(); drawCompareFramesFromCache(); saveState();
-            showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+            const _dt0 = document.getElementById('compare-diff-title');
+            if (_dt0) _dt0.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+            showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
         }, { passive: false });
         regBlendBarWrap.addEventListener('mousedown', (e) => {
             if (e.button !== 0 || !compareActive || !registrationMode) return;
@@ -1647,7 +1652,9 @@
             const dx = e.clientX - _regBlendDragX;
             registrationAlpha = Math.max(0.05, Math.min(0.95, (_regBlendDragAlpha0 || 0.5) + dx / rect.width));
             applyCompareLayout(); drawCompareFramesFromCache(); drawRegBlendCb();
-            showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+            const _dt1 = document.getElementById('compare-diff-title');
+            if (_dt1) _dt1.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+            showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
         });
         window.addEventListener('mouseup', () => { if (_regBlendDragX !== null) { _regBlendDragX = null; saveState(); } });
         const slimCbCanvas = document.getElementById('slim-cb');
@@ -1803,7 +1810,24 @@
                 const s = getComputedStyle(child);
                 if (s.position === 'fixed') continue; // out of flow
                 if (s.display === 'none') continue;
-                childrenH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
+                let h = child.offsetHeight;
+                // In vertical compare layout, compare-panes overflows its container
+                // (flex:1; min-height:0; overflow:visible).  Measure the actual
+                // height from visible pane bounding rects so padding-top is correct.
+                if (compareActive && compareLayoutMode === 'vertical' && child.id === 'compare-view-wrap') {
+                    const _visPanes = child.querySelectorAll('.compare-pane.active');
+                    if (_visPanes.length) {
+                        let _minTop = Infinity, _maxBot = -Infinity;
+                        _visPanes.forEach(p => {
+                            const r = p.getBoundingClientRect();
+                            if (r.top < _minTop) _minTop = r.top;
+                            if (r.bottom > _maxBot) _maxBot = r.bottom;
+                        });
+                        const panesH = _maxBot - _minTop;
+                        if (panesH > h) h = Math.ceil(panesH);
+                    }
+                }
+                childrenH += h + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
             const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             // In fullscreen: center the canvas vertically in the viewport
@@ -1878,8 +1902,10 @@
             if (!panesEl) return;
             const titleReserve = 28;
             const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
-            // .compare-canvas-area vertical padding; add colorbar height when per-pane colorbars are visible (diff mode)
-            const cbExtra = (diffMode > 0) ? (10 + CB_COLLAPSED_H + 4) : 0; // margin-top + strip + gap
+            // .compare-canvas-area vertical padding; reserve colorbar height whenever any
+            // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
+            const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+            const cbExtra = _anyCenter ? (10 + CB_COLLAPSED_H + 4) : 0; // margin-top + strip + gap
             const panePadY = 12 + cbExtra;
             const fitSlack = 0.96;
             const activeFrames = compareFrames.filter(Boolean);
@@ -2125,13 +2151,18 @@
         function _centerModeIndicatorHTML(mode, extra) {
             const s = 'style';
             switch (mode) {
-                case 1: return `<span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span>`;
-                case 2: return `<span ${s}="opacity:0.5">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="opacity:0.5">|</span>`;
-                case 3: return `<span ${s}="opacity:0.5">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="opacity:0.5">| / |</span><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.5">|</span>`;
-                case 4: return `<span ${s}="color:#44ff44">A</span><span ${s}="opacity:0.5"> + </span><span ${s}="color:#ff44ff">B</span>` + (extra ? `<span ${s}="opacity:0.4;margin-left:4px;font-size:10px">${extra}</span>` : '');
+                case 1: return `<span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff"> − </span><span ${s}="color:#f2916d">B</span>`;
+                case 2: return `<span ${s}="color:#fff">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="color:#fff">|</span>`;
+                case 3: return `<span ${s}="color:#fff">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff"> − </span><span ${s}="color:#f2916d">B</span><span ${s}="color:#fff">| / |</span><span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff">|</span>`;
+                case 4: { // Overlay: A (green) B (magenta) with opacity reflecting blend
+                    const alpha = extra != null ? extra : 0.5;
+                    const aOp = Math.max(0.15, 1 - alpha).toFixed(2);
+                    const bOp = Math.max(0.15, alpha).toFixed(2);
+                    return `<span ${s}="color:#44ff44;opacity:${aOp}">A</span><span ${s}="width:0.5em;display:inline-block"></span><span ${s}="color:#ff44ff;opacity:${bOp}">B</span>`;
+                }
                 case 5: return `<span ${s}="color:#6db3f2">A</span><span ${s}="color:#e8d050;margin:0 2px">│</span><span ${s}="color:#f2916d">B</span>`;
                 case 6: return extra || '<span>A</span>';
-                case 7: return `<svg width="12" height="12" viewBox="0 0 4 4" style="vertical-align:middle;margin-right:4px"><rect x="0" y="0" width="1" height="1" fill="#fff"/><rect x="1" y="0" width="1" height="1" fill="#000"/><rect x="2" y="0" width="1" height="1" fill="#fff"/><rect x="3" y="0" width="1" height="1" fill="#000"/><rect x="0" y="1" width="1" height="1" fill="#000"/><rect x="1" y="1" width="1" height="1" fill="#fff"/><rect x="2" y="1" width="1" height="1" fill="#000"/><rect x="3" y="1" width="1" height="1" fill="#fff"/><rect x="0" y="2" width="1" height="1" fill="#fff"/><rect x="1" y="2" width="1" height="1" fill="#000"/><rect x="2" y="2" width="1" height="1" fill="#fff"/><rect x="3" y="2" width="1" height="1" fill="#000"/><rect x="0" y="3" width="1" height="1" fill="#000"/><rect x="1" y="3" width="1" height="1" fill="#fff"/><rect x="2" y="3" width="1" height="1" fill="#000"/><rect x="3" y="3" width="1" height="1" fill="#fff"/></svg><span ${s}="color:#6db3f2">A</span><span ${s}="opacity:0.4"> · </span><span ${s}="color:#f2916d">B</span>` + (extra ? `<span ${s}="opacity:0.4;margin-left:4px;font-size:10px">${extra}</span>` : '');
+                case 7: return `<svg width="12" height="12" viewBox="0 0 4 4" style="vertical-align:middle"><rect x="0" y="0" width="1" height="1" fill="#fff"/><rect x="1" y="0" width="1" height="1" fill="#000"/><rect x="2" y="0" width="1" height="1" fill="#fff"/><rect x="3" y="0" width="1" height="1" fill="#000"/><rect x="0" y="1" width="1" height="1" fill="#000"/><rect x="1" y="1" width="1" height="1" fill="#fff"/><rect x="2" y="1" width="1" height="1" fill="#000"/><rect x="3" y="1" width="1" height="1" fill="#fff"/><rect x="0" y="2" width="1" height="1" fill="#fff"/><rect x="1" y="2" width="1" height="1" fill="#000"/><rect x="2" y="2" width="1" height="1" fill="#fff"/><rect x="3" y="2" width="1" height="1" fill="#000"/><rect x="0" y="3" width="1" height="1" fill="#000"/><rect x="1" y="3" width="1" height="1" fill="#fff"/><rect x="2" y="3" width="1" height="1" fill="#000"/><rect x="3" y="3" width="1" height="1" fill="#fff"/></svg>`;
                 default: return '';
             }
         }
@@ -2141,12 +2172,11 @@
                 ? _compareExplicitSids : compareDisplaySids;
             const labels = effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length >= 2) {
-                const movingPct = Math.round(registrationAlpha * 100);
                 labels[0] = compareBaseName || 'base';
                 labels[1] = compareName || 'other';
                 // Set the diff pane title for the overlay blend
                 const diffTitle = document.getElementById('compare-diff-title');
-                if (diffTitle) diffTitle.innerHTML = _centerModeIndicatorHTML(4, `(${movingPct}% moving)`);
+                if (diffTitle) diffTitle.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
@@ -2226,7 +2256,7 @@
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
             } else if (registrationMode) {
                 drawCompareFramesFromCache();
-                showStatus(`overlay: on (moving ${Math.round(registrationAlpha * 100)}%)`);
+                showStatus(`overlay: on · [ ] blend · X to cycle`);
             } else if (_wipeActive) {
                 const wt = document.getElementById('compare-wipe-title');
                 if (wt) wt.innerHTML = _centerModeIndicatorHTML(5);
@@ -2251,12 +2281,24 @@
         }
 
         let _cmodStripTimer = null;
+        function _positionCompareModeStrip(el) {
+            // Position strip at a fixed distance above the bottom of the compare-panes area
+            const panes = document.getElementById('compare-panes');
+            if (panes) {
+                const panesRect = panes.getBoundingClientRect();
+                const vh = window.innerHeight;
+                // Place strip 12px above the bottom edge of the panes area,
+                // but clamp so it never goes below 24px from viewport bottom
+                const desiredBottom = vh - panesRect.bottom + 12;
+                el.style.bottom = Math.max(24, desiredBottom) + 'px';
+            }
+        }
         function showCompareModeStrip() {
             const el = document.getElementById('compare-mode-strip');
             if (!el) return;
             el.innerHTML = '';
             const n = COMPARE_CENTER_LABELS.length;
-            for (let i = 0; i < n; i++) {
+            for (let i = 1; i < n; i++) { // skip 0 ("off")
                 const thumb = document.createElement('div');
                 thumb.className = 'cmode-thumb' + (i === compareCenterMode ? ' active' : '');
                 const lbl = document.createElement('span');
@@ -2264,6 +2306,7 @@
                 thumb.appendChild(lbl);
                 el.appendChild(thumb);
             }
+            _positionCompareModeStrip(el);
             el.classList.add('visible');
             clearTimeout(_cmodStripTimer);
             _cmodStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
@@ -2289,6 +2332,7 @@
                 thumb.appendChild(lbl);
                 el.appendChild(thumb);
             }
+            _positionCompareModeStrip(el);
             el.classList.add('visible');
             clearTimeout(_projStripTimer);
             _projStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
@@ -2574,6 +2618,11 @@
                 if (wrap) wrap.style.display = 'none';
                 return;
             }
+            if (qmriActive || compareQmriActive) {
+                // qMRI mode draws its own per-pane colorbars
+                if (wrap) wrap.style.display = 'none';
+                return;
+            }
             if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
@@ -2662,7 +2711,23 @@
             // In both modes, #info (dim bar) is the element directly above the canvas area
             const infoEl = document.getElementById('info');
             chromeGap = infoEl ? (canvasRect.top - infoEl.getBoundingClientRect().bottom) : 10;
-            const cbTop = Math.min(canvasRect.bottom + chromeGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
+            // In vertical compare layout, the compare-panes flex container doesn't
+            // grow to contain overflowing panes (flex:1; min-height:0; overflow:visible),
+            // so canvasRect.bottom sits too high.  Use the actual bottom of the last
+            // visible pane to anchor the colorbar below the content.
+            let _cbAnchorBottom = canvasRect.bottom;
+            if (compareActive && compareLayoutMode === 'vertical') {
+                const _visPanes = document.querySelectorAll('.compare-pane.active');
+                if (_visPanes.length) {
+                    let _maxBot = 0;
+                    _visPanes.forEach(p => {
+                        const r = p.getBoundingClientRect();
+                        if (r.bottom > _maxBot) _maxBot = r.bottom;
+                    });
+                    if (_maxBot > 0) _cbAnchorBottom = _maxBot;
+                }
+            }
+            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - 38 - (_cbExpanded ? CB_EXPANDED_H - CB_COLLAPSED_H : 0));
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
@@ -5665,7 +5730,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
                     : compareCenterMode + 1;
                 _setCompareCenterMode(nextMode);
-                showCompareModeStrip();
+                if (nextMode > 0) showCompareModeStrip();
                 return;
             } else if (e.key === 'R') {
                 await toggleRgbMode();
@@ -5719,7 +5784,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
                     applyCompareLayout();
                     drawCompareFramesFromCache();
-                    showStatus(`registration blend: moving ${Math.round(registrationAlpha * 100)}%`);
+                    // Update overlay title to reflect new blend
+                    const _dt = document.getElementById('compare-diff-title');
+                    if (_dt) _dt.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+                    showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
                     saveState();
                 } else if (hasVectorfield && !overlay_sid && !compareActive) {
                     vfDensityLevel = Math.max(-5, Math.min(5, vfDensityLevel + (e.key === ']' ? 1 : -1)));
@@ -6066,14 +6134,42 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (_mouseOverCenterPane && compareActive && diffMode > 0) {
                     if (_diffDrIdx === null) _diffDrIdx = dr_idx;
                     _diffDrIdx = (_diffDrIdx + 1) % DR_LABELS.length;
-                    fetchAndDrawDiff();
+                    await fetchAndDrawDiff();
                     showStatus(`Diff dynamic range: ${DR_LABELS[_diffDrIdx]}`);
+                    return;
+                }
+                // In qMRI mode, hovering a specific pane cycles only that pane's DR
+                if (qmriActive && _hoveredQmriView) {
+                    const hv = _hoveredQmriView;
+                    if (hv.drIdx === null) hv.drIdx = dr_idx;
+                    hv.drIdx = (hv.drIdx + 1) % DR_LABELS.length;
+                    _cbExpanded = false;
+                    fetch(`/clearcache/${sid}`).then(() => {
+                        hv.rendering = false; hv.pending = false;
+                        qvRender(hv);
+                        if (!rgbMode) {
+                            hv._histData = null;
+                            if (qmriMosaicActive) {
+                                _fetchQmriMosaicHist(hv).then(() => {
+                                    _cbExpanded = true;
+                                    drawQmriMosaicVCb(hv);
+                                });
+                            } else {
+                                _cbExpanded = true;
+                                drawQvSlimCb(hv);
+                            }
+                        }
+                    });
+                    const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
+                    showStatus(`${paneLabel} dynamic range: ${DR_LABELS[hv.drIdx]}`);
                     return;
                 }
                 manualVmin = manualVmax = null;
                 cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
                 dr_idx = (dr_idx + 1) % DR_LABELS.length;
+                // Reset per-pane qMRI DR overrides when cycling globally
+                qmriViews.forEach(v => { v.drIdx = null; });
                 _cbExpanded = false;
                 fetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
@@ -7390,8 +7486,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const mapIndices = (qmriCompact && n > 3) ? compactIndices : Array.from({length: n}, (_, i) => i);
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
-            
+
             document.getElementById('canvas-wrap').style.display = 'none';
+            // Hide shared colorbar — qMRI has its own per-pane colorbars
+            const _slimWrap = document.getElementById('slim-cb-wrap');
+            if (_slimWrap) _slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${nMaps}`;
@@ -7449,7 +7548,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _mosaicVcb: null, _mosaicVcbLabels: null,
                         _histData: null, _histFetching: false,
+                        drIdx: null,
                     };
+                    cv.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
+                    cv.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = e.deltaY > 0 ? -1 : 1;
@@ -7518,6 +7620,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _qmriMosaicZDim = -1;
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriViews = [];
+            _hoveredQmriView = null;
             document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
@@ -7543,6 +7646,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!cmpSids.length) { showStatus('no arrays to compare'); return; }
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
+
+            // Hide shared colorbar — qMRI draws per-pane colorbars
+            const _slimWrap = document.getElementById('slim-cb-wrap');
+            if (_slimWrap) _slimWrap.style.display = 'none';
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
@@ -8311,7 +8418,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const _qmMsg = {
                 seq: v.seq, dim_x, dim_y, dim_z: qmriMosaicActive ? _qmriMosaicZDim : -1,
                 indices: qIndices, colormap: v.colormap,
-                dr: dr_idx, complex_mode: complexMode,
+                dr: v.drIdx !== null ? v.drIdx : dr_idx, complex_mode: complexMode,
                 // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
@@ -8339,7 +8446,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     dim_z: String(qmriMosaicActive ? _qmriMosaicZDim : -1),
                     indices: qIndices.join(','),
                     colormap: v.colormap,
-                    dr: String(dr_idx),
+                    dr: String(v.drIdx !== null ? v.drIdx : dr_idx),
                     complex_mode: String(complexMode),
                     // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                     log_scale: String(logScale && v.qmriIdx < 2),
