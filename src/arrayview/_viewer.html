@@ -2799,7 +2799,7 @@
             sCtx.save();
             sCtx.scale(dpr, dpr);
             // Draw colormap gradient as the bottom strip (hidden in Lebesgue mode and when histogram is expanded)
-            const gradY = stripH - CB_COLLAPSED_H;
+            const gradY = _cbExpanded ? (stripH - CB_COLLAPSED_H - CB_TRI_ZONE) : 0;
             if (!lebesgueMode && !_cbExpanded) {
                 const grad = sCtx.createLinearGradient(0, 0, actualCbW, 0);
                 const n = stops.length;
@@ -2860,7 +2860,8 @@
 
         // ── Histogram-in-colorbar ────────────────────────────────────────────
         const CB_COLLAPSED_H = 13;  // normal colorbar height in CSS px
-        const CB_EXPANDED_H  = 59;  // expanded: histogram + colorbar + triangle indicators
+        const CB_TRI_ZONE    = 7;   // space below colorbar for triangle indicators
+        const CB_EXPANDED_H  = 66;  // histogram (46) + colorbar (13) + triangles (7)
 
         async function _fetchHistogram() {
             if (!sid || !indices.length || _histFetching) return;
@@ -2932,7 +2933,7 @@
 
             // Histogram area is transparent — the dynamic island's glassmorphic
             // background (#slim-cb-wrap backdrop-filter) shows through.
-            const histAreaH = stripH - CB_COLLAPSED_H;
+            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
 
             // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
             // zeros / flat background) use log(count+1) for bar heights so the
@@ -3001,12 +3002,12 @@
             const wVmax = manualVmax ?? currentVmax;
             const vminF = (wVmin - dmin) / range;
             const vmaxF = (wVmax - dmin) / range;
-            const histAreaH = stripH - CB_COLLAPSED_H;
+            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
             const markerColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,100,0,0.9)';
             const guideColor = isDark ? 'rgba(255,255,100,0.25)' : 'rgba(180,100,0,0.25)';
             const labelColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
             const triW = 4, triH = 5; // triangle half-width and height
-            const triTop = stripH + 1; // just below the colorbar strip
+            const triTop = histAreaH + CB_COLLAPSED_H + 1; // just below the colorbar strip
             _histVminX = null; _histVmaxX = null;
 
             function drawMarker(frac, val, align) {
@@ -3136,7 +3137,7 @@
             const dpr = window.devicePixelRatio || 1;
             const cssW = parseInt(slimCbCanvas.style.width) || slimCbCanvas.width / dpr;
             const stripH = CB_EXPANDED_H;
-            const histAreaH = stripH - CB_COLLAPSED_H;
+            const histAreaH = stripH - CB_COLLAPSED_H - CB_TRI_ZONE;
             const binW = cssW / nBins;
             const maxCount = Math.max(..._histData.counts, 1);
             const barH = Math.max(0.5, (_histData.counts[binIdx] / maxCount) * (histAreaH - 2));
@@ -9555,7 +9556,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sCtx.save();
             sCtx.scale(dpr, dpr);
             // Draw gradient strip at the bottom (hidden when histogram is expanded)
-            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H) : 0;
+            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H - CB_TRI_ZONE) : 0;
             const gradH = _cbExpanded ? CB_COLLAPSED_H : cssH;
             if (!lebesgueMode && !_cbExpanded) {
                 const n = stops.length;
