@@ -3981,7 +3981,7 @@
                                   : `<span class="q-dim dim-label" ${d}>q</span>`;
                 }
                 if (projectionMode > 0 && i === current_slice_dim) {
-                    const pColor = PROJECTION_COLORS[projectionMode - 1];
+                    const pColor = '#a78bfa';  // match mode-badge-proj egg color
                     const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
                     return `<span class="${cls}" ${d} style="color:${pColor}">p<span class="dim-size">/${shape[i]}</span></span>`;
                 }
@@ -6235,7 +6235,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _eggsVisible = true;
                 updateView();
                 renderEggs();
-                showProjectionStrip();
                 if (projectionMode === 0) {
                     showStatus('projection: off');
                 } else {
