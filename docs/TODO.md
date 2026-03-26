@@ -24,20 +24,9 @@
 
 - ~~remove gray fading status text~~ ✅ DONE — showStatus() is now a no-op
 
-- bring back compact mode. the default zoom for all modes i think is already to have the
-  panes at maximum size before UI elements start overlapping. in compact mode - wait what a
-  stupid name, i guess theres a better name - the canvas for single array normal mode should
-  grow until its almost at a viewport boundary. for single array, the colorbar and dimbar
-  island go within the canvas at the bottom and top respectively. the eggs go above the
-  colorbar. the array name goes below the dimbar. for multiple array situations i dont know
-  yet. for single-array but stuff like qmri mode, do the same behaviour as for normal mode.
-
-- after pressing = another time when in compact mode, enter zoom mode where the miniviewer appears.
-
-- for some edge cases like really thin arrays where the dynamic island does not fit within
-  the array or would overlap with the miniviewer, maybe just not go into compact mode but
-  zoom mode directly.similarlty for wide arrays where there is not enough vertical space to
-  fit all the ui elements.
+- ~~bring back compact/immersive mode~~ ✅ DONE — auto-enters on first zoom-in (=), exits on zoom-out to fit (0 or -)
+- ~~zoom mode with miniviewer on further zoom~~ ✅ DONE — minimap appears when canvas exceeds viewport
+- ~~skip immersive for thin/wide arrays~~ ✅ DONE — _canFitImmersive() checks min 200×150px
 
 - ~~single array + multiview: two colorbars visible~~ ✅ DONE — shared colorbar hidden in multiview
 - ~~multiple arrays, normal view: colorbar too wide~~ ✅ DONE — capped at 500px
