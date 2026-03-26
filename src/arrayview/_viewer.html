@@ -530,7 +530,8 @@
             padding: 4px 8px 8px; box-sizing: border-box; overflow: visible;
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
-        .compare-canvas-inner { position: relative; display: inline-block; overflow: hidden; }
+        .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
+        .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 0; }
         .compare-pane-cb-labels { display: none; }
@@ -563,6 +564,11 @@
         .qmri-mosaic-label { font-size: 13px; font-family: monospace; font-weight: bold; color: var(--muted); width: 28px; text-align: right; flex-shrink: 0; margin-right: 8px; }
         .qmri-mosaic-vcb { flex-shrink: 0; border-radius: 3px; display: block; }
         .qmri-mosaic-vcb-island { display: flex; flex-direction: row; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; padding: 4px 6px; }
+        /* Mosaic overflow/pan mode */
+        #qmri-view-wrap.active.mosaic-overflow { overflow: hidden; cursor: grab; }
+        #qmri-view-wrap.active.mosaic-overflow.mosaic-dragging { cursor: grabbing; }
+        #qmri-mosaic-inner { display: contents; }
+        #qmri-view-wrap.mosaic-overflow #qmri-mosaic-inner { display: flex; flex-direction: column; align-items: center; gap: inherit; will-change: transform; }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
         /* compare-qMRI: column header row for map names */
@@ -1439,6 +1445,10 @@
         let qmriCompact = false; // false = full view (all maps), true = compact (T₁, T₂, |PD| only)
         let qmriMosaicActive = false;  // true when Z mosaic is active in qMRI mode
         let _qmriMosaicZDim = -1;      // which dimension is z in qMRI mosaic
+        const MIN_MOSAIC_TILE_PX = 40; // min tile width before switching to overflow/pan
+        let _mosaicPanX = 0, _mosaicPanY = 0;
+        let _mosaicPanDrag = null; // {x, y, panX0, panY0}
+        let _mosaicOverflowing = false;
         let compareQmriActive = false; // compare + qMRI combined mode
         let compareQmriViews = [];     // flat array of {sid, colormap, qmriIdx, canvas, ...}
         let compareQmriSids = [];      // SIDs being compared in compare-qMRI mode
@@ -1511,10 +1521,14 @@
         }
         function _cmpApplyPan() {
             const tx = (_cmpPanX || _cmpPanY) ? `translate(${_cmpPanX}px,${_cmpPanY}px)` : '';
+            // Transform .compare-canvas-inner within its .compare-canvas-clip
+            // wrapper.  Clip handles overflow; inner moves to pan.
             document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
-            // Counter-translate axes indicators so they stay anchored in the viewport
+            // Counter-translate axes indicators and per-pane minimaps so they
+            // stay anchored in the viewport (they live inside inner).
             const atx = (_cmpPanX || _cmpPanY) ? `translate(${-_cmpPanX}px,${-_cmpPanY}px)` : '';
             document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
+            document.querySelectorAll('.cmp-mini-map').forEach(el => { el.style.transform = atx; });
         }
 
         // ── compare-title drag-to-reorder ──────────────────────────────────────
@@ -1962,7 +1976,11 @@
                 if (squareStretch) { const sq = Math.max(cvW, cvH); cvW = sq; cvH = sq; }
                 cv.style.width = cvW + 'px';
                 cv.style.height = cvH + 'px';
-                // Set viewport (clipping container) on .compare-canvas-inner
+                // Set viewport (clipping container) via .compare-canvas-clip
+                // wrapper around .compare-canvas-inner.  The clip div handles
+                // overflow:hidden; inner is free to be larger so CSS translate
+                // on it produces the pan effect (mirrors #canvas-viewport /
+                // #canvas-inner split in single-view mode).
                 const inner = cv.closest('.compare-canvas-inner');
                 if (inner) {
                     let vpW = Math.min(cvW, Math.round(capPaneW));
@@ -1970,10 +1988,21 @@
                     // Maintain aspect ratio: don't widen when height hits the limit
                     if (cvH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cvW / cvH));
                     if (cvW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cvH / cvW));
-                    inner.style.width = vpW + 'px';
-                    inner.style.height = vpH + 'px';
+                    // Ensure clip wrapper exists between wrap and inner
+                    let clip = inner.parentElement;
+                    if (!clip || !clip.classList.contains('compare-canvas-clip')) {
+                        clip = document.createElement('div');
+                        clip.className = 'compare-canvas-clip';
+                        inner.parentElement.insertBefore(clip, inner);
+                        clip.appendChild(inner);
+                    }
+                    clip.style.width = vpW + 'px';
+                    clip.style.height = vpH + 'px';
                     inner.dataset.vpW = vpW;
                     inner.dataset.vpH = vpH;
+                    // Inner must NOT be constrained — let it size to the canvas
+                    inner.style.width = '';
+                    inner.style.height = '';
                 }
             }
             // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
@@ -1985,14 +2014,23 @@
                     diffCanvas.style.width = compareCanvases[0].style.width;
                     diffCanvas.style.height = compareCanvases[0].style.height;
                 }
-                // Diff canvas inner also needs viewport sizing
+                // Diff canvas inner also needs viewport sizing (via clip wrapper)
                 const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
                 const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
                 if (diffInner && firstInner) {
-                    diffInner.style.width = firstInner.style.width;
-                    diffInner.style.height = firstInner.style.height;
+                    let diffClip = diffInner.parentElement;
+                    if (!diffClip || !diffClip.classList.contains('compare-canvas-clip')) {
+                        diffClip = document.createElement('div');
+                        diffClip.className = 'compare-canvas-clip';
+                        diffInner.parentElement.insertBefore(diffClip, diffInner);
+                        diffClip.appendChild(diffInner);
+                    }
+                    diffClip.style.width = (firstInner.dataset.vpW || 0) + 'px';
+                    diffClip.style.height = (firstInner.dataset.vpH || 0) + 'px';
                     diffInner.dataset.vpW = firstInner.dataset.vpW;
                     diffInner.dataset.vpH = firstInner.dataset.vpH;
+                    diffInner.style.width = '';
+                    diffInner.style.height = '';
                 }
             }
             // Wipe canvas inner viewport sizing (also used by flicker and checkerboard)
@@ -2003,10 +2041,19 @@
                 if (wipeInner && firstInner && wipeCv) {
                     wipeCv.style.width = compareCanvases[0].style.width;
                     wipeCv.style.height = compareCanvases[0].style.height;
-                    wipeInner.style.width = firstInner.style.width;
-                    wipeInner.style.height = firstInner.style.height;
+                    let wipeClip = wipeInner.parentElement;
+                    if (!wipeClip || !wipeClip.classList.contains('compare-canvas-clip')) {
+                        wipeClip = document.createElement('div');
+                        wipeClip.className = 'compare-canvas-clip';
+                        wipeInner.parentElement.insertBefore(wipeClip, wipeInner);
+                        wipeClip.appendChild(wipeInner);
+                    }
+                    wipeClip.style.width = (firstInner.dataset.vpW || 0) + 'px';
+                    wipeClip.style.height = (firstInner.dataset.vpH || 0) + 'px';
                     wipeInner.dataset.vpW = firstInner.dataset.vpW;
                     wipeInner.dataset.vpH = firstInner.dataset.vpH;
+                    wipeInner.style.width = '';
+                    wipeInner.style.height = '';
                 }
             }
             // Shrink pane slots to wrap content when zoomed out so panes
@@ -5013,6 +5060,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cssH = parseInt(canvas.style.height) || canvas.height;
             return cssW > vp.offsetWidth + 2 || cssH > vp.offsetHeight + 2;
         }
+        // --- Mosaic pan/clamp/apply (mirrors _clampPan / _applyCanvasPan) ---
+        function _mosaicClampPan() {
+            const wrap = document.getElementById('qmri-view-wrap');
+            const inner = document.getElementById('qmri-mosaic-inner');
+            if (!wrap || !inner) return;
+            const wW = wrap.offsetWidth, wH = wrap.offsetHeight;
+            const iW = inner.scrollWidth, iH = inner.scrollHeight;
+            if (iW <= wW) _mosaicPanX = 0;
+            else _mosaicPanX = Math.max(-(iW - wW), Math.min(0, _mosaicPanX));
+            if (iH <= wH) _mosaicPanY = 0;
+            else _mosaicPanY = Math.max(-(iH - wH), Math.min(0, _mosaicPanY));
+        }
+        function _mosaicApplyPan() {
+            const inner = document.getElementById('qmri-mosaic-inner');
+            if (inner) inner.style.transform = (_mosaicPanX || _mosaicPanY) ? `translate(${_mosaicPanX}px,${_mosaicPanY}px)` : '';
+        }
+        function _mosaicResetPan() {
+            _mosaicPanX = 0; _mosaicPanY = 0;
+            _mosaicPanDrag = null;
+            _mosaicOverflowing = false;
+            const wrap = document.getElementById('qmri-view-wrap');
+            if (wrap) wrap.classList.remove('mosaic-overflow', 'mosaic-dragging');
+            _mosaicApplyPan();
+        }
+
         // Zoom-to-region: Shift+drag draws a selection rectangle, zooms on release
         let _zoomSelectDrag = null; // {startX, startY} in image-pixel coords, or null
         let _zoomSelectRect = null; // the overlay div element
@@ -5697,6 +5769,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     userZoom = 1.0;
                     _zoomAdjustedByUser = false;
                     _panX = 0; _panY = 0; _applyCanvasPan();
+                    _mosaicPanX = 0; _mosaicPanY = 0; _mosaicApplyPan();
                     if (compareQmriActive) compareQmriScaleAllCanvases();
                     else if (compareMvActive) compareMvScaleAllCanvases();
                     else if (multiViewActive) mvScaleAllCanvases();
@@ -7165,11 +7238,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Reset compare pan
             _cmpPanX = 0; _cmpPanY = 0; _cmpPanDrag = null;
             document.querySelectorAll('.compare-canvas-inner').forEach(el => {
-                el.style.width = ''; el.style.height = ''; el.style.transform = '';
+                el.style.transform = '';
                 delete el.dataset.vpW; delete el.dataset.vpH;
                 const ax = el.querySelector('.axes-indicator');
                 if (ax) ax.style.transform = '';
             });
+            document.querySelectorAll('.compare-canvas-clip').forEach(el => {
+                el.style.width = ''; el.style.height = '';
+            });
+            document.querySelectorAll('.cmp-mini-map').forEach(el => { el.style.transform = ''; });
             // Reset all center-pane mode state
             compareCenterMode = 0;
             diffMode = 0;
@@ -7618,6 +7695,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qmriDim = -1;
             qmriMosaicActive = false;
             _qmriMosaicZDim = -1;
+            _mosaicResetPan();
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             qmriViews = [];
             _hoveredQmriView = null;
@@ -8497,6 +8575,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             if (qmriMosaicActive) {
                 wrap.style.gap = '8px';
+                // Create inner wrapper for pan transforms
+                let inner = document.getElementById('qmri-mosaic-inner');
+                if (!inner) {
+                    inner = document.createElement('div');
+                    inner.id = 'qmri-mosaic-inner';
+                }
                 // Restructure: one row per parameter
                 // Collect all panes from existing rows
                 const allPanes = [];
@@ -8505,7 +8589,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 });
                 // Remove old rows
                 rows.forEach(r => r.remove());
-                // Create one row per pane
+                // Remove inner if it was in the DOM (we'll re-append)
+                if (inner.parentNode) inner.remove();
+                inner.innerHTML = '';
+                inner.style.gap = '8px';
+                // Create one row per pane inside the inner wrapper
                 allPanes.forEach((pane, idx) => {
                     const v = qmriViews[idx];
                     if (!v) return;
@@ -8532,15 +8620,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     rowDiv.appendChild(vcbIsland);
                     v._mosaicVcb = vcbCv;
                     v._mosaicVcbLabels = vcbLabels;
-                    wrap.appendChild(rowDiv);
+                    inner.appendChild(rowDiv);
                 });
+                wrap.appendChild(inner);
             } else {
                 wrap.style.gap = '14px';
+                _mosaicResetPan();
+                // Remove inner wrapper, move contents back to wrap
+                const inner = document.getElementById('qmri-mosaic-inner');
                 // Restore normal layout: re-collect panes and group into rows
                 const allPanes = [];
-                wrap.querySelectorAll('.qv-pane').forEach(p => allPanes.push(p));
+                (inner || wrap).querySelectorAll('.qv-pane').forEach(p => allPanes.push(p));
                 // Remove all current rows
-                wrap.querySelectorAll('.qv-row').forEach(r => r.remove());
+                (inner || wrap).querySelectorAll('.qv-row').forEach(r => r.remove());
+                if (inner) inner.remove();
                 // Clean up mosaic vcb refs
                 qmriViews.forEach(v => { v._mosaicVcb = null; v._mosaicVcbLabels = null; });
                 // Rebuild standard row layout
@@ -8557,6 +8650,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 });
             }
         }
+
+        // --- Mosaic drag-to-pan event handlers ---
+        // Attached to document so drag continues even if mouse leaves the wrap.
+        document.addEventListener('mousedown', (e) => {
+            if (!qmriActive || !qmriMosaicActive || !_mosaicOverflowing) return;
+            const wrap = document.getElementById('qmri-view-wrap');
+            if (!wrap || !wrap.contains(e.target)) return;
+            // Only left-click drag for panning
+            if (e.button !== 0) return;
+            e.preventDefault();
+            _mosaicPanDrag = { x: e.clientX, y: e.clientY, panX0: _mosaicPanX, panY0: _mosaicPanY };
+            wrap.classList.add('mosaic-dragging');
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!_mosaicPanDrag) return;
+            e.preventDefault();
+            _mosaicPanX = _mosaicPanDrag.panX0 + (e.clientX - _mosaicPanDrag.x);
+            _mosaicPanY = _mosaicPanDrag.panY0 + (e.clientY - _mosaicPanDrag.y);
+            _mosaicClampPan();
+            _mosaicApplyPan();
+        });
+        document.addEventListener('mouseup', () => {
+            if (!_mosaicPanDrag) return;
+            _mosaicPanDrag = null;
+            const wrap = document.getElementById('qmri-view-wrap');
+            if (wrap) wrap.classList.remove('mosaic-dragging');
+        });
 
         // Draw vertical colorbar for qMRI mosaic view
         function drawQmriMosaicVCb(v) {
@@ -8650,9 +8770,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const n = ready.length;
 
             if (qmriMosaicActive) {
-                // Mosaic mode: 1 row per parameter, each canvas is a wide horizontal strip
+                // Mosaic mode: 1 row per parameter, each canvas is a wide horizontal strip.
+                // Enforce minimum tile size — if tiles would be too small to read,
+                // allow content to overflow the viewport and enable pan/drag.
                 const rowGap = 8;
-                const sidePad = 100; // label(28) + margin(8) + vcb(8-30) + labels(~26)
                 const vcbW = _cbExpanded ? 30 : 8;
                 const labelW = 28 + 8; // label width + margin
                 const vcbTotalW = vcbW + 4 + 30; // vcb + margin + labels
@@ -8661,15 +8782,41 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                              - (n - 1) * rowGap - bottomPad;
                 const maxCanvasW = window.innerWidth - labelW - vcbTotalW - 40;
                 const maxCanvasH = Math.max(10, totalH / n);
-                const absMaxScale = Math.min(...ready.map(v =>
+                // Scale that fits everything in the viewport
+                const fitScale = Math.min(...ready.map(v =>
                     Math.min(maxCanvasW / v.lastW, maxCanvasH / v.lastH)));
-                const scaledMin = Math.max(0.01, absMaxScale * userZoom);
-                const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
-                if (scaledMin > absMaxScale + 0.001) userZoom = 1.0;
-                const atMax = scaledMin > absMaxScale + 0.001;
+                // Minimum scale so each mosaic tile is at least MIN_MOSAIC_TILE_PX wide
+                const mosaicCols = shape[_qmriMosaicZDim];
+                const minTileScale = MIN_MOSAIC_TILE_PX * mosaicCols / ready[0].lastW;
+                // Effective base: the larger of fit-to-viewport and min-tile
+                const baseScale = Math.max(fitScale, minTileScale);
+                const effectiveScale = Math.max(0.01, baseScale * userZoom);
                 for (const v of ready) {
-                    v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
-                    v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+                    v.canvas.style.width  = Math.round(v.lastW * effectiveScale) + 'px';
+                    v.canvas.style.height = Math.round(v.lastH * effectiveScale) + 'px';
+                }
+                // Detect overflow and toggle pan mode
+                const wrap = document.getElementById('qmri-view-wrap');
+                const contentW = Math.round(ready[0].lastW * effectiveScale) + labelW + vcbTotalW + 40;
+                const contentH = n * Math.round(ready[0].lastH * effectiveScale) + (n - 1) * rowGap + bottomPad;
+                const overflows = contentW > window.innerWidth || contentH > (window.innerHeight - uiReserveV());
+                _mosaicOverflowing = overflows;
+                if (wrap) {
+                    wrap.classList.toggle('mosaic-overflow', overflows);
+                    if (!overflows) {
+                        _mosaicPanX = 0; _mosaicPanY = 0;
+                        _mosaicApplyPan();
+                    } else {
+                        // Center pan on first overflow
+                        if (_mosaicPanX === 0 && _mosaicPanY === 0) {
+                            const overW = contentW - window.innerWidth;
+                            const overH = contentH - (window.innerHeight - uiReserveV());
+                            if (overW > 0) _mosaicPanX = -Math.round(overW / 2);
+                            if (overH > 0) _mosaicPanY = -Math.round(overH / 2);
+                        }
+                        _mosaicClampPan();
+                        _mosaicApplyPan();
+                    }
                 }
                 fixWrapperAlignment();
                 requestAnimationFrame(() => {
@@ -8678,7 +8825,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         positionEggs();
                     }
                 });
-                return atMax ? 'max' : null;
+                return null;
             }
 
             // Normal (non-mosaic) qMRI layout
