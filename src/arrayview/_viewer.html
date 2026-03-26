@@ -3846,10 +3846,6 @@
             }
             if (maskLevel > 0)
                 html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
-            if (compareActive && compareCenterMode > 0) {
-                const diffLabel = COMPARE_CENTER_LABELS[compareCenterMode] || '';
-                html += `<span class="mode-badge mode-badge-diff">${diffLabel.toUpperCase()}</span>`;
-            }
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
