@@ -1162,6 +1162,7 @@
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">toggle Lebesgue mode (histogram + pixel highlight)</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
@@ -2859,7 +2860,7 @@
 
         // ── Histogram-in-colorbar ────────────────────────────────────────────
         const CB_COLLAPSED_H = 13;  // normal colorbar height in CSS px
-        const CB_EXPANDED_H  = 53;  // expanded height when histogram is shown
+        const CB_EXPANDED_H  = 59;  // expanded: histogram + colorbar + triangle indicators
 
         async function _fetchHistogram() {
             if (!sid || !indices.length || _histFetching) return;
@@ -2929,14 +2930,9 @@
             const windowVmax = manualVmax ?? currentVmax;
             const windowRange = windowVmax - windowVmin || 1;
 
-            // Draw explicit background matching the dynamic island aesthetic
-            // so the histogram area doesn't look like the plain theme background
+            // Histogram area is transparent — the dynamic island's glassmorphic
+            // background (#slim-cb-wrap backdrop-filter) shows through.
             const histAreaH = stripH - CB_COLLAPSED_H;
-            sCtx.fillStyle = isDark ? 'rgba(30, 30, 30, 0.6)'
-                : document.documentElement.classList.contains('solarized') ? 'rgba(238, 232, 213, 0.5)'
-                : document.documentElement.classList.contains('nord') ? 'rgba(36, 41, 56, 0.5)'
-                : 'rgba(240, 240, 240, 0.5)';
-            sCtx.fillRect(0, 0, cssW, histAreaH);
 
             // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
             // zeros / flat background) use log(count+1) for bar heights so the
@@ -3001,68 +2997,134 @@
         function _drawClimLines(sCtx, cssW, stripH) {
             const { vmin: dmin, vmax: dmax } = _histData;
             const range = dmax - dmin || 1;
-            const vminF = ((manualVmin ?? currentVmin) - dmin) / range;
-            const vmaxF = ((manualVmax ?? currentVmax) - dmin) / range;
+            const wVmin = manualVmin ?? currentVmin;
+            const wVmax = manualVmax ?? currentVmax;
+            const vminF = (wVmin - dmin) / range;
+            const vmaxF = (wVmax - dmin) / range;
             const histAreaH = stripH - CB_COLLAPSED_H;
-            const bracketColor = isDark ? 'rgba(255,255,100,0.85)' : 'rgba(180,100,0,0.85)';
-            const bracketH = Math.min(6, histAreaH * 0.25);
-            const bracketW = 5;
-            sCtx.strokeStyle = bracketColor;
-            sCtx.lineWidth = 1.5;
+            const markerColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,100,0,0.9)';
+            const guideColor = isDark ? 'rgba(255,255,100,0.25)' : 'rgba(180,100,0,0.25)';
+            const labelColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
+            const triW = 4, triH = 5; // triangle half-width and height
+            const triTop = stripH + 1; // just below the colorbar strip
             _histVminX = null; _histVmaxX = null;
-            // Vmin bracket: ⌐ at top-left, ⌊ at bottom-left
-            if (vminF >= 0 && vminF <= 1) {
-                const x = Math.round(vminF * (cssW - 1)) + 0.5;
-                _histVminX = x - 0.5;
+
+            function drawMarker(frac, val, align) {
+                if (frac < 0 || frac > 1) return null;
+                const x = Math.round(frac * (cssW - 1));
+                // Dashed guide line through histogram area
+                sCtx.save();
+                sCtx.strokeStyle = guideColor;
+                sCtx.lineWidth = 0.75;
+                sCtx.setLineDash([2, 2]);
                 sCtx.beginPath();
-                sCtx.moveTo(x, bracketH); sCtx.lineTo(x, 0); sCtx.lineTo(x + bracketW, 0);
+                sCtx.moveTo(x + 0.5, 0);
+                sCtx.lineTo(x + 0.5, stripH);
                 sCtx.stroke();
+                sCtx.restore();
+                // Upward-pointing triangle below colorbar
+                sCtx.fillStyle = markerColor;
                 sCtx.beginPath();
-                sCtx.moveTo(x, histAreaH - bracketH); sCtx.lineTo(x, histAreaH); sCtx.lineTo(x + bracketW, histAreaH);
-                sCtx.stroke();
+                sCtx.moveTo(x - triW, triTop + triH);
+                sCtx.lineTo(x, triTop);
+                sCtx.lineTo(x + triW, triTop + triH);
+                sCtx.closePath();
+                sCtx.fill();
+                // Value label above histogram
+                sCtx.fillStyle = labelColor;
+                sCtx.font = '9px monospace';
+                sCtx.textAlign = align;
+                const labelX = align === 'start' ? Math.max(0, x - 1) : Math.min(cssW, x + 1);
+                sCtx.fillText(_cbFmt(val), labelX, 8);
+                sCtx.textAlign = 'start'; // reset
+                return x;
             }
-            // Vmax bracket: mirrored
+            // Determine label alignment to avoid overlap
+            const vminX = Math.round(vminF * (cssW - 1));
+            const vmaxX = Math.round(vmaxF * (cssW - 1));
+            const tooClose = Math.abs(vmaxX - vminX) < 60;
+            const vminAlign = vminF < 0.15 ? 'start' : tooClose ? 'end' : 'center';
+            const vmaxAlign = vmaxF > 0.85 ? 'end' : tooClose ? 'start' : 'center';
+
+            if (vminF >= 0 && vminF <= 1) {
+                const px = drawMarker(vminF, wVmin, vminAlign);
+                if (px !== null) _histVminX = px;
+            }
             if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
-                const x = Math.round(vmaxF * (cssW - 1)) + 0.5;
-                _histVmaxX = x - 0.5;
-                sCtx.beginPath();
-                sCtx.moveTo(x, bracketH); sCtx.lineTo(x, 0); sCtx.lineTo(x - bracketW, 0);
-                sCtx.stroke();
-                sCtx.beginPath();
-                sCtx.moveTo(x, histAreaH - bracketH); sCtx.lineTo(x, histAreaH); sCtx.lineTo(x - bracketW, histAreaH);
-                sCtx.stroke();
+                const px = drawMarker(vmaxF, wVmax, vmaxAlign);
+                if (px !== null) _histVmaxX = px;
             }
         }
 
         // ── Lebesgue integral mode ──────────────────────────────────────────
         const lebesgueCanvas = document.getElementById('lebesgue-canvas');
         const lebesgueCtx = lebesgueCanvas ? lebesgueCanvas.getContext('2d') : null;
+        // Per-session Lebesgue slice cache for compare mode
+        // { [sid]: { slice: Float32Array, w: int, h: int, version: string } }
+        const _lebesguePerSession = {};
 
-        async function _fetchLebesgueSlice() {
-            if (!sid || !indices.length || _lebesgueFetching) return;
-            _lebesgueFetching = true;
+        async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY) {
             const params = new URLSearchParams({
-                dim_x, dim_y,
+                dim_x: fetchDimX, dim_y: fetchDimY,
                 indices: indices.join(','),
                 complex_mode: complexMode,
                 log_scale: logScale,
             });
+            const ver = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+            const cached = _lebesguePerSession[fetchSid];
+            if (cached && cached.version === ver) return cached;
             try {
-                const resp = await fetch(`/lebesgue/${sid}?${params}`);
-                if (!resp.ok) { _lebesgueFetching = false; return; }
-                _lebesgueSliceW = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
-                _lebesgueSliceH = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
+                const resp = await fetch(`/lebesgue/${fetchSid}?${params}`);
+                if (!resp.ok) return null;
+                const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
+                const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
                 const buf = await resp.arrayBuffer();
-                _lebesgueSlice = new Float32Array(buf);
-                _lebesgueVersion = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
-            } catch (_) { _lebesgueSlice = null; }
+                const entry = { slice: new Float32Array(buf), w, h, version: ver };
+                _lebesguePerSession[fetchSid] = entry;
+                return entry;
+            } catch (_) { return null; }
+        }
+
+        async function _fetchLebesgueSlice() {
+            if (!sid || !indices.length || _lebesgueFetching) return;
+            _lebesgueFetching = true;
+            if (compareActive) {
+                // Fetch for all compare sessions in parallel
+                const sids = getCompareRenderSids();
+                await Promise.all(sids.map(s => _fetchLebesgueSliceForSid(s, dim_x, dim_y)));
+                // Also cache in legacy variables for single-session fallback
+                const first = _lebesguePerSession[sids[0]];
+                if (first) {
+                    _lebesgueSlice = first.slice;
+                    _lebesgueSliceW = first.w;
+                    _lebesgueSliceH = first.h;
+                    _lebesgueVersion = first.version;
+                }
+            } else {
+                const entry = await _fetchLebesgueSliceForSid(sid, dim_x, dim_y);
+                if (entry) {
+                    _lebesgueSlice = entry.slice;
+                    _lebesgueSliceW = entry.w;
+                    _lebesgueSliceH = entry.h;
+                    _lebesgueVersion = entry.version;
+                } else {
+                    _lebesgueSlice = null;
+                }
+            }
             _lebesgueFetching = false;
         }
 
         function _clearLebesgueOverlay() {
-            if (!lebesgueCanvas) return;
-            lebesgueCanvas.style.display = 'none';
-            if (lebesgueCtx) lebesgueCtx.clearRect(0, 0, lebesgueCanvas.width, lebesgueCanvas.height);
+            if (lebesgueCanvas) {
+                lebesgueCanvas.style.display = 'none';
+                if (lebesgueCtx) lebesgueCtx.clearRect(0, 0, lebesgueCanvas.width, lebesgueCanvas.height);
+            }
+            // Clear per-pane overlays (compare / multiview)
+            document.querySelectorAll('.lebesgue-overlay').forEach(el => {
+                el.style.display = 'none';
+                const ctx = el.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, el.width, el.height);
+            });
         }
 
         /** Highlight a single histogram bin on the colorbar with a bright outline. */
@@ -3088,38 +3150,27 @@
             sCtx.restore();
         }
 
-        function _drawLebesgueHighlight(binLow, binHigh) {
-            if (!lebesgueCanvas || !lebesgueCtx || !_lebesgueSlice || !_lebesgueSliceW || !_lebesgueSliceH) return;
-            const sliceW = _lebesgueSliceW;
-            const sliceH = _lebesgueSliceH;
-            // Size the overlay to match the main canvas backing store
-            const cw = canvas.width, ch = canvas.height;
-            if (lebesgueCanvas.width !== cw || lebesgueCanvas.height !== ch) {
-                lebesgueCanvas.width = cw;
-                lebesgueCanvas.height = ch;
+        /** Draw Lebesgue highlight on a single overlay canvas using the given slice data. */
+        function _drawLebesgueOnCanvas(overlayCv, targetCv, sliceData, sliceW, sliceH, binLow, binHigh) {
+            const octx = overlayCv.getContext('2d');
+            if (!octx) return;
+            const cw = targetCv.width, ch = targetCv.height;
+            if (overlayCv.width !== cw || overlayCv.height !== ch) {
+                overlayCv.width = cw; overlayCv.height = ch;
             }
-            lebesgueCanvas.style.width  = canvas.style.width;
-            lebesgueCanvas.style.height = canvas.style.height;
-
-            // Scale factors from slice coords to canvas backing store
-            const sx = cw / sliceW;
-            const sy = ch / sliceH;
+            overlayCv.style.width = targetCv.style.width;
+            overlayCv.style.height = targetCv.style.height;
+            const sx = cw / sliceW, sy = ch / sliceH;
             const fx = flip_x, fy = flip_y;
-
-            // Step 1: fill entire overlay with a semi-transparent dim (GPU draw,
-            // avoids the O(cw*ch) pixel loop that hangs for large images).
-            lebesgueCtx.clearRect(0, 0, cw, ch);
-            lebesgueCtx.fillStyle = 'rgba(0,0,0,0.55)';
-            lebesgueCtx.fillRect(0, 0, cw, ch);
-
-            // Step 2: punch transparent holes for bin-matching pixels using a
-            // single batched path + destination-out composite (no pixel writes).
-            lebesgueCtx.globalCompositeOperation = 'destination-out';
-            lebesgueCtx.fillStyle = 'rgba(0,0,0,1)';
-            lebesgueCtx.beginPath();
+            octx.clearRect(0, 0, cw, ch);
+            octx.fillStyle = 'rgba(0,0,0,0.55)';
+            octx.fillRect(0, 0, cw, ch);
+            octx.globalCompositeOperation = 'destination-out';
+            octx.fillStyle = 'rgba(0,0,0,1)';
+            octx.beginPath();
             for (let py = 0; py < sliceH; py++) {
                 for (let px = 0; px < sliceW; px++) {
-                    const val = _lebesgueSlice[py * sliceW + px];
+                    const val = sliceData[py * sliceW + px];
                     if (val >= binLow && val < binHigh) {
                         const dx = fx ? (sliceW - 1 - px) : px;
                         const dy = fy ? (sliceH - 1 - py) : py;
@@ -3127,14 +3178,54 @@
                         const y0 = Math.floor(dy * sy);
                         const x1 = Math.min(cw, Math.ceil((dx + 1) * sx));
                         const y1 = Math.min(ch, Math.ceil((dy + 1) * sy));
-                        lebesgueCtx.rect(x0, y0, x1 - x0, y1 - y0);
+                        octx.rect(x0, y0, x1 - x0, y1 - y0);
                     }
                 }
             }
-            lebesgueCtx.fill();
-            lebesgueCtx.globalCompositeOperation = 'source-over';
+            octx.fill();
+            octx.globalCompositeOperation = 'source-over';
+            overlayCv.style.display = '';
+        }
 
-            lebesgueCanvas.style.display = '';
+        /** Get or create a Lebesgue overlay canvas for a given target canvas. */
+        function _getLebesgueOverlay(targetCv) {
+            const parent = targetCv.parentElement;
+            if (!parent) return null;
+            let overlay = parent.querySelector('.lebesgue-overlay');
+            if (!overlay) {
+                overlay = document.createElement('canvas');
+                overlay.className = 'lebesgue-overlay';
+                overlay.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;';
+                parent.appendChild(overlay);
+            }
+            return overlay;
+        }
+
+        function _drawLebesgueHighlight(binLow, binHigh) {
+            if (compareActive) {
+                // Highlight on all compare panes
+                const sids = getCompareRenderSids();
+                sids.forEach((s, i) => {
+                    const cv = compareCanvases[i];
+                    if (!cv) return;
+                    const entry = _lebesguePerSession[s];
+                    if (!entry) return;
+                    const overlay = _getLebesgueOverlay(cv);
+                    if (overlay) _drawLebesgueOnCanvas(overlay, cv, entry.slice, entry.w, entry.h, binLow, binHigh);
+                });
+            } else if (multiViewActive) {
+                // Highlight on all multiview panes (same session/slice)
+                if (!_lebesgueSlice || !_lebesgueSliceW) return;
+                mvViews.forEach(v => {
+                    if (!v.canvas) return;
+                    const overlay = _getLebesgueOverlay(v.canvas);
+                    if (overlay) _drawLebesgueOnCanvas(overlay, v.canvas, _lebesgueSlice, _lebesgueSliceW, _lebesgueSliceH, binLow, binHigh);
+                });
+            } else {
+                // Normal single-view mode — use the existing #lebesgue-canvas
+                if (!lebesgueCanvas || !lebesgueCtx || !_lebesgueSlice || !_lebesgueSliceW || !_lebesgueSliceH) return;
+                _drawLebesgueOnCanvas(lebesgueCanvas, canvas, _lebesgueSlice, _lebesgueSliceW, _lebesgueSliceH, binLow, binHigh);
+            }
         }
 
         // ── Colorbar hover expand/collapse + histogram interaction ───────────
@@ -3177,15 +3268,20 @@
                 } else if (!_histData || _histDataVersion !== curVersion) {
                     await _fetchHistogram();
                 }
-                // Also fetch raw slice for Lebesgue mode (not in compare mode)
-                if (lebesgueMode && !compareActive) {
+                // Also fetch raw slice for Lebesgue mode
+                if (lebesgueMode) {
                     const lbVer = curVersion + ':' + complexMode + ':' + logScale;
                     if (!_lebesgueSlice || _lebesgueVersion !== lbVer) {
                         await _fetchLebesgueSlice();
                     }
                 }
                 _cbExpanded = true;
-                drawSlimColorbar(cbMarkerFrac);
+                _redrawActiveColorbar();
+            }
+
+            function _redrawActiveColorbar() {
+                if (multiViewActive || compareMvActive) drawMvColorbar();
+                else drawSlimColorbar(cbMarkerFrac);
             }
 
             function _collapseColorbar() {
@@ -3194,7 +3290,7 @@
                 _histVminX = null; _histVmaxX = null;
                 cbTooltip.style.display = 'none';
                 _clearLebesgueOverlay();
-                drawSlimColorbar(cbMarkerFrac);
+                _redrawActiveColorbar();
             }
 
             slimCbWrap.addEventListener('mouseenter', () => {
@@ -3255,7 +3351,7 @@
                         manualVmax = Math.max(val, curMin + 1e-10);
                         if (manualVmin === null) manualVmin = curMin;
                     }
-                    drawSlimColorbar(cbMarkerFrac);
+                    _redrawActiveColorbar();
                     _scheduleRender();
                 } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
                            rect.top <= e.clientY && e.clientY <= rect.bottom) {
@@ -3279,7 +3375,7 @@
                             const binHigh = edges[binIdx + 1] + (binIdx === nBins - 1 ? 1e-9 : 0);
                             _drawLebesgueHighlight(binLow, binHigh);
                             // Redraw colorbar + highlight the hovered bin
-                            drawSlimColorbar(cbMarkerFrac);
+                            _redrawActiveColorbar();
                             _highlightHistBin(binIdx);
                         }
                     }
@@ -4652,6 +4748,7 @@
             _histDataVersion = null;
             // Invalidate and clear Lebesgue overlay (slice changed)
             _lebesgueVersion = null;
+            Object.keys(_lebesguePerSession).forEach(k => delete _lebesguePerSession[k]);
             if (lebesgueMode) {
                 _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
@@ -6305,6 +6402,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 });
                 drawSlimColorbar(cbMarkerFrac);
                 showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
+            } else if (e.key === 'w') {
+                // Toggle Lebesgue integral mode (persistent histogram + pixel highlighting)
+                lebesgueMode = !lebesgueMode;
+                if (lebesgueMode) {
+                    _cbExpanded = true;
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                    fetcher().then(() => {
+                        _fetchLebesgueSlice();
+                        _redrawActiveColorbar();
+                    });
+                    showStatus('Lebesgue mode on');
+                } else {
+                    _clearLebesgueOverlay();
+                    _cbExpanded = false;
+                    _redrawActiveColorbar();
+                    showStatus('Lebesgue mode off');
+                }
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isPlaying && activeDim === playingDim) { stopPlay(); }
@@ -9457,9 +9571,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     sCtx.fillRect(col, gradY, 1, gradH);
                 }
             }
-            // Draw histogram bars when expanded
+            // Draw histogram bars + clim indicators when expanded
             if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
                 _drawHistogramBarsOnColorbar(sCtx, cssW, cssH, stops);
+                _drawClimLines(sCtx, cssW, cssH);
             }
             // Auto-refresh histogram when expanded but data is stale
             if (_cbExpanded) {
