@@ -2507,6 +2507,11 @@
                     return;
                 }
             }
+            if (multiViewActive && !compareActive) {
+                // Multiview draws its own colorbars via drawMvCbs()
+                if (wrap) wrap.style.display = 'none';
+                return;
+            }
             if (!colorbarVisible()) {
                 slimCbCanvas.style.display = 'none';
                 slimCbLabels.style.display = 'none';
