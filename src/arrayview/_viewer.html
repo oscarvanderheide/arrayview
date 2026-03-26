@@ -612,6 +612,8 @@
             transition: opacity 0.25s ease, max-height 0.25s ease;
             pointer-events: none;
         }
+        /* ── Inline embed (Jupyter IFrame) — hide header to save vertical space */
+        body.inline-embed #array-name { display: none; }
         body.fullscreen-mode #wrapper {
             padding: 0 !important; margin: 0 !important;
         }
@@ -1157,7 +1159,7 @@
                                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">movie: fps · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">movie: fps · flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                 <div class="help-row"><span class="key">U</span><span class="desc">toggle vector arrows</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -1216,6 +1218,7 @@
             if (window.parent === window) return false;
             try { return !window.parent.__arrayviewShell; } catch(e) { return true; }
         })();
+        if (isInlineEmbed) document.body.classList.add('inline-embed');
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         // overlay_colors: comma-separated hex palette for multiple overlays (auto-assigned if absent)
@@ -1415,6 +1418,7 @@
         let _checkerActive = false;    // derived from compareCenterMode
         let _flickerTimer = null;      // interval timer for flicker mode
         let _flickerShowA = true;      // current flicker frame (true=A, false=B)
+        let _flickerFps = 3;           // flicker rate in Hz (adjustable with [ / ])
         let _checkerSize = 32;         // tile size in image pixels for checkerboard
         let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe,6=flicker,7=checker
         let registrationAlpha = 0.5;
@@ -2211,7 +2215,7 @@
             } else if (_flickerActive) {
                 compareScaleCanvases();
                 _startFlicker();
-                showStatus('flicker: auto-toggling A/B · X to cycle');
+                showStatus('flicker: auto-toggling A/B · [ ] rate · X to cycle');
             } else if (_checkerActive) {
                 compareScaleCanvases();
                 _drawCheckerboard();
@@ -5639,7 +5643,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`flood fill tolerance: ${(_floodFillTolerance * 100).toFixed(0)}% · click to reseed`);
                     return;
                 }
-                if (compareActive && _checkerActive) {
+                if (compareActive && _flickerActive) {
+                    // Flicker rate
+                    _flickerFps = Math.max(1, Math.min(30, _flickerFps + (e.key === ']' ? 1 : -1)));
+                    _startFlicker();
+                    showStatus(`flicker: ${_flickerFps} Hz`);
+                    saveState();
+                } else if (compareActive && _checkerActive) {
                     // Checkerboard tile size
                     const sizes = [8, 16, 24, 32, 48, 64, 96, 128];
                     const curIdx = sizes.indexOf(_checkerSize);
@@ -9865,7 +9875,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _flickerTimer = setInterval(() => {
                 _flickerShowA = !_flickerShowA;
                 _drawFlickerFrame();
-            }, 333); // ~3 Hz
+            }, Math.round(1000 / _flickerFps));
         }
 
         function _drawFlickerFrame() {
