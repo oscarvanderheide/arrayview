@@ -667,12 +667,12 @@
         }
 
         /* ── Colormap preview strip ──────────────────────────────── */
-        #colormap-strip {
+        #colormap-strip, #colormap-strip-right {
             position:fixed; display:flex; flex-direction:row; align-items:center; gap:8px;
             opacity:0; pointer-events:none; transition:opacity 0.25s ease;
             z-index:8;
         }
-        #colormap-strip.visible { opacity:1; }
+        #colormap-strip.visible, #colormap-strip-right.visible { opacity:1; }
         .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.5; transition:opacity 0.15s ease; }
         .cmap-thumb.active { opacity:1; }
         .cmap-thumb canvas { display:block; width:60px; height:10px; border-radius:3px; border:1px solid rgba(255,255,255,0.1); }
@@ -1079,6 +1079,7 @@
     <div id="toast"></div>
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
+    <div id="colormap-strip-right"></div>
     <div id="roi-shape-strip"></div>
     <div id="compare-mode-strip"></div>
     <div id="inline-prompt">
@@ -9803,6 +9804,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         // ── 3. Colormap preview strip ─────────────────────────────────
         const _cmapStrip = document.getElementById('colormap-strip');
+        const _cmapStripRight = document.getElementById('colormap-strip-right');
         let _cmapStripTimer = null;
         let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
@@ -9813,6 +9815,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
             const SIDE = 2; // show 2 before and 2 after current
             _cmapStrip.innerHTML = '';
+            if (_cmapStripRight) _cmapStripRight.innerHTML = '';
             function _makeThumb(idx, isCurrent) {
                 const name = pool[((idx) % pool.length + pool.length) % pool.length];
                 const stops = COLORMAP_GRADIENT_STOPS[name];
@@ -9841,23 +9844,45 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (let offs = -SIDE; offs <= SIDE; offs++) {
                 _cmapStrip.appendChild(_makeThumb(ci + offs, offs === 0));
             }
+            // In diff-side mode, also populate the right strip as a mirror copy
+            const hasRightAnchor = extraFadeEls && extraFadeEls.length > 0 && extraFadeEls[0] && _cmapStripRight;
+            if (hasRightAnchor) {
+                for (let offs = -SIDE; offs <= SIDE; offs++) {
+                    _cmapStripRight.appendChild(_makeThumb(ci + offs, offs === 0));
+                }
+            }
             // Position strip centered on the colorbar (or custom anchor)
             const cbWrap = anchorEl || document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
-            const _fadeEls = extraFadeEls || [];
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
                 _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
                 _cmapStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
                 cbWrap.style.opacity = '0';
-                _fadeEls.forEach(el => { if (el) el.style.opacity = '0'; });
+            }
+            // Position right strip on the right pane's colorbar
+            if (hasRightAnchor) {
+                const rightAnchor = extraFadeEls[0];
+                const rRect = rightAnchor.getBoundingClientRect();
+                _cmapStripRight.style.top = (rRect.top + rRect.height / 2 - 16) + 'px';
+                _cmapStripRight.style.left = (rRect.left + rRect.width / 2) + 'px';
+                _cmapStripRight.style.transform = 'translateX(-50%)';
+                rightAnchor.style.opacity = '0';
+                // Fade any remaining extra elements
+                for (let i = 1; i < extraFadeEls.length; i++) {
+                    if (extraFadeEls[i]) extraFadeEls[i].style.opacity = '0';
+                }
             }
             _cmapStrip.classList.add('visible');
+            if (hasRightAnchor) _cmapStripRight.classList.add('visible');
             clearTimeout(_cmapStripTimer);
             _cmapStripTimer = setTimeout(() => {
                 _cmapStrip.classList.remove('visible');
                 if (cbWrap) cbWrap.style.opacity = '1';
-                _fadeEls.forEach(el => { if (el) el.style.opacity = '1'; });
+                if (hasRightAnchor) {
+                    _cmapStripRight.classList.remove('visible');
+                    extraFadeEls.forEach(el => { if (el) el.style.opacity = '1'; });
+                }
             }, 1500);
         }
 
