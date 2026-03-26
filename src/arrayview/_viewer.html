@@ -2354,7 +2354,7 @@
             if (!cbCanvas || !cv) return;
             const cbIsland = cbCanvas.closest('.cb-island');
             // In non-diff/center-pane mode, hide per-pane colorbars (shared colorbar is used)
-            const _hasCenterPaneCb = diffMode > 0 || _wipeActive || _flickerActive || _checkerActive;
+            const _hasCenterPaneCb = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
             if (!_hasCenterPaneCb) {
                 if (cbIsland) cbIsland.style.display = 'none';
                 return;
@@ -2539,7 +2539,7 @@
                 // Draw per-pane colorbars only in diff mode; otherwise hide them
                 drawAllComparePaneCbs();
                 // In diff/center-pane modes, per-pane colorbars replace the shared colorbar
-                if (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive) {
+                if (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive) {
                     slimCbCanvas.style.display = 'none';
                     slimCbLabels.style.display = 'none';
                     if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
@@ -5634,7 +5634,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showToast('compare mode picker: only in 2-pane compare (B)');
                     return;
                 }
-                const nextMode = (compareCenterMode + 1) % COMPARE_CENTER_LABELS.length;
+                // Cycle 1→2→...→7→0 (off). From off, go to 1 (skip showing "off" as a stop).
+                const nextMode = compareCenterMode === 0 ? 1
+                    : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
+                    : compareCenterMode + 1;
                 _setCompareCenterMode(nextMode);
                 showCompareModeStrip();
                 return;
