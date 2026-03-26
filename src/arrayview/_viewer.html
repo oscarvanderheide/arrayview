@@ -5538,6 +5538,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.key === '+' || e.key === '=') {
                 userZoom = userZoom * 1.1;
                 _zoomAdjustedByUser = true;
+                // Auto-enter immersive mode on first zoom past 1.0
+                if (!_fullscreenActive && userZoom > 1.0 &&
+                    !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
+                    _canFitImmersive()) {
+                    setFullscreenMode(true);
+                }
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
                 else if (multiViewActive) mvScaleAllCanvases();
@@ -5549,6 +5555,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
                 _zoomAdjustedByUser = true;
+                // Auto-exit immersive mode when zooming back to fit
+                if (_fullscreenActive && userZoom <= 1.0) {
+                    setFullscreenMode(false);
+                }
                 if (compareQmriActive) compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
                 else if (multiViewActive) mvScaleAllCanvases();
@@ -5566,6 +5576,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
                     // No buffered input: reset zoom and pan
+                    if (_fullscreenActive) setFullscreenMode(false);
                     userZoom = 1.0;
                     _zoomAdjustedByUser = false;
                     _panX = 0; _panY = 0; _applyCanvasPan();
@@ -9581,12 +9592,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         });
 
-        // ── 2b. Fullscreen mode (K key — manual toggle only) ─────────
+        // ── 2b. Fullscreen / Immersive mode (K key or auto on zoom) ──
         let _fullscreenActive = false;
 
         function _positionFullscreenInfo() {
             // In fullscreen mode, CSS handles positioning (position:fixed, top:8px, left:50%).
             // No JS positioning needed — just ensure the info element is visible.
+        }
+
+        function _canFitImmersive() {
+            // Check if the canvas is large enough to fit overlaid chrome
+            const vpEl = document.getElementById('canvas-viewport');
+            if (!vpEl) return false;
+            const w = vpEl.offsetWidth;
+            const h = vpEl.offsetHeight;
+            // Need at least 200px width for dim bar and 150px height for chrome
+            return w >= 200 && h >= 150;
         }
 
         function setFullscreenMode(on) {
