@@ -39,6 +39,13 @@
   zoom mode directly.similarlty for wide arrays where there is not enough vertical space to
   fit all the ui elements.
 
+- ~~single array + multiview: two colorbars visible~~ ✅ DONE — shared colorbar hidden in multiview
+- ~~multiple arrays, normal view: colorbar too wide~~ ✅ DONE — capped at 500px
+- ~~multiple arrays, multiview: crosshair lines don't fade~~ ✅ DONE — fixed sid tracking in fade animation
+- ~~multiple arrays, multiview: colorbar overlaps with panes~~ ✅ DONE — shared colorbar hidden in compare+multiview
+- multiple arrays, multiview: very slow to load
+- ~~multiple arrays, loading screen: weird egg-like UI element~~ ✅ DONE — eggs hidden until data loads
+
 When working through the TODO list, always:
 - Make a plan first and write it down.
 - Make each finished item a separate commit.
