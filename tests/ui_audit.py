@@ -2,14 +2,17 @@
 UI Consistency Audit for arrayview.
 
 Automated Playwright-based visual audit that screenshots every mode × array-count
-combination and runs DOM assertions to catch cross-mode inconsistencies.
+× shape combination and runs DOM assertions to catch cross-mode inconsistencies.
 
 Run after any visual/UI change:
 
-    uv run python tests/ui_audit.py                      # tier 1 + tier 2
-    uv run python tests/ui_audit.py --tier 1             # quick check (~15 combos)
+    uv run python tests/ui_audit.py                      # all tiers
+    uv run python tests/ui_audit.py --tier 1             # core modes only (~14 combos)
+    uv run python tests/ui_audit.py --tier 2             # extended modes (~45 combos)
+    uv run python tests/ui_audit.py --tier 3             # shape variations (~35 combos)
     uv run python tests/ui_audit.py --tier 2 --subset zoom,compact
     uv run python tests/ui_audit.py --update-baselines   # reset baselines
+    uv run python tests/ui_audit.py --list               # print scenario table and exit
 
 Output:
     tests/ui_audit/screenshots/   — per-combo PNGs
@@ -237,11 +240,7 @@ class AssertionResult:
 
 
 def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[AssertionResult]:
-    """Run all DOM assertions for the current page state.
-
-    Set zoomed=True to skip viewport-bounds checks (canvases intentionally
-    overflow when zoomed — the minimap handles navigation).
-    """
+    """Run all DOM assertions for the current page state."""
     results = []
     vp = page.evaluate(_JS_VIEWPORT)
 
@@ -270,8 +269,6 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
         ))
 
     # R13: Colorbars don't overlap each other
-    # In compare mode, per-pane colorbars can overlap when zoomed.
-    # In normal mode, the slim colorbar can overlap with other elements.
     all_cb_selectors = [
         "#slim-cb-wrap",
         ".compare-pane-cb",
@@ -283,7 +280,6 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
         boxes = page.evaluate(_JS_ALL_BOUNDING_BOXES, sel)
         for box in boxes:
             cb_boxes_all.append((sel, box))
-    # Check each pair for overlap
     for i in range(len(cb_boxes_all)):
         for j in range(i + 1, len(cb_boxes_all)):
             sel_a, box_a = cb_boxes_all[i]
@@ -306,7 +302,6 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
             passed=within,
             detail="" if within else f"box={minimap_box}",
         ))
-        # Check minimap doesn't overlap any colorbar
         for sel, cb_b in cb_boxes_all:
             if _boxes_overlap(minimap_box, cb_b):
                 results.append(AssertionResult(
@@ -325,12 +320,9 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
             detail="" if within else f"box={box}",
         ))
 
-    # R10: Compare panes aligned — panes on the same row share the same y,
-    # panes in the same column share the same x. Group by approximate y to
-    # identify rows, then verify alignment within each row.
+    # R10: Compare panes aligned
     compare_boxes = page.evaluate(_JS_ALL_BOUNDING_BOXES, ".compare-canvas")
     if len(compare_boxes) >= 2:
-        # Group boxes into rows (boxes within 10px of each other vertically)
         rows: list[list[dict]] = []
         for box in sorted(compare_boxes, key=lambda b: b["y"]):
             placed = False
@@ -362,31 +354,21 @@ def run_assertions(page: Page, mode_name: str, zoomed: bool = False) -> list[Ass
 def run_lebesgue_assertions(page: Page) -> list[AssertionResult]:
     """Run assertions specific to Lebesgue/histogram mode."""
     results = []
-
-    # R1: Colorbar hides when histogram is open
-    cb_visible = page.evaluate(_JS_IS_VISIBLE, "#slim-cb-wrap")
-    # In Lebesgue mode, the colorbar expands — it should NOT show the slim version
-    # simultaneously. Check that slim-cb is either hidden or transformed into expanded.
     lebesgue_active = page.evaluate(
         "() => typeof lebesgueMode !== 'undefined' && lebesgueMode"
     )
     if lebesgue_active:
-        # R12: slim colorbar should be in expanded/Lebesgue state, not slim
         results.append(AssertionResult(
             rule="R1/R12 (colorbar state in Lebesgue mode)",
-            passed=True,  # Lebesgue mode uses same element but expanded
+            passed=True,
             detail="Lebesgue mode active — colorbar is in expanded state",
         ))
-
     return results
 
 
 def run_diff_assertions(page: Page) -> list[AssertionResult]:
     """Run assertions specific to diff mode."""
     results = []
-
-    # R4/R5: Diff center pane should use different colormap/range than sides
-    # This checks via JS state variables
     diff_info = page.evaluate("""
     () => {
         if (typeof diffMode === 'undefined' || diffMode <= 0) return null;
@@ -402,66 +384,571 @@ def run_diff_assertions(page: Page) -> list[AssertionResult]:
             passed=True,
             detail=f"diffMode={diff_info['diffMode']}",
         ))
-
     return results
 
 
 # ---------------------------------------------------------------------------
-# Scenario definitions
+# Scenario definitions — declarative
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Scenario:
+    """A single audit scenario.
+
+    Each scenario declaratively describes what to set up and screenshot.
+    The generic runner interprets these fields — no per-scenario if/elif needed.
+    """
     name: str
     tier: int
     subset_tags: list[str] = field(default_factory=list)
     description: str = ""
 
+    # Which test array to view (key into the arrays dict)
+    array_key: str = "3d"
 
-# Tier 1 scenarios
+    # If set, open in compare mode with these array keys.
+    # First key is the main session, rest are compare_sids.
+    compare_keys: list[str] | None = None
+
+    # Key presses to execute after page load. Each is (key, wait_ms).
+    keys: list[tuple[str, int]] = field(default_factory=list)
+
+    # Zoom-in steps (0 = fit to window). Applied after keys.
+    zoom: int = 0
+
+    # Extra assertion sets to run: "diff", "lebesgue"
+    extra_assertions: list[str] = field(default_factory=list)
+
+    # Extra wait (ms) after all keys + zoom, before screenshot
+    settle_ms: int = 400
+
+
+# ── Key sequence constants ────────────────────────────────────────────────
+# Reusable building blocks for common mode activations.
+
+K_MULTIVIEW = [("v", 1200)]
+K_QMRI_FULL = [("q", 2500)]
+K_QMRI_COMPACT = [("q", 2500), ("q", 1500)]
+K_QMRI_MOSAIC = [("q", 2500), ("z", 800)]
+K_ZEN = [("Shift+F", 800)]
+K_IMMERSIVE = [("Shift+K", 600)]
+K_MOSAIC = [("z", 800)]
+K_ROI = [("Shift+A", 600)]
+K_LOG = [("Shift+L", 400)]
+K_BORDERS = [("b", 400)]
+K_STRETCH = [("a", 400)]
+K_MASK = [("Shift+M", 400)]
+K_RGB = [("Shift+R", 400)]
+K_LEBESGUE = [("w", 600)]
+K_PIXEL_INFO = [("Shift+H", 400), ("i", 400)]
+K_FLIP = [("r", 400)]
+K_RULER = [("u", 400)]
+K_PLAY = [("Space", 800)]
+
+# Compare center modes: X cycles 0→1→2→3→4→5→6→7→0
+K_DIFF_AB = [("Shift+X", 800)]
+K_DIFF_ABS = [("Shift+X", 800)] * 2
+K_DIFF_REL = [("Shift+X", 800)] * 3
+K_OVERLAY = [("Shift+X", 800)] * 4
+K_WIPE = [("Shift+X", 800)] * 5
+K_FLICKER = [("Shift+X", 800)] * 6
+K_CHECKER = [("Shift+X", 800)] * 7
+
+# Projection: p cycles 0→MAX→MIN→MEAN→STD→SOS→off
+K_PROJ_MAX = [("p", 800)]
+K_PROJ_MIN = [("p", 800)] * 2
+K_PROJ_MEAN = [("p", 800)] * 3
+K_PROJ_STD = [("p", 800)] * 4
+K_PROJ_SOS = [("p", 800)] * 5
+
+# Theme: T cycles dark→light→solarized→nord
+K_THEME_LIGHT = [("Shift+T", 400)]
+K_THEME_SOLARIZED = [("Shift+T", 400)] * 2
+K_THEME_NORD = [("Shift+T", 400)] * 3
+
+# Complex: m cycles mag→phase→real→imag (for complex arrays)
+K_COMPLEX_PHASE = [("m", 400)]
+K_COMPLEX_REAL = [("m", 400)] * 2
+K_COMPLEX_IMAG = [("m", 400)] * 3
+
+# Compare layout: G cycles horizontal→vertical→grid (3+ panes)
+K_LAYOUT_VERTICAL = [("Shift+G", 400)]
+K_LAYOUT_GRID = [("Shift+G", 400)] * 2
+
+
+# ── Tier 1: Core modes (always check) ─────────────────────────────────────
+
 TIER1 = [
-    Scenario("t1_single_normal_fit", 1, description="Single 3D, normal view, fit"),
-    Scenario("t1_single_normal_zoom", 1, ["zoom"], description="Single 3D, zoomed in"),
-    Scenario("t1_single_compact", 1, ["zoom", "compact"], description="Single 3D, compact mode"),
-    Scenario("t1_single_multiview_fit", 1, ["multiview"], description="Single 3D, multiview"),
-    Scenario("t1_single_multiview_zoom", 1, ["multiview", "zoom"], description="Single 3D, multiview zoomed"),
-    Scenario("t1_single_qmri_full", 1, ["qmri"], description="Single 4D, qMRI full (5 panels)"),
-    Scenario("t1_single_qmri_compact", 1, ["qmri", "compact"], description="Single 4D, qMRI compact (3 panels)"),
-    Scenario("t1_single_zen", 1, description="Single 3D, zen mode"),
-    Scenario("t1_compare_fit", 1, ["compare"], description="2× 3D, compare fit"),
-    Scenario("t1_compare_zoom", 1, ["compare", "zoom"], description="2× 3D, compare zoomed"),
-    Scenario("t1_compare_diff", 1, ["compare", "diff"], description="2× 3D, diff A-B"),
-    Scenario("t1_compare_multiview", 1, ["compare", "multiview"], description="2× 3D, compare + multiview"),
-    Scenario("t1_single_roi", 1, ["roi"], description="Single 3D, ROI mode"),
-    Scenario("t1_compact_roi", 1, ["roi", "compact"], description="Single 3D, compact + ROI"),
+    Scenario("t1_single_normal_fit", 1,
+             description="Single 3D, normal view, fit to window"),
+    Scenario("t1_single_normal_zoom", 1, ["zoom"],
+             description="Single 3D, zoomed in",
+             zoom=5),
+    Scenario("t1_single_compact", 1, ["zoom", "compact"],
+             description="Single 3D, immersive/compact mode (K)",
+             keys=list(K_IMMERSIVE)),
+    Scenario("t1_single_multiview_fit", 1, ["multiview"],
+             description="Single 3D, 3-plane multiview",
+             keys=list(K_MULTIVIEW)),
+    # NOTE: multiview intentionally caps zoom to 1.0 (panes fill viewport).
+    # No multiview zoom scenario — zoom has no visual effect in this mode.
+    Scenario("t1_single_qmri_full", 1, ["qmri"],
+             description="Single 4D, qMRI full (5 panels)",
+             array_key="4d", keys=list(K_QMRI_FULL)),
+    Scenario("t1_single_qmri_compact", 1, ["qmri", "compact"],
+             description="Single 4D, qMRI compact (T1/T2/|PD|)",
+             array_key="4d", keys=list(K_QMRI_COMPACT)),
+    Scenario("t1_single_zen", 1,
+             description="Single 3D, zen mode (no chrome)",
+             keys=list(K_ZEN)),
+    Scenario("t1_compare_fit", 1, ["compare"],
+             description="2× 3D, compare side-by-side, fit",
+             compare_keys=["3d", "3d_b"]),
+    Scenario("t1_compare_zoom", 1, ["compare", "zoom"],
+             description="2× 3D, compare zoomed",
+             compare_keys=["3d", "3d_b"], zoom=4),
+    Scenario("t1_compare_diff", 1, ["compare", "diff"],
+             description="2× 3D, diff A-B center pane",
+             compare_keys=["3d", "3d_b"], keys=list(K_DIFF_AB),
+             extra_assertions=["diff"]),
+    Scenario("t1_compare_multiview", 1, ["compare", "multiview"],
+             description="2× 3D, compare + 3-plane multiview",
+             compare_keys=["3d", "3d_b"], keys=list(K_MULTIVIEW),
+             settle_ms=1000),
+    Scenario("t1_single_roi", 1, ["roi"],
+             description="Single 3D, ROI rect mode",
+             keys=list(K_ROI)),
+    Scenario("t1_compact_roi", 1, ["roi", "compact"],
+             description="Single 3D, compact + ROI",
+             keys=list(K_IMMERSIVE) + list(K_ROI)),
 ]
 
-# Tier 2 scenarios
+
+# ── Tier 2: Extended modes ─────────────────────────────────────────────────
+
 TIER2 = [
-    Scenario("t2_single_2d", 2, ["2d", "basic"], description="Single 2D, normal"),
-    Scenario("t2_single_4d", 2, ["4d", "ndim"], description="Single 4D, normal"),
-    Scenario("t2_single_mosaic", 2, ["mosaic", "z-grid"], description="Single 4D, mosaic"),
-    Scenario("t2_single_complex", 2, ["complex", "dtype"], description="Single complex, normal"),
-    Scenario("t2_diff_abs", 2, ["diff"], description="2× 3D, diff |A-B|"),
-    Scenario("t2_diff_rel", 2, ["diff"], description="2× 3D, diff |A-B|/|A|"),
-    Scenario("t2_overlay", 2, ["overlay", "diff"], description="2× 3D, overlay"),
-    Scenario("t2_wipe", 2, ["wipe", "diff"], description="2× 3D, wipe"),
-    Scenario("t2_registration", 2, ["registration"], description="2× 3D, registration"),
-    Scenario("t2_compare_qmri", 2, ["qmri", "compare"], description="2× 4D, compare + qMRI"),
-    Scenario("t2_diff_roi", 2, ["roi", "diff"], description="2× 3D, diff + ROI"),
-    Scenario("t2_compare_3_grid", 2, ["compare", "grid", "multi-array"], description="3× 3D, compare grid"),
-    Scenario("t2_compare_3_qmri", 2, ["qmri", "compare", "multi-array"], description="3× 4D, compare + qMRI"),
-    Scenario("t2_compare_3_multiview", 2, ["multiview", "compare", "multi-array"], description="3× 3D, compare + multiview"),
-    Scenario("t2_compare_4_grid", 2, ["compare", "grid", "multi-array"], description="4× 3D, compare grid"),
-    Scenario("t2_compare_34_qmri_compact", 2, ["qmri", "compare", "compact", "multi-array"], description="3× 4D, compare + compact qMRI"),
-    Scenario("t2_vfield_normal", 2, ["vector", "vfield"], description="Vector field, normal"),
-    Scenario("t2_vfield_roi", 2, ["vector", "roi"], description="Vector field + ROI"),
-    Scenario("t2_vfield_compare", 2, ["vector", "compare"], description="Compare with vector field"),
+    # --- Basic array types ---
+    Scenario("t2_single_2d", 2, ["2d", "basic"],
+             description="Single 2D, normal",
+             array_key="2d"),
+    Scenario("t2_single_4d", 2, ["4d", "ndim"],
+             description="Single 4D, normal",
+             array_key="4d"),
+    Scenario("t2_single_mosaic", 2, ["mosaic", "z-grid"],
+             description="Single 4D, mosaic (z key)",
+             array_key="4d", keys=list(K_MOSAIC)),
+    Scenario("t2_single_complex", 2, ["complex", "dtype"],
+             description="Single complex, magnitude view",
+             array_key="complex"),
+
+    # --- All 7 compare center modes ---
+    Scenario("t2_diff_abs", 2, ["diff"],
+             description="2× 3D, diff |A-B|",
+             compare_keys=["3d", "3d_b"], keys=list(K_DIFF_ABS),
+             extra_assertions=["diff"]),
+    Scenario("t2_diff_rel", 2, ["diff"],
+             description="2× 3D, diff |A-B|/|A|",
+             compare_keys=["3d", "3d_b"], keys=list(K_DIFF_REL),
+             extra_assertions=["diff"]),
+    Scenario("t2_overlay", 2, ["overlay", "diff"],
+             description="2× 3D, overlay blend",
+             compare_keys=["3d", "3d_b"], keys=list(K_OVERLAY)),
+    Scenario("t2_wipe", 2, ["wipe", "diff"],
+             description="2× 3D, wipe (vertical divider)",
+             compare_keys=["3d", "3d_b"], keys=list(K_WIPE)),
+    Scenario("t2_flicker", 2, ["flicker", "diff"],
+             description="2× 3D, flicker (alternating A/B)",
+             compare_keys=["3d", "3d_b"], keys=list(K_FLICKER)),
+    Scenario("t2_checker", 2, ["checker", "diff"],
+             description="2× 3D, checkerboard blend",
+             compare_keys=["3d", "3d_b"], keys=list(K_CHECKER)),
+    Scenario("t2_registration", 2, ["registration"],
+             description="2× 3D, registration/overlay via X cycle",
+             compare_keys=["3d", "3d_b"], keys=list(K_OVERLAY)),
+
+    # --- Compare variants ---
+    Scenario("t2_compare_qmri", 2, ["qmri", "compare"],
+             description="2× 4D, compare + qMRI",
+             compare_keys=["4d", "4d_b"], keys=list(K_QMRI_FULL),
+             settle_ms=1000),
+    Scenario("t2_compare_diff_roi", 2, ["roi", "diff"],
+             description="2× 3D, diff + ROI",
+             compare_keys=["3d", "3d_b"],
+             keys=list(K_DIFF_AB) + list(K_ROI),
+             extra_assertions=["diff"]),
+    Scenario("t2_compare_3_grid", 2, ["compare", "grid", "multi-array"],
+             description="3× 3D, compare grid",
+             compare_keys=["3d", "3d_b", "3d_c"]),
+    Scenario("t2_compare_3_qmri", 2, ["qmri", "compare", "multi-array"],
+             description="3× 4D, compare + qMRI",
+             compare_keys=["4d", "4d_b", "4d_c"],
+             keys=list(K_QMRI_FULL), settle_ms=1500),
+    Scenario("t2_compare_3_multiview", 2, ["multiview", "compare", "multi-array"],
+             description="3× 3D, compare + multiview",
+             compare_keys=["3d", "3d_b", "3d_c"],
+             keys=list(K_MULTIVIEW), settle_ms=1500),
+    Scenario("t2_compare_4_grid", 2, ["compare", "grid", "multi-array"],
+             description="4× 3D, compare 2×2 grid",
+             compare_keys=["3d", "3d_b", "3d_c", "3d_d"]),
+    Scenario("t2_compare_34_qmri_compact", 2, ["qmri", "compare", "compact", "multi-array"],
+             description="3× 4D, compare + compact qMRI",
+             compare_keys=["4d", "4d_b", "4d_c"],
+             keys=list(K_QMRI_COMPACT), settle_ms=1500),
+    Scenario("t2_compare_vertical", 2, ["compare", "layout"],
+             description="2× 3D, compare vertical layout",
+             compare_keys=["3d", "3d_b"],
+             keys=list(K_LAYOUT_VERTICAL)),
+    Scenario("t2_compare_3_vertical", 2, ["compare", "layout", "multi-array"],
+             description="3× 3D, compare vertical",
+             compare_keys=["3d", "3d_b", "3d_c"],
+             keys=list(K_LAYOUT_VERTICAL)),
+    Scenario("t2_compare_3_grid_layout", 2, ["compare", "grid", "layout", "multi-array"],
+             description="3× 3D, compare grid layout (G×2)",
+             compare_keys=["3d", "3d_b", "3d_c"],
+             keys=list(K_LAYOUT_GRID)),
+
+    # --- Vector field ---
+    Scenario("t2_vfield_normal", 2, ["vector", "vfield"],
+             description="3D + vector field arrows",
+             array_key="3d_vf"),
+    Scenario("t2_vfield_roi", 2, ["vector", "roi"],
+             description="Vector field + ROI",
+             array_key="3d_vf", keys=list(K_ROI)),
+    Scenario("t2_vfield_compare", 2, ["vector", "compare"],
+             description="Compare: one array with vector field",
+             compare_keys=["3d_vf", "3d_b"]),
+
+    # --- Display modifiers (single array) ---
+    Scenario("t2_single_log", 2, ["log", "display"],
+             description="Single 3D, log scale",
+             keys=list(K_LOG)),
+    Scenario("t2_single_borders", 2, ["borders", "display"],
+             description="Single 3D, canvas borders on",
+             keys=list(K_BORDERS)),
+    Scenario("t2_single_stretch", 2, ["stretch", "display"],
+             description="Single 3D, square stretch",
+             keys=list(K_STRETCH)),
+    Scenario("t2_single_mask", 2, ["mask", "display"],
+             description="Single 3D, Otsu mask overlay",
+             keys=list(K_MASK)),
+    Scenario("t2_single_lebesgue", 2, ["lebesgue", "display"],
+             description="Single 3D, Lebesgue integral mode",
+             keys=list(K_LEBESGUE),
+             extra_assertions=["lebesgue"]),
+    Scenario("t2_single_pixel_info", 2, ["info", "display"],
+             description="Single 3D, pixel hover + info overlay",
+             keys=list(K_PIXEL_INFO)),
+    Scenario("t2_single_flip", 2, ["flip", "display"],
+             description="Single 3D, flipped axis",
+             keys=list(K_FLIP)),
+    Scenario("t2_single_ruler", 2, ["ruler", "display"],
+             description="Single 3D, ruler mode",
+             keys=list(K_RULER)),
+    Scenario("t2_single_playing", 2, ["play", "display"],
+             description="Single 3D, auto-play active",
+             keys=list(K_PLAY)),
+
+    # --- Projection modes ---
+    Scenario("t2_projection_max", 2, ["projection"],
+             description="Single 3D, MAX projection",
+             keys=list(K_PROJ_MAX)),
+    Scenario("t2_projection_min", 2, ["projection"],
+             description="Single 3D, MIN projection",
+             keys=list(K_PROJ_MIN)),
+    Scenario("t2_projection_mean", 2, ["projection"],
+             description="Single 3D, MEAN projection",
+             keys=list(K_PROJ_MEAN)),
+    Scenario("t2_projection_std", 2, ["projection"],
+             description="Single 3D, STD projection",
+             keys=list(K_PROJ_STD)),
+    Scenario("t2_projection_sos", 2, ["projection"],
+             description="Single 3D, SOS (sum of squares) projection",
+             keys=list(K_PROJ_SOS)),
+
+    # --- Complex array modes ---
+    Scenario("t2_complex_phase", 2, ["complex", "dtype"],
+             description="Complex array, phase view",
+             array_key="complex", keys=list(K_COMPLEX_PHASE)),
+    Scenario("t2_complex_real", 2, ["complex", "dtype"],
+             description="Complex array, real part",
+             array_key="complex", keys=list(K_COMPLEX_REAL)),
+    Scenario("t2_complex_imag", 2, ["complex", "dtype"],
+             description="Complex array, imaginary part",
+             array_key="complex", keys=list(K_COMPLEX_IMAG)),
+
+    # --- RGB ---
+    Scenario("t2_single_rgb", 2, ["rgb", "dtype"],
+             description="RGB-shaped array, RGB mode on",
+             array_key="rgb", keys=list(K_RGB)),
+
+    # --- Themes ---
+    Scenario("t2_theme_light", 2, ["theme", "display"],
+             description="Single 3D, light theme",
+             keys=list(K_THEME_LIGHT)),
+    Scenario("t2_theme_solarized", 2, ["theme", "display"],
+             description="Single 3D, solarized theme",
+             keys=list(K_THEME_SOLARIZED)),
+    Scenario("t2_theme_nord", 2, ["theme", "display"],
+             description="Single 3D, nord theme",
+             keys=list(K_THEME_NORD)),
+
+    # --- qMRI mosaic ---
+    Scenario("t2_qmri_mosaic", 2, ["qmri", "mosaic"],
+             description="Single 4D, qMRI + z mosaic",
+             array_key="4d", keys=list(K_QMRI_MOSAIC)),
+
+    # --- Modifier combos ---
+    Scenario("t2_log_multiview", 2, ["log", "multiview"],
+             description="Log scale + multiview",
+             keys=list(K_LOG) + list(K_MULTIVIEW)),
+    Scenario("t2_log_compare", 2, ["log", "compare"],
+             description="Log scale + compare",
+             compare_keys=["3d", "3d_b"], keys=list(K_LOG)),
+    Scenario("t2_borders_compare", 2, ["borders", "compare"],
+             description="Canvas borders + compare",
+             compare_keys=["3d", "3d_b"], keys=list(K_BORDERS)),
+    Scenario("t2_stretch_compare", 2, ["stretch", "compare"],
+             description="Square stretch + compare",
+             compare_keys=["3d", "3d_b"], keys=list(K_STRETCH)),
+    Scenario("t2_roi_multiview", 2, ["roi", "multiview"],
+             description="ROI + multiview",
+             keys=list(K_MULTIVIEW) + list(K_ROI)),
+    Scenario("t2_mask_compare", 2, ["mask", "compare"],
+             description="Mask overlay + compare",
+             compare_keys=["3d", "3d_b"], keys=list(K_MASK)),
+    Scenario("t2_projection_multiview", 2, ["projection", "multiview"],
+             description="MAX projection (then multiview — should disable)",
+             keys=list(K_PROJ_MAX) + list(K_MULTIVIEW)),
+    Scenario("t2_immersive_compare", 2, ["compact", "compare"],
+             description="Immersive + compare",
+             compare_keys=["3d", "3d_b"], keys=list(K_IMMERSIVE)),
 ]
+
+
+# ── Tier 3: Shape variations ──────────────────────────────────────────────
+# Each primary mode tested with non-square arrays to catch scaling/layout bugs.
+
+TIER3 = [
+    # --- Single normal × shapes ---
+    Scenario("t3_normal_wide_2d", 3, ["shape", "2d"],
+             description="Wide 2D (64×512)",
+             array_key="wide_2d"),
+    Scenario("t3_normal_tall_2d", 3, ["shape", "2d"],
+             description="Tall 2D (512×64)",
+             array_key="tall_2d"),
+    Scenario("t3_normal_tiny", 3, ["shape"],
+             description="Tiny 2D (8×8)",
+             array_key="tiny"),
+    Scenario("t3_normal_wide_3d", 3, ["shape", "3d"],
+             description="Wide 3D (20×64×512)",
+             array_key="wide_3d"),
+    Scenario("t3_normal_tall_3d", 3, ["shape", "3d"],
+             description="Tall 3D (20×512×64)",
+             array_key="tall_3d"),
+    Scenario("t3_normal_row", 3, ["shape", "degenerate"],
+             description="Single-row (1×256)",
+             array_key="row"),
+    Scenario("t3_normal_col", 3, ["shape", "degenerate"],
+             description="Single-column (256×1)",
+             array_key="col"),
+    Scenario("t3_normal_large", 3, ["shape"],
+             description="Large 2D (512×512)",
+             array_key="large"),
+    Scenario("t3_normal_cube", 3, ["shape", "3d"],
+             description="Cube 3D (64×64×64)",
+             array_key="cube"),
+
+    # --- Multiview × shapes ---
+    Scenario("t3_multiview_wide", 3, ["shape", "multiview"],
+             description="Multiview, wide 3D (20×64×512)",
+             array_key="wide_3d", keys=list(K_MULTIVIEW)),
+    Scenario("t3_multiview_tall", 3, ["shape", "multiview"],
+             description="Multiview, tall 3D (20×512×64)",
+             array_key="tall_3d", keys=list(K_MULTIVIEW)),
+    Scenario("t3_multiview_cube", 3, ["shape", "multiview"],
+             description="Multiview, cube 3D (64×64×64)",
+             array_key="cube", keys=list(K_MULTIVIEW)),
+
+    # --- Compare × shapes ---
+    Scenario("t3_compare_wide", 3, ["shape", "compare"],
+             description="Compare, 2× wide 3D",
+             compare_keys=["wide_3d", "wide_3d_b"]),
+    Scenario("t3_compare_tall", 3, ["shape", "compare"],
+             description="Compare, 2× tall 3D",
+             compare_keys=["tall_3d", "tall_3d_b"]),
+    Scenario("t3_compare_mixed", 3, ["shape", "compare"],
+             description="Compare, wide vs tall (mismatched aspect)",
+             compare_keys=["wide_3d", "tall_3d"]),
+
+    # --- Diff × shapes ---
+    Scenario("t3_diff_wide", 3, ["shape", "diff"],
+             description="Diff A-B, wide 3D",
+             compare_keys=["wide_3d", "wide_3d_b"],
+             keys=list(K_DIFF_AB), extra_assertions=["diff"]),
+    Scenario("t3_diff_tall", 3, ["shape", "diff"],
+             description="Diff A-B, tall 3D",
+             compare_keys=["tall_3d", "tall_3d_b"],
+             keys=list(K_DIFF_AB), extra_assertions=["diff"]),
+
+    # --- Mosaic × shapes ---
+    Scenario("t3_mosaic_wide", 3, ["shape", "mosaic"],
+             description="Mosaic, wide 4D (5×20×64×256)",
+             array_key="wide_4d", keys=list(K_MOSAIC)),
+    Scenario("t3_mosaic_tall", 3, ["shape", "mosaic"],
+             description="Mosaic, tall 4D (5×20×256×64)",
+             array_key="tall_4d", keys=list(K_MOSAIC)),
+
+    # --- qMRI × shapes ---
+    Scenario("t3_qmri_wide", 3, ["shape", "qmri"],
+             description="qMRI full, wide (5×20×32×128)",
+             array_key="wide_qmri", keys=list(K_QMRI_FULL)),
+    Scenario("t3_qmri_tall", 3, ["shape", "qmri"],
+             description="qMRI full, tall (5×20×128×32)",
+             array_key="tall_qmri", keys=list(K_QMRI_FULL)),
+
+    # --- Projection × shapes ---
+    Scenario("t3_projection_wide", 3, ["shape", "projection"],
+             description="MAX projection, wide 3D",
+             array_key="wide_3d", keys=list(K_PROJ_MAX)),
+    Scenario("t3_projection_tall", 3, ["shape", "projection"],
+             description="MAX projection, tall 3D",
+             array_key="tall_3d", keys=list(K_PROJ_MAX)),
+
+    # --- Compact/Zen × shapes ---
+    Scenario("t3_compact_wide", 3, ["shape", "compact"],
+             description="Immersive, wide 3D",
+             array_key="wide_3d", keys=list(K_IMMERSIVE)),
+    Scenario("t3_compact_tall", 3, ["shape", "compact"],
+             description="Immersive, tall 3D",
+             array_key="tall_3d", keys=list(K_IMMERSIVE)),
+    Scenario("t3_zen_wide", 3, ["shape"],
+             description="Zen mode, wide 3D",
+             array_key="wide_3d", keys=list(K_ZEN)),
+    Scenario("t3_zen_tall", 3, ["shape"],
+             description="Zen mode, tall 3D",
+             array_key="tall_3d", keys=list(K_ZEN)),
+
+    # --- Compare 4-pane grid × shapes ---
+    Scenario("t3_compare_4_wide", 3, ["shape", "compare", "grid"],
+             description="4× wide 3D, compare grid",
+             compare_keys=["wide_3d", "wide_3d_b", "wide_3d_c", "wide_3d_d"]),
+    Scenario("t3_compare_4_tall", 3, ["shape", "compare", "grid"],
+             description="4× tall 3D, compare grid",
+             compare_keys=["tall_3d", "tall_3d_b", "tall_3d_c", "tall_3d_d"]),
+
+    # --- Vector field × shapes ---
+    Scenario("t3_vfield_wide", 3, ["shape", "vector"],
+             description="Vector field, wide 3D",
+             array_key="wide_3d_vf"),
+    Scenario("t3_vfield_tall", 3, ["shape", "vector"],
+             description="Vector field, tall 3D",
+             array_key="tall_3d_vf"),
+
+    # --- Degenerate in modes ---
+    Scenario("t3_tiny_zoom", 3, ["shape", "zoom"],
+             description="Tiny 8×8 zoomed in",
+             array_key="tiny", zoom=8),
+    Scenario("t3_row_zoom", 3, ["shape", "zoom", "degenerate"],
+             description="Single-row 1×256 zoomed",
+             array_key="row", zoom=5),
+    Scenario("t3_col_zoom", 3, ["shape", "zoom", "degenerate"],
+             description="Single-column 256×1 zoomed",
+             array_key="col", zoom=5),
+]
+
+
+ALL_SCENARIOS = TIER1 + TIER2 + TIER3
 
 
 # ---------------------------------------------------------------------------
-# Scenario runner
+# Test arrays
+# ---------------------------------------------------------------------------
+
+
+def _create_arrays(client, tmp) -> dict[str, str]:
+    """Create all test arrays and load them into the server. Returns {key: sid}."""
+    rng = np.random.default_rng(42)
+    arrays: dict[str, str] = {}
+
+    def _mk(name, arr):
+        arrays[name] = _load(client, arr, f"audit_{name}", tmp)
+
+    # ── Standard shapes (square-ish) ──────────────────────────────────────
+    _mk("2d", np.linspace(0, 1, 100 * 80, dtype=np.float32).reshape(100, 80))
+    _mk("3d", rng.standard_normal((20, 64, 64)).astype(np.float32))
+    _mk("3d_b", rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.7 + 0.2)
+    _mk("3d_c", rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.5)
+    _mk("3d_d", rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.3 + 0.4)
+    _mk("4d", rng.standard_normal((5, 20, 32, 32)).astype(np.float32))
+    _mk("4d_b", rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.8)
+    _mk("4d_c", rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.6)
+    _mk("complex", (
+        rng.standard_normal((20, 32, 32)) + 1j * rng.standard_normal((20, 32, 32))
+    ).astype(np.complex64))
+    _mk("rgb", rng.random((64, 64, 3)).astype(np.float32))
+
+    # ── Wide shapes ───────────────────────────────────────────────────────
+    _mk("wide_2d", rng.standard_normal((64, 512)).astype(np.float32))
+    _mk("wide_3d", rng.standard_normal((20, 64, 512)).astype(np.float32))
+    _mk("wide_3d_b", rng.standard_normal((20, 64, 512)).astype(np.float32) * 0.7)
+    _mk("wide_3d_c", rng.standard_normal((20, 64, 512)).astype(np.float32) * 0.5)
+    _mk("wide_3d_d", rng.standard_normal((20, 64, 512)).astype(np.float32) * 0.3)
+    _mk("wide_4d", rng.standard_normal((5, 20, 64, 256)).astype(np.float32))
+    _mk("wide_qmri", rng.standard_normal((5, 20, 32, 128)).astype(np.float32))
+
+    # ── Tall shapes ───────────────────────────────────────────────────────
+    _mk("tall_2d", rng.standard_normal((512, 64)).astype(np.float32))
+    _mk("tall_3d", rng.standard_normal((20, 512, 64)).astype(np.float32))
+    _mk("tall_3d_b", rng.standard_normal((20, 512, 64)).astype(np.float32) * 0.7)
+    _mk("tall_3d_c", rng.standard_normal((20, 512, 64)).astype(np.float32) * 0.5)
+    _mk("tall_3d_d", rng.standard_normal((20, 512, 64)).astype(np.float32) * 0.3)
+    _mk("tall_4d", rng.standard_normal((5, 20, 256, 64)).astype(np.float32))
+    _mk("tall_qmri", rng.standard_normal((5, 20, 128, 32)).astype(np.float32))
+
+    # ── Edge cases ────────────────────────────────────────────────────────
+    _mk("tiny", rng.standard_normal((8, 8)).astype(np.float32))
+    _mk("large", rng.standard_normal((512, 512)).astype(np.float32))
+    _mk("row", rng.standard_normal((1, 256)).astype(np.float32))
+    _mk("col", rng.standard_normal((256, 1)).astype(np.float32))
+    _mk("cube", rng.standard_normal((64, 64, 64)).astype(np.float32))
+
+    # ── Vector field arrays ───────────────────────────────────────────────
+    # Standard vector field (square)
+    _mk("3d_vf", rng.standard_normal((20, 64, 64)).astype(np.float32))
+    vf = np.zeros((20, 64, 64, 3), dtype=np.float32)
+    vf[..., 1] = 0.3
+    vf[..., 2] = 0.6
+    vf_path = Path(tmp) / "audit_3d_vf_field.npy"
+    np.save(vf_path, vf)
+    r = client.post("/attach_vectorfield", json={"sid": arrays["3d_vf"], "filepath": str(vf_path)})
+    r.raise_for_status()
+
+    # Wide vector field
+    _mk("wide_3d_vf", rng.standard_normal((20, 64, 512)).astype(np.float32))
+    vf_wide = np.zeros((20, 64, 512, 3), dtype=np.float32)
+    vf_wide[..., 1] = 0.3
+    vf_wide[..., 2] = 0.6
+    vf_wide_path = Path(tmp) / "audit_wide_3d_vf_field.npy"
+    np.save(vf_wide_path, vf_wide)
+    r = client.post("/attach_vectorfield", json={"sid": arrays["wide_3d_vf"], "filepath": str(vf_wide_path)})
+    r.raise_for_status()
+
+    # Tall vector field
+    _mk("tall_3d_vf", rng.standard_normal((20, 512, 64)).astype(np.float32))
+    vf_tall = np.zeros((20, 512, 64, 3), dtype=np.float32)
+    vf_tall[..., 1] = 0.3
+    vf_tall[..., 2] = 0.6
+    vf_tall_path = Path(tmp) / "audit_tall_3d_vf_field.npy"
+    np.save(vf_tall_path, vf_tall)
+    r = client.post("/attach_vectorfield", json={"sid": arrays["tall_3d_vf"], "filepath": str(vf_tall_path)})
+    r.raise_for_status()
+
+    return arrays
+
+
+# ---------------------------------------------------------------------------
+# Scenario runner (generic)
 # ---------------------------------------------------------------------------
 
 
@@ -487,51 +974,21 @@ def run_scenarios(
     update_baselines: bool,
 ) -> list[tuple[str, bool, str]]:
     """Run audit scenarios and return list of (name, passed, detail)."""
-    rng = np.random.default_rng(42)
     results: list[tuple[str, bool, str]] = []
 
-    # --- Create test arrays ---
-    arr_2d = np.linspace(0, 1, 100 * 80, dtype=np.float32).reshape(100, 80)
-    arr_3d = rng.standard_normal((20, 64, 64)).astype(np.float32)
-    arr_3d_b = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.7 + 0.2
-    arr_3d_c = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.5
-    arr_3d_d = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.3 + 0.4
-    arr_4d = rng.standard_normal((5, 20, 32, 32)).astype(np.float32)
-    arr_4d_b = rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.8
-    arr_4d_c = rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.6
-    arr_complex = (
-        rng.standard_normal((20, 32, 32)) + 1j * rng.standard_normal((20, 32, 32))
-    ).astype(np.complex64)
-
-    # Vector field: N+1 dims, last dim = 3
-    vf_3d = np.zeros((20, 64, 64, 3), dtype=np.float32)
-    vf_3d[..., 1] = 0.3
-    vf_3d[..., 2] = 0.6
-
-    # --- Load arrays ---
-    sid_2d = _load(client, arr_2d, "audit_2d", tmp)
-    sid_3d = _load(client, arr_3d, "audit_3d", tmp)
-    sid_3d_b = _load(client, arr_3d_b, "audit_3d_b", tmp)
-    sid_3d_c = _load(client, arr_3d_c, "audit_3d_c", tmp)
-    sid_3d_d = _load(client, arr_3d_d, "audit_3d_d", tmp)
-    sid_4d = _load(client, arr_4d, "audit_4d", tmp)
-    sid_4d_b = _load(client, arr_4d_b, "audit_4d_b", tmp)
-    sid_4d_c = _load(client, arr_4d_c, "audit_4d_c", tmp)
-    sid_complex = _load(client, arr_complex, "audit_complex", tmp)
-
-    # Vector field setup
-    sid_3d_vf = _load(client, arr_3d, "audit_3d_vf", tmp)
-    vf_path = Path(tmp) / "audit_3d_vf_field.npy"
-    np.save(vf_path, vf_3d)
-    r = client.post("/attach_vectorfield", json={"sid": sid_3d_vf, "filepath": str(vf_path)})
-    r.raise_for_status()
+    # --- Create all test arrays ---
+    arrays = _create_arrays(client, tmp)
 
     # --- Determine which scenarios to run ---
     scenarios: list[Scenario] = []
-    if tier is None or tier == 1:
-        scenarios.extend(TIER1)
-    if tier is None or tier == 2:
-        scenarios.extend(TIER2)
+    if tier is None:
+        scenarios = list(ALL_SCENARIOS)
+    elif tier == 1:
+        scenarios = list(TIER1)
+    elif tier == 2:
+        scenarios = list(TIER2)
+    elif tier == 3:
+        scenarios = list(TIER3)
 
     if subset:
         scenarios = [s for s in scenarios if s.subset_tags and subset & set(s.subset_tags)]
@@ -542,299 +999,48 @@ def run_scenarios(
     for scenario in scenarios:
         name = scenario.name
         print(f"\n  {name}: {scenario.description}")
-        assertion_results: list[AssertionResult] = []
 
         try:
-            # ── TIER 1 ──────────────────────────────────────────────
-
-            if name == "t1_single_normal_fit":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t1_single_normal_zoom":
-                _goto(page, base, sid_3d)
-                _zoom_in(page, 5)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name, zoomed=True)
-                _zoom_reset(page)
-
-            elif name == "t1_single_compact":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "Shift+K", wait=600)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "Shift+K", wait=400)
-
-            elif name == "t1_single_multiview_fit":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "v", wait=1000)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "v", wait=400)
-
-            elif name == "t1_single_multiview_zoom":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "v", wait=1000)
-                _zoom_in(page, 3)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name, zoomed=True)
-                _zoom_reset(page)
-                _press(page, "v", wait=400)
-
-            elif name == "t1_single_qmri_full":
-                _goto(page, base, sid_4d)
-                _focus(page)
-                _press(page, "q", wait=2500)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "q", wait=400)
-                _press(page, "q", wait=400)  # exit
-
-            elif name == "t1_single_qmri_compact":
-                _goto(page, base, sid_4d)
-                _focus(page)
-                _press(page, "q", wait=2500)
-                _press(page, "q", wait=1500)  # compact
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "q", wait=400)  # exit
-
-            elif name == "t1_single_zen":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "Shift+F", wait=800)
-                _shot(page, name)
-                # Zen mode hides all chrome, so assertions are minimal
-                assertion_results = run_assertions(page, name)
-                _press(page, "Shift+F", wait=400)
-
-            elif name == "t1_compare_fit":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t1_compare_zoom":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _zoom_in(page, 4)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name, zoomed=True)
-                _zoom_reset(page)
-
-            elif name == "t1_compare_diff":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _press(page, "Shift+X", wait=800)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                assertion_results.extend(run_diff_assertions(page))
-                _press(page, "Shift+X", wait=400)  # cycle through diff modes
-                for _ in range(5):
-                    _press(page, "Shift+X", wait=300)  # exit diff
-
-            elif name == "t1_compare_multiview":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _press(page, "v", wait=2500)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "v", wait=400)
-
-            elif name == "t1_single_roi":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "Shift+A", wait=600)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                # Exit ROI: cycle through modes back to off
-                for _ in range(3):
-                    _press(page, "Shift+A", wait=300)
-
-            elif name == "t1_compact_roi":
-                _goto(page, base, sid_3d)
-                _focus(page)
-                _press(page, "Shift+K", wait=600)
-                _press(page, "Shift+A", wait=600)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                for _ in range(3):
-                    _press(page, "Shift+A", wait=300)
-                _press(page, "Shift+K", wait=400)
-
-            # ── TIER 2 ──────────────────────────────────────────────
-
-            elif name == "t2_single_2d":
-                _goto(page, base, sid_2d)
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_single_4d":
-                _goto(page, base, sid_4d)
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_single_mosaic":
-                _goto(page, base, sid_4d)
-                _focus(page)
-                _press(page, "z", wait=800)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "z", wait=400)
-
-            elif name == "t2_single_complex":
-                _goto(page, base, sid_complex)
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_diff_abs":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _press(page, "Shift+X", wait=800)  # A-B
-                _press(page, "Shift+X", wait=800)  # |A-B|
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                assertion_results.extend(run_diff_assertions(page))
-                for _ in range(4):
-                    _press(page, "Shift+X", wait=300)
-
-            elif name == "t2_diff_rel":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                for _ in range(3):  # A-B → |A-B| → |A-B|/|A|
-                    _press(page, "Shift+X", wait=800)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                assertion_results.extend(run_diff_assertions(page))
-                for _ in range(3):
-                    _press(page, "Shift+X", wait=300)
-
-            elif name == "t2_overlay":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                for _ in range(4):  # A-B → |A-B| → |A-B|/|A| → overlay
-                    _press(page, "Shift+X", wait=800)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                for _ in range(2):
-                    _press(page, "Shift+X", wait=300)
-
-            elif name == "t2_wipe":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                for _ in range(5):  # A-B → |A-B| → |A-B|/|A| → overlay → wipe
-                    _press(page, "Shift+X", wait=800)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "Shift+X", wait=300)  # off
-
-            elif name == "t2_registration":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _press(page, "Shift+R", wait=1000)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "Shift+R", wait=400)
-
-            elif name == "t2_compare_qmri":
-                _goto_compare(page, base, [sid_4d, sid_4d_b])
-                _focus(page)
-                _press(page, "q", wait=2500)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "q", wait=400)
-                _press(page, "q", wait=400)
-
-            elif name == "t2_diff_roi":
-                _goto_compare(page, base, [sid_3d, sid_3d_b])
-                _focus(page)
-                _press(page, "Shift+X", wait=800)
-                _press(page, "Shift+A", wait=600)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                for _ in range(3):
-                    _press(page, "Shift+A", wait=300)
-                for _ in range(5):
-                    _press(page, "Shift+X", wait=300)
-
-            elif name == "t2_compare_3_grid":
-                _goto_compare(page, base, [sid_3d, sid_3d_b, sid_3d_c])
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_compare_3_qmri":
-                _goto_compare(page, base, [sid_4d, sid_4d_b, sid_4d_c])
-                _focus(page)
-                _press(page, "q", wait=3000)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "q", wait=400)
-                _press(page, "q", wait=400)
-
-            elif name == "t2_compare_3_multiview":
-                _goto_compare(page, base, [sid_3d, sid_3d_b, sid_3d_c])
-                _focus(page)
-                _press(page, "v", wait=3000)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "v", wait=400)
-
-            elif name == "t2_compare_4_grid":
-                _goto_compare(page, base, [sid_3d, sid_3d_b, sid_3d_c, sid_3d_d])
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_compare_34_qmri_compact":
-                _goto_compare(page, base, [sid_4d, sid_4d_b, sid_4d_c])
-                _focus(page)
-                _press(page, "q", wait=3000)
-                _press(page, "q", wait=1500)  # compact
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                _press(page, "q", wait=400)
-
-            elif name == "t2_vfield_normal":
-                _goto(page, base, sid_3d_vf)
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
-            elif name == "t2_vfield_roi":
-                _goto(page, base, sid_3d_vf)
-                _focus(page)
-                _press(page, "Shift+A", wait=600)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-                for _ in range(3):
-                    _press(page, "Shift+A", wait=300)
-
-            elif name == "t2_vfield_compare":
-                _goto_compare(page, base, [sid_3d_vf, sid_3d_b])
-                _focus(page)
-                _shot(page, name)
-                assertion_results = run_assertions(page, name)
-
+            # 1. Navigate
+            if scenario.compare_keys:
+                sids = [arrays[k] for k in scenario.compare_keys]
+                _goto_compare(page, base, sids)
             else:
-                print(f"    SKIP: no implementation for {name}")
-                results.append((name, True, "skipped"))
-                continue
+                _goto(page, base, arrays[scenario.array_key])
 
-            # --- Process assertions ---
+            # 2. Focus keyboard
+            _focus(page)
+
+            # 3. Press keys
+            for key, wait in scenario.keys:
+                _press(page, key, wait=wait)
+
+            # 4. Zoom
+            if scenario.zoom > 0:
+                _zoom_in(page, scenario.zoom)
+
+            # 5. Settle
+            page.wait_for_timeout(scenario.settle_ms)
+
+            # 6. Screenshot
+            _shot(page, name)
+
+            # 7. Run assertions
+            assertion_results = run_assertions(page, name, zoomed=scenario.zoom > 0)
+
+            # 8. Extra assertions
+            if "diff" in scenario.extra_assertions:
+                assertion_results.extend(run_diff_assertions(page))
+            if "lebesgue" in scenario.extra_assertions:
+                assertion_results.extend(run_lebesgue_assertions(page))
+
+            # 9. Process results
             failed_assertions = [a for a in assertion_results if not a.passed]
             if failed_assertions:
                 for a in failed_assertions:
                     print(f"    FAIL: {a.rule} — {a.detail}")
 
-            # --- Visual diff ---
+            # 10. Visual diff against baseline
             screenshot_path = SCREENSHOTS_DIR / f"{name}.png"
             baseline_path = BASELINES_DIR / f"{name}.png"
             diff_path = DIFFS_DIR / f"{name}_diff.png"
@@ -906,18 +1112,44 @@ def write_report(results: list[tuple[str, bool, str]]):
 
 
 # ---------------------------------------------------------------------------
+# List mode (print scenario table)
+# ---------------------------------------------------------------------------
+
+
+def list_scenarios():
+    """Print a formatted table of all scenarios."""
+    print(f"\n{'─' * 90}")
+    print(f"  {'NAME':<40} {'TIER':>4}  {'TAGS':<25} DESCRIPTION")
+    print(f"{'─' * 90}")
+    for s in ALL_SCENARIOS:
+        tags = ", ".join(s.subset_tags) if s.subset_tags else "—"
+        print(f"  {s.name:<40} T{s.tier:>3}  {tags:<25} {s.description}")
+    print(f"{'─' * 90}")
+    t1 = sum(1 for s in ALL_SCENARIOS if s.tier == 1)
+    t2 = sum(1 for s in ALL_SCENARIOS if s.tier == 2)
+    t3 = sum(1 for s in ALL_SCENARIOS if s.tier == 3)
+    print(f"  Total: {len(ALL_SCENARIOS)} scenarios  (T1: {t1}, T2: {t2}, T3: {t3})")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main():
     parser = argparse.ArgumentParser(description="ArrayView UI Consistency Audit")
-    parser.add_argument("--tier", type=int, choices=[1, 2], help="Run only tier 1 or 2")
+    parser.add_argument("--tier", type=int, choices=[1, 2, 3], help="Run only this tier")
     parser.add_argument("--subset", type=str, help="Comma-separated subset tags (e.g. zoom,compact)")
     parser.add_argument("--update-baselines", action="store_true", help="Update baseline screenshots")
     parser.add_argument("--width", type=int, default=1440, help="Viewport width")
     parser.add_argument("--height", type=int, default=900, help="Viewport height")
+    parser.add_argument("--list", action="store_true", help="Print scenario table and exit")
     args = parser.parse_args()
+
+    if args.list:
+        list_scenarios()
+        return
 
     subset = set(args.subset.split(",")) if args.subset else None
 
