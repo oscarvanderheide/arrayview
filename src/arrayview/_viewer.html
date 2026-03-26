@@ -2590,8 +2590,8 @@
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
-            // In compare mode, don't cap at 600px — multi-array grids can be wider
-            const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40))
+            // Cap compare mode width to 500px (like multiview's 480px cap) for better proportions
+            const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
                 : Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
             const stripH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
