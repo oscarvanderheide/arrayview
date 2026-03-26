@@ -100,7 +100,7 @@
         }
         .axes-lbl-x, .axes-lbl-y { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         #slim-cb-wrap {
-            text-align: center; padding: 5px 14px; position: fixed; z-index: 2;
+            text-align: center; padding: 7px 16px; position: fixed; z-index: 2;
             transition: opacity 0.3s ease, height 0.2s ease;
             border-radius: 14px;
             background: rgba(30, 30, 30, 0.8);
@@ -144,7 +144,7 @@
         }
         #slim-cb { display: block; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; transition: height 0.15s ease; flex: 1; min-width: 60px; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
+        .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -1796,7 +1796,7 @@
                 childrenH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
             const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
-            const pt = _fullscreenActive ? 0 : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
+            const pt = _fullscreenActive ? 12 : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
@@ -1811,8 +1811,9 @@
 
         function scaleCanvas(w, h) {
             const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
-            const maxW = Math.max(100, window.innerWidth - (_fullscreenActive ? 16 : 80));
-            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve);
+            const immersivePad = 12; // breathing room on each side in immersive mode
+            const maxW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80));
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - (_fullscreenActive ? immersivePad * 2 : 0));
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
             const effectiveMaxH = Math.min(maxH, welcomeCapH);
@@ -2708,7 +2709,7 @@
         }
 
         // ── Histogram-in-colorbar ────────────────────────────────────────────
-        const CB_COLLAPSED_H = 11;  // normal colorbar height in CSS px
+        const CB_COLLAPSED_H = 13;  // normal colorbar height in CSS px
         const CB_EXPANDED_H  = 53;  // expanded height when histogram is shown
 
         async function _fetchHistogram() {
@@ -9352,10 +9353,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             e.preventDefault();
             // Ctrl / Cmd + scroll → zoom
             if (e.ctrlKey || e.metaKey) {
+                // Use deltaY magnitude to scale zoom — small trackpad pinch
+                // gestures get small zoom steps, big scroll wheel clicks get bigger ones
+                const absDelta = Math.min(Math.abs(e.deltaY), 50);
+                const zoomFactor = 1 + absDelta * 0.004; // ~1.02 for small pinch, ~1.2 for big scroll
                 userZoom = e.deltaY > 0
-                    ? Math.max(userZoom / 1.12, 0.1)
-                    : Math.min(userZoom * 1.12, 10.0);
+                    ? Math.max(userZoom / zoomFactor, 0.1)
+                    : Math.min(userZoom * zoomFactor, 10.0);
                 _zoomAdjustedByUser = true;
+                // Auto-enter/exit immersive on scroll zoom
+                if (!multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive) {
+                    if (!_fullscreenActive && userZoom > 1.0 && _canFitImmersive()) setFullscreenMode(true);
+                    else if (_fullscreenActive && userZoom <= 1.0) setFullscreenMode(false);
+                }
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
                 else if (compareMvActive) compareMvScaleAllCanvases();
                 else if (multiViewActive) mvScaleAllCanvases();
