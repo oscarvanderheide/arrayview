@@ -616,12 +616,16 @@
             padding: 0 !important; margin: 0 !important;
         }
         body.fullscreen-mode #canvas-viewport {
-            /* Let canvas fill viewport */
+            /* Canvas-viewport is the positioning anchor for overlaid chrome */
+            position: relative;
         }
-        /* Dim bar overlaid top-center */
+        body.fullscreen-mode #viewer-row {
+            position: relative;
+        }
+        /* Dim bar overlaid top-center — positioned via JS relative to canvas */
         body.fullscreen-mode #info {
-            position: fixed; z-index: 3; top: 8px; left: 50%; transform: translateX(-50%);
-            margin: 0; padding: 6px 16px;
+            position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
+            margin: 0 !important; padding: 6px 16px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -631,8 +635,7 @@
         body.fullscreen-mode #info > * { pointer-events: auto; }
         /* Colorbar overlaid bottom-center */
         body.fullscreen-mode #slim-cb-wrap {
-            position: fixed !important; z-index: 3; bottom: 8px; left: 50%; transform: translateX(-50%) !important;
-            top: auto !important;
+            position: fixed !important; z-index: 3; left: 50%; transform: translateX(-50%) !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -1796,7 +1799,10 @@
                 childrenH += child.offsetHeight + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
             const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
-            const pt = _fullscreenActive ? 12 : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
+            // In fullscreen: center the canvas vertically in the viewport
+            const pt = _fullscreenActive
+                ? Math.max(0, Math.floor((window.innerHeight - childrenH) / 2))
+                : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
@@ -2554,14 +2560,12 @@
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
-                // In fullscreen mode, CSS handles positioning (position:fixed, bottom:8px).
-                // Just size the canvas and draw the gradient; clear inline position overrides.
+                // Size the colorbar, then position via _positionFullscreenChrome()
                 const vpW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
                 const cssW = Math.max(60, Math.round(vpW * 0.60));
                 const stripH = CB_COLLAPSED_H;
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
-                    wrap.style.top = '';
                     wrap.style.left = '';
                     wrap.style.transform = '';
                     wrap.style.transformOrigin = '';
@@ -2599,6 +2603,8 @@
                 if (_cvmax) _cvmax.style.display = '';
                 if (_cvmin) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
                 if (_cvmax) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                // Position chrome inside the canvas viewport
+                _positionFullscreenChrome();
                 return;
             }
 
@@ -9606,8 +9612,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _fullscreenActive = false;
 
         function _positionFullscreenInfo() {
-            // In fullscreen mode, CSS handles positioning (position:fixed, top:8px, left:50%).
-            // No JS positioning needed — just ensure the info element is visible.
+            _positionFullscreenChrome();
         }
 
         function _canFitImmersive() {
@@ -9635,12 +9640,32 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     wrap.classList.remove('compact-overlay');
                     wrap.style.width = '';
                 }
-                // Reset info position
+                // Reset info and colorbar position
                 const infoEl = document.getElementById('info');
                 if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
+                const cbWrap = document.getElementById('slim-cb-wrap');
+                if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; }
                 // Reset wrapper padding
                 const wrapper = document.getElementById('wrapper');
                 if (wrapper) { wrapper.style.paddingTop = ''; }
+            }
+        }
+
+        function _positionFullscreenChrome() {
+            if (!_fullscreenActive) return;
+            const vp = document.getElementById('canvas-viewport');
+            if (!vp) return;
+            const vpRect = vp.getBoundingClientRect();
+            // Position dim bar inside canvas, 8px from canvas top
+            const infoEl = document.getElementById('info');
+            if (infoEl) {
+                infoEl.style.top = (vpRect.top + 8) + 'px';
+            }
+            // Position colorbar inside canvas, 8px from canvas bottom
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap && cbWrap.style.display !== 'none') {
+                cbWrap.style.top = (vpRect.bottom - 40) + 'px';
+                cbWrap.style.bottom = '';
             }
         }
 
