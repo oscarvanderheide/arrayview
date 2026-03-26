@@ -1524,11 +1524,11 @@
             // Transform .compare-canvas-inner within its .compare-canvas-clip
             // wrapper.  Clip handles overflow; inner moves to pan.
             document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
-            // Counter-translate axes indicators and per-pane minimaps so they
-            // stay anchored in the viewport (they live inside inner).
+            // Counter-translate axes indicators so they stay anchored in the
+            // viewport (they live inside inner which moves for panning).
+            // Minimaps live in the clip wrapper, so they don't need this.
             const atx = (_cmpPanX || _cmpPanY) ? `translate(${-_cmpPanX}px,${-_cmpPanY}px)` : '';
             document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
-            document.querySelectorAll('.cmp-mini-map').forEach(el => { el.style.transform = atx; });
         }
 
         // ── compare-title drag-to-reorder ──────────────────────────────────────
@@ -7246,7 +7246,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.querySelectorAll('.compare-canvas-clip').forEach(el => {
                 el.style.width = ''; el.style.height = '';
             });
-            document.querySelectorAll('.cmp-mini-map').forEach(el => { el.style.transform = ''; });
             // Reset all center-pane mode state
             compareCenterMode = 0;
             diffMode = 0;
@@ -10515,14 +10514,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cv = compareCanvases[i];
                 const frame = compareFrames[i];
                 const inner = cv && cv.closest('.compare-canvas-inner');
-                if (!cv || !frame || !inner) {
+                // Minimaps attach to the clip wrapper (viewport) so they stay
+                // anchored when inner translates for panning.
+                const clip = inner && inner.closest('.compare-canvas-clip');
+                if (!cv || !frame || !clip) {
                     // Remove minimap if pane is inactive
-                    const old = inner && inner.querySelector('.cmp-mini-map');
+                    const old = clip && clip.querySelector('.cmp-mini-map');
                     if (old) old.classList.remove('visible');
                     continue;
                 }
                 // Find or create per-pane minimap
-                let mm = inner.querySelector('.cmp-mini-map');
+                let mm = clip.querySelector('.cmp-mini-map');
                 if (!mm) {
                     mm = document.createElement('div');
                     mm.className = 'cmp-mini-map';
@@ -10532,7 +10534,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     mmVp.className = 'cmp-mini-vp';
                     mm.appendChild(mmCv);
                     mm.appendChild(mmVp);
-                    inner.appendChild(mm);
+                    clip.appendChild(mm);
                 }
                 mm.classList.add('visible');
                 const mmCv = mm.querySelector('canvas');
