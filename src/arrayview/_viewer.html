@@ -2717,7 +2717,7 @@
                     wrap.style.left = '';
                     wrap.style.transform = '';
                     wrap.style.transformOrigin = '';
-                    wrap.style.width = (cssW + 8) + 'px';
+                    wrap.style.width = '';
                     wrap.style.display = '';
                 }
                 const dpr = window.devicePixelRatio || 1;
@@ -10434,10 +10434,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (infoEl) {
                 infoEl.style.top = (vpRect.top + 8) + 'px';
             }
-            // Position colorbar inside canvas, 8px from canvas bottom
+            // Position colorbar inside canvas, anchored to bottom so histogram grows upward
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
-                cbWrap.style.top = (vpRect.bottom - 40) + 'px';
+                const cbH = cbWrap.offsetHeight || 40;
+                cbWrap.style.top = (vpRect.bottom - cbH - 20) + 'px';
                 cbWrap.style.bottom = '';
             }
         }
