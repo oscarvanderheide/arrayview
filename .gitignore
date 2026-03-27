@@ -24,6 +24,7 @@ tests/smoke_output/
 dev/
 *.png
 !src/arrayview/_icon.png
+!docs/logo.png
 
 benchmarks/data
 .superpowers/brainstorm

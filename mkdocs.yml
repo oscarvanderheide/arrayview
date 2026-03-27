@@ -4,6 +4,8 @@ repo_url: https://github.com/oscarvanderheide/arrayview
 
 theme:
   name: material
+  logo: logo.png
+  favicon: logo.png
   palette:
     scheme: slate
     primary: black
