@@ -3097,10 +3097,12 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            // Anchor the island's TOP edge at pane bottom + chromeGap (same gap as
-            // between dimbar and pane top). Island grows downward when expanded.
-            // Clamp so the island bottom never exceeds viewport - chromeGap (equal spacing).
-            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - stripH - 14 - chromeGap);
+            // Position island centered in the space below the pane, with equal gaps
+            // above (pane→island) and below (island→viewport). Grows downward on expand.
+            const islandH = stripH + 14; // canvas height + vertical padding (7+7)
+            const spaceBelow = window.innerHeight - _cbAnchorBottom;
+            const gap = Math.max(4, (spaceBelow - islandH) / 2);
+            const cbTop = _cbAnchorBottom + gap;
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
