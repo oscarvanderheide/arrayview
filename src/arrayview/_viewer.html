@@ -2708,66 +2708,55 @@
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
-                // Size the colorbar, then position via _positionFullscreenChrome()
+                // Fullscreen: use morph draw, then position anchored to bottom
+                if (_cmapInIsland) return;
                 const vpW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
-                const cssW = Math.max(60, Math.round(vpW * 0.60));
-                const stripH = CB_COLLAPSED_H;
+                const fsCbW = Math.max(160, Math.round(vpW * 0.60));
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
-                    wrap.style.left = '';
-                    wrap.style.transform = '';
+                    wrap.style.left = '50%';
+                    wrap.style.transform = 'translateX(-50%)';
                     wrap.style.transformOrigin = '';
-                    wrap.style.width = '';
+                    wrap.style.width = fsCbW + 'px';
                     wrap.style.display = '';
                 }
-                const dpr = window.devicePixelRatio || 1;
-                slimCbCanvas.width = Math.round(cssW * dpr);
-                slimCbCanvas.height = Math.round(stripH * dpr);
-                slimCbCanvas.style.width = cssW + 'px';
-                slimCbCanvas.style.height = stripH + 'px';
+                slimCbCanvas.style.width = '';
                 slimCbCanvas.style.display = '';
-                const sCtx = slimCbCanvas.getContext('2d');
-                sCtx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
-                sCtx.save();
-                sCtx.scale(dpr, dpr);
-                if (!lebesgueMode) {
-                    const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
-                    const n = stops.length;
-                    for (let i = 0; i < n; i++) {
-                        const t = n <= 1 ? 0 : i / (n - 1);
-                        const rgb = stops[i];
-                        grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-                    }
-                    sCtx.fillStyle = grad;
-                    sCtx.fillRect(0, 0, cssW, stripH);
-                }
-                sCtx.restore();
-                // Hide labels in fullscreen mode — clean slim bar only
                 slimCbLabels.style.display = 'none';
-                // Show inline vmin/vmax flanking spans same as normal mode
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) _cvmin.style.display = '';
-                if (_cvmax) _cvmax.style.display = '';
-                if (_cvmin) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                if (_cvmax) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
-                // Position chrome inside the canvas viewport
+                if (_cvmin) _cvmin.style.display = _cbExpanded ? 'none' : '';
+                if (_cvmax) _cvmax.style.display = _cbExpanded ? 'none' : '';
+                if (_cvmin && !_cbExpanded) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                if (_cvmax && !_cbExpanded) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                // Build KDE if needed, draw via morph
+                if (_histData && !_kdeSmooth) _buildKDE();
+                _cbMorphDraw();
+                // Eggs
+                const eggsEl = document.getElementById('mode-eggs');
+                if (eggsEl) eggsEl.style.opacity = _cbAnimT > 0.1 ? '0' : '';
+                // Triangle zone
+                const triZone = document.getElementById('slim-cb-tri-zone');
+                if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
+                // Position anchored to bottom of viewport
                 _positionFullscreenChrome();
                 return;
             }
 
             // ── Normal horizontal colorbar ──────────────────────────
+            // Skip everything if colormap preview is showing in the island
+            if (_cmapInIsland) return;
             if (wrap) {
                 wrap.classList.remove('compact-vertical', 'compact-overlay');
                 wrap.style.transform = '';
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
-            // but keep them hidden when histogram is expanded or cmap preview active
+            // but keep them hidden when histogram is expanded
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
-            if (_nvmin) _nvmin.style.display = (_cbExpanded || _cmapInIsland) ? 'none' : '';
-            if (_nvmax) _nvmax.style.display = (_cbExpanded || _cmapInIsland) ? 'none' : '';
+            if (_nvmin) _nvmin.style.display = _cbExpanded ? 'none' : '';
+            if (_nvmax) _nvmax.style.display = _cbExpanded ? 'none' : '';
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
@@ -2934,21 +2923,24 @@
         let _cbWinVminTarget = 0;
         let _cbWinVmaxTarget = 1;
 
-        /** Core morph renderer — draws the colorbar/histogram as one shape. */
-        function _cbMorphDraw() {
-            if (!slimCbCanvas) return;
-            if (_cmapInIsland) return; // colormap preview is showing — don't overdraw
+        /** Core morph renderer — draws the colorbar/histogram as one shape.
+         *  @param {HTMLCanvasElement} [targetCanvas] — canvas to draw on (defaults to slimCbCanvas)
+         */
+        function _cbMorphDraw(targetCanvas) {
+            const cvs = targetCanvas || slimCbCanvas;
+            if (!cvs) return;
+            if (!targetCanvas && _cmapInIsland) return; // colormap preview is showing — don't overdraw
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops || !stops.length) return;
             const dpr = window.devicePixelRatio || 1;
-            const cssW = slimCbCanvas.clientWidth || 200;
+            const cssW = cvs.clientWidth || 200;
             const aT = _cbAnimT;
             const cssH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * aT;
-            slimCbCanvas.width = Math.round(cssW * dpr);
-            slimCbCanvas.height = Math.round(cssH * dpr);
-            slimCbCanvas.style.height = cssH + 'px';
-            const ctx = slimCbCanvas.getContext('2d');
-            ctx.clearRect(0, 0, slimCbCanvas.width, slimCbCanvas.height);
+            cvs.width = Math.round(cssW * dpr);
+            cvs.height = Math.round(cssH * dpr);
+            cvs.style.height = cssH + 'px';
+            const ctx = cvs.getContext('2d');
+            ctx.clearRect(0, 0, cvs.width, cvs.height);
             ctx.save();
             ctx.scale(dpr, dpr);
 
@@ -10439,11 +10431,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (infoEl) {
                 infoEl.style.top = (vpRect.top + 8) + 'px';
             }
-            // Position colorbar inside canvas, anchored to bottom so histogram grows upward
+            // Position colorbar anchored to bottom of viewport so histogram grows upward
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
                 const cbH = cbWrap.offsetHeight || 40;
-                cbWrap.style.top = (vpRect.bottom - cbH - 20) + 'px';
+                // Anchor bottom of island 10px above viewport bottom
+                cbWrap.style.top = (window.innerHeight - cbH - 10) + 'px';
                 cbWrap.style.bottom = '';
             }
         }
