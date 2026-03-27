@@ -3101,7 +3101,7 @@
             // island grows upward (top moves up) while the bottom stays put.
             // When expanded, the island fills the space of colorbar + gap + eggs,
             // so anchor bottom at where eggs bottom was (collapsed bottom + gap + eggs height)
-            const eggsExtra = _cbAnimT > 0.01 ? 32 : 0; // ~12px gap + ~20px eggs
+            const eggsExtra = 32 * _cbAnimT; // smoothly grow into eggs space
             const cbBottom = Math.min(_cbAnchorBottom + chromeGap + CB_COLLAPSED_H + 14 + eggsExtra, window.innerHeight - 20);
             const cbTop = cbBottom - stripH - 14; // 14 = island vertical padding (7+7)
             if (wrap) {
@@ -3178,24 +3178,8 @@
         // Compute expanded height so the histogram island fills the space
         // previously occupied by colorbar island + gap + eggs
         function _computeCbExpandedH() {
-            const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
-            const wrap = document.getElementById(wrapId);
-            const eggs = document.getElementById('mode-eggs');
-            if (!wrap) return;
-            const wrapRect = wrap.getBoundingClientRect();
-            if (eggs && eggs.innerHTML) {
-                const eggsRect = eggs.getBoundingClientRect();
-                if (eggsRect.height >= 2) {
-                    // Total space from top of island to bottom of eggs
-                    const totalSpace = eggsRect.bottom - wrapRect.top;
-                    // Island height = canvas(_cbExpandedH) + padding(14) + trizone(10) + border(2)
-                    _cbExpandedH = Math.max(30, totalSpace - 26);
-                    return;
-                }
-            }
-            // No eggs visible: cap at viewport bottom with some margin
-            const maxH = window.innerHeight - wrapRect.top - 20;
-            _cbExpandedH = Math.max(30, Math.min(maxH, CB_DEFAULT_EXPANDED_H));
+            // Fixed height regardless of egg visibility — prevents layout jumps
+            _cbExpandedH = CB_DEFAULT_EXPANDED_H;
         }
 
         function _buildKDE() {
