@@ -3650,18 +3650,15 @@
                     ctx.globalAlpha = aT;
 
                     if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                        ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
-                        ctx.lineWidth = 0.75;
-                        ctx.setLineDash([2, 2]);
+                        ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                        const stripeOn = 4, stripeOff = 3;
                         [effVmin, effVmax].forEach(f => {
                             if (f <= 0.003 || f >= 0.997) return;
-                            const x = Math.round(f * cssW) + 0.5;
-                            ctx.beginPath();
-                            ctx.moveTo(x, labelH);
-                            ctx.lineTo(x, cssH);
-                            ctx.stroke();
+                            const x = Math.round(f * cssW);
+                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                            }
                         });
-                        ctx.setLineDash([]);
                     }
 
                     if (labelH > 4 && this._histData) {
@@ -4301,23 +4298,20 @@
                 ctx.fillRect(px, y, 1, colH);
             }
 
-            // Dashed guide lines + all value labels in the label zone
+            // Striped guide lines + all value labels in the label zone
             if (aT > 0.1) {
                 ctx.globalAlpha = aT;
-                // Dashed guide lines for vmin/vmax window
+                // Striped guide lines for vmin/vmax window
                 if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                    ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
-                    ctx.lineWidth = 0.75;
-                    ctx.setLineDash([2, 2]);
+                    ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                    const stripeOn = 4, stripeOff = 3;
                     [effVmin, effVmax].forEach(f => {
                         if (f <= 0.003 || f >= 0.997) return;
-                        const x = Math.round(f * cssW) + 0.5;
-                        ctx.beginPath();
-                        ctx.moveTo(x, labelH);
-                        ctx.lineTo(x, cssH);
-                        ctx.stroke();
+                        const x = Math.round(f * cssW);
+                        for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                            ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                        }
                     });
-                    ctx.setLineDash([]);
                 }
                 // Value labels in the label zone
                 // Collect all labels with their x-positions, then cull overlaps
@@ -4469,18 +4463,16 @@
             const triTop = histAreaH + CB_COLLAPSED_H + 1; // just below the colorbar strip
             _histVminX = null; _histVmaxX = null;
 
-            function drawMarker(frac, val, align) {
+            function drawMarker(frac, val) {
                 if (frac < 0 || frac > 1) return null;
                 const x = Math.round(frac * (cssW - 1));
-                // Dashed guide line through histogram area
+                // Striped vertical line through histogram area (alternating filled/gap rects)
+                const stripeOn = 4, stripeOff = 3;
                 sCtx.save();
-                sCtx.strokeStyle = guideColor;
-                sCtx.lineWidth = 0.75;
-                sCtx.setLineDash([2, 2]);
-                sCtx.beginPath();
-                sCtx.moveTo(x + 0.5, 0);
-                sCtx.lineTo(x + 0.5, stripH);
-                sCtx.stroke();
+                sCtx.fillStyle = guideColor;
+                for (let y = 0; y < stripH; y += stripeOn + stripeOff) {
+                    sCtx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, stripH - y));
+                }
                 sCtx.restore();
                 // Upward-pointing triangle below colorbar
                 sCtx.fillStyle = markerColor;
@@ -4490,28 +4482,21 @@
                 sCtx.lineTo(x + triW, triTop + triH);
                 sCtx.closePath();
                 sCtx.fill();
-                // Value label above histogram
+                // Value label centered above the stripe line
                 sCtx.fillStyle = labelColor;
                 sCtx.font = '9px monospace';
-                sCtx.textAlign = align;
-                const labelX = align === 'start' ? Math.max(0, x - 1) : Math.min(cssW, x + 1);
-                sCtx.fillText(_cbFmt(val), labelX, 8);
+                sCtx.textAlign = 'center';
+                sCtx.fillText(_cbFmt(val), x, 8);
                 sCtx.textAlign = 'start'; // reset
                 return x;
             }
-            // Determine label alignment to avoid overlap
-            const vminX = Math.round(vminF * (cssW - 1));
-            const vmaxX = Math.round(vmaxF * (cssW - 1));
-            const tooClose = Math.abs(vmaxX - vminX) < 60;
-            const vminAlign = vminF < 0.15 ? 'start' : tooClose ? 'end' : 'center';
-            const vmaxAlign = vmaxF > 0.85 ? 'end' : tooClose ? 'start' : 'center';
 
             if (vminF >= 0 && vminF <= 1) {
-                const px = drawMarker(vminF, wVmin, vminAlign);
+                const px = drawMarker(vminF, wVmin);
                 if (px !== null) _histVminX = px;
             }
             if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
-                const px = drawMarker(vmaxF, wVmax, vmaxAlign);
+                const px = drawMarker(vmaxF, wVmax);
                 if (px !== null) _histVmaxX = px;
             }
         }
