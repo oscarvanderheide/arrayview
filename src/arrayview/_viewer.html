@@ -2079,16 +2079,34 @@
         }
 
         /** Scale all canvases with a brief CSS size-transition for smooth zoom feel. */
+        let _zoomAnimId = null;
+        let _zoomRendered = undefined; // zoom level currently shown on screen
         function _scaleAllWithAnim() {
-            const vp = document.getElementById('canvas-viewport');
-            canvas.style.transition = 'width 150ms ease-out, height 150ms ease-out';
-            if (vp) vp.style.transition = 'width 150ms ease-out, height 150ms ease-out';
-            ModeRegistry.scaleAll();
-            setTimeout(() => {
-                canvas.style.transition = '';
-                const vp2 = document.getElementById('canvas-viewport');
-                if (vp2) vp2.style.transition = '';
-            }, 200);
+            // Animate zoom by interpolating userZoom from current rendered value to
+            // target via rAF, calling ModeRegistry.scaleAll() each frame so every
+            // element (canvas, viewport, colorbar, eggs) updates together.
+            const targetZoom = userZoom;
+            if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
+            const fromZoom = (_zoomRendered !== undefined) ? _zoomRendered : targetZoom;
+            if (Math.abs(fromZoom - targetZoom) < 0.001) {
+                userZoom = targetZoom; _zoomRendered = targetZoom; ModeRegistry.scaleAll(); return;
+            }
+            const DURATION = 150;
+            const t0 = performance.now();
+            function step(now) {
+                const p = Math.min((now - t0) / DURATION, 1);
+                const ease = 1 - Math.pow(1 - p, 3); // ease-out cubic
+                userZoom = fromZoom + (targetZoom - fromZoom) * ease;
+                _zoomRendered = userZoom;
+                ModeRegistry.scaleAll();
+                if (p < 1) {
+                    _zoomAnimId = requestAnimationFrame(step);
+                } else {
+                    userZoom = targetZoom; _zoomRendered = targetZoom;
+                    ModeRegistry.scaleAll(); _zoomAnimId = null;
+                }
+            }
+            _zoomAnimId = requestAnimationFrame(step);
         }
 
         function compareScaleCanvases() {
