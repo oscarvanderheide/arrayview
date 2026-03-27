@@ -3071,16 +3071,24 @@
         // Compute expanded height so the histogram island fills the space
         // previously occupied by colorbar island + gap + eggs
         function _computeCbExpandedH() {
-            const wrap = document.getElementById('slim-cb-wrap');
+            const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
+            const wrap = document.getElementById(wrapId);
             const eggs = document.getElementById('mode-eggs');
-            if (!wrap || !eggs || !eggs.innerHTML) return;
+            if (!wrap) return;
             const wrapRect = wrap.getBoundingClientRect();
-            const eggsRect = eggs.getBoundingClientRect();
-            if (eggsRect.height < 2) return;
-            // Total space from top of island to bottom of eggs
-            const totalSpace = eggsRect.bottom - wrapRect.top;
-            // Island height = canvas(_cbExpandedH) + padding(14) + trizone(10) + border(2)
-            _cbExpandedH = Math.max(30, totalSpace - 26);
+            if (eggs && eggs.innerHTML) {
+                const eggsRect = eggs.getBoundingClientRect();
+                if (eggsRect.height >= 2) {
+                    // Total space from top of island to bottom of eggs
+                    const totalSpace = eggsRect.bottom - wrapRect.top;
+                    // Island height = canvas(_cbExpandedH) + padding(14) + trizone(10) + border(2)
+                    _cbExpandedH = Math.max(30, totalSpace - 26);
+                    return;
+                }
+            }
+            // No eggs visible: cap at viewport bottom with some margin
+            const maxH = window.innerHeight - wrapRect.top - 20;
+            _cbExpandedH = Math.max(30, Math.min(maxH, CB_DEFAULT_EXPANDED_H));
         }
 
         function _buildKDE() {
@@ -7757,6 +7765,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Toggle Lebesgue integral mode (persistent histogram + pixel highlighting)
                 lebesgueMode = !lebesgueMode;
                 if (lebesgueMode) {
+                    _computeCbExpandedH();
                     _cbExpanded = true;
                     const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
                     fetcher().then(() => {
