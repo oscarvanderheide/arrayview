@@ -1,0 +1,38 @@
+site_name: arrayview
+site_description: A viewer for multi-dimensional arrays
+repo_url: https://github.com/oscarvanderheide/arrayview
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: black
+    accent: yellow
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.sections
+    - search.highlight
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Loading Arrays: loading.md
+  - Viewing: viewing.md
+  - Comparing: comparing.md
+  - Display: display.md
+  - Measurement: measurement.md
+  - Remote: remote.md
+  - Configuration: configuration.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - codehilite
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.keys

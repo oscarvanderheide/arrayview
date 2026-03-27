@@ -21,9 +21,10 @@ tests/smoke_output/
 
 *.jl
 *.ipynb
-docs/
+dev/
 *.png
 !src/arrayview/_icon.png
 
 benchmarks/data
 .superpowers/brainstorm
+site/
