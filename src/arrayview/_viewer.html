@@ -154,7 +154,7 @@
             border-bottom: 6px solid rgba(255,255,100,0.9);
             transform: translateX(-5px);
             cursor: ew-resize; pointer-events: auto;
-            transition: opacity 0.3s ease, left 0.3s cubic-bezier(0.4,0,0.2,1);
+            transition: opacity 0.3s ease;
             opacity: 0;
         }
         :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
@@ -2862,6 +2862,9 @@
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
+        // Animated window fractions — these lerp toward the actual vmin/vmax
+        // so guides, gray regions, and triangles all move in sync.
+        let _cbWinVminF = 0, _cbWinVmaxF = 1; // current animated fractions [0,1]
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
@@ -2910,14 +2913,23 @@
 
         function _cbAnimStep() {
             const diff = _cbAnimTarget - _cbAnimT;
-            if (Math.abs(diff) < 0.003) {
-                _cbAnimT = _cbAnimTarget;
+            const tConverged = Math.abs(diff) < 0.003;
+            if (tConverged) _cbAnimT = _cbAnimTarget;
+            else _cbAnimT += diff * 0.15;
+            _cbMorphDraw();
+            // _cbMorphDraw lerps window fractions internally; check if
+            // those have also converged before stopping the loop.
+            let vminFT = 0, vmaxFT = 1;
+            if (_histData) {
+                const range = _histData.vmax - _histData.vmin || 1;
+                vminFT = ((manualVmin ?? currentVmin) - _histData.vmin) / range;
+                vmaxFT = ((manualVmax ?? currentVmax) - _histData.vmin) / range;
+            }
+            const winConverged = Math.abs(_cbWinVminF - vminFT) < 0.001 && Math.abs(_cbWinVmaxF - vmaxFT) < 0.001;
+            if (tConverged && winConverged) {
                 _cbAnimating = false;
-                _cbMorphDraw();
                 return;
             }
-            _cbAnimT += diff * 0.15;
-            _cbMorphDraw();
             requestAnimationFrame(_cbAnimStep);
         }
 
@@ -2938,17 +2950,32 @@
             ctx.save();
             ctx.scale(dpr, dpr);
 
-            // Compute window fractions in data range
-            let vminFrac = 0, vmaxFrac = 1;
+            // Compute target window fractions in data range
+            let vminFracTarget = 0, vmaxFracTarget = 1;
             if (_histData) {
                 const { vmin: dmin, vmax: dmax } = _histData;
                 const range = dmax - dmin || 1;
-                vminFrac = ((manualVmin ?? currentVmin) - dmin) / range;
-                vmaxFrac = ((manualVmax ?? currentVmax) - dmin) / range;
+                vminFracTarget = ((manualVmin ?? currentVmin) - dmin) / range;
+                vmaxFracTarget = ((manualVmax ?? currentVmax) - dmin) / range;
+            }
+            // Lerp animated window fractions toward target (during drag, snap instantly)
+            if (_cbDragActive) {
+                _cbWinVminF = vminFracTarget;
+                _cbWinVmaxF = vmaxFracTarget;
+            } else {
+                const wLerp = 0.18;
+                _cbWinVminF += (vminFracTarget - _cbWinVminF) * wLerp;
+                _cbWinVmaxF += (vmaxFracTarget - _cbWinVmaxF) * wLerp;
+                if (Math.abs(_cbWinVminF - vminFracTarget) < 0.001) _cbWinVminF = vminFracTarget;
+                if (Math.abs(_cbWinVmaxF - vmaxFracTarget) < 0.001) _cbWinVmaxF = vmaxFracTarget;
+                // Keep animating if window fractions haven't converged
+                if (_cbWinVminF !== vminFracTarget || _cbWinVmaxF !== vmaxFracTarget) {
+                    if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                }
             }
             // Animated window edges: full-range when collapsed, window when expanded
-            const effVmin = vminFrac * aT;
-            const effVmax = 1 - (1 - vmaxFrac) * aT;
+            const effVmin = _cbWinVminF * aT;
+            const effVmax = 1 - (1 - _cbWinVmaxF) * aT;
             const effW = effVmax - effVmin;
 
             // Build colormap lookup table (256 entries)
@@ -3507,9 +3534,6 @@
                 if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
                 if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
                 slimCbCanvas.style.cursor = 'ew-resize';
-                // Disable CSS left transition during drag for instant feedback
-                [document.getElementById('slim-cb-tri-vmin'), document.getElementById('slim-cb-tri-vmax')]
-                    .forEach(el => { if (el) el.style.transition = 'opacity 0.3s ease'; });
                 e.preventDefault();
                 e.stopPropagation();
             }
@@ -3580,9 +3604,6 @@
                     _dragTarget = null;
                     _cbDragActive = false;
                     slimCbCanvas.style.cursor = 'default';
-                    // Restore CSS left transition after drag
-                    [document.getElementById('slim-cb-tri-vmin'), document.getElementById('slim-cb-tri-vmax')]
-                        .forEach(el => { if (el) el.style.transition = ''; });
                     clearTimeout(_renderTimer);
                     updateView(); triggerPreload();
                 }
@@ -6578,8 +6599,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                     cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                     fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                    _cbMorphDraw();
-                    _redrawActiveColorbar();
+                    // Kick animation loop to smoothly lerp window fractions
+                    if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                     showStatus(`range: ${preset.label}`);
                 }
                 // Auto-dismiss after 3s unless mouse is over island or lebesgue is active
