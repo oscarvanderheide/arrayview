@@ -6608,9 +6608,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (rgbMode) return;
                     _cbExpanded = true;
                     window._dQuantileIdx = 0; // reset cycle
-                    // Show tri-zone immediately so triangles fade in with the morph
+                    // Show tri-zone and hide flanking values immediately
                     const _tz = document.getElementById('slim-cb-tri-zone');
                     if (_tz) _tz.classList.add('expanded');
+                    const _sv1 = document.getElementById('slim-cb-vmin');
+                    const _sv2 = document.getElementById('slim-cb-vmax');
+                    if (_sv1) _sv1.style.display = 'none';
+                    if (_sv2) _sv2.style.display = 'none';
                     const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
                     fetcher().then(() => {
                         _buildKDE();
@@ -10445,16 +10449,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _cmapIslandRestore() {
             if (!_cmapInIsland) return;
             _cmapInIsland = false;
+            const inlinePreview = document.getElementById('cmap-island-preview');
+            if (inlinePreview) inlinePreview.remove();
             const cv = document.getElementById('slim-cb');
             const triZone = document.getElementById('slim-cb-tri-zone');
             const vminEl = document.getElementById('slim-cb-vmin');
             const vmaxEl = document.getElementById('slim-cb-vmax');
-            const inlinePreview = document.getElementById('cmap-island-preview');
-            if (inlinePreview) inlinePreview.remove();
             if (cv) cv.style.display = '';
             if (triZone) triZone.style.display = '';
-            if (vminEl) vminEl.style.display = '';
-            if (vmaxEl) vmaxEl.style.display = '';
+            // Only show flanking values if histogram is collapsed
+            if (vminEl) vminEl.style.display = _cbExpanded ? 'none' : '';
+            if (vmaxEl) vmaxEl.style.display = _cbExpanded ? 'none' : '';
+            // Redraw to restore correct state
+            _cbMorphDraw();
         }
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
