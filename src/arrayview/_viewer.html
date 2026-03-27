@@ -161,7 +161,7 @@
         :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
+        .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 56px; text-align: center; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -899,7 +899,7 @@
                     <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
                 </div>
             </div>
-            <span class="slim-cb-val" id="slim-cb-vmax" style="text-align:right"></span>
+            <span class="slim-cb-val" id="slim-cb-vmax"></span>
             <div id="slim-cb-labels"></div>
             <div id="slim-cb-tooltip"></div>
         </div>
@@ -3019,7 +3019,9 @@
                 }
 
                 const y = cssH - colH;
-                const alpha = inRange ? (1 - 0.15 * aT) : (1 - 0.7 * aT);
+                // In-range: full opacity. Out-of-range: fade to semi-transparent
+                // so the island's glassmorphic background shows through.
+                const alpha = inRange ? 1 : (1 - 0.65 * aT);
                 ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
                 ctx.fillRect(px, y, 1, colH);
             }
