@@ -6755,7 +6755,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap backward
-                if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
+                if ((_cmapInIsland || (_cmapStrip && _cmapStrip.classList.contains('visible'))) && !qmriActive && !compareQmriActive && !rgbMode) {
                     if (_cmapStripMode === 'diff-center') {
                         const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                         const idx = pool.indexOf(_diffCenterColormap);
@@ -6802,7 +6802,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap forward
-                if (_cmapStrip && _cmapStrip.classList.contains('visible') && !qmriActive && !compareQmriActive && !rgbMode) {
+                if ((_cmapInIsland || (_cmapStrip && _cmapStrip.classList.contains('visible'))) && !qmriActive && !compareQmriActive && !rgbMode) {
                     if (_cmapStripMode === 'diff-center') {
                         const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                         const idx = pool.indexOf(_diffCenterColormap);
@@ -10441,6 +10441,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const _cmapStripRight = document.getElementById('colormap-strip-right');
         let _cmapStripTimer = null;
         let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
+        let _cmapInIsland = false; // true when preview is rendered inside the island
+        function _cmapIslandRestore() {
+            if (!_cmapInIsland) return;
+            _cmapInIsland = false;
+            const cv = document.getElementById('slim-cb');
+            const triZone = document.getElementById('slim-cb-tri-zone');
+            const vminEl = document.getElementById('slim-cb-vmin');
+            const vmaxEl = document.getElementById('slim-cb-vmax');
+            const inlinePreview = document.getElementById('cmap-island-preview');
+            if (inlinePreview) inlinePreview.remove();
+            if (cv) cv.style.display = '';
+            if (triZone) triZone.style.display = '';
+            if (vminEl) vminEl.style.display = '';
+            if (vmaxEl) vmaxEl.style.display = '';
+        }
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
         function showColormapStrip(overrideName, overridePool, anchorEl, extraFadeEls) {
@@ -10478,7 +10493,38 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (let offs = -SIDE; offs <= SIDE; offs++) {
                 _cmapStrip.appendChild(_makeThumb(ci + offs, offs === 0));
             }
-            // In diff-side mode, also populate the right strip as a mirror copy
+
+            // --- Normal mode: render inside the island instead of floating ---
+            const useIsland = !anchorEl && !multiViewActive;
+            if (useIsland) {
+                _cmapIslandRestore(); // clean up any previous inline preview
+                const col = document.getElementById('slim-cb-col');
+                const cv = document.getElementById('slim-cb');
+                const triZone = document.getElementById('slim-cb-tri-zone');
+                const vminEl = document.getElementById('slim-cb-vmin');
+                const vmaxEl = document.getElementById('slim-cb-vmax');
+                // Hide normal colorbar contents
+                if (cv) cv.style.display = 'none';
+                if (triZone) triZone.style.display = 'none';
+                if (vminEl) vminEl.style.display = 'none';
+                if (vmaxEl) vmaxEl.style.display = 'none';
+                // Create inline preview container and move strip content into it
+                const preview = document.createElement('div');
+                preview.id = 'cmap-island-preview';
+                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;';
+                while (_cmapStrip.firstChild) {
+                    preview.appendChild(_cmapStrip.firstChild);
+                }
+                col.appendChild(preview);
+                _cmapInIsland = true;
+                clearTimeout(_cmapStripTimer);
+                _cmapStripTimer = setTimeout(() => {
+                    _cmapIslandRestore();
+                }, 1500);
+                return;
+            }
+
+            // --- Anchored / multiview modes: floating strip (original behavior) ---
             const hasRightAnchor = extraFadeEls && extraFadeEls.length > 0 && extraFadeEls[0] && _cmapStripRight;
             if (hasRightAnchor) {
                 for (let offs = -SIDE; offs <= SIDE; offs++) {
@@ -10502,7 +10548,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapStripRight.style.left = (rRect.left + rRect.width / 2) + 'px';
                 _cmapStripRight.style.transform = 'translateX(-50%)';
                 rightAnchor.style.opacity = '0';
-                // Fade any remaining extra elements
                 for (let i = 1; i < extraFadeEls.length; i++) {
                     if (extraFadeEls[i]) extraFadeEls[i].style.opacity = '0';
                 }
