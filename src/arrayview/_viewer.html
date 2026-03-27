@@ -2763,10 +2763,11 @@
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
+            // but keep them hidden when histogram is expanded or cmap preview active
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
-            if (_nvmin) _nvmin.style.display = '';
-            if (_nvmax) _nvmax.style.display = '';
+            if (_nvmin) _nvmin.style.display = (_cbExpanded || _cmapInIsland) ? 'none' : '';
+            if (_nvmax) _nvmax.style.display = (_cbExpanded || _cmapInIsland) ? 'none' : '';
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
