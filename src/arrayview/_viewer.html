@@ -2856,12 +2856,14 @@
 
         // ── Histogram-in-colorbar (morph) ────────────────────────────────────
         const CB_COLLAPSED_H = 13;  // flat colorbar height in CSS px
-        const CB_EXPANDED_H  = 50;  // expanded morph height (smooth distribution)
+        const CB_LABEL_H     = 14;  // top zone for value labels when expanded
+        const CB_EXPANDED_H  = 62;  // label zone (14) + distribution (48)
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
         let _cbWinVminF = 0;        // animated window vmin fraction (lerped toward target)
         let _cbWinVmaxF = 1;        // animated window vmax fraction (lerped toward target)
+        let _cbHoverFrac = -1;      // cursor x-fraction on canvas (-1 = not hovering)
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
@@ -2988,57 +2990,78 @@
             }
 
             const hasKDE = _kdeSmooth && aT > 0;
+            // Label zone grows from 0 at aT=0 to CB_LABEL_H at aT=1
+            const labelH = CB_LABEL_H * aT;
+            // Histogram drawing area starts below the label zone
+            const histTop = labelH;
+            const histH = cssH - histTop; // available height for the morph shape
 
             for (let px = 0; px < cssW; px++) {
-                const t = px / cssW; // position in data range [0,1]
+                const t = px / cssW;
                 const inRange = t >= effVmin && t <= effVmax;
-
-                // Colormap: stretched across [effVmin, effVmax]
                 const cmapT = effW > 0.001 ? (t - effVmin) / effW : 0.5;
 
                 let r, g, b;
                 if (inRange) {
                     [r, g, b] = cmAt(cmapT);
                 } else {
-                    // Gray fades from original colormap color at aT=0 to gray at aT=1
-                    const [cr, cg, cb] = cmAt(t); // full-range color
+                    const [cr, cg, cb] = cmAt(t);
                     r = Math.round(cr + (60 - cr) * aT);
                     g = Math.round(cg + (60 - cg) * aT);
                     b = Math.round(cb + (60 - cb) * aT);
                 }
 
-                // Column height: flat at aT=0, KDE-shaped at aT=1
                 let colH;
                 if (hasKDE) {
-                    const kdeH = Math.max(2, _kdeAt(t) * CB_EXPANDED_H);
+                    const kdeH = Math.max(2, _kdeAt(t) * (CB_EXPANDED_H - CB_LABEL_H));
                     colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
                 } else {
-                    colH = cssH; // no histogram data: just fill
+                    colH = histH;
                 }
 
                 const y = cssH - colH;
-                // In-range: full opacity. Out-of-range: fade to semi-transparent
-                // so the island's glassmorphic background shows through.
                 const alpha = inRange ? 1 : (1 - 0.65 * aT);
                 ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
                 ctx.fillRect(px, y, 1, colH);
             }
 
-            // Dashed guide lines for vmin/vmax
+            // Dashed guide lines + value labels above them
             if (aT > 0.1 && (vminFrac > 0.005 || vmaxFrac < 0.995)) {
                 ctx.globalAlpha = aT;
                 ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
                 ctx.lineWidth = 0.75;
                 ctx.setLineDash([2, 2]);
-                [effVmin, effVmax].forEach(f => {
+                const labelColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+                const wVmin = manualVmin ?? currentVmin;
+                const wVmax = manualVmax ?? currentVmax;
+                [[effVmin, wVmin], [effVmax, wVmax]].forEach(([f, val], i) => {
                     if (f <= 0.003 || f >= 0.997) return;
                     const x = Math.round(f * cssW) + 0.5;
                     ctx.beginPath();
-                    ctx.moveTo(x, 0);
+                    ctx.moveTo(x, labelH);
                     ctx.lineTo(x, cssH);
                     ctx.stroke();
+                    // Value label above the dashed line
+                    if (labelH > 4) {
+                        ctx.fillStyle = labelColor;
+                        ctx.font = '9px monospace';
+                        ctx.textAlign = i === 0 ? (f < 0.15 ? 'start' : 'center') : (f > 0.85 ? 'end' : 'center');
+                        ctx.fillText(_cbFmt(val), x, labelH - 3);
+                        ctx.textAlign = 'start';
+                    }
                 });
                 ctx.setLineDash([]);
+                // Hover value label
+                if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1 && _histData && labelH > 4) {
+                    const { vmin: dmin, vmax: dmax } = _histData;
+                    const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
+                    const hx = Math.round(_cbHoverFrac * cssW);
+                    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.8)';
+                    ctx.font = '10px monospace';
+                    ctx.textAlign = _cbHoverFrac < 0.1 ? 'start' : _cbHoverFrac > 0.9 ? 'end' : 'center';
+                    ctx.fillText(_cbFmt(hoverVal), hx, labelH - 3);
+                    ctx.textAlign = 'start';
+                }
                 ctx.globalAlpha = 1;
             }
 
@@ -3492,6 +3515,7 @@
 
             slimCbWrap.addEventListener('mouseleave', () => {
                 _cbMouseOver = false;
+                if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _cbMorphDraw(); }
                 if (_dragTarget) return; // don't collapse while dragging
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
@@ -3563,17 +3587,14 @@
                     _scheduleRender();
                 } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
                            rect.top <= e.clientY && e.clientY <= rect.bottom) {
-                    // Hover: show single value at cursor position
-                    const { vmin: dmin, vmax: dmax, edges, counts } = _histData;
-                    const range = dmax - dmin || 1;
-                    const val = dmin + (x / cssW) * range;
-                    cbTooltip.textContent = _cbFmt(val);
-                    cbTooltip.style.left = Math.max(0, x - 15) + 'px';
-                    cbTooltip.style.top  = '-16px';
-                    cbTooltip.style.display = 'block';
+                    // Hover: track cursor fraction, draw value label on canvas
+                    _cbHoverFrac = Math.max(0, Math.min(1, x / cssW));
+                    cbTooltip.style.display = 'none';
+                    _cbMorphDraw();
                     // Update cursor near clim lines
                     slimCbCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : (lebesgueMode ? 'crosshair' : 'default');
                     // Lebesgue integral: highlight matching pixels
+                    const { edges, counts } = _histData;
                     if (lebesgueMode && _lebesgueSlice && edges && counts && counts.length) {
                         const nBins = counts.length;
                         const binIdx = Math.max(0, Math.min(nBins - 1, Math.floor((x / cssW) * nBins)));
@@ -3582,12 +3603,12 @@
                             const binLow = edges[binIdx];
                             const binHigh = edges[binIdx + 1] + (binIdx === nBins - 1 ? 1e-9 : 0);
                             _drawLebesgueHighlight(binLow, binHigh);
-                            // Redraw colorbar + highlight the hovered bin
-                            _redrawActiveColorbar();
+                            _cbMorphDraw();
                             _highlightHistBin(binIdx);
                         }
                     }
                 } else {
+                    if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _cbMorphDraw(); }
                     cbTooltip.style.display = 'none';
                     if (lebesgueMode) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; }
                 }
