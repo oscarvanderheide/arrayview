@@ -187,7 +187,7 @@
         :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 56px; text-align: center; }
+        .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 0; text-align: center; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -2078,6 +2078,19 @@
             if (_fullscreenActive) _positionFullscreenInfo();
         }
 
+        /** Scale all canvases with a brief CSS size-transition for smooth zoom feel. */
+        function _scaleAllWithAnim() {
+            const vp = document.getElementById('canvas-viewport');
+            canvas.style.transition = 'width 150ms ease-out, height 150ms ease-out';
+            if (vp) vp.style.transition = 'width 150ms ease-out, height 150ms ease-out';
+            ModeRegistry.scaleAll();
+            setTimeout(() => {
+                canvas.style.transition = '';
+                const vp2 = document.getElementById('canvas-viewport');
+                if (vp2) vp2.style.transition = '';
+            }, 200);
+        }
+
         function compareScaleCanvases() {
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
@@ -3172,19 +3185,21 @@
 
         // Compute expanded height so the histogram island fills the space
         // previously occupied by colorbar island + gap + eggs
+        let _cbExpandedHLocked = false; // once computed, lock the height
         function _computeCbExpandedH() {
+            if (_cbExpandedHLocked) return; // already locked — don't recompute
             // Compute max height that fits between the island top and viewport bottom.
-            // Island top = paneBottom + chromeGap. Island overhead = padding(14) + tri(10) + margin(20).
+            // Island overhead = padding(14) + tri(10) + bottomMargin(20) = 44.
             const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
             const wrap = document.getElementById(wrapId);
             if (wrap) {
                 const wrapTop = wrap.getBoundingClientRect().top;
-                // Available = viewport bottom - wrapTop - padding(14) - triZone(10) - bottomMargin(20)
                 const avail = window.innerHeight - wrapTop - 44;
                 _cbExpandedH = Math.max(30, Math.min(avail, CB_DEFAULT_EXPANDED_H));
             } else {
                 _cbExpandedH = CB_DEFAULT_EXPANDED_H;
             }
+            _cbExpandedHLocked = true; // lock — reused for all subsequent expansions
         }
 
         function _buildKDE() {
@@ -7259,7 +7274,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _zoomAdjustedByUser = true;
                     }
                 }
-                ModeRegistry.scaleAll();
+                _scaleAllWithAnim();
                 showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
@@ -7275,7 +7290,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _autoFitPending = true;
                     }
                 }
-                ModeRegistry.scaleAll();
+                _scaleAllWithAnim();
                 showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
@@ -11284,7 +11299,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                     }
                 }
-                ModeRegistry.scaleAll();
+                _scaleAllWithAnim();
                 saveState();
                 return;
             }
