@@ -584,6 +584,7 @@
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+        .qv-placeholder { visibility: hidden; pointer-events: none; }
         .qv-label { font-size: 16px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
@@ -3096,13 +3097,8 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            // Collapsed: fixed at pane bottom + chromeGap (same spacing as above canvas).
-            // Expanded: slide top up if needed so island bottom stays ≥20px from viewport.
-            // Island visual height = canvas + padding(14) + tri-zone(10) + border(2).
-            const collapsedTop = _cbAnchorBottom + chromeGap;
-            const islandVisualH = stripH + 26;
-            const maxTop = window.innerHeight - islandVisualH - 20;
-            const cbTop = Math.min(collapsedTop, maxTop);
+            // Top is fixed at pane bottom + chromeGap. Never moves.
+            const cbTop = _cbAnchorBottom + chromeGap;
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
@@ -3177,8 +3173,18 @@
         // Compute expanded height so the histogram island fills the space
         // previously occupied by colorbar island + gap + eggs
         function _computeCbExpandedH() {
-            // Fixed height regardless of egg visibility — prevents layout jumps
-            _cbExpandedH = CB_DEFAULT_EXPANDED_H;
+            // Compute max height that fits between the island top and viewport bottom.
+            // Island top = paneBottom + chromeGap. Island overhead = padding(14) + tri(10) + margin(20).
+            const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
+            const wrap = document.getElementById(wrapId);
+            if (wrap) {
+                const wrapTop = wrap.getBoundingClientRect().top;
+                // Available = viewport bottom - wrapTop - padding(14) - triZone(10) - bottomMargin(20)
+                const avail = window.innerHeight - wrapTop - 44;
+                _cbExpandedH = Math.max(30, Math.min(avail, CB_DEFAULT_EXPANDED_H));
+            } else {
+                _cbExpandedH = CB_DEFAULT_EXPANDED_H;
+            }
         }
 
         function _buildKDE() {
@@ -9183,9 +9189,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rowSizes = nMaps <= 4 ? [nMaps] : [3, nMaps - 3];
             qmriViews = [];
             let cmapIdx = 0;
+            let _qmriLastRow = null;
             rowSizes.forEach(rowSize => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'qv-row';
+                _qmriLastRow = rowDiv;
                 for (let ri = 0; ri < rowSize; ri++) {
                     const viewIdx = cmapIdx++;
                     const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
@@ -9315,6 +9323,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 wrap.appendChild(rowDiv);
             });
+            // For n=5: add invisible placeholder to 2nd row so both rows have 3 items (strict 2×3 grid)
+            if (nMaps === 5 && _qmriLastRow) {
+                const ph = document.createElement('div');
+                ph.className = 'qv-pane qv-placeholder';
+                _qmriLastRow.appendChild(ph);
+            }
             // Pre-size canvases immediately so layout is correct before first frame arrives
             qvScaleAllCanvases();
             if (httpTransport) {
@@ -10287,14 +10301,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const n = allPanes.length;
                 const rowSizes = n <= 4 ? [n] : [3, n - 3];
                 let pi = 0;
+                let _lastRow = null;
                 rowSizes.forEach(rs => {
                     const rowDiv = document.createElement('div');
                     rowDiv.className = 'qv-row';
+                    _lastRow = rowDiv;
                     for (let ri = 0; ri < rs && pi < allPanes.length; ri++, pi++) {
                         rowDiv.appendChild(allPanes[pi]);
                     }
                     wrap.appendChild(rowDiv);
                 });
+                // For n=5: add invisible placeholder so both rows have 3 items (strict 2×3 grid)
+                if (n === 5 && _lastRow) {
+                    const ph = document.createElement('div');
+                    ph.className = 'qv-pane qv-placeholder';
+                    _lastRow.appendChild(ph);
+                }
             }
         }
 
@@ -10413,19 +10435,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
             }
-            // For multi-row layouts (n=5,6): set all rows to same width
-            // and left-align items so columns align across rows.
-            if (rows > 1) {
-                const qvRows = document.querySelectorAll('#qmri-view-wrap > .qv-row');
-                // Reset explicit widths so scrollWidth reflects natural content size
-                qvRows.forEach(r => { r.style.width = ''; });
-                let maxRowW = 0;
-                qvRows.forEach(r => { maxRowW = Math.max(maxRowW, r.scrollWidth); });
-                if (maxRowW > 0) {
-                    qvRows.forEach(r => {
-                        r.style.width = maxRowW + 'px';
-                        r.style.justifyContent = 'flex-start';
-                    });
+            // For n=5: size the invisible placeholder to match a real pane so rows are equal width
+            if (n === 5) {
+                const ph = document.querySelector('#qmri-view-wrap .qv-placeholder');
+                if (ph && ready.length > 0) {
+                    ph.style.width = ready[0].canvas.style.width;
+                    ph.style.height = '1px';
                 }
             }
             fixWrapperAlignment();
