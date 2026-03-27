@@ -1210,11 +1210,10 @@
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
-                <div class="help-row"><span class="key">w</span><span class="desc">toggle Lebesgue mode (histogram + pixel highlight)</span></div>
                 <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
                 <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
                 <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
-                <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">reset window / level to auto</span></div>
+                <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">toggle histogram mode (pixel highlight)</span></div>
                                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
@@ -4701,6 +4700,30 @@
                 _redrawActiveColorbar();
             }
 
+            function _toggleLebesgueMode() {
+                lebesgueMode = !lebesgueMode;
+                if (lebesgueMode) {
+                    _computeCbExpandedH();
+                    _cbExpanded = true;
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                    fetcher().then(() => {
+                        _buildKDE();
+                        _cbStartAnim(true);
+                        _fetchLebesgueSlice();
+                        if (multiViewActive || compareMvActive) drawMvColorbar();
+                        else drawSlimColorbar(cbMarkerFrac);
+                    });
+                    showStatus('histogram mode on');
+                } else {
+                    _clearLebesgueOverlay();
+                    _cbExpanded = false;
+                    _cbStartAnim(false);
+                    if (multiViewActive || compareMvActive) drawMvColorbar();
+                    else drawSlimColorbar(cbMarkerFrac);
+                    showStatus('histogram mode off');
+                }
+            }
+
             slimCbWrap.addEventListener('mouseenter', () => {
                 _cbMouseOver = true;
             });
@@ -4728,6 +4751,9 @@
                 clearTimeout(_cbHoverTimer);
                 _cbHoverTimer = setTimeout(_collapseColorbar, 200);
             });
+
+            // Double-click on colorbar island toggles histogram (Lebesgue) mode
+            slimCbWrap.addEventListener('dblclick', () => { _toggleLebesgueMode(); });
 
             slimCbCanvas.addEventListener('mousedown', (e) => {
                 if (!_cbExpanded || !_histData) return;
@@ -7749,7 +7775,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (rgbMode) return;
 
                 if (lebesgueMode && _histData) {
-                    // Histogram open via w: cycle quantile presets with smooth indicator updates
+                    // Histogram mode open: cycle quantile presets with smooth indicator updates
                     const _QUANTILE_PRESETS = [
                         { label: 'full range', lo: 0, hi: 1 },
                         { label: '0.1–99.9%', lo: 0.001, hi: 0.999 },
@@ -7889,29 +7915,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 });
                 drawSlimColorbar(cbMarkerFrac);
                 showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
-            } else if (e.key === 'w') {
-                // Toggle Lebesgue integral mode (persistent histogram + pixel highlighting)
-                lebesgueMode = !lebesgueMode;
-                if (lebesgueMode) {
-                    _computeCbExpandedH();
-                    _cbExpanded = true;
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                    fetcher().then(() => {
-                        _buildKDE();
-                        _cbStartAnim(true);
-                        _fetchLebesgueSlice();
-                        if (multiViewActive || compareMvActive) drawMvColorbar();
-                        else drawSlimColorbar(cbMarkerFrac);
-                    });
-                    showStatus('Lebesgue mode on');
-                } else {
-                    _clearLebesgueOverlay();
-                    _cbExpanded = false;
-                    _cbStartAnim(false);
-                    if (multiViewActive || compareMvActive) drawMvColorbar();
-                    else drawSlimColorbar(cbMarkerFrac);
-                    showStatus('Lebesgue mode off');
-                }
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isPlaying && activeDim === playingDim) { stopPlay(); }
