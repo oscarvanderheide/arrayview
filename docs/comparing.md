@@ -7,7 +7,7 @@ uvx arrayview base.npy moving.npy           # 2 arrays
 uvx arrayview base.npy a.npy b.npy c.npy    # up to 6
 ```
 
-File picker: `Cmd/Ctrl+O`, select multiple files, Enter. Or drag-and-drop a file onto the viewer — compatible shapes go to compare.
+Or use the file picker (`Cmd/Ctrl+O`) or drag-and-drop.
 
 ## Center pane
 
@@ -30,7 +30,7 @@ File picker: `Cmd/Ctrl+O`, select multiple files, Enter. Or drag-and-drop a file
 ## Overlay
 
 ```bash
-uvx arrayview scan.nii.gz --overlay mask.nii.gz
+uvx arrayview volume.nii.gz --overlay mask.nii.gz
 ```
 
 Binary mask (0/1), same spatial shape. `[`/`]` adjusts blend opacity. Multiple overlays get automatic palette colors.
@@ -38,7 +38,7 @@ Binary mask (0/1), same spatial shape. `[`/`]` adjusts blend opacity. Multiple o
 ## Vector field
 
 ```bash
-uvx arrayview scan.nii.gz --vectorfield disp.nii.gz
+uvx arrayview volume.nii.gz --vectorfield disp.nii.gz
 ```
 
 Deformation field with arrow overlay. `U` toggles arrows. `[`/`]` adjusts density. `{`/`}` adjusts arrow length.

@@ -32,7 +32,6 @@ nav:
 markdown_extensions:
   - tables
   - fenced_code
-  - codehilite
-  - admonition
+  - pymdownx.highlight
   - pymdownx.superfences
   - pymdownx.keys

@@ -2,7 +2,7 @@
 
 ## SSH
 
-ArrayView detects SSH sessions and prints a port-forwarding hint. Forward port 8000 when connecting:
+Forward port 8000 when connecting over SSH:
 
 ```bash
 ssh -L 8000:localhost:8000 user@remote
@@ -12,7 +12,7 @@ Then open `http://localhost:8000` in your local browser.
 
 ## VS Code
 
-ArrayView auto-detects VS Code terminals and opens arrays in Simple Browser. Works automatically for local terminals — no configuration needed.
+Auto-detects VS Code terminals and opens in Simple Browser. Works automatically.
 
 ## VS Code tunnel
 
@@ -26,7 +26,7 @@ arrayview --serve
 Set port 8000 to Public in the VS Code Ports tab. Load arrays normally — each opens in Simple Browser:
 
 ```bash
-arrayview scan.nii.gz
+arrayview volume.nii.gz
 ```
 
 The server persists across invocations. Kill it with `arrayview --kill`.

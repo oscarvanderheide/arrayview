@@ -7,7 +7,7 @@
 
 ## Dynamic range
 
-`d` cycles quantile presets: 0–100%, 1–99%, 5–95%, 10–90%. Also expands the colorbar into a full histogram with KDE curve.
+`d` cycles quantile presets: 0–100%, 1–99%, 5–95%, 10–90%. Expands the colorbar into a histogram.
 `D` sets vmin/vmax manually — locked until next `d`.
 
 ## Window / level
