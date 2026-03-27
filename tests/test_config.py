@@ -6,6 +6,7 @@ import textwrap
 import pytest
 
 from arrayview._config import (
+    get_viewer_colormaps,
     get_window_default,
     load_config,
     save_config,
@@ -99,6 +100,32 @@ class TestGetWindowDefault:
             terminal = "invalid_mode"
         """))
         assert get_window_default("terminal") is None
+
+
+class TestGetViewerColormaps:
+    def test_no_config_returns_none(self, tmp_config):
+        assert get_viewer_colormaps() is None
+
+    def test_returns_list_from_config(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [viewer]
+            colormaps = ["gray", "viridis", "plasma"]
+        """))
+        assert get_viewer_colormaps() == ["gray", "viridis", "plasma"]
+
+    def test_empty_list_returns_none(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [viewer]
+            colormaps = []
+        """))
+        assert get_viewer_colormaps() is None
+
+    def test_missing_viewer_section_returns_none(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [window]
+            default = "browser"
+        """))
+        assert get_viewer_colormaps() is None
 
 
 class TestDetectEnvironment:

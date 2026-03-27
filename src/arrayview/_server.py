@@ -71,6 +71,7 @@ from arrayview._render import (
 )
 
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
+from arrayview._config import get_viewer_colormaps
 
 
 def _normalize_axis(axis: int, ndim: int, flag_name: str) -> int:
@@ -2221,8 +2222,10 @@ def get_ui(sid: str = None):
         # and handle errors itself (shows "Session not found or expired" on 404).
         query_val = "null"
     _init_luts()
+    _cfg_colormaps = get_viewer_colormaps()
+    _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
     html = (
-        _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(COLORMAPS))
+        _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__DR_LABELS__", str(DR_LABELS))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
