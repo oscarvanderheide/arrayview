@@ -59,6 +59,10 @@ test = [
     "pytest-playwright>=0.5",
     "pillow>=12.1.1",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
