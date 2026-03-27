@@ -3672,9 +3672,25 @@
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
+                        // Compute dmin/dmax stripe x so centered label is fully within canvas
+                        const dminText = _cbFmt(dmin), dmaxText = _cbFmt(dmax);
+                        const dminHalf = Math.ceil(ctx.measureText(dminText).width / 2) + 1;
+                        const dmaxHalf = Math.ceil(ctx.measureText(dmaxText).width / 2) + 1;
+                        const dminLX = dminHalf, dmaxLX = cssW - dmaxHalf;
+                        // Draw striped lines at dmin/dmax edge positions
+                        {
+                            const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
+                            ctx.fillStyle = edgeStripeColor;
+                            const stripeOn = 4, stripeOff = 3;
+                            for (const x of [dminLX, dmaxLX]) {
+                                for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                                    ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                                }
+                            }
+                        }
                         const labels = [];
-                        labels.push({ x: 2, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                        labels.push({ x: cssW - 2, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                        labels.push({ x: dminLX, text: dminText, align: 'center', color: dimColor, prio: 0 });
+                        labels.push({ x: dmaxLX, text: dmaxText, align: 'center', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
@@ -4326,13 +4342,28 @@
                     // Measure char width for overlap detection
                     const charW = ctx.measureText('0').width;
                     const labelY = labelH - 3;
+                    // Compute dmin/dmax stripe x so centered label is fully within canvas
+                    const dminText = _cbFmt(dmin), dmaxText = _cbFmt(dmax);
+                    const dminHalf = Math.ceil(ctx.measureText(dminText).width / 2) + 1;
+                    const dmaxHalf = Math.ceil(ctx.measureText(dmaxText).width / 2) + 1;
+                    const dminLX = dminHalf, dmaxLX = cssW - dmaxHalf;
+                    // Draw striped lines at dmin/dmax edge positions
+                    {
+                        const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
+                        ctx.fillStyle = edgeStripeColor;
+                        const stripeOn = 4, stripeOff = 3;
+                        for (const x of [dminLX, dmaxLX]) {
+                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                            }
+                        }
+                    }
                     // Build label list: [{x, text, color, priority}]
                     // Higher priority labels suppress lower when overlapping
                     const labels = [];
-                    // dmin at left edge
-                    labels.push({ x: 2, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                    // dmax at right edge
-                    labels.push({ x: cssW - 2, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                    // dmin/dmax centered above their edge stripes
+                    labels.push({ x: dminLX, text: dminText, align: 'center', color: dimColor, prio: 0 });
+                    labels.push({ x: dmaxLX, text: dmaxText, align: 'center', color: dimColor, prio: 0 });
                     // vmin (if different from dmin)
                     if (effVmin > 0.01 && effVmin < 0.99) {
                         const vx = Math.round(effVmin * cssW);
