@@ -1273,7 +1273,11 @@
             if (window.parent === window) return false;
             try { return !window.parent.__arrayviewShell; } catch(e) { return true; }
         })();
-        if (isInlineEmbed) document.body.classList.add('inline-embed');
+        if (isInlineEmbed) {
+            document.body.classList.add('inline-embed');
+            // Start inline embeds in immersive mode for maximum vertical space
+            document.body.classList.add('fullscreen-mode');
+        }
         const sid = urlParams.get('sid');
         const overlay_sid = urlParams.get('overlay_sid') || null;
         // overlay_colors: comma-separated hex palette for multiple overlays (auto-assigned if absent)
@@ -11335,7 +11339,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         });
 
         // ── 2b. Fullscreen / Immersive mode (K key or auto on zoom) ──
-        let _fullscreenActive = false;
+        let _fullscreenActive = isInlineEmbed;
 
         function _positionFullscreenInfo() {
             _positionFullscreenChrome();
