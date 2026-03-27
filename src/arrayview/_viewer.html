@@ -1418,7 +1418,6 @@
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
         let _complexFadeTimer = null;
-        let pixelHoverPending = false;
         let _pixelReqSeq = 0;
         let cbMarkerFrac = null;
         let _lastMouseX = 0, _lastMouseY = 0;
@@ -1438,7 +1437,6 @@
         let mvDims = [];
         let mvDraggingView = null;
         let cmvDraggingView = null;
-        let mvPixelPending = false;
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
@@ -5744,6 +5742,45 @@
             }
         }
 
+        let _pixelHoverThrottle = false;
+        function fetchPixelInfo(opts) {
+            if (_pixelHoverThrottle) return false;
+            _pixelHoverThrottle = true;
+            setTimeout(() => { _pixelHoverThrottle = false; }, 50);
+
+            const rect = opts.canvas.getBoundingClientRect();
+            const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
+            const py = Math.floor((opts.event.clientY - rect.top) * opts.imgH / rect.height);
+            if (px < 0 || px >= opts.imgW || py < 0 || py >= opts.imgH) return false;
+
+            const params = new URLSearchParams({
+                dim_x: String(opts.dimX),
+                dim_y: String(opts.dimY),
+                indices: opts.indices.join(','),
+                px: String(px),
+                py: String(py),
+                complex_mode: complexMode,
+            });
+            if (logScale) params.set('log_scale', '1');
+
+            fetch('/pixel/' + opts.sid + '?' + params)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (!d) return;
+                    const fmt = v => {
+                        const av = Math.abs(v);
+                        if (av === 0) return '0';
+                        if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(3);
+                        return parseFloat(v.toPrecision(4)).toString();
+                    };
+                    showPixelInfo(opts.displayEl, fmt(d.value), opts.event.clientX, opts.event.clientY);
+                    if (opts.onResult) opts.onResult(d, px, py);
+                })
+                .catch(() => {});
+
+            return true;
+        }
+
         function showStatus(msg, duration) {
             /* no-op: status text removed for minimal UI */
         }
@@ -7067,35 +7104,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (dim_z >= 0) return;
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
-            if (pixelHoverPending) return;
-            pixelHoverPending = true;
-            setTimeout(() => { pixelHoverPending = false; }, 50);
-            const rect = canvas.getBoundingClientRect();
-            const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
-            const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            const _mx = e.clientX, _my = e.clientY;
-            const seq = ++_pixelReqSeq;
-            fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`)
-                .then(r => r.json())
-                .then(d => {
-                    if (seq !== _pixelReqSeq) return;
-                    const piEl = document.getElementById('main-pixel-info');
-                    if (d.value !== undefined && isFinite(d.value)) {
-                        const av = Math.abs(d.value);
-                        const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0))
-                            ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                        showPixelInfo(piEl, fmt(d.value), _mx, _my);
-                        if (_pixelInfoVisible && !multiViewActive && !compareActive) {
-                            const axEl = document.getElementById('main-axes-svg');
-                            if (axEl) {
-                                axEl.querySelector('.axes-lbl-x').textContent = `x ${px}`;
-                                axEl.querySelector('.axes-lbl-y').textContent = `y ${py}`;
-                            }
+            fetchPixelInfo({
+                event: e,
+                canvas: canvas,
+                sid: sid,
+                dimX: dim_x,
+                dimY: dim_y,
+                indices: indices,
+                imgW: canvas.width,
+                imgH: canvas.height,
+                displayEl: document.getElementById('main-pixel-info'),
+                onResult: (d, px, py) => {
+                    if (_pixelInfoVisible && !multiViewActive && !compareActive) {
+                        const axEl = document.getElementById('main-axes-svg');
+                        if (axEl) {
+                            axEl.querySelector('.axes-lbl-x').textContent = `x ${px}`;
+                            axEl.querySelector('.axes-lbl-y').textContent = `y ${py}`;
                         }
-                    } else {
-                        if (piEl) piEl.style.display = 'none';
                     }
-                });
+                },
+            });
         });
         canvas.addEventListener('mouseleave', () => {
             if (roiDragging) {
@@ -8926,24 +8954,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const hj = mvCrossHairHit(view, px, py);
                     cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
                     _lastMouseX = e.clientX; _lastMouseY = e.clientY;
-                    if (!mvPixelPending) {
-                        const ipx = Math.floor(px), ipy = Math.floor(py);
-                        const _mx = e.clientX, _my = e.clientY;
-                        mvPixelPending = true;
-                        setTimeout(() => { mvPixelPending = false; }, 50);
-                        fetch(`/pixel/${sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                            .then(r => r.json()).then(d => {
-                                if (d.value !== undefined && isFinite(d.value)) {
-                                    const av = Math.abs(d.value);
-                                    const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
-                                    if (_pixelInfoVisible && view.axesSvg) {
-                                        view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${ipx}`;
-                                        view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${ipy}`;
-                                    }
-                                }
-                            });
-                    }
+                    fetchPixelInfo({
+                        event: e,
+                        canvas: cv,
+                        sid: sid,
+                        dimX: view.dimX,
+                        dimY: view.dimY,
+                        indices: indices,
+                        imgW: view.lastW,
+                        imgH: view.lastH,
+                        displayEl: view.pixelInfoEl,
+                        onResult: (d, px, py) => {
+                            if (_pixelInfoVisible && view.axesSvg) {
+                                view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${px}`;
+                                view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${py}`;
+                            }
+                        },
+                    });
                 });
                 cv.addEventListener('mouseleave', () => {
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
@@ -9140,30 +9167,48 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         qmriViews.forEach(v => qvRender(v));
                         saveState();
                     }, { passive: false });
-                    let qvPixelPending = false;
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
-                        if (qvPixelPending) return;
-                        qvPixelPending = true;
-                        setTimeout(() => { qvPixelPending = false; }, 60);
-                        const rect = cv.getBoundingClientRect();
-                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                        const _mx = e.clientX, _my = e.clientY;
-                        // Fetch value for every qmri view at the same pixel position
-                        qmriViews.forEach(v => {
-                            const qIndices = [...indices];
-                            qIndices[qmriDim] = v.qmriIdx;
-                            fetch(`/pixel/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                                .then(r => r.json()).then(d => {
-                                    if (d.value !== undefined && isFinite(d.value)) {
-                                        const av = Math.abs(d.value);
-                                        const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                        showPixelInfo(v.pixelInfoEl, fmt(d.value), _mx, _my);
-                                    } else if (v.pixelInfoEl) {
-                                        v.pixelInfoEl.style.display = 'none';
-                                    }
+                        // Use the hovered view's indices for fetchPixelInfo (throttle + coord calc),
+                        // then fetch all other qmri views at the same pixel in onResult.
+                        const qIdx0 = [...indices];
+                        qIdx0[qmriDim] = view.qmriIdx;
+                        fetchPixelInfo({
+                            event: e,
+                            canvas: cv,
+                            sid: sid,
+                            dimX: dim_x,
+                            dimY: dim_y,
+                            indices: qIdx0,
+                            imgW: view.lastW,
+                            imgH: view.lastH,
+                            displayEl: view.pixelInfoEl,
+                            onResult: (d, px, py) => {
+                                // Fetch for all other qmri views at same pixel
+                                qmriViews.forEach(v => {
+                                    if (v === view) return;
+                                    const qIndices = [...indices];
+                                    qIndices[qmriDim] = v.qmriIdx;
+                                    const params = new URLSearchParams({
+                                        dim_x: String(dim_x), dim_y: String(dim_y),
+                                        indices: qIndices.join(','),
+                                        px: String(px), py: String(py),
+                                        complex_mode: complexMode,
+                                    });
+                                    if (logScale) params.set('log_scale', '1');
+                                    fetch('/pixel/' + sid + '?' + params)
+                                        .then(r => r.ok ? r.json() : null).then(rd => {
+                                            if (!rd) return;
+                                            const fmt = val => {
+                                                const av = Math.abs(val);
+                                                if (av === 0) return '0';
+                                                if (av >= 1e4 || (av < 1e-2 && av > 0)) return val.toExponential(3);
+                                                return parseFloat(val.toPrecision(4)).toString();
+                                            };
+                                            showPixelInfo(v.pixelInfoEl, fmt(rd.value), e.clientX, e.clientY);
+                                        });
                                 });
+                            },
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
@@ -9682,26 +9727,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         cmvDraggingView = view;
                         handleCmvPointer(view, e);
                     });
-                    let cmvPixelPending = false;
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
-                        if (cmvPixelPending) return;
-                        cmvPixelPending = true;
-                        setTimeout(() => { cmvPixelPending = false; }, 60);
-                        const rect = cv.getBoundingClientRect();
-                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                        const _mx = e.clientX, _my = e.clientY;
-                        fetch(`/pixel/${view.sid}?dim_x=${view.dimX}&dim_y=${view.dimY}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                            .then(r => r.json()).then(d => {
-                                if (d.value !== undefined && isFinite(d.value)) {
-                                    const av = Math.abs(d.value);
-                                    const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
-                                } else if (view.pixelInfoEl) {
-                                    view.pixelInfoEl.style.display = 'none';
-                                }
-                            });
+                        fetchPixelInfo({
+                            event: e,
+                            canvas: cv,
+                            sid: view.sid,
+                            dimX: view.dimX,
+                            dimY: view.dimY,
+                            indices: indices,
+                            imgW: view.lastW,
+                            imgH: view.lastH,
+                            displayEl: view.pixelInfoEl,
+                        });
                     });
                     cv.addEventListener('mouseleave', () => {
                         if (!cmvDraggingView) {
