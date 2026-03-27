@@ -2920,6 +2920,420 @@
             return _kdeSmooth[idx] + (_kdeSmooth[idx2] - _kdeSmooth[idx]) * f;
         }
 
+        // ── ColorBar class ────────────────────────────────────────────────────
+        const CB_DEFAULT_EXPANDED_H = 62;
+        const CB_KDE_NPTS = 300;
+        const CB_HIT_RADIUS = 7;
+
+        /**
+         * Reusable colorbar widget with morph renderer (flat bar → histogram shape).
+         *
+         * @param {Object} opts
+         * @param {HTMLElement} opts.container — parent element to append the island into
+         * @param {'horizontal'|'vertical'} [opts.orientation='horizontal']
+         * @param {string} [opts.id] — unique prefix for element IDs
+         * @param {boolean} [opts.interactive=true] — enable wheel/drag/hover
+         * @param {function} opts.getStops — returns current colormap gradient stops array
+         * @param {function} opts.getRange — returns {vmin, vmax} for current data range
+         * @param {function} opts.getWindow — returns {vmin, vmax} for current display window
+         * @param {function} opts.setWindow — called with (vmin, vmax) when user drags
+         * @param {function} [opts.fetchHistogram] — async, returns {counts, edges, vmin, vmax}
+         * @param {function} [opts.onWindowChange] — called after any vmin/vmax change
+         * @param {Object} [opts.adoptDOM] — reuse existing DOM elements instead of creating new ones
+         *     { wrap, canvas, vminLabel, vmaxLabel, triZone, triVmin, triVmax, colWrap, tooltip }
+         */
+        class ColorBar {
+            constructor(opts) {
+                this.opts = opts;
+                this.orientation = opts.orientation || 'horizontal';
+                this.interactive = opts.interactive !== false;
+                this.id = opts.id || ('cb-' + Math.random().toString(36).slice(2, 8));
+
+                // Animation state
+                this._expanded = false;
+                this._animT = 0;
+                this._animTarget = 0;
+                this._animating = false;
+                this._expandedH = CB_DEFAULT_EXPANDED_H;
+
+                // Window fractions (animated)
+                this._winVminF = 0;
+                this._winVmaxF = 1;
+                this._winVminTarget = 0;
+                this._winVmaxTarget = 1;
+
+                // Hover / drag state
+                this._hoverFrac = -1;
+                this._mouseOver = false;
+                this._hoverTimer = null;
+                this._dragActive = false;
+                this._dragTarget = null;
+                this._dragX = null;
+                this._hitVminX = null;
+                this._hitVmaxX = null;
+
+                // Auto-dismiss
+                this._autoDismissTimer = null;
+                this._autoDismissPending = false;
+
+                // Colormap preview active flag
+                this._cmapActive = false;
+
+                // Histogram / KDE
+                this._histData = null;
+                this._histVersion = null;
+                this._histFetching = false;
+                this._kdeSmooth = null;
+
+                // Sync
+                this._syncWith = null;
+                this._syncing = false;
+
+                // Quantile cycling
+                this._quantileIdx = 0;
+
+                // Build or adopt DOM
+                if (opts.adoptDOM) {
+                    const d = opts.adoptDOM;
+                    this.wrap       = d.wrap;
+                    this.canvas     = d.canvas;
+                    this.vminLabel  = d.vminLabel;
+                    this.vmaxLabel  = d.vmaxLabel;
+                    this.triZone    = d.triZone;
+                    this.triVmin    = d.triVmin;
+                    this.triVmax    = d.triVmax;
+                    this.colWrap    = d.colWrap;
+                    this.tooltip    = d.tooltip;
+                } else {
+                    this._buildDOM(opts.container);
+                }
+            }
+
+            /** Create and append island DOM to container. */
+            _buildDOM(container) {
+                const isVert = this.orientation === 'vertical';
+
+                // Outer wrap / island
+                const wrap = document.createElement('div');
+                wrap.className = 'cb-island cb-wrap';
+                wrap.dataset.cbId = this.id;
+                this.wrap = wrap;
+
+                // vmin / vmax labels
+                const vminLabel = document.createElement('span');
+                vminLabel.className = 'slim-cb-val';
+                this.vminLabel = vminLabel;
+
+                const vmaxLabel = document.createElement('span');
+                vmaxLabel.className = 'slim-cb-val';
+                this.vmaxLabel = vmaxLabel;
+
+                // Column wrap (canvas + tri-zone)
+                const colWrap = document.createElement('div');
+                colWrap.className = 'cb-col';
+                this.colWrap = colWrap;
+
+                // Canvas
+                const canvas = document.createElement('canvas');
+                canvas.className = 'cb-canvas';
+                this.canvas = canvas;
+                colWrap.appendChild(canvas);
+
+                // Triangle zone
+                const triZone = document.createElement('div');
+                triZone.className = 'cb-tri-zone';
+                this.triZone = triZone;
+
+                const triVmin = document.createElement('div');
+                triVmin.className = 'slim-cb-tri cb-tri-vmin';
+                this.triVmin = triVmin;
+
+                const triVmax = document.createElement('div');
+                triVmax.className = 'slim-cb-tri cb-tri-vmax';
+                this.triVmax = triVmax;
+
+                triZone.appendChild(triVmin);
+                triZone.appendChild(triVmax);
+                colWrap.appendChild(triZone);
+
+                // Tooltip
+                const tooltip = document.createElement('div');
+                tooltip.className = 'cb-tooltip';
+                tooltip.style.display = 'none';
+                this.tooltip = tooltip;
+
+                // Assemble: vertical puts vmaxLabel at top, vminLabel at bottom
+                if (isVert) {
+                    wrap.appendChild(vmaxLabel);
+                    wrap.appendChild(colWrap);
+                    wrap.appendChild(vminLabel);
+                } else {
+                    wrap.appendChild(vminLabel);
+                    wrap.appendChild(colWrap);
+                    wrap.appendChild(vmaxLabel);
+                }
+                wrap.appendChild(tooltip);
+
+                if (container) container.appendChild(wrap);
+            }
+
+            /** Build smoothed KDE from this._histData into this._kdeSmooth. */
+            _buildKDE() {
+                if (!this._histData || !this._histData.counts || !this._histData.counts.length) {
+                    this._kdeSmooth = null;
+                    return;
+                }
+                const { counts } = this._histData;
+                const nBins = counts.length;
+                const sorted = [...counts].sort((a, b) => a - b);
+                const medianCount = sorted[Math.floor(sorted.length / 2)] || 1;
+                const maxCount = Math.max(...counts, 1);
+                const useLog = maxCount > 20 * medianCount;
+                const vals = useLog ? counts.map(c => Math.log1p(c)) : [...counts];
+                const vMax = Math.max(...vals, 1);
+                const out = new Float64Array(CB_KDE_NPTS);
+                const sigma = CB_KDE_NPTS / nBins * 1.2;
+                for (let i = 0; i < nBins; i++) {
+                    const center = (i + 0.5) / nBins * CB_KDE_NPTS;
+                    const h = vals[i] / vMax;
+                    const r = Math.ceil(sigma * 3);
+                    for (let j = Math.max(0, Math.floor(center - r)); j < Math.min(CB_KDE_NPTS, Math.ceil(center + r)); j++) {
+                        const d = (j - center) / sigma;
+                        out[j] += h * Math.exp(-0.5 * d * d);
+                    }
+                }
+                let oMax = 0;
+                for (let j = 0; j < CB_KDE_NPTS; j++) if (out[j] > oMax) oMax = out[j];
+                if (oMax > 0) for (let j = 0; j < CB_KDE_NPTS; j++) out[j] /= oMax;
+                this._kdeSmooth = out;
+            }
+
+            /** Interpolate KDE value at fraction t (0..1). */
+            _kdeAt(t) {
+                if (!this._kdeSmooth) return 0;
+                const idx = Math.max(0, Math.min(CB_KDE_NPTS - 1, Math.floor(t * CB_KDE_NPTS)));
+                const idx2 = Math.min(idx + 1, CB_KDE_NPTS - 1);
+                const f = t * CB_KDE_NPTS - idx;
+                return this._kdeSmooth[idx] + (this._kdeSmooth[idx2] - this._kdeSmooth[idx]) * f;
+            }
+
+            /**
+             * Core morph renderer — draws the colorbar/histogram as one shape.
+             * Adapted from the global _cbMorphDraw function.
+             */
+            draw() {
+                const cvs = this.canvas;
+                if (!cvs) return;
+                if (this._cmapActive) return; // colormap preview showing — don't overdraw
+
+                const stops = this.opts.getStops();
+                if (!stops || !stops.length) return;
+
+                const dpr = window.devicePixelRatio || 1;
+                const cssW = cvs.clientWidth || 200;
+                const aT = this._animT;
+                const cssH = CB_COLLAPSED_H + (this._expandedH - CB_COLLAPSED_H) * aT;
+                cvs.width = Math.round(cssW * dpr);
+                cvs.height = Math.round(cssH * dpr);
+                cvs.style.height = cssH + 'px';
+
+                const ctx = cvs.getContext('2d');
+                ctx.clearRect(0, 0, cvs.width, cvs.height);
+                ctx.save();
+                ctx.scale(dpr, dpr);
+
+                // Compute target window fractions in data range
+                let vminFrac = 0, vmaxFrac = 1;
+                if (this._histData) {
+                    const { vmin: dmin, vmax: dmax } = this._histData;
+                    const range = dmax - dmin || 1;
+                    const win = this.opts.getWindow();
+                    vminFrac = (win.vmin - dmin) / range;
+                    vmaxFrac = (win.vmax - dmin) / range;
+                }
+
+                // Track targets for convergence
+                this._winVminTarget = vminFrac;
+                this._winVmaxTarget = vmaxFrac;
+
+                // Lerp animated window fractions toward target (snap during drag)
+                if (this._dragActive) {
+                    this._winVminF = vminFrac;
+                    this._winVmaxF = vmaxFrac;
+                } else {
+                    this._winVminF += (vminFrac - this._winVminF) * 0.18;
+                    this._winVmaxF += (vmaxFrac - this._winVmaxF) * 0.18;
+                }
+
+                // Animated window edges: full-range when collapsed, window when expanded
+                const effVmin = this._winVminF * aT;
+                const effVmax = 1 - (1 - this._winVmaxF) * aT;
+                const effW = effVmax - effVmin;
+
+                // Build colormap LUT (256 entries)
+                const cmSz = 256;
+                const cmLut = new Uint8Array(cmSz * 3);
+                const ns = stops.length;
+                for (let i = 0; i < cmSz; i++) {
+                    const t = i / (cmSz - 1);
+                    const fi = t * (ns - 1);
+                    const lo = Math.floor(fi), hi = Math.min(lo + 1, ns - 1), f = fi - lo;
+                    cmLut[i * 3]     = Math.round(stops[lo][0] * (1 - f) + stops[hi][0] * f);
+                    cmLut[i * 3 + 1] = Math.round(stops[lo][1] * (1 - f) + stops[hi][1] * f);
+                    cmLut[i * 3 + 2] = Math.round(stops[lo][2] * (1 - f) + stops[hi][2] * f);
+                }
+                const cmAt = (frac) => {
+                    const idx = Math.max(0, Math.min(cmSz - 1, Math.round(frac * (cmSz - 1)))) * 3;
+                    return [cmLut[idx], cmLut[idx + 1], cmLut[idx + 2]];
+                };
+
+                const hasKDE = this._kdeSmooth && aT > 0;
+                const labelH = CB_LABEL_H * aT;
+                const histTop = labelH;
+                const histH = cssH - histTop;
+
+                for (let px = 0; px < cssW; px++) {
+                    const t = px / cssW;
+                    const inRange = t >= effVmin && t <= effVmax;
+                    const cmapT = effW > 0.001 ? (t - effVmin) / effW : 0.5;
+
+                    let r, g, b;
+                    if (inRange) {
+                        [r, g, b] = cmAt(cmapT);
+                    } else {
+                        const [cr, cg, cb_] = cmAt(t);
+                        r = Math.round(cr + (60 - cr) * aT);
+                        g = Math.round(cg + (60 - cg) * aT);
+                        b = Math.round(cb_ + (60 - cb_) * aT);
+                    }
+
+                    let colH;
+                    if (hasKDE) {
+                        const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
+                        colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                    } else {
+                        colH = histH;
+                    }
+
+                    const y = cssH - colH;
+                    const alpha = inRange ? 1 : (1 - 0.65 * aT);
+                    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+                    ctx.fillRect(px, y, 1, colH);
+                }
+
+                // Dashed guide lines + value labels in the label zone
+                if (aT > 0.1) {
+                    ctx.globalAlpha = aT;
+
+                    if (vminFrac > 0.005 || vmaxFrac < 0.995) {
+                        ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                        ctx.lineWidth = 0.75;
+                        ctx.setLineDash([2, 2]);
+                        [effVmin, effVmax].forEach(f => {
+                            if (f <= 0.003 || f >= 0.997) return;
+                            const x = Math.round(f * cssW) + 0.5;
+                            ctx.beginPath();
+                            ctx.moveTo(x, labelH);
+                            ctx.lineTo(x, cssH);
+                            ctx.stroke();
+                        });
+                        ctx.setLineDash([]);
+                    }
+
+                    if (labelH > 4 && this._histData) {
+                        const { vmin: dmin, vmax: dmax } = this._histData;
+                        const win = this.opts.getWindow();
+                        const wVmin = win.vmin;
+                        const wVmax = win.vmax;
+                        const dimColor   = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+                        const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
+                        const hoverColor  = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
+                        ctx.font = '9px monospace';
+                        const charW = ctx.measureText('0').width;
+                        const labelY = labelH - 3;
+                        const labels = [];
+                        labels.push({ x: 2, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 2, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                        if (effVmin > 0.01 && effVmin < 0.99) {
+                            const vx = Math.round(effVmin * cssW);
+                            labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
+                        }
+                        if (effVmax > 0.01 && effVmax < 0.99) {
+                            const vx = Math.round(effVmax * cssW);
+                            labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
+                        }
+                        if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
+                            const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
+                            const hx = Math.round(this._hoverFrac * cssW);
+                            labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
+                        }
+                        labels.sort((a, b) => b.prio - a.prio);
+                        const drawn = [];
+                        for (const lbl of labels) {
+                            const tw = lbl.text.length * charW;
+                            let left, right;
+                            if (lbl.align === 'start') { left = lbl.x; right = lbl.x + tw; }
+                            else if (lbl.align === 'end') { left = lbl.x - tw; right = lbl.x; }
+                            else { left = lbl.x - tw / 2; right = lbl.x + tw / 2; }
+                            const overlaps = drawn.some(d => left < d.right + 4 && right > d.left - 4);
+                            if (overlaps) continue;
+                            ctx.fillStyle = lbl.color;
+                            ctx.textAlign = lbl.align;
+                            ctx.fillText(lbl.text, lbl.x, labelY);
+                            drawn.push({ left, right });
+                        }
+                        ctx.textAlign = 'start';
+                    }
+                    ctx.globalAlpha = 1;
+                }
+
+                ctx.restore();
+
+                // Update triangle positions
+                if (this.triVmin && this.triVmax) {
+                    this.triVmin.style.left = (effVmin * 100) + '%';
+                    this.triVmax.style.left = (effVmax * 100) + '%';
+                }
+
+                // Update hit-test positions
+                this._hitVminX = Math.round(effVmin * cssW);
+                this._hitVmaxX = Math.round(effVmax * cssW);
+            }
+
+            /** Show the colorbar island. */
+            show() {
+                if (this.wrap) this.wrap.style.display = '';
+            }
+
+            /** Hide the colorbar island. */
+            hide() {
+                if (this.wrap) this.wrap.style.display = 'none';
+            }
+
+            /** Remove the island from the DOM and clean up timers. */
+            destroy() {
+                if (this._hoverTimer) clearTimeout(this._hoverTimer);
+                if (this._autoDismissTimer) clearTimeout(this._autoDismissTimer);
+                if (this.wrap && this.wrap.parentNode) this.wrap.parentNode.removeChild(this.wrap);
+                this.wrap = null;
+                this.canvas = null;
+            }
+
+            /** Update vmin/vmax flanking labels from opts.getRange(). Hides when expanded. */
+            updateLabels() {
+                const range = this.opts.getRange();
+                if (this.vminLabel) {
+                    this.vminLabel.textContent = _cbFmt(range.vmin);
+                    this.vminLabel.style.display = this._expanded ? 'none' : '';
+                }
+                if (this.vmaxLabel) {
+                    this.vmaxLabel.textContent = _cbFmt(range.vmax);
+                    this.vmaxLabel.style.display = this._expanded ? 'none' : '';
+                }
+            }
+        }
+        // ── end ColorBar class ────────────────────────────────────────────────
+
         function _cbStartAnim(expand) {
             _cbAnimTarget = expand ? 1 : 0;
             if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
