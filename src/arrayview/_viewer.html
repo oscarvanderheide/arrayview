@@ -3097,13 +3097,9 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            // Anchor the island's BOTTOM edge: when the histogram expands, the
-            // island grows upward (top moves up) while the bottom stays put.
-            // When expanded, the island fills the space of colorbar + gap + eggs,
-            // so anchor bottom at where eggs bottom was (collapsed bottom + gap + eggs height)
-            const eggsExtra = 32 * _cbAnimT; // smoothly grow into eggs space
-            const cbBottom = Math.min(_cbAnchorBottom + chromeGap + CB_COLLAPSED_H + 14 + eggsExtra, window.innerHeight - 20);
-            const cbTop = cbBottom - stripH - 14; // 14 = island vertical padding (7+7)
+            // Anchor the island's TOP edge: the top stays fixed at the collapsed
+            // colorbar position, and the island grows downward when expanded.
+            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - stripH - 34);
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
