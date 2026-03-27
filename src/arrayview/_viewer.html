@@ -2836,7 +2836,7 @@
             // When collapsed: show window values (manualVmin/Vmax or currentVmin/Vmax)
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
-            if (slimVmin && slimVmax) {
+            if (slimVmin && slimVmax && !_cmapInIsland) {
                 // Hide flanking values when expanded — dmin/dmax drawn on canvas instead
                 slimVmin.style.display = _cbExpanded ? 'none' : '';
                 slimVmax.style.display = _cbExpanded ? 'none' : '';
@@ -2933,6 +2933,7 @@
         /** Core morph renderer — draws the colorbar/histogram as one shape. */
         function _cbMorphDraw() {
             if (!slimCbCanvas) return;
+            if (_cmapInIsland) return; // colormap preview is showing — don't overdraw
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops || !stops.length) return;
             const dpr = window.devicePixelRatio || 1;
