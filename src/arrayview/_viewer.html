@@ -1544,6 +1544,20 @@
                 if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
             },
+            get isMultiPane() {
+                return multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive;
+            },
+            get isGrid() {
+                return qmriActive || compareQmriActive || compareMvActive;
+            },
+            get name() {
+                if (compareQmriActive) return 'compareQmri';
+                if (compareMvActive)   return 'compareMv';
+                if (multiViewActive)   return 'multiView';
+                if (compareActive)     return 'compare';
+                if (qmriActive)        return 'qmri';
+                return 'normal';
+            },
             getEggsAnchorBottom() {
                 if (multiViewActive) {
                     const mvCbWrap = document.getElementById('mv-cb-wrap');
@@ -7562,7 +7576,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 saveScreenshot();
             } else if (e.key === 'N') {
                 // Export current 2-D slice as .npy
-                if (multiViewActive || compareMvActive || compareActive || qmriActive || compareQmriActive) { showStatus('slice export: not available in this mode'); return; }
+                if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; }
                 if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; }
                 const idxStr = indices.join(',');
                 const params = new URLSearchParams({
@@ -7578,7 +7592,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.body.removeChild(a);
                 showStatus('slice saved to Downloads (.npy)');
             } else if (e.key === 'g') {
-                if (multiViewActive || compareMvActive || compareActive || qmriActive || compareQmriActive) { showStatus('GIF export: not available in this mode'); return; }
+                if (ModeRegistry.isMultiPane) { showStatus('GIF export: not available in this mode'); return; }
                 saveGif();
             } else if (e.key === 'G') {
                 // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
