@@ -144,6 +144,29 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
+        /* ── Generic ColorBar class styles ──────────────────────────── */
+        .cb-wrap {
+            text-align: center; padding: 7px 16px; z-index: 2;
+            display: flex; align-items: flex-end; gap: 8px; box-sizing: border-box;
+            transition: opacity 0.3s ease;
+        }
+        .cb-col {
+            flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative;
+        }
+        .cb-canvas {
+            display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
+        }
+        .cb-tri-zone {
+            position: relative; height: 0; overflow: visible;
+            transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+        }
+        .cb-tri-zone.expanded { height: 10px; }
+        .cb-tooltip {
+            position: absolute; top: 0; left: 0; font-size: 10px;
+            color: var(--fg); background: var(--bg);
+            padding: 1px 4px; border-radius: 2px;
+            pointer-events: none; white-space: nowrap; z-index: 3;
+        }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
         #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
@@ -3664,6 +3687,48 @@
                     if (sw.opts.onWindowChange) sw.opts.onWindowChange();
                 }
                 sw._syncing = false;
+            }
+
+            /** Show a colormap strip preview inside this colorbar, hiding the canvas. */
+            showCmapPreview(stripElement) {
+                this._cmapActive = true;
+                this._cmapPrevParent = stripElement.parentElement;
+                this._cmapPrevNextSibling = stripElement.nextSibling;
+                this.colWrap.insertBefore(stripElement, this.canvas);
+                this.canvas.style.display = 'none';
+                this.triZone.style.display = 'none';
+                if (this._syncWith && !this._syncing) {
+                    const sw = this._syncWith;
+                    sw._syncing = true;
+                    const clone = stripElement.cloneNode(true);
+                    sw.showCmapPreview(clone);
+                    sw._syncing = false;
+                }
+            }
+
+            /** Hide the colormap strip preview and restore the canvas. */
+            hideCmapPreview() {
+                if (!this._cmapActive) return;
+                this._cmapActive = false;
+                const strip = this.colWrap.querySelector('.colormap-strip, .cmap-strip');
+                if (strip) {
+                    if (this._cmapPrevParent) {
+                        this._cmapPrevParent.insertBefore(strip, this._cmapPrevNextSibling || null);
+                    } else {
+                        strip.remove();
+                    }
+                }
+                this._cmapPrevParent = null;
+                this._cmapPrevNextSibling = null;
+                this.canvas.style.display = '';
+                this.triZone.style.display = '';
+                this.draw();
+                if (this._syncWith && !this._syncing) {
+                    const sw = this._syncWith;
+                    sw._syncing = true;
+                    sw.hideCmapPreview();
+                    sw._syncing = false;
+                }
             }
         }
         ColorBar.QUANTILE_PRESETS = [
