@@ -2826,19 +2826,25 @@
             if (_histData && !_kdeSmooth) _buildKDE();
             // Draw via morph renderer
             _cbMorphDraw();
-            // Toggle triangle zone visibility
+            // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
-            if (triZone) triZone.classList.toggle('expanded', _cbAnimT > 0.5);
-            // Update inline vmin/vmax values (always visible, yellow when expanded)
+            if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
+            // Update inline vmin/vmax values
+            // When expanded: show stable data range (dmin/dmax) so layout doesn't shift
+            // When collapsed: show window values (manualVmin/Vmax or currentVmin/Vmax)
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax) {
                 slimVmin.style.display = '';
                 slimVmax.style.display = '';
                 const activeColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
-                slimVmin.style.color = _cbAnimT > 0.5 ? activeColor : '';
-                slimVmax.style.color = _cbAnimT > 0.5 ? activeColor : '';
-                if (compareActive) {
+                slimVmin.style.color = _cbExpanded ? activeColor : '';
+                slimVmax.style.color = _cbExpanded ? activeColor : '';
+                if (_cbExpanded && _histData) {
+                    // Stable data range labels while histogram is visible
+                    slimVmin.textContent = _cbFmt(_histData.vmin);
+                    slimVmax.textContent = _cbFmt(_histData.vmax);
+                } else if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
                     slimVmin.textContent = _cbFmt(sharedVmin);
@@ -3491,14 +3497,28 @@
                 const x = e.clientX - rect.left;
                 const target = _hitLine(x);
                 if (!target) return;
+                _startClimDrag(target, e);
+            });
+
+            // Triangle DOM element drag handlers
+            function _startClimDrag(target, e) {
                 _dragTarget = target;
                 _cbDragActive = true;
-                // Initialise manualVmin/manualVmax from current display values
                 if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
                 if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
                 slimCbCanvas.style.cursor = 'ew-resize';
                 e.preventDefault();
-                e.stopPropagation(); // prevent the existing drag-level handler
+                e.stopPropagation();
+            }
+            const triVminEl = document.getElementById('slim-cb-tri-vmin');
+            const triVmaxEl = document.getElementById('slim-cb-tri-vmax');
+            if (triVminEl) triVminEl.addEventListener('mousedown', (e) => {
+                if (!_cbExpanded || !_histData) return;
+                _startClimDrag('vmin', e);
+            });
+            if (triVmaxEl) triVmaxEl.addEventListener('mousedown', (e) => {
+                if (!_cbExpanded || !_histData) return;
+                _startClimDrag('vmax', e);
             });
 
             window.addEventListener('mousemove', (e) => {
@@ -6502,59 +6522,72 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`${paneLabel} dynamic range: ${DR_LABELS[hv.drIdx]}`);
                     return;
                 }
-                manualVmin = manualVmax = null;
-                cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; v.seq++; });
-                dr_idx = (dr_idx + 1) % DR_LABELS.length;
-                // Reset per-pane qMRI DR overrides when cycling globally
-                qmriViews.forEach(v => { v.drIdx = null; });
-                _cbExpanded = false;
-                _kdeSmooth = null;
-                _cbStartAnim(false);
-                fetch(`/clearcache/${sid}`).then(() => {
-                    mvViews.forEach(v => { v.rendering = false; v.pending = false; });
-                    updateView(); triggerPreload();
-                    if (!rgbMode) {
-                        _histData = null; _histDataVersion = null;
-                        if (qmriActive && qmriMosaicActive) {
-                            Promise.all(qmriViews.map(v => _fetchQmriMosaicHist(v))).then(() => {
-                                _cbExpanded = true;
-                                qmriViews.forEach(v => drawQmriMosaicVCb(v));
-                            });
-                        } else {
-                            const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                            fetcher().then(() => {
-                                _cbExpanded = true;
-                                _buildKDE();
-                                _cbStartAnim(true);
-                                if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
-                            });
+                // Quantile presets for cycling with repeated d presses
+                const _QUANTILE_PRESETS = [
+                    { label: 'full range', lo: 0, hi: 1 },
+                    { label: '0.1–99.9%', lo: 0.001, hi: 0.999 },
+                    { label: '1–99%', lo: 0.01, hi: 0.99 },
+                    { label: '5–95%', lo: 0.05, hi: 0.95 },
+                    { label: '10–90%', lo: 0.10, hi: 0.90 },
+                ];
+
+                if (!_cbExpanded) {
+                    // First press: expand histogram without changing vmin/vmax
+                    if (rgbMode) return;
+                    _cbExpanded = true;
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                    fetcher().then(() => {
+                        _buildKDE();
+                        _cbStartAnim(true);
+                        _redrawActiveColorbar();
+                    });
+                    showStatus('histogram');
+                } else if (_histData) {
+                    // Already expanded: cycle quantile presets
+                    if (!window._dQuantileIdx) window._dQuantileIdx = 0;
+                    window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+                    const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+                    if (preset.lo === 0 && preset.hi === 1) {
+                        manualVmin = null; manualVmax = null;
+                    } else {
+                        // Compute quantile values from histogram edges
+                        const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                        const total = counts.reduce((a, b) => a + b, 0);
+                        let cumLo = 0, cumHi = 0;
+                        let qLo = dmin, qHi = dmax;
+                        for (let i = 0; i < counts.length; i++) {
+                            cumLo += counts[i];
+                            if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
                         }
+                        for (let i = counts.length - 1; i >= 0; i--) {
+                            cumHi += counts[i];
+                            if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                        }
+                        manualVmin = qLo;
+                        manualVmax = qHi;
                     }
-                });
-                showStatus(`Dynamic range: ${DR_LABELS[dr_idx]}`);
-                if (!rgbMode) {
+                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                    fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                    _cbMorphDraw();
+                    _redrawActiveColorbar();
+                    showStatus(`range: ${preset.label}`);
+                }
+                // Auto-dismiss after 3s unless mouse is over island or lebesgue is active
+                if (!rgbMode && !lebesgueMode) {
                     clearTimeout(_histAutoDismissTimer);
                     _histAutoDismissPending = false;
-                    if (!lebesgueMode) {
-                        _histAutoDismissTimer = setTimeout(() => {
-                            _histAutoDismissTimer = null;
-                            if (!lebesgueMode && !_cbDragActive) {
-                                if (_cbMouseOver) {
-                                    // Mouse is over histogram — defer collapse to mouseleave
-                                    _histAutoDismissPending = true;
-                                    return;
-                                }
-                                _cbExpanded = false; _histData = null; _kdeSmooth = null;
-                                _cbStartAnim(false);
-                                if (qmriActive && qmriMosaicActive) {
-                                    qmriViews.forEach(v => { v._histData = null; });
-                                    qvScaleAllCanvases();
-                                    qmriViews.forEach(v => drawQmriMosaicVCb(v));
-                                } else if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
+                    _histAutoDismissTimer = setTimeout(() => {
+                        _histAutoDismissTimer = null;
+                        if (!lebesgueMode && !_cbDragActive) {
+                            if (_cbMouseOver) {
+                                _histAutoDismissPending = true;
+                                return;
                             }
-                        }, 3000);
-                    }
+                            _cbExpanded = false;
+                            _cbStartAnim(false);
+                            _redrawActiveColorbar();
+                        }
+                    }, 3000);
                 }
                 saveState();
             } else if (e.key === 'D') {
