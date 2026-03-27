@@ -69,8 +69,7 @@ Load the relevant skill before touching the corresponding area.
 |-------|-------------|
 | `vscode-simplebrowser` | Touching extension install, signal-file IPC, `_ensure_vscode_extension()`, `_VSCODE_EXT_VERSION`, or `vscode-extension/` |
 | `invocation-consistency` | Any server startup, display-opening, or environment-detection change |
-| `modes-consistency` | Any visual feature: zoom, colorbars, canvas events, rendering modes |
-| `viewer-ui-checklist` | Any UI change: keyboard shortcuts, layout, new panels |
+| `ui-consistency-audit` | Any visual feature: zoom, colorbars, canvas events, rendering modes. Or UI changes: keyboard shortcuts, layout, new panels |
 | `frontend-designer` | Any styling/layout change to `_viewer.html` |
 | `docs-style` | Updating README, in-app help overlay, or docstrings |
 | `task-workflow` | Feature or fix tasks |
@@ -125,6 +124,14 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
 - Julia: always subprocess (GIL); never run server in-process
 - Port forwarding in tunnel environments; shutdown lifecycle and orphan process prevention
 
+## Documentation
+
+Docs live in `docs/` (MkDocs Material site) and `README.md` (minimal quickstart).
+
+**Style:** quiet confidence — short sentences, lead with code, imply depth rather than explain everything. No verbose prose, no "Note:", no emojis. Load the `docs-style` skill before editing.
+
+**Keep docs in sync:** when a commit adds, changes, or removes user-facing behavior (new shortcut, changed flag, removed feature), update the relevant docs page and README before committing. Skip this for purely internal changes.
+
 ## Source of Truth
 
-End-user usage: `README.md`
+End-user usage: `README.md` and `docs/`

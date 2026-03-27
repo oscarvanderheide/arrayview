@@ -371,7 +371,7 @@
         :root.light .mode-badge-rgb  { background: rgba(170,50,160,0.1); color: #a030a0; border-color: rgba(170,50,160,0.25); }
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
-        #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; }
+        #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 0.3s ease; }
         body.fullscreen-mode .mode-badge { background-color: rgba(30, 30, 30, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
         body.fullscreen-mode :root.light .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
         .mode-badge-complex { transition: opacity 0.9s ease; }
@@ -2825,6 +2825,9 @@
             if (_histData && !_kdeSmooth) _buildKDE();
             // Draw via morph renderer
             _cbMorphDraw();
+            // Hide mode eggs when histogram is expanded (they sit underneath)
+            const eggsEl = document.getElementById('mode-eggs');
+            if (eggsEl) eggsEl.style.opacity = _cbAnimT > 0.1 ? '0' : '';
             // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
             if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
