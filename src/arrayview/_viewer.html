@@ -1525,6 +1525,31 @@
             twilight_shifted: '\u2220PD', viridis: 'B\u2081\u207A', RdBu_r: '\u0394B\u2080',
         };
 
+        // ── Mode Registry ────────────────────────────────────────────────
+        const ModeRegistry = {
+            getScaler() {
+                if (compareQmriActive) return compareQmriScaleAllCanvases;
+                if (compareMvActive)   return compareMvScaleAllCanvases;
+                if (multiViewActive)   return mvScaleAllCanvases;
+                if (compareActive)     return compareScaleCanvases;
+                if (qmriActive)        return qvScaleAllCanvases;
+                return null;
+            },
+            scaleAll() {
+                const scaler = this.getScaler();
+                if (scaler) return scaler();
+                if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
+                if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
+            },
+            scaleAllAutoFit() {
+                const scaler = this.getScaler();
+                if (scaler) return scaler();
+                _autoFitPending = true;
+                if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
+                if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
+            },
+        };
+
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const compareWrap = document.getElementById('compare-view-wrap');
@@ -2825,12 +2850,8 @@
         }
 
         window.addEventListener('resize', () => {
-            if (compareQmriActive) { compareQmriScaleAllCanvases(); return; }
-            if (compareMvActive) { compareMvScaleAllCanvases(); return; }
-            if (multiViewActive) { mvScaleAllCanvases(); return; }
-            if (compareActive) { compareScaleCanvases(); positionEggs(); return; }
-            if (qmriActive) { qvScaleAllCanvases(); return; }
-            if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
+            ModeRegistry.scaleAll();
+            positionEggs();
         });
 
         // ── Mode crossfade utility ──────────────────────────────
@@ -7161,12 +7182,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _zoomAdjustedByUser = true;
                     }
                 }
-                if (compareQmriActive)  compareQmriScaleAllCanvases();
-                else if (compareMvActive) compareMvScaleAllCanvases();
-                else if (multiViewActive) mvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else if (qmriActive)    qvScaleAllCanvases();
-                else                    scaleCanvas(canvas.width, canvas.height);
+                ModeRegistry.scaleAll();
                 showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
@@ -7182,12 +7198,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _autoFitPending = true;
                     }
                 }
-                if (compareQmriActive) compareQmriScaleAllCanvases();
-                else if (compareMvActive) compareMvScaleAllCanvases();
-                else if (multiViewActive) mvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else if (qmriActive) qvScaleAllCanvases();
-                else scaleCanvas(canvas.width, canvas.height);
+                ModeRegistry.scaleAll();
                 showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '0') {
@@ -7204,12 +7215,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _zoomAdjustedByUser = false;
                     _panX = 0; _panY = 0; _applyCanvasPan();
                     _mosaicPanX = 0; _mosaicPanY = 0; _mosaicApplyPan();
-                    if (compareQmriActive) compareQmriScaleAllCanvases();
-                    else if (compareMvActive) compareMvScaleAllCanvases();
-                    else if (multiViewActive) mvScaleAllCanvases();
-                    else if (compareActive) compareScaleCanvases();
-                    else if (qmriActive) qvScaleAllCanvases();
-                    else { _autoFitPending = true; scaleCanvas(canvas.width, canvas.height); }
+                    ModeRegistry.scaleAllAutoFit();
                     showStatus(`zoom: fit`);
                     saveState();
                 }
@@ -7481,10 +7487,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'a') {
                 // Toggle stretch-to-square for thin-dimension slices
                 squareStretch = !squareStretch;
-                if (multiViewActive) mvScaleAllCanvases();
-                else if (compareMvActive) compareMvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else scaleCanvas(lastImgW, lastImgH);
+                ModeRegistry.scaleAll();
                 showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
             } else if (e.key === 'A') {
                 // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
@@ -11111,12 +11114,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                     }
                 }
-                if (compareQmriActive)  compareQmriScaleAllCanvases();
-                else if (compareMvActive) compareMvScaleAllCanvases();
-                else if (multiViewActive) mvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else if (qmriActive)    qvScaleAllCanvases();
-                else                    scaleCanvas(canvas.width, canvas.height);
+                ModeRegistry.scaleAll();
                 saveState();
                 return;
             }
@@ -11382,9 +11380,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _fullscreenActive = on;
             document.body.classList.toggle('fullscreen-mode', on);
             // Recalc layout with new reserves
-            if (compareActive) compareScaleCanvases();
-            else if (multiViewActive) mvScaleAllCanvases();
-            else if (lastImageData) scaleCanvas(lastImgW, lastImgH);
+            ModeRegistry.scaleAll();
             if (!on) {
                 // Restore normal colorbar positioning
                 const wrap = document.getElementById('slim-cb-wrap');
@@ -12121,12 +12117,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Dampen with ^0.35 to avoid over-sensitive zoom on small pinch movements
                 userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * Math.pow(d / _pinchDist0, 0.35)));
                 _zoomAdjustedByUser = true;
-                if (compareQmriActive) compareQmriScaleAllCanvases();
-                else if (compareMvActive) compareMvScaleAllCanvases();
-                else if (multiViewActive) mvScaleAllCanvases();
-                else if (compareActive) compareScaleCanvases();
-                else if (qmriActive) qvScaleAllCanvases();
-                else scaleCanvas(canvas.width, canvas.height);
+                ModeRegistry.scaleAll();
             }
         }
         function _onTouchEnd(e) {
