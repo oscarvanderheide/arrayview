@@ -7773,7 +7773,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         { label: '5–95%', lo: 0.05, hi: 0.95 },
                         { label: '10–90%', lo: 0.10, hi: 0.90 },
                     ];
-                    if (!window._dQuantileIdx) window._dQuantileIdx = 0;
+                    if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
                     window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
                     const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
                     if (preset.lo === 0 && preset.hi === 1) {
@@ -7841,7 +7841,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { label: '5\u201395%', lo: 0.05, hi: 0.95 },
                             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
                         ];
-                        if (!window._dQuantileIdx) window._dQuantileIdx = 0;
+                        if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
                         window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
                         const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
                         if (preset.lo === 0 && preset.hi === 1) {
