@@ -3331,7 +3331,144 @@
                     this.vmaxLabel.style.display = this._expanded ? 'none' : '';
                 }
             }
+
+            /** Initiate expand (true) or collapse (false) animation. */
+            startAnim(expand) {
+                this._animTarget = expand ? 1 : 0;
+                if (!this._animating) {
+                    this._animating = true;
+                    this._animStep();
+                }
+            }
+
+            /** Single animation frame — lerps _animT toward _animTarget. */
+            _animStep() {
+                const diff = this._animTarget - this._animT;
+                if (Math.abs(diff) < 0.003) {
+                    this._animT = this._animTarget;
+                } else {
+                    this._animT += diff * 0.15;
+                }
+                this.draw();
+                const morphDone = Math.abs(this._animTarget - this._animT) < 0.003;
+                const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
+                             && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
+                if (morphDone && winDone) {
+                    this._animating = false;
+                    return;
+                }
+                requestAnimationFrame(() => this._animStep());
+            }
+
+            /** Public API: expand the colorbar to show histogram. */
+            async expand() {
+                if (this._expanded) return;
+                this._expanded = true;
+                if (this.triZone) this.triZone.classList.add('expanded');
+                this.updateLabels();
+                if (this.opts.fetchHistogram) {
+                    this._histFetching = true;
+                    this._histData = await this.opts.fetchHistogram();
+                    this._histFetching = false;
+                }
+                this._buildKDE();
+                this.startAnim(true);
+                if (this._syncWith && !this._syncing) {
+                    this._syncWith._syncing = true;
+                    await this._syncWith.expand();
+                    this._syncWith._syncing = false;
+                }
+            }
+
+            /** Public API: collapse the colorbar. */
+            collapse() {
+                if (!this._expanded || this._dragActive) return;
+                this._expanded = false;
+                this._hitVminX = null;
+                this._hitVmaxX = null;
+                if (this.triZone) this.triZone.classList.remove('expanded');
+                this.startAnim(false);
+                this.updateLabels();
+                if (this._syncWith && !this._syncing) {
+                    this._syncWith._syncing = true;
+                    this._syncWith.collapse();
+                    this._syncWith._syncing = false;
+                }
+            }
+
+            /** Whether the colorbar is currently expanded. */
+            get expanded() {
+                return this._expanded;
+            }
+
+            /** Re-fetch histogram when data is stale. */
+            async refreshHistogram() {
+                if (!this._expanded || this._histFetching || !this.opts.fetchHistogram) return;
+                this._histFetching = true;
+                this._histData = await this.opts.fetchHistogram();
+                this._histFetching = false;
+                this._buildKDE();
+                this.draw();
+            }
+
+            /** Auto-collapse after a delay (ms). */
+            startAutoDismiss(ms = 3000) {
+                this.cancelAutoDismiss();
+                this._autoDismissTimer = setTimeout(() => {
+                    this._autoDismissTimer = null;
+                    if (this._mouseOver) {
+                        this._autoDismissPending = true;
+                        return;
+                    }
+                    if (this._expanded && !this._dragActive) this.collapse();
+                }, ms);
+            }
+
+            /** Clear auto-dismiss timer and pending flag. */
+            cancelAutoDismiss() {
+                if (this._autoDismissTimer) {
+                    clearTimeout(this._autoDismissTimer);
+                    this._autoDismissTimer = null;
+                }
+                this._autoDismissPending = false;
+            }
+
+            /** Cycle through quantile presets; returns {vmin, vmax, label} or null. */
+            cycleQuantile() {
+                if (!this._expanded || !this._histData) return null;
+                const presets = ColorBar.QUANTILE_PRESETS;
+                this._quantileIdx = (this._quantileIdx + 1) % presets.length;
+                const preset = presets[this._quantileIdx];
+                const label = preset.label;
+                if (preset.lo === 0 && preset.hi === 1) {
+                    if (this._syncWith) this._syncWith._quantileIdx = this._quantileIdx;
+                    return { vmin: null, vmax: null, label };
+                }
+                const { counts, edges } = this._histData;
+                const total = counts.reduce((s, c) => s + c, 0) || 1;
+                let cum = 0;
+                let qLo = edges[0];
+                for (let i = 0; i < counts.length; i++) {
+                    cum += counts[i];
+                    if (cum / total >= preset.lo) { qLo = edges[i + 1]; break; }
+                }
+                cum = 0;
+                let qHi = edges[edges.length - 1];
+                for (let i = counts.length - 1; i >= 0; i--) {
+                    cum += counts[i];
+                    if (cum / total >= (1 - preset.hi)) { qHi = edges[i]; break; }
+                }
+                if (this._syncWith) this._syncWith._quantileIdx = this._quantileIdx;
+                return { vmin: qLo, vmax: qHi, label };
+            }
         }
+        ColorBar.QUANTILE_PRESETS = [
+            { label: 'full range', lo: 0, hi: 1 },
+            { label: '0.1\u201399.9%', lo: 0.001, hi: 0.999 },
+            { label: '1\u201399%', lo: 0.01, hi: 0.99 },
+            { label: '5\u201395%', lo: 0.05, hi: 0.95 },
+            { label: '10\u201390%', lo: 0.10, hi: 0.90 },
+        ];
         // ── end ColorBar class ────────────────────────────────────────────────
 
         function _cbStartAnim(expand) {
