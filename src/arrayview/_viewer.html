@@ -9729,7 +9729,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rowGap = rows >= 3 ? 4 : 14;
             const sidePad = rows >= 3 ? 80 : 120;
             const labelH = 24;  // column headers
-            const cbH = 33;
+            const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
+            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
             // Only the bottom row has colorbars (non-bottom rows hide them)
             const cbRows = rows >= 2 ? 1 : rows;
             const bottomPad = 16;
@@ -10139,7 +10140,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rowGap = nRows >= 3 ? 6 : 14;
             const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
             const labelH = 0;  // no column headers in compare-multiview
-            const cbH = 33;
+            const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
+            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
             // Only bottom row has colorbars (non-bottom rows hide them)
             const cbRows = nRows >= 2 ? 1 : nRows;
             const bottomPad = 16;
@@ -10497,8 +10499,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rowGap = 14;  // matches #qmri-view-wrap gap
             const sidePad = 120; // 40px padding + colorbar label flanks
             const labelH = 24;  // qv-label above each canvas
-            // Reserve: colorbar strip (11px) + margin-top (2px) + label row (18px) + padding (2px) = 33px
-            const cbH = 33;
+            // Reserve: colorbar strip + margin-top + label row + padding.
+            // When any colorbar is expanded (histogram visible), reserve extra height.
+            const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
+            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
             const bottomPad = 24; // breathing room below last colorbar
             const totalH = window.innerHeight - uiReserveV()
                          - rows * (labelH + cbH)
