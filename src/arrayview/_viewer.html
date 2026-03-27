@@ -156,7 +156,7 @@
         }
         .cb-canvas {
             display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
-            position: absolute; bottom: 0; left: 0;
+            position: absolute; bottom: 0; left: 0; background: transparent;
         }
         .cb-tri-zone {
             position: absolute; bottom: -10px; left: 0; width: 100%;
@@ -170,7 +170,7 @@
             padding: 1px 4px; border-radius: 2px;
             pointer-events: none; white-space: nowrap; z-index: 3;
         }
-        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; }
+        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
         #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
         #slim-cb-tri-zone.expanded { height: 10px; }
