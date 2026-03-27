@@ -28,6 +28,6 @@ view(arr)
 
 ## Once open
 
-`c` colormaps · `d` histogram · `v` 3-plane · `z` mosaic · `?` help
+`c` colormaps · `d` dynamic range · `w` histogram · `v` 3-plane · `z` mosaic · `?` help
 
 [Full documentation →](https://oscarvanderheide.github.io/arrayview/)
