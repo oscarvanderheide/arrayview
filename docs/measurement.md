@@ -4,7 +4,7 @@
 
 `A` cycles through ROI shapes: rectangle, circle, freehand, flood fill, off.
 
-Each active ROI shows statistics — mean, std, min, max, pixel count — updated live as you draw or move it.
+Active ROIs show live statistics.
 
 For flood fill, `[` / `]` adjusts tolerance.
 

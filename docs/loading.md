@@ -18,9 +18,9 @@ Optional libraries are imported only when needed.
 ## CLI
 
 ```bash
-uvx arrayview scan.nii.gz
+uvx arrayview volume.nii.gz
 uvx arrayview volume.npy --window browser
-uvx arrayview brain.nii.gz --rgb
+uvx arrayview image.npy --rgb
 uvx arrayview --watch data.npy              # reload on file change
 ```
 
@@ -66,22 +66,22 @@ Key parameters:
 
 ## File Picker
 
-Press `Cmd/Ctrl+O` or `P` to open the file picker. Tab switches between Open, Compare, and Overlay modes. Space selects a file, Enter opens it.
+`Cmd/Ctrl+O` or `P` opens the file picker.
 
 ## Drag and Drop
 
-Drop a file onto the viewer. Arrays with compatible shapes go to compare mode; others open in a new tab.
+Drop a file onto the viewer.
 
 ## Multiple Arrays
 
 ```bash
 uvx arrayview base.npy moving.npy           # compare mode
-uvx arrayview scan.nii.gz --overlay mask.nii.gz
+uvx arrayview volume.nii.gz --overlay mask.nii.gz
 ```
 
 ## Zarr
 
-Use `zarr_chunk_preset` to get chunk shapes optimised for slice navigation:
+Use `zarr_chunk_preset` to get chunk shapes optimized for slice navigation:
 
 ```python
 from arrayview import zarr_chunk_preset
@@ -99,7 +99,7 @@ Recommended chunk shapes by dimensionality:
 | 4 | Y, X, Z, T | `(Y, X, 1, t)` |
 | 5 | Y, X, Z, T, C | `(Y, X, 1, 1, C)` |
 
-XY tile size is capped at 512. The T depth is a small value to keep chunk size bounded.
+XY tile size is capped at 512.
 
 Open a zarr store directly:
 
