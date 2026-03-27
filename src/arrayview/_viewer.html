@@ -1865,7 +1865,7 @@
                 }
                 childrenH += h + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
-            const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
+            const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             // In fullscreen: center the canvas vertically in the viewport
             const pt = _fullscreenActive
                 ? Math.max(0, Math.floor((window.innerHeight - childrenH) / 2))
@@ -1883,7 +1883,7 @@
         }
 
         function scaleCanvas(w, h) {
-            const bottomReserve = _fullscreenActive ? 0 : 72; // fullscreen: overlaid; normal: colorbar + eggs + gaps
+            const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             const immersivePad = 12; // breathing room on each side in immersive mode
             const maxW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80));
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - (_fullscreenActive ? immersivePad * 2 : 0));
@@ -2734,7 +2734,10 @@
                 _cbMorphDraw();
                 // Eggs
                 const eggsEl = document.getElementById('mode-eggs');
-                if (eggsEl) eggsEl.style.opacity = _cbAnimT > 0.1 ? '0' : '';
+                if (eggsEl) {
+                    eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
+                    eggsEl.style.opacity = '';
+                }
                 // Triangle zone
                 const triZone = document.getElementById('slim-cb-tri-zone');
                 if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
@@ -2764,7 +2767,7 @@
             const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
                 : Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
             if (!cssW || cssW < 10) return;
-            const stripH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT;
+            const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
             // Mirror the gap between name-bar/title bottom and canvas top
             let chromeGap;
             // In both modes, #info (dim bar) is the element directly above the canvas area
@@ -2788,7 +2791,10 @@
             }
             // Anchor the island's BOTTOM edge: when the histogram expands, the
             // island grows upward (top moves up) while the bottom stays put.
-            const cbBottom = Math.min(_cbAnchorBottom + chromeGap + CB_COLLAPSED_H + 14, window.innerHeight - 20);
+            // When expanded, the island fills the space of colorbar + gap + eggs,
+            // so anchor bottom at where eggs bottom was (collapsed bottom + gap + eggs height)
+            const eggsExtra = _cbAnimT > 0.01 ? 32 : 0; // ~12px gap + ~20px eggs
+            const cbBottom = Math.min(_cbAnchorBottom + chromeGap + CB_COLLAPSED_H + 14 + eggsExtra, window.innerHeight - 20);
             const cbTop = cbBottom - stripH - 14; // 14 = island vertical padding (7+7)
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
@@ -2820,7 +2826,10 @@
             _cbMorphDraw();
             // Hide mode eggs when histogram is expanded (they sit underneath)
             const eggsEl = document.getElementById('mode-eggs');
-            if (eggsEl) eggsEl.style.opacity = _cbAnimT > 0.1 ? '0' : '';
+            if (eggsEl) {
+                eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
+                eggsEl.style.opacity = '';
+            }
             // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
             if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
@@ -2848,7 +2857,7 @@
         // ── Histogram-in-colorbar (morph) ────────────────────────────────────
         const CB_COLLAPSED_H = 13;  // flat colorbar height in CSS px
         const CB_LABEL_H     = 14;  // top zone for value labels when expanded
-        const CB_EXPANDED_H  = 62;  // label zone (14) + distribution (48)
+        let _cbExpandedH  = 62;  // dynamically computed; default = label zone (14) + distribution (48)
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
@@ -2857,6 +2866,21 @@
         let _cbHoverFrac = -1;      // cursor x-fraction on canvas (-1 = not hovering)
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
+
+        // Compute expanded height so the histogram island fills the space
+        // previously occupied by colorbar island + gap + eggs
+        function _computeCbExpandedH() {
+            const wrap = document.getElementById('slim-cb-wrap');
+            const eggs = document.getElementById('mode-eggs');
+            if (!wrap || !eggs || !eggs.innerHTML) return;
+            const wrapRect = wrap.getBoundingClientRect();
+            const eggsRect = eggs.getBoundingClientRect();
+            if (eggsRect.height < 2) return;
+            // Total space from top of island to bottom of eggs
+            const totalSpace = eggsRect.bottom - wrapRect.top;
+            // Island height = canvas(_cbExpandedH) + padding(14) + trizone(10) + border(2)
+            _cbExpandedH = Math.max(30, totalSpace - 26);
+        }
 
         function _buildKDE() {
             if (!_histData || !_histData.counts || !_histData.counts.length) { _kdeSmooth = null; return; }
@@ -2908,12 +2932,11 @@
             } else {
                 _cbAnimT += diff * 0.15;
             }
-            // Draw on the correct canvas for the active mode
+            // Redraw colorbar AND reposition island each frame so bottom stays anchored
             if (multiViewActive || compareMvActive) {
-                const mvCb = document.getElementById('mv-cb');
-                if (mvCb) _cbMorphDraw(mvCb); else _cbMorphDraw();
+                drawMvColorbar();
             } else {
-                _cbMorphDraw();
+                drawSlimColorbar(cbMarkerFrac);
             }
             // Check if both expand/collapse AND window fractions have converged
             const morphDone = Math.abs(_cbAnimTarget - _cbAnimT) < 0.003;
@@ -2941,7 +2964,7 @@
             const dpr = window.devicePixelRatio || 1;
             const cssW = cvs.clientWidth || 200;
             const aT = _cbAnimT;
-            const cssH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * aT;
+            const cssH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * aT;
             cvs.width = Math.round(cssW * dpr);
             cvs.height = Math.round(cssH * dpr);
             cvs.style.height = cssH + 'px';
@@ -3014,7 +3037,7 @@
 
                 let colH;
                 if (hasKDE) {
-                    const kdeH = Math.max(2, _kdeAt(t) * (CB_EXPANDED_H - CB_LABEL_H));
+                    const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
                     colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
                 } else {
                     colH = histH;
@@ -3392,10 +3415,10 @@
             const sCtx = slimCbCanvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
             const cssW = slimCbCanvas.clientWidth || slimCbCanvas.width / dpr;
-            const cssH = CB_COLLAPSED_H + (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT;
+            const cssH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
             const binW = cssW / nBins;
             const binCenter = (binIdx + 0.5) / nBins;
-            const colH = _kdeSmooth ? Math.max(2, _kdeAt(binCenter) * CB_EXPANDED_H) : cssH;
+            const colH = _kdeSmooth ? Math.max(2, _kdeAt(binCenter) * _cbExpandedH) : cssH;
             const x = binIdx * binW;
             const y = cssH - colH;
             sCtx.restore();
@@ -4367,7 +4390,7 @@
                 const mvCbWrap = document.getElementById('mv-cb-wrap');
                 const cbRect = mvCbWrap ? mvCbWrap.getBoundingClientRect() : null;
                 if (cbRect && cbRect.height > 2) {
-                    eggsTop = cbRect.bottom + 4;
+                    eggsTop = cbRect.bottom + 12;
                 } else {
                     // canvases might be sized already even if colorbar isn't drawn yet
                     let maxBottom = 0;
@@ -4396,7 +4419,7 @@
                 // Use the shared colorbar position if visible, else panes bottom
                 const cbWrap = document.getElementById('slim-cb-wrap');
                 if (cbWrap && cbWrap.style.display !== 'none') {
-                    eggsTop = cbWrap.getBoundingClientRect().bottom + 4;
+                    eggsTop = cbWrap.getBoundingClientRect().bottom + 12;
                 } else {
                     let maxBottom = 0;
                     // In diff mode, per-pane colorbars sit below canvases — use their bottom
@@ -4447,7 +4470,7 @@
                 // gap that the colorbar would occupy so eggs aren't flush with the canvas.
                 const wrap = document.getElementById('slim-cb-wrap');
                 if (wrap && wrap.style.display !== 'none') {
-                    eggsTop = wrap.getBoundingClientRect().bottom + 4;
+                    eggsTop = wrap.getBoundingClientRect().bottom + 12;
                 } else {
                     eggsTop = canvas.getBoundingClientRect().bottom + 36;
                 }
@@ -6612,6 +6635,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!_cbExpanded) {
                     // First press: expand histogram without changing vmin/vmax
                     if (rgbMode) return;
+                    _computeCbExpandedH();
                     _cbExpanded = true;
                     window._dQuantileIdx = 0; // reset cycle
                     // Show tri-zone and hide flanking values immediately
@@ -6625,7 +6649,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     fetcher().then(() => {
                         _buildKDE();
                         _cbStartAnim(true);
-                        _redrawActiveColorbar();
+                        if (multiViewActive || compareMvActive) drawMvColorbar();
+                        else drawSlimColorbar(cbMarkerFrac);
                     });
                     showStatus('histogram');
                 } else if (_histData) {
@@ -6670,7 +6695,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             }
                             _cbExpanded = false;
                             _cbStartAnim(false);
-                            _redrawActiveColorbar();
+                            if (multiViewActive || compareMvActive) drawMvColorbar();
+                            else drawSlimColorbar(cbMarkerFrac);
                         }
                     }, 3000);
                 }
@@ -6702,14 +6728,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _buildKDE();
                         _cbStartAnim(true);
                         _fetchLebesgueSlice();
-                        _redrawActiveColorbar();
+                        if (multiViewActive || compareMvActive) drawMvColorbar();
+                        else drawSlimColorbar(cbMarkerFrac);
                     });
                     showStatus('Lebesgue mode on');
                 } else {
                     _clearLebesgueOverlay();
                     _cbExpanded = false;
                     _cbStartAnim(false);
-                    _redrawActiveColorbar();
+                    if (multiViewActive || compareMvActive) drawMvColorbar();
+                    else drawSlimColorbar(cbMarkerFrac);
                     showStatus('Lebesgue mode off');
                 }
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
@@ -10406,10 +10434,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Position colorbar anchored to bottom of viewport so histogram grows upward
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
-                const cbH = cbWrap.offsetHeight || 40;
-                // Anchor bottom of island 10px above viewport bottom
-                cbWrap.style.top = (window.innerHeight - cbH - 10) + 'px';
-                cbWrap.style.bottom = '';
+                // Use bottom positioning so island grows upward during histogram animation
+                cbWrap.style.top = '';
+                cbWrap.style.bottom = '10px';
             }
         }
 
