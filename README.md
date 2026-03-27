@@ -289,7 +289,6 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 
 | Key | Action |
 |-----|--------|
-| `B` | Toggle compare mode |
 | `P` | Open picker in compare mode (Tab cycles Open / Compare / Overlay) |
 | Cmd/Ctrl+O or Shift+O | Open picker — Space selects, Enter opens (1 sel) or compares (2–4 sel) |
 | `n` | Cycle compare target session |
@@ -333,7 +332,7 @@ arrayview scan.nii.gz --overlay mask.nii.gz      # overlay a segmentation mask
 |------|---------|-------------|
 | **Normal** | Default | Single 2D slice with dimension navigation |
 | **Multi-view** | `v` / `V` | 3-plane orthogonal view (axial/coronal/sagittal) with oblique rotation |
-| **Compare** | `B` / picker | Side-by-side comparison of up to 6 arrays |
+| **Compare** | picker | Side-by-side comparison of up to 6 arrays |
 | **Center pane** | `X` (in compare) | Diff, overlay, wipe (cursor-following), flicker (A/B toggle), checkerboard |
 | **Projection** | `p` | Statistical projection along scroll axis: MAX, MIN, MEAN, STD, SOS |
 | **qMRI** | `q` | Quantitative MRI: auto-detects parameter dimension, shows each with a dedicated colormap |
