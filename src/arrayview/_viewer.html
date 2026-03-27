@@ -2837,9 +2837,8 @@
             if (slimVmin && slimVmax) {
                 slimVmin.style.display = '';
                 slimVmax.style.display = '';
-                const activeColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
-                slimVmin.style.color = _cbExpanded ? activeColor : '';
-                slimVmax.style.color = _cbExpanded ? activeColor : '';
+                slimVmin.style.color = '';
+                slimVmax.style.color = '';
                 if (_cbExpanded && _histData) {
                     // Stable data range labels while histogram is visible
                     slimVmin.textContent = _cbFmt(_histData.vmin);
