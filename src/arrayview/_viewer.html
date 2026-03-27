@@ -1720,32 +1720,6 @@
         const slimCbLabels = document.getElementById('slim-cb-labels');
         const slimCbWrap = document.getElementById('slim-cb-wrap');
 
-        // ── Primary ColorBar instance (normal mode) ─────────────────────────
-        // Adopts the existing #slim-cb-wrap DOM elements. interactive: false
-        // because the legacy event handlers below still manage interaction.
-        const primaryCb = new ColorBar({
-            id: 'primary',
-            adoptDOM: {
-                wrap:      slimCbWrap,
-                canvas:    slimCbCanvas,
-                vminLabel: document.getElementById('slim-cb-vmin'),
-                vmaxLabel: document.getElementById('slim-cb-vmax'),
-                triZone:   document.getElementById('slim-cb-tri-zone'),
-                triVmin:   document.getElementById('slim-cb-tri-vmin'),
-                triVmax:   document.getElementById('slim-cb-tri-vmax'),
-                colWrap:   document.getElementById('slim-cb-col'),
-                tooltip:   document.getElementById('slim-cb-tooltip'),
-            },
-            interactive: false,
-            getStops:  () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
-            getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
-            getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
-            setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
-            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchHistogram(),
-            onWindowChange: () => { updateView(); triggerPreload(); },
-        });
-        window._primaryCb = primaryCb;
-
         // ── Window / Level interaction on colorbar ──────────────────────────
         // Scroll: zoom window (shrink/expand range symmetrically around center)
         // Drag:   shift level (pan range left/right)
@@ -3835,6 +3809,32 @@
             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
         ];
         // ── end ColorBar class ────────────────────────────────────────────────
+
+        // ── Primary ColorBar instance (normal mode) ─────────────────────────
+        // Adopts the existing #slim-cb-wrap DOM elements. interactive: false
+        // because the legacy event handlers below still manage interaction.
+        const primaryCb = new ColorBar({
+            id: 'primary',
+            adoptDOM: {
+                wrap:      document.getElementById('slim-cb-wrap'),
+                canvas:    slimCbCanvas,
+                vminLabel: document.getElementById('slim-cb-vmin'),
+                vmaxLabel: document.getElementById('slim-cb-vmax'),
+                triZone:   document.getElementById('slim-cb-tri-zone'),
+                triVmin:   document.getElementById('slim-cb-tri-vmin'),
+                triVmax:   document.getElementById('slim-cb-tri-vmax'),
+                colWrap:   document.getElementById('slim-cb-col'),
+                tooltip:   document.getElementById('slim-cb-tooltip'),
+            },
+            interactive: false,
+            getStops:  () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+            getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
+            getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
+            setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
+            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchHistogram(),
+            onWindowChange: () => { updateView(); triggerPreload(); },
+        });
+        window._primaryCb = primaryCb;
 
         function _cbStartAnim(expand) {
             _cbAnimTarget = expand ? 1 : 0;
