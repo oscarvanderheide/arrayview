@@ -95,14 +95,14 @@ uv run pytest tests/                     # all
 uv run python tests/visual_smoke.py      # screenshots → tests/smoke_output/
 ```
 
-Visual baselines: `tests/snapshots/` — delete a file to reset.
-
 | What changed | Run |
 |---|---|
 | Server / API | `test_api.py` |
 | CLI | `test_cli.py` |
 | Viewer UI | `test_browser.py` + `visual_smoke.py` |
 | VS Code / platform | manual: VS Code local terminal, VS Code tunnel |
+
+**Visual consistency:** After any UI change, use the `/ui-consistency-audit` skill to verify the feature works consistently across all viewing modes (normal, multi-view, compare, immersive, inline). This replaces reference screenshot comparisons — the UI changes frequently, so consistency across modes matters more than pixel-matching baselines.
 
 ## VS Code Integration
 
