@@ -372,3 +372,25 @@ def _in_julia_jupyter() -> bool:
     except Exception:
         _julia_jupyter_cache = False
     return _julia_jupyter_cache
+
+
+# ---------------------------------------------------------------------------
+# Unified environment detection (used by config system)
+# ---------------------------------------------------------------------------
+
+
+def detect_environment() -> str:
+    """Return the current environment name for config lookup.
+
+    Returns one of: 'jupyter', 'vscode', 'julia', 'ssh', 'terminal'.
+    Checked in priority order — first match wins.
+    """
+    if _in_jupyter():
+        return "jupyter"
+    if _in_vscode_terminal():
+        return "vscode"
+    if _is_julia_env():
+        return "julia"
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"):
+        return "ssh"
+    return "terminal"

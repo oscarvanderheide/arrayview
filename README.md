@@ -199,6 +199,31 @@ arrayview [FILES...] [OPTIONS]
 
 **No arguments** launches an animated RGB plasma demo.
 
+### Configuration
+
+Persist per-environment window defaults in `~/.arrayview/config.toml`:
+
+```bash
+arrayview config set window.terminal browser   # plain terminal → system browser
+arrayview config set window.vscode vscode      # VS Code terminal → Simple Browser
+arrayview config set window.jupyter inline     # Jupyter → inline IFrame
+arrayview config set window.ssh browser        # SSH → system browser
+arrayview config set window.default browser    # fallback for any environment
+arrayview config list                          # show current config
+arrayview config reset                         # delete config file
+```
+
+The `ARRAYVIEW_WINDOW` env var overrides config (e.g. `ARRAYVIEW_WINDOW=browser uvx arrayview img.npy`).
+Explicit `--window` / `window=` always takes highest priority.
+
+| Environment | Detected when |
+|-------------|--------------|
+| `terminal` | Plain terminal (no VS Code, SSH, or Jupyter) |
+| `vscode` | VS Code integrated terminal |
+| `jupyter` | Jupyter / IPython notebook kernel |
+| `ssh` | SSH session without VS Code |
+| `julia` | Julia via PythonCall / PyCall |
+
 ### Compare Mode (CLI)
 
 ```bash
