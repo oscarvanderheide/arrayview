@@ -7459,14 +7459,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _cbExpanded = true;
                                     drawQmriMosaicVCb(hv);
                                 });
-                            } else {
-                                _cbExpanded = true;
-                                drawQvSlimCb(hv);
+                            } else if (hv._colorBar) {
+                                hv._colorBar.expand();
                             }
                         }
                     });
                     const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
                     showStatus(`${paneLabel} dynamic range: ${DR_LABELS[hv.drIdx]}`);
+                    return;
+                }
+                // In qMRI mode without hovered pane, expand all colorbars
+                if (qmriActive && !qmriMosaicActive) {
+                    qmriViews.forEach(v => { if (v._colorBar) v._colorBar.expand(); });
+                    showStatus('qMRI: expanded all colorbars');
                     return;
                 }
                 // Quantile presets for cycling with repeated d presses
@@ -8866,22 +8871,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    const cbCv = document.createElement('canvas');
-                    cbCv.className = 'qv-cb';
-                    const cbLabels = document.createElement('div');
-                    cbLabels.className = 'qv-cb-labels';
-                    const cbIsland = document.createElement('div');
-                    cbIsland.className = 'cb-island qv-cb-island';
-                    const cbVmin = document.createElement('span');
-                    cbVmin.className = 'qv-cb-val';
-                    const cbVmax = document.createElement('span');
-                    cbVmax.className = 'qv-cb-val';
-                    cbIsland.appendChild(cbVmin);
-                    cbIsland.appendChild(cbCv);
-                    cbIsland.appendChild(cbVmax);
-                    cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
-                    cvWrap.appendChild(cbIsland);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
@@ -8892,14 +8882,39 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: qvPiEl,
-                        vmin: 0, vmax: 1,
+                        cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
+                        vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _mosaicVcb: null, _mosaicVcbLabels: null,
                         _histData: null, _histFetching: false,
-                        drIdx: null,
+                        drIdx: null, _colorBar: null,
                     };
+                    // Create ColorBar instance for this qMRI view
+                    const _qvCb = new ColorBar({
+                        container: cvWrap,
+                        id: 'qv-' + viewIdx,
+                        orientation: 'horizontal',
+                        interactive: true,
+                        getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
+                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
+                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        fetchHistogram: async () => {
+                            const qIndices = [...indices];
+                            qIndices[qmriDim] = view.qmriIdx;
+                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
+                            if (logScale) params.set('log_scale', '1');
+                            const resp = await fetch('/histogram/' + sid + '?' + params);
+                            return resp.ok ? resp.json() : null;
+                        },
+                        onWindowChange: () => { qvRender(view); },
+                    });
+                    _qvCb.wrap.classList.add('qv-cb-island');
+                    view._colorBar = _qvCb;
+                    view.cbCanvas = _qvCb.canvas;
+                    view.cbVmin = _qvCb.vminLabel;
+                    view.cbVmax = _qvCb.vmaxLabel;
                     cv.addEventListener('mouseenter', () => { _hoveredQmriView = view; });
                     cv.addEventListener('mouseleave', () => { if (_hoveredQmriView === view) _hoveredQmriView = null; });
                     cv.addEventListener('wheel', (e) => {
@@ -8969,7 +8984,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qmriMosaicActive = false;
             _qmriMosaicZDim = -1;
             _mosaicResetPan();
-            qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
+            qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
             qmriViews = [];
             _hoveredQmriView = null;
             document.getElementById('canvas-wrap').style.display = '';
@@ -9056,22 +9071,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    const cbCv = document.createElement('canvas');
-                    cbCv.className = 'qv-cb';
-                    const cbLabels = document.createElement('div');
-                    cbLabels.className = 'qv-cb-labels';
-                    const cbIsland = document.createElement('div');
-                    cbIsland.className = 'cb-island qv-cb-island';
-                    const cbVmin = document.createElement('span');
-                    cbVmin.className = 'qv-cb-val';
-                    const cbVmax = document.createElement('span');
-                    cbVmax.className = 'qv-cb-val';
-                    cbIsland.appendChild(cbVmin);
-                    cbIsland.appendChild(cbCv);
-                    cbIsland.appendChild(cbVmax);
-                    cbIsland.appendChild(cbLabels);
                     cvWrap.appendChild(cv);
-                    cvWrap.appendChild(cbIsland);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
@@ -9081,11 +9081,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         sid: sidVal, colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: qvPiEl,
-                        vmin: 0, vmax: 1,
+                        cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
+                        vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
+                        _colorBar: null,
                     };
+                    // Create ColorBar instance for this compare-qMRI view
+                    const _cqCb = new ColorBar({
+                        container: cvWrap,
+                        id: 'cq-' + si + '-' + mi,
+                        orientation: 'horizontal',
+                        interactive: true,
+                        getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
+                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
+                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        fetchHistogram: async () => {
+                            const qIndices = [...indices];
+                            qIndices[compareQmriDim] = view.qmriIdx;
+                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
+                            if (logScale) params.set('log_scale', '1');
+                            const resp = await fetch('/histogram/' + view.sid + '?' + params);
+                            return resp.ok ? resp.json() : null;
+                        },
+                        onWindowChange: () => { compareQmriRender(view); },
+                    });
+                    _cqCb.wrap.classList.add('qv-cb-island');
+                    view._colorBar = _cqCb;
+                    view.cbCanvas = _cqCb.canvas;
+                    view.cbVmin = _cqCb.vminLabel;
+                    view.cbVmax = _cqCb.vmaxLabel;
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = e.deltaY > 0 ? -1 : 1;
@@ -9151,7 +9177,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function exitCompareQmri() {
             compareQmriActive = false;
-            compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
+            compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
             compareQmriViews = [];
             compareQmriSids = [];
             compareQmriDim = -1;
@@ -9232,7 +9258,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastH = frame.height;
                 compareQmriScaleAllCanvases();
                 compareQmriDrawFrame(v);
-                drawCqSlimCb(v);
+                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; compareQmriRender(v); }
@@ -9296,7 +9322,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (compareQmriActive) {
-                    compareQmriViews.forEach(v2 => drawCqSlimCb(v2));
+                    compareQmriViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
                     positionEggs();
                 }
             });
@@ -9304,8 +9330,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function drawCqSlimCb(v) {
-            // Reuse the same logic as drawQvSlimCb
-            drawQvSlimCb(v);
+            // Use ColorBar instance
+            if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
         }
 
         function compareQmriOnMessage(v, event) {
@@ -9320,7 +9346,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastW = width; v.lastH = height;
                 compareQmriScaleAllCanvases();
                 compareQmriDrawFrame(v);
-                drawCqSlimCb(v);
+                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; compareQmriRender(v); }
@@ -9820,7 +9846,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
                 if (qmriMosaicActive) drawQmriMosaicVCb(v);
-                else drawQvSlimCb(v);
+                else if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; qvRender(v); }
@@ -10149,7 +10175,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (qmriActive) {
-                    qmriViews.forEach(v2 => drawQvSlimCb(v2));
+                    qmriViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
                     positionEggs();
                 }
             });
@@ -10217,7 +10243,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
                 if (qmriMosaicActive) drawQmriMosaicVCb(v);
-                else drawQvSlimCb(v);
+                else if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; qvRender(v); }
