@@ -28,6 +28,18 @@ view(arr)
 
 ## Once open
 
-`c` colormaps · `d` dynamic range · `w` histogram · `v` 3-plane · `z` mosaic · `?` help
+`c` colormaps · `d` dynamic range · `v` 3-plane · `z` mosaic · `?` help · colorbar dblclick histogram
+
+## Config
+
+`~/.arrayview/config.toml`:
+
+```toml
+[viewer]
+colormaps = ["gray", "viridis", "plasma"]   # colormaps cycled by 'c'
+
+[window]
+default = "browser"                         # browser | native | vscode | inline
+```
 
 [Full documentation →](https://oscarvanderheide.github.io/arrayview/)

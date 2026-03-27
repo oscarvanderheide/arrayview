@@ -29,6 +29,18 @@ def save_config(config: dict) -> None:
         f.write(_dump_toml(config))
 
 
+def get_viewer_colormaps() -> list[str] | None:
+    """Return user-configured colormap cycle list, or None if not configured."""
+    cfg = load_config()
+    viewer_cfg = cfg.get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    colormaps = viewer_cfg.get("colormaps")
+    if isinstance(colormaps, list) and all(isinstance(c, str) for c in colormaps) and colormaps:
+        return colormaps
+    return None
+
+
 def get_window_default(environment: str) -> str | None:
     """Return the user's preferred window mode for the given environment.
 
