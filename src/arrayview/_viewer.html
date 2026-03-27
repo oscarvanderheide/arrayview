@@ -1180,7 +1180,8 @@
                 <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis (x or y dim); rotate 90° CW when slice dim active; in multiview: swap axes globally across all panes</span></div>
                 <div class="help-row"><span class="key">R</span><span class="desc">toggle RGB mode on active dim (size 3 or 4)</span></div>
                 <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
-                <div class="help-row"><span class="key">+ / -</span><span class="desc">zoom in / out</span></div>
+                <div class="help-row"><span class="key">= / +</span><span class="desc">immersive mode (first press), then zoom in</span></div>
+                <div class="help-row"><span class="key">-</span><span class="desc">zoom out (exits immersive at fit level)</span></div>
                 <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
                 <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
                 <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
@@ -7133,14 +7134,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             if (e.key === '+' || e.key === '=') {
-                userZoom = userZoom * 1.1;
-                if (!_snapZoomToFit()) {
-                    _zoomAdjustedByUser = true;
-                    // Auto-enter immersive mode on first zoom past fit level
-                    if (!_fullscreenActive && userZoom > _fitZoom &&
-                        !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
-                        _canFitImmersive()) {
-                        setFullscreenMode(true);
+                if (!_fullscreenActive &&
+                    !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
+                    _canFitImmersive()) {
+                    // First =: enter immersive mode, re-fit to larger canvas (no zoom beyond it)
+                    _zoomAdjustedByUser = false;
+                    _autoFitPending = true;
+                    _panX = 0; _panY = 0; _applyCanvasPan();
+                    setFullscreenMode(true);
+                } else {
+                    // Already immersive or can't enter: zoom in
+                    userZoom = userZoom * 1.1;
+                    if (!_snapZoomToFit()) {
+                        _zoomAdjustedByUser = true;
                     }
                 }
                 if (compareQmriActive)  compareQmriScaleAllCanvases();
@@ -7149,7 +7155,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 else if (compareActive) compareScaleCanvases();
                 else if (qmriActive)    qvScaleAllCanvases();
                 else                    scaleCanvas(canvas.width, canvas.height);
-                showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
@@ -11081,10 +11087,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     : Math.min(userZoom * zoomFactor, 10.0);
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
-                    // Auto-enter/exit immersive on scroll zoom
+                    // Auto-exit immersive on scroll zoom out to fit level
                     if (!multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive) {
-                        if (!_fullscreenActive && userZoom > _fitZoom && _canFitImmersive()) setFullscreenMode(true);
-                        else if (_fullscreenActive && userZoom <= _fitZoom) {
+                        if (_fullscreenActive && userZoom <= _fitZoom) {
                             setFullscreenMode(false);
                             userZoom = _fitZoom;
                             _zoomAdjustedByUser = false;
@@ -11344,7 +11349,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _zoomAdjustedByUser = false;
                 _panX = 0; _panY = 0; _applyCanvasPan();
                 _autoFitPending = true;
-                if (_fullscreenActive) setFullscreenMode(false);
                 return true;
             }
             return false;
