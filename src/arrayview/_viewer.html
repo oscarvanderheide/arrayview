@@ -4781,12 +4781,14 @@
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
                 cbTooltip.style.display = 'none';
-                // If auto-dismiss was deferred because mouse was over histogram, collapse now
-                if (_histAutoDismissPending) {
+                if (lebesgueMode) return; // persistent histogram mode — never auto-collapse
+                if (_cbExpanded) {
+                    // Histogram is open: always start a 3s countdown regardless of how it was opened
                     _histAutoDismissPending = false;
+                    if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                     _histAutoDismissTimer = setTimeout(() => {
                         _histAutoDismissTimer = null;
-                        if (!lebesgueMode && !_cbDragActive && !_cbMouseOver) {
+                        if (!lebesgueMode && !_cbDragActive && !_cbMouseOver && _cbExpanded) {
                             _cbExpanded = false;
                             _cbStartAnim(false);
                             _redrawActiveColorbar();
