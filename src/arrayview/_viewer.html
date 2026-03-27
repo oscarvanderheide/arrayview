@@ -3097,12 +3097,13 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            // Position island centered in the space below the pane, with equal gaps
-            // above (pane→island) and below (island→viewport). Grows downward on expand.
-            const islandH = stripH + 14; // canvas height + vertical padding (7+7)
-            const spaceBelow = window.innerHeight - _cbAnchorBottom;
-            const gap = Math.max(4, (spaceBelow - islandH) / 2);
-            const cbTop = _cbAnchorBottom + gap;
+            // Collapsed: fixed at pane bottom + chromeGap (same spacing as above canvas).
+            // Expanded: if island would overflow viewport, slide top up so bottom has
+            // chromeGap margin too. Uses stripH (animated) so the slide is smooth.
+            const collapsedTop = _cbAnchorBottom + chromeGap;
+            const islandH = stripH + 14; // animated canvas height + padding (7+7)
+            const maxTop = window.innerHeight - islandH - chromeGap;
+            const cbTop = Math.min(collapsedTop, maxTop);
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
@@ -7799,7 +7800,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             drawSlimColorbar(cbMarkerFrac);
                         }
                         showStatus('histogram');
-                        // Auto-dismiss after 3s
+                        // Auto-dismiss after 3s; if mouse still over, defer until mouseleave
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
@@ -7813,6 +7814,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
+                            } else if (_cbMouseOver && _cbExpanded && !lebesgueMode) {
+                                _histAutoDismissPending = true;
                             }
                         }, 3000);
                     } else {
@@ -7848,7 +7851,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                         if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                         showStatus(`range: ${preset.label}`);
-                        // Reset auto-dismiss timer
+                        // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
@@ -7862,6 +7865,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
+                            } else if (_cbMouseOver && _cbExpanded && !lebesgueMode) {
+                                _histAutoDismissPending = true;
                             }
                         }, 3000);
                     }
