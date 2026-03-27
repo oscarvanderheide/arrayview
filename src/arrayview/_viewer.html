@@ -3168,6 +3168,70 @@
                 return this._kdeSmooth[idx] + (this._kdeSmooth[idx2] - this._kdeSmooth[idx]) * f;
             }
 
+            /** Vertical colorbar renderer for mosaic mode. */
+            _drawVertical() {
+                const cvs = this.canvas;
+                if (!cvs) return;
+                const stops = this.opts.getStops();
+                if (!stops || !stops.length) return;
+                const dpr = window.devicePixelRatio || 1;
+                const aT = this._animT;
+
+                // For vertical: width expands from 8px (collapsed) to 30px (expanded)
+                const collapsedW = 8;
+                const expandedW = 30;
+                const cssW = collapsedW + (expandedW - collapsedW) * aT;
+                const cssH = cvs.clientHeight || parseInt(cvs.style.height) || 200;
+
+                cvs.width = Math.round(cssW * dpr);
+                cvs.height = Math.round(cssH * dpr);
+                cvs.style.width = cssW + 'px';
+                // Don't override height — it's set by the mosaic layout
+
+                const ctx = cvs.getContext('2d');
+                ctx.clearRect(0, 0, cvs.width, cvs.height);
+                ctx.save();
+                ctx.scale(dpr, dpr);
+
+                // Build colormap LUT
+                const cmSz = 256;
+                const cmLut = new Uint8Array(cmSz * 3);
+                const ns = stops.length;
+                for (let i = 0; i < cmSz; i++) {
+                    const t = i / (cmSz - 1);
+                    const fi = t * (ns - 1);
+                    const lo = Math.floor(fi), hi = Math.min(lo + 1, ns - 1), f = fi - lo;
+                    cmLut[i * 3]     = Math.round(stops[lo][0] * (1 - f) + stops[hi][0] * f);
+                    cmLut[i * 3 + 1] = Math.round(stops[lo][1] * (1 - f) + stops[hi][1] * f);
+                    cmLut[i * 3 + 2] = Math.round(stops[lo][2] * (1 - f) + stops[hi][2] * f);
+                }
+                const cmAt = (frac) => {
+                    const idx = Math.max(0, Math.min(cmSz - 1, Math.round(frac * (cmSz - 1)))) * 3;
+                    return [cmLut[idx], cmLut[idx + 1], cmLut[idx + 2]];
+                };
+
+                const hasKDE = this._kdeSmooth && aT > 0;
+
+                // For each row (py from top to bottom)
+                for (let py = 0; py < cssH; py++) {
+                    const t = 1 - py / cssH;  // top=1 (vmax), bottom=0 (vmin)
+                    const [r, g, b] = cmAt(t);
+
+                    let rowW;
+                    if (hasKDE) {
+                        const kdeW = Math.max(2, this._kdeAt(t) * (expandedW - 2));
+                        rowW = collapsedW + (kdeW - collapsedW) * aT;
+                    } else {
+                        rowW = cssW;
+                    }
+
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.fillRect(0, py, rowW, 1);
+                }
+
+                ctx.restore();
+            }
+
             /**
              * Core morph renderer — draws the colorbar/histogram as one shape.
              * Adapted from the global _cbMorphDraw function.
@@ -3176,6 +3240,12 @@
                 const cvs = this.canvas;
                 if (!cvs) return;
                 if (this._cmapActive) return; // colormap preview showing — don't overdraw
+
+                const isVert = this.orientation === 'vertical';
+                if (isVert) {
+                    this._drawVertical();
+                    return;
+                }
 
                 const stops = this.opts.getStops();
                 if (!stops || !stops.length) return;
@@ -7454,11 +7524,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         qvRender(hv);
                         if (!rgbMode) {
                             hv._histData = null;
-                            if (qmriMosaicActive) {
-                                _fetchQmriMosaicHist(hv).then(() => {
-                                    _cbExpanded = true;
-                                    drawQmriMosaicVCb(hv);
-                                });
+                            if (qmriMosaicActive && hv._mosaicColorBar) {
+                                hv._mosaicColorBar.expand();
                             } else if (hv._colorBar) {
                                 hv._colorBar.expand();
                             }
@@ -7472,6 +7539,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (qmriActive && !qmriMosaicActive) {
                     qmriViews.forEach(v => { if (v._colorBar) v._colorBar.expand(); });
                     showStatus('qMRI: expanded all colorbars');
+                    return;
+                }
+                // In qMRI mosaic mode without hovered pane, expand all mosaic colorbars
+                if (qmriActive && qmriMosaicActive) {
+                    qmriViews.forEach(v => { if (v._mosaicColorBar) v._mosaicColorBar.expand(); });
+                    showStatus('qMRI mosaic: expanded all colorbars');
                     return;
                 }
                 // Quantile presets for cycling with repeated d presses
@@ -8886,7 +8959,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
-                        _mosaicVcb: null, _mosaicVcbLabels: null,
+                        _mosaicVcb: null, _mosaicColorBar: null,
                         _histData: null, _histFetching: false,
                         drIdx: null, _colorBar: null,
                     };
@@ -8984,7 +9057,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qmriMosaicActive = false;
             _qmriMosaicZDim = -1;
             _mosaicResetPan();
-            qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
+            qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; } });
             qmriViews = [];
             _hoveredQmriView = null;
             document.getElementById('canvas-wrap').style.display = '';
@@ -9845,7 +9918,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastH = frame.height;
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
-                if (qmriMosaicActive) drawQmriMosaicVCb(v);
+                if (qmriMosaicActive && v._mosaicColorBar) { v._mosaicColorBar.draw(); v._mosaicColorBar.updateLabels(); }
                 else if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             } finally {
                 v.rendering = false;
@@ -9904,21 +9977,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     lbl.textContent = QMRI_LABELS[v.colormap] || v.colormap;
                     rowDiv.appendChild(lbl);
                     rowDiv.appendChild(pane);
-                    // Vertical colorbar canvas wrapped in island
-                    const vcbIsland = document.createElement('div');
-                    vcbIsland.className = 'cb-island qmri-mosaic-vcb-island';
-                    const vcbCv = document.createElement('canvas');
-                    vcbCv.className = 'qmri-mosaic-vcb';
-                    vcbIsland.appendChild(vcbCv);
-                    // Vertical colorbar labels (vmin/vmax)
-                    const vcbLabels = document.createElement('div');
-                    vcbLabels.className = 'qmri-mosaic-vcb-labels';
-                    vcbLabels.style.cssText = 'display:flex;flex-direction:column;justify-content:space-between;font-size:10px;color:var(--muted);font-family:monospace;flex-shrink:0;';
-                    vcbLabels.innerHTML = '<span></span><span></span>';
-                    vcbIsland.appendChild(vcbLabels);
-                    rowDiv.appendChild(vcbIsland);
-                    v._mosaicVcb = vcbCv;
-                    v._mosaicVcbLabels = vcbLabels;
+                    // Vertical ColorBar instance for mosaic
+                    const mosaicCb = new ColorBar({
+                        container: rowDiv,
+                        id: 'mosaic-' + v.qmriIdx,
+                        orientation: 'vertical',
+                        interactive: true,
+                        getStops: () => COLORMAP_GRADIENT_STOPS[v.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                        getRange: () => ({ vmin: v.vmin, vmax: v.vmax }),
+                        getWindow: () => ({ vmin: v.lockedVmin ?? v.vmin, vmax: v.lockedVmax ?? v.vmax }),
+                        setWindow: (lo, hi) => { v.lockedVmin = lo; v.lockedVmax = hi; },
+                        fetchHistogram: async () => {
+                            const qIndices = [...indices];
+                            qIndices[qmriDim] = v.qmriIdx;
+                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
+                            if (logScale) params.set('log_scale', '1');
+                            const resp = await fetch('/histogram/' + sid + '?' + params);
+                            return resp.ok ? resp.json() : null;
+                        },
+                        onWindowChange: () => { qvRender(v); },
+                    });
+                    mosaicCb.wrap.classList.add('qmri-mosaic-vcb-island');
+                    v._mosaicColorBar = mosaicCb;
+                    // Backward compat
+                    v._mosaicVcb = mosaicCb.canvas;
                     inner.appendChild(rowDiv);
                 });
                 wrap.appendChild(inner);
@@ -9933,8 +10015,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Remove all current rows
                 (inner || wrap).querySelectorAll('.qv-row').forEach(r => r.remove());
                 if (inner) inner.remove();
-                // Clean up mosaic vcb refs
-                qmriViews.forEach(v => { v._mosaicVcb = null; v._mosaicVcbLabels = null; });
+                // Clean up mosaic ColorBar refs
+                qmriViews.forEach(v => {
+                    if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; }
+                    v._mosaicVcb = null;
+                });
                 // Rebuild standard row layout
                 const n = allPanes.length;
                 const rowSizes = n <= 4 ? [n] : [3, n - 3];
@@ -10073,7 +10158,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Enforce minimum tile size — if tiles would be too small to read,
                 // allow content to overflow the viewport and enable pan/drag.
                 const rowGap = 8;
-                const vcbW = _cbExpanded ? 30 : 8;
+                const anyMosaicExpanded = qmriViews.some(v => v._mosaicColorBar && v._mosaicColorBar._expanded);
+                const vcbW = anyMosaicExpanded ? 30 : 8;
                 const labelW = 28 + 8; // label width + margin
                 const vcbTotalW = vcbW + 4 + 30; // vcb + margin + labels
                 const bottomPad = 24;
@@ -10120,7 +10206,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 fixWrapperAlignment();
                 requestAnimationFrame(() => {
                     if (qmriActive && qmriMosaicActive) {
-                        qmriViews.forEach(v2 => drawQmriMosaicVCb(v2));
+                        qmriViews.forEach(v2 => { if (v2._mosaicColorBar) { v2._mosaicColorBar.draw(); v2._mosaicColorBar.updateLabels(); } });
                         positionEggs();
                     }
                 });
@@ -10242,7 +10328,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastW = width; v.lastH = height;
                 qvScaleAllCanvases();
                 qvDrawFrame(v);
-                if (qmriMosaicActive) drawQmriMosaicVCb(v);
+                if (qmriMosaicActive && v._mosaicColorBar) { v._mosaicColorBar.draw(); v._mosaicColorBar.updateLabels(); }
                 else if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             }
             v.rendering = false;
