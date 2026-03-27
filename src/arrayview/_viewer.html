@@ -1652,6 +1652,8 @@
             cbCv.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 if (!compareActive) return;
+                // Skip legacy handler when diff ColorBar owns this pane
+                if ((i === 0 && _diffLeftCb) || (i === 1 && _diffRightCb)) return;
                 const frame = compareFrames[i];
                 if (!frame) return;
                 const vmin = cmpManualVmin[i] ?? frame.vmin;
@@ -1668,12 +1670,16 @@
             }, { passive: false });
             cbCv.addEventListener('mousedown', (e) => {
                 if (e.button !== 0 || !compareActive) return;
+                // Skip legacy handler when diff ColorBar owns this pane
+                if ((i === 0 && _diffLeftCb) || (i === 1 && _diffRightCb)) return;
                 _cmpCbDragPane = i;
                 _cmpCbDragX = e.clientX;
                 e.preventDefault();
             });
             cbCv.addEventListener('dblclick', () => {
                 if (!compareActive) return;
+                // Skip legacy handler when diff ColorBar owns this pane
+                if ((i === 0 && _diffLeftCb) || (i === 1 && _diffRightCb)) return;
                 cmpManualVmin[i] = null;
                 cmpManualVmax[i] = null;
                 drawComparePaneCb(i);
@@ -2288,6 +2294,125 @@
         // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|, 4=overlay, 5=wipe
         const COMPARE_CENTER_LABELS = ['off', 'A−B', '|A−B|', '|A−B|/|A|', 'overlay', 'wipe', 'flicker', 'checker'];
 
+        // ── Diff mode ColorBar instances ─────────────────────────────────
+        let _diffLeftCb = null, _diffRightCb = null, _diffCenterCb = null;
+
+        function _createDiffColorBars() {
+            const paneNames = ['left', 'right', 'third', 'fourth', 'fifth', 'sixth'];
+            // Left pane colorbar
+            const leftCanvas = document.getElementById('compare-left-pane-cb');
+            const leftIsland = leftCanvas?.closest('.cb-island');
+            if (leftIsland && leftCanvas) {
+                _diffLeftCb = new ColorBar({
+                    id: 'diff-left',
+                    adoptDOM: {
+                        wrap: leftIsland,
+                        canvas: leftCanvas,
+                        vminLabel: document.getElementById('compare-left-pane-cb-vmin'),
+                        vmaxLabel: document.getElementById('compare-left-pane-cb-vmax'),
+                        colWrap: leftCanvas.parentElement,
+                        triZone: null,
+                        triVmin: null,
+                        triVmax: null,
+                        tooltip: null,
+                    },
+                    interactive: true,
+                    getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+                    getRange: () => {
+                        const f = compareFrames[0];
+                        return { vmin: cmpManualVmin[0] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[0] ?? (f ? f.vmax : currentVmax) };
+                    },
+                    getWindow: () => {
+                        const f = compareFrames[0];
+                        return { vmin: cmpManualVmin[0] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[0] ?? (f ? f.vmax : currentVmax) };
+                    },
+                    setWindow: (lo, hi) => { cmpManualVmin[0] = lo; cmpManualVmax[0] = hi; },
+                    fetchHistogram: () => _fetchHistogramCompare(),
+                    onWindowChange: () => { compareRender(); },
+                });
+            }
+
+            // Right pane colorbar — synced with left
+            const rightCanvas = document.getElementById('compare-right-pane-cb');
+            const rightIsland = rightCanvas?.closest('.cb-island');
+            if (rightIsland && rightCanvas) {
+                _diffRightCb = new ColorBar({
+                    id: 'diff-right',
+                    adoptDOM: {
+                        wrap: rightIsland,
+                        canvas: rightCanvas,
+                        vminLabel: document.getElementById('compare-right-pane-cb-vmin'),
+                        vmaxLabel: document.getElementById('compare-right-pane-cb-vmax'),
+                        colWrap: rightCanvas.parentElement,
+                        triZone: null,
+                        triVmin: null,
+                        triVmax: null,
+                        tooltip: null,
+                    },
+                    interactive: true,
+                    getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+                    getRange: () => {
+                        const f = compareFrames[1];
+                        return { vmin: cmpManualVmin[1] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[1] ?? (f ? f.vmax : currentVmax) };
+                    },
+                    getWindow: () => {
+                        const f = compareFrames[1];
+                        return { vmin: cmpManualVmin[1] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[1] ?? (f ? f.vmax : currentVmax) };
+                    },
+                    setWindow: (lo, hi) => { cmpManualVmin[1] = lo; cmpManualVmax[1] = hi; },
+                    fetchHistogram: () => _fetchHistogramCompare(),
+                    onWindowChange: () => { compareRender(); },
+                });
+                // Wire bidirectional sync between left and right
+                if (_diffLeftCb) {
+                    _diffLeftCb._syncWith = _diffRightCb;
+                    _diffRightCb._syncWith = _diffLeftCb;
+                }
+            }
+
+            // Diff center pane colorbar — independent
+            const diffCanvas = document.getElementById('compare-diff-pane-cb');
+            const diffIsland = diffCanvas?.closest('.cb-island');
+            if (diffIsland && diffCanvas) {
+                _diffCenterCb = new ColorBar({
+                    id: 'diff-center',
+                    adoptDOM: {
+                        wrap: diffIsland,
+                        canvas: diffCanvas,
+                        vminLabel: document.getElementById('compare-diff-pane-cb-vmin'),
+                        vmaxLabel: document.getElementById('compare-diff-pane-cb-vmax'),
+                        colWrap: diffCanvas.parentElement,
+                        triZone: null,
+                        triVmin: null,
+                        triVmax: null,
+                        tooltip: null,
+                    },
+                    interactive: true,
+                    getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
+                    getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
+                    getWindow: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
+                    setWindow: (lo, hi) => { /* diff range is auto-computed */ },
+                    fetchHistogram: null,
+                    onWindowChange: () => {},
+                });
+            }
+        }
+
+        function _destroyDiffColorBars() {
+            [_diffLeftCb, _diffRightCb, _diffCenterCb].forEach(cb => {
+                if (!cb) return;
+                cb.cancelAutoDismiss();
+                if (cb._hoverTimer) { clearTimeout(cb._hoverTimer); cb._hoverTimer = null; }
+                cb._expanded = false;
+                cb._animT = 0;
+                cb._animTarget = 0;
+                cb._animating = false;
+                cb._syncWith = null;
+                cb._detachEvents();
+            });
+            _diffLeftCb = null; _diffRightCb = null; _diffCenterCb = null;
+        }
+
         function _setCompareCenterMode(newMode) {
             const prev = compareCenterMode;
             compareCenterMode = newMode;
@@ -2299,6 +2424,13 @@
             _wipeActive    = (newMode === 5);
             _flickerActive = (newMode === 6);
             _checkerActive = (newMode === 7);
+
+            // Create/destroy diff ColorBar instances on transitions
+            if (prevDiffMode === 0 && diffMode > 0) {
+                _createDiffColorBars();
+            } else if (prevDiffMode > 0 && diffMode === 0) {
+                _destroyDiffColorBars();
+            }
 
             // Stop flicker timer when leaving flicker mode
             if (!_flickerActive && _flickerTimer) {
@@ -2508,6 +2640,27 @@
         }
 
         function drawComparePaneCb(idx) {
+            // Delegate to diff ColorBar instances when active
+            if ((idx === 0 && _diffLeftCb) || (idx === 1 && _diffRightCb)) {
+                const cb = idx === 0 ? _diffLeftCb : _diffRightCb;
+                const cv = compareCanvases[idx];
+                const cbCanvas = comparePaneCbs[idx];
+                if (!cbCanvas || !cv) return;
+                const cbIsland = cbCanvas.closest('.cb-island');
+                // Size the island to match the compare canvas viewport width
+                const inner = cv.closest('.compare-canvas-inner');
+                const vpW = inner && inner.dataset.vpW ? parseInt(inner.dataset.vpW) : 0;
+                const cssW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
+                if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
+                    if (cbIsland) cbIsland.style.display = 'none';
+                    return;
+                }
+                if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = cssW + 'px'; }
+                cbCanvas.style.display = '';
+                cb.draw();
+                cb.updateLabels();
+                return;
+            }
             const cbCanvas = comparePaneCbs[idx];
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
@@ -2594,6 +2747,26 @@
         }
 
         function drawDiffPaneCb(vmin, vmax) {
+            if (_diffCenterCb) {
+                const diffCanvas = document.getElementById('compare-diff-canvas');
+                const diffCbIsland = diffPaneCb?.closest('.cb-island');
+                if (diffCanvas) {
+                    const diffInner = diffCanvas.closest('.compare-canvas-inner');
+                    const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
+                    const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
+                    if (!colorbarVisible() || !cssW || cssW < 10) {
+                        if (diffCbIsland) diffCbIsland.style.display = 'none';
+                        return;
+                    }
+                    if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = cssW + 'px'; }
+                    if (diffPaneCb) diffPaneCb.style.display = '';
+                }
+                // Update range for the diff center ColorBar and delegate
+                _diffCenterCb._histData = { vmin, vmax, counts: [], edges: [] };
+                _diffCenterCb.draw();
+                _diffCenterCb.updateLabels();
+                return;
+            }
             if (!diffPaneCb) return;
             const diffCanvas = document.getElementById('compare-diff-canvas');
             if (!diffCanvas) return;
@@ -3766,7 +3939,7 @@
                 this._cmapPrevNextSibling = stripElement.nextSibling;
                 this.colWrap.insertBefore(stripElement, this.canvas);
                 this.canvas.style.display = 'none';
-                this.triZone.style.display = 'none';
+                if (this.triZone) this.triZone.style.display = 'none';
                 if (this._syncWith && !this._syncing) {
                     const sw = this._syncWith;
                     sw._syncing = true;
@@ -3791,7 +3964,7 @@
                 this._cmapPrevParent = null;
                 this._cmapPrevNextSibling = null;
                 this.canvas.style.display = '';
-                this.triZone.style.display = '';
+                if (this.triZone) this.triZone.style.display = '';
                 this.draw();
                 if (this._syncWith && !this._syncing) {
                     const sw = this._syncWith;
@@ -7513,6 +7686,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`Diff dynamic range: ${DR_LABELS[_diffDrIdx]}`);
                     return;
                 }
+                // In diff mode (not hovering center), expand/cycle diff ColorBars
+                if (compareActive && diffMode > 0 && _diffLeftCb) {
+                    const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
+                    if (!_diffLeftCb.expanded) {
+                        for (const cb of cbs) {
+                            await cb.expand();
+                            cb.startAutoDismiss();
+                        }
+                    } else {
+                        const q = _diffLeftCb.cycleQuantile();
+                        if (q) {
+                            cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
+                            cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
+                            _diffLeftCb.draw(); _diffRightCb?.draw();
+                            compareRender();
+                            showStatus(`histogram: ${q.label}`);
+                        }
+                        for (const cb of cbs) cb.startAutoDismiss();
+                    }
+                    showStatus('histogram');
+                    return;
+                }
                 // In qMRI mode, hovering a specific pane cycles only that pane's DR
                 if (qmriActive && _hoveredQmriView) {
                     const hv = _hoveredQmriView;
@@ -8603,6 +8798,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.querySelectorAll('.compare-canvas-clip').forEach(el => {
                 el.style.width = ''; el.style.height = '';
             });
+            // Destroy diff ColorBar instances before resetting state
+            _destroyDiffColorBars();
             // Reset all center-pane mode state
             compareCenterMode = 0;
             diffMode = 0;
