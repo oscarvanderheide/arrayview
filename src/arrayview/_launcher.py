@@ -618,6 +618,10 @@ def view(
       - ``'vscode'``   open in VS Code Simple Browser
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
 
+    Persistent defaults can be set via ``arrayview config set window.<env> <mode>``
+    where ``<env>`` is one of: terminal, vscode, jupyter, ssh, julia.
+    The ``ARRAYVIEW_WINDOW`` environment variable overrides config file settings.
+
     ``rgb`` — treat the array as RGB/RGBA. The first or last dimension must
     have size 3 (RGB) or 4 (RGBA). When True, the colorbar is hidden and each
     slice is composited directly from the colour channels.
@@ -716,6 +720,25 @@ def view(
         window = not is_jupyter
     if window:
         inline = False
+
+    # User config: apply persistent window preference if no explicit arg was given
+    if not isinstance(window, str) and not _force_browser and not _force_vscode:
+        from arrayview._config import get_window_default
+        from arrayview._platform import detect_environment
+
+        _cfg_window = get_window_default(detect_environment())
+        if _cfg_window:
+            if _cfg_window == "inline":
+                inline = True
+                window = False
+            elif _cfg_window == "native":
+                window = True
+            elif _cfg_window == "browser":
+                window = False
+                _force_browser = True
+            elif _cfg_window == "vscode":
+                window = False
+                _force_vscode = True
 
     # Auto-detect VS Code terminal: prefer Simple Browser over native window
     if _in_vscode_terminal() and not _force_vscode and not _force_browser:
@@ -1486,8 +1509,98 @@ def _start_watch_thread(filepath: str, sid: str, port: int) -> None:
     t.start()
 
 
+def _handle_config_command(args: list[str]) -> None:
+    """Handle 'arrayview config' subcommands."""
+    from arrayview._config import (
+        CONFIG_PATH,
+        _VALID_ENV_KEYS,
+        _VALID_WINDOW_MODES,
+        load_config,
+        save_config,
+    )
+
+    if not args or args[0] == "list":
+        cfg = load_config()
+        if not cfg:
+            print("No configuration set.")
+            print(f"Config file: {CONFIG_PATH}")
+            return
+        for section, values in cfg.items():
+            if isinstance(values, dict):
+                for k, v in values.items():
+                    print(f"{section}.{k} = {v}")
+        print(f"\nConfig file: {CONFIG_PATH}")
+        return
+
+    if args[0] == "set":
+        if len(args) != 3:
+            print("Usage: arrayview config set <key> <value>")
+            print("  e.g. arrayview config set window.terminal browser")
+            print(f"  Valid window modes: {', '.join(sorted(_VALID_WINDOW_MODES))}")
+            sys.exit(1)
+        key, value = args[1], args[2]
+        parts = key.split(".", 1)
+        if len(parts) != 2:
+            print(f"Key must be section.name, got: {key}")
+            sys.exit(1)
+        section, name = parts
+        if section == "window":
+            if name not in _VALID_ENV_KEYS:
+                print(f"Unknown window key: {name}")
+                print(f"  Valid keys: {', '.join(sorted(_VALID_ENV_KEYS))}")
+                sys.exit(1)
+            if value not in _VALID_WINDOW_MODES:
+                print(f"Invalid window mode: {value}")
+                print(f"  Valid modes: {', '.join(sorted(_VALID_WINDOW_MODES))}")
+                sys.exit(1)
+        cfg = load_config()
+        cfg.setdefault(section, {})[name] = value
+        save_config(cfg)
+        print(f"Set {key} = {value}")
+        return
+
+    if args[0] == "get":
+        if len(args) != 2:
+            print("Usage: arrayview config get <key>")
+            sys.exit(1)
+        key = args[1]
+        parts = key.split(".", 1)
+        if len(parts) != 2:
+            print(f"Key must be section.name, got: {key}")
+            sys.exit(1)
+        section, name = parts
+        cfg = load_config()
+        val = cfg.get(section, {}).get(name)
+        if val is None:
+            print(f"{key} is not set")
+        else:
+            print(f"{key} = {val}")
+        return
+
+    if args[0] == "reset":
+        if os.path.isfile(CONFIG_PATH):
+            os.remove(CONFIG_PATH)
+            print("Configuration reset.")
+        else:
+            print("No configuration file to reset.")
+        return
+
+    if args[0] == "path":
+        print(CONFIG_PATH)
+        return
+
+    print(f"Unknown config command: {args[0]}")
+    print("Usage: arrayview config [list|set|get|reset|path]")
+    sys.exit(1)
+
+
 def arrayview():
     """Command Line Interface Entry Point."""
+    # Handle "arrayview config ..." subcommand before argparse
+    if len(sys.argv) > 1 and sys.argv[1] == "config":
+        _handle_config_command(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser(description="Lightning Fast ND Array Viewer")
     parser.add_argument(
         "files",
@@ -1512,7 +1625,7 @@ def arrayview():
         "--window",
         choices=["browser", "vscode", "native"],
         default=None,
-        help="How to open the viewer: browser (system browser), vscode (SimpleBrowser), or native window",
+        help="How to open the viewer: browser, vscode, or native. Overrides config (see 'arrayview config')",
     )
     parser.add_argument(
         "--browser",
@@ -1633,6 +1746,17 @@ def arrayview():
             "ppid": os.getppid(),
             "platform": sys.platform,
             "python": sys.executable,
+        }
+        from arrayview._config import CONFIG_PATH, get_window_default, load_config
+        from arrayview._platform import detect_environment
+
+        _det_env = detect_environment()
+        diag["config"] = {
+            "detected_environment": _det_env,
+            "config_file": CONFIG_PATH,
+            "config_contents": load_config() or None,
+            "ARRAYVIEW_WINDOW": os.environ.get("ARRAYVIEW_WINDOW") or None,
+            "resolved_window_pref": get_window_default(_det_env),
         }
         print(_json.dumps(diag, indent=2))
         return
@@ -1919,6 +2043,14 @@ def arrayview():
     if args.browser and not args.window:
         args.window = "browser"
     window_mode = args.window  # None = auto-detect (current behaviour)
+    # User config: apply persistent window preference if no explicit --window flag
+    if window_mode is None:
+        from arrayview._config import get_window_default
+        from arrayview._platform import detect_environment
+
+        _cfg_mode = get_window_default(detect_environment())
+        if _cfg_mode:
+            window_mode = _cfg_mode
     # Auto-detect: prefer VS Code Simple Browser in VS Code terminal
     if window_mode is None and _in_vscode_terminal():
         window_mode = "vscode"
