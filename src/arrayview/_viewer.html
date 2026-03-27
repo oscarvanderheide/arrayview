@@ -2797,7 +2797,10 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - 38 - (CB_EXPANDED_H - CB_COLLAPSED_H) * _cbAnimT);
+            // Anchor the island's BOTTOM edge: when the histogram expands, the
+            // island grows upward (top moves up) while the bottom stays put.
+            const cbBottom = Math.min(_cbAnchorBottom + chromeGap + CB_COLLAPSED_H + 14, window.innerHeight - 20);
+            const cbTop = cbBottom - stripH - 14; // 14 = island vertical padding (7+7)
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
