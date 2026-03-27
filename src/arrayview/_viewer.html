@@ -3074,8 +3074,8 @@
                         const hx = Math.round(_cbHoverFrac * cssW);
                         labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                     }
-                    // Sort by priority (lowest first so higher overwrites)
-                    labels.sort((a, b) => a.prio - b.prio);
+                    // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
+                    labels.sort((a, b) => b.prio - a.prio);
                     // Compute pixel extents and cull overlaps
                     const drawn = []; // [{left, right}] of already drawn labels
                     for (const lbl of labels) {
@@ -3555,13 +3555,14 @@
                 // If auto-dismiss was deferred because mouse was over histogram, collapse now
                 if (_histAutoDismissPending) {
                     _histAutoDismissPending = false;
-                    _cbExpanded = false; _histData = null; _kdeSmooth = null;
-                    _cbStartAnim(false);
-                    if (qmriActive && qmriMosaicActive) {
-                        qmriViews.forEach(v => { v._histData = null; });
-                        qvScaleAllCanvases();
-                        qmriViews.forEach(v => drawQmriMosaicVCb(v));
-                    } else if (multiViewActive) drawMvColorbar(); else drawSlimColorbar(cbMarkerFrac);
+                    _histAutoDismissTimer = setTimeout(() => {
+                        _histAutoDismissTimer = null;
+                        if (!lebesgueMode && !_cbDragActive && !_cbMouseOver) {
+                            _cbExpanded = false;
+                            _cbStartAnim(false);
+                            _redrawActiveColorbar();
+                        }
+                    }, 3000);
                     return;
                 }
                 clearTimeout(_cbHoverTimer);
