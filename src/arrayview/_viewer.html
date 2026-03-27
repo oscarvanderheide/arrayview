@@ -3097,11 +3097,11 @@
                 }
             }
             // Collapsed: fixed at pane bottom + chromeGap (same spacing as above canvas).
-            // Expanded: if island would overflow viewport, slide top up so bottom has
-            // chromeGap margin too. Uses stripH (animated) so the slide is smooth.
+            // Expanded: slide top up if needed so island bottom stays ≥20px from viewport.
+            // Island visual height = canvas + padding(14) + tri-zone(10) + border(2).
             const collapsedTop = _cbAnchorBottom + chromeGap;
-            const islandH = stripH + 14; // animated canvas height + padding (7+7)
-            const maxTop = window.innerHeight - islandH - chromeGap;
+            const islandVisualH = stripH + 26;
+            const maxTop = window.innerHeight - islandVisualH - 20;
             const cbTop = Math.min(collapsedTop, maxTop);
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
