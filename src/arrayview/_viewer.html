@@ -511,7 +511,7 @@
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
-        #mv-cb { display: block; height: 11px; border-radius: 3px; pointer-events: none; flex: 1; min-width: 60px; transition: height 0.15s ease; }
+        #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
         #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; margin-top: 10px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; width: 60%; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
@@ -8594,25 +8594,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const panesRow = document.createElement('div');
             panesRow.id = 'mv-panes';
             wrap.appendChild(panesRow);
-            // Horizontal colorbar below panes
-            const cbWrap = document.createElement('div');
-            cbWrap.id = 'mv-cb-wrap';
-            const mvCbVmin = document.createElement('span');
-            mvCbVmin.className = 'slim-cb-val';
-            mvCbVmin.id = 'mv-cb-vmin';
-            cbWrap.appendChild(mvCbVmin);
-            const mvCbCanvas = document.createElement('canvas');
-            mvCbCanvas.id = 'mv-cb';
-            cbWrap.appendChild(mvCbCanvas);
-            const mvCbVmax = document.createElement('span');
-            mvCbVmax.className = 'slim-cb-val';
-            mvCbVmax.id = 'mv-cb-vmax';
-            mvCbVmax.style.textAlign = 'right';
-            cbWrap.appendChild(mvCbVmax);
-            const mvCbLabels = document.createElement('div');
-            mvCbLabels.id = 'mv-cb-labels';
-            cbWrap.appendChild(mvCbLabels);
-            wrap.appendChild(cbWrap);
+            // Horizontal colorbar below panes — use ColorBar instance
+            if (!window._mvColorBar) {
+                window._mvColorBar = new ColorBar({
+                    container: wrap,
+                    id: 'mv',
+                    orientation: 'horizontal',
+                    getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+                    getRange: () => {
+                        const v0 = mvViews.find(v => v.lastW);
+                        return v0 ? { vmin: v0.vmin, vmax: v0.vmax } : { vmin: 0, vmax: 1 };
+                    },
+                    getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
+                    setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
+                    fetchHistogram: () => _fetchHistogram(),
+                    onWindowChange: () => { for (const v of mvViews) mvRender(v); },
+                });
+                // Set IDs on ColorBar DOM elements for backward compatibility
+                window._mvColorBar.wrap.id = 'mv-cb-wrap';
+                window._mvColorBar.canvas.id = 'mv-cb';
+                if (window._mvColorBar.vminLabel) window._mvColorBar.vminLabel.id = 'mv-cb-vmin';
+                if (window._mvColorBar.vmaxLabel) window._mvColorBar.vmaxLabel.id = 'mv-cb-vmax';
+            }
             // 3 views: each shows a different pair of dims, slicing through the third
             // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
             const defs = [
@@ -8794,6 +8797,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             obliqueVecs = null; obliqueDrag = null;
             document.getElementById('mv-orientation').style.display = 'none';
             document.getElementById('canvas-wrap').style.display = '';
+            if (window._mvColorBar) {
+                window._mvColorBar.destroy();
+                window._mvColorBar = null;
+            }
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.remove('active');
@@ -10679,22 +10686,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function drawMvColorbar() {
-            const cbCanvas = document.getElementById('mv-cb');
-            const labelsEl = document.getElementById('mv-cb-labels');
-            const mvVminEl = document.getElementById('mv-cb-vmin');
-            const mvVmaxEl = document.getElementById('mv-cb-vmax');
-            if (!cbCanvas) return;
+            if (!window._mvColorBar) return;
+            const cb = window._mvColorBar;
             if (!colorbarVisible()) {
-                cbCanvas.style.display = 'none';
-                if (labelsEl) labelsEl.style.display = 'none';
-                if (mvVminEl) mvVminEl.style.display = 'none';
-                if (mvVmaxEl) mvVmaxEl.style.display = 'none';
+                cb.hide();
                 return;
             }
-            cbCanvas.style.width = '';
-            cbCanvas.style.display = 'block';
-            if (mvVminEl) mvVminEl.style.display = _cbExpanded ? 'none' : '';
-            if (mvVmaxEl) mvVmaxEl.style.display = _cbExpanded ? 'none' : '';
+            cb.show();
+            // Sync state from globals (until full migration removes globals)
+            cb._animT = _cbAnimT;
+            cb._expanded = _cbExpanded;
+            cb._winVminF = _cbWinVminF;
+            cb._winVmaxF = _cbWinVmaxF;
+            cb._hoverFrac = _cbHoverFrac;
+            cb._histData = _histData;
+            cb._kdeSmooth = _kdeSmooth;
+            cb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
+            cb.draw();
+            cb.updateLabels();
             // Auto-refresh histogram when expanded but data is stale
             if (_cbExpanded) {
                 const hDimX = mvViews.length ? mvViews[0].dimX : dim_x;
@@ -10707,25 +10716,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 }
             }
-            // Build KDE if we have histogram data but no smoothed curve yet
-            if (_histData && !_kdeSmooth) _buildKDE();
-            // Use the shared morph renderer (same smooth KDE as normal mode)
-            _cbMorphDraw(cbCanvas);
-            // Min/max labels — populate inline spans flanking the canvas
-            const v0 = mvViews.find(v => v.lastW);
-            if (v0 && mvVminEl && mvVmaxEl) {
-                const fmt = val => {
-                    const av = Math.abs(val);
-                    if (av === 0) return '0';
-                    if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
-                    return parseFloat(val.toPrecision(3)).toString();
-                };
-                if (!_cbExpanded) {
-                    mvVminEl.textContent = fmt(v0.vmin);
-                    mvVmaxEl.textContent = fmt(v0.vmax);
-                }
-            }
-            if (labelsEl) labelsEl.style.display = 'none';
             positionEggs();
         }
 
