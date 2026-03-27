@@ -4291,78 +4291,6 @@
             _histFetching = false;
         }
 
-        function _drawHistogramBarsOnColorbar(sCtx, cssW, stripH, stops) {
-            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-            const maxCount = Math.max(...counts, 1);
-            const nBins = counts.length;
-            const windowVmin = manualVmin ?? currentVmin;
-            const windowVmax = manualVmax ?? currentVmax;
-            const windowRange = windowVmax - windowVmin || 1;
-
-            // Histogram area is transparent — the dynamic island's glassmorphic
-            // background (#slim-cb-wrap backdrop-filter) shows through.
-            const histAreaH = stripH - CB_COLLAPSED_H;
-
-            // Auto log-scale: if the tallest bar dwarfs the rest (dominant background
-            // zeros / flat background) use log(count+1) for bar heights so the
-            // non-dominant bins are still visible.
-            const sorted = [...counts].sort((a, b) => a - b);
-            const medianCount = sorted[Math.floor(sorted.length / 2)] || 1;
-            const useLogScale = maxCount > 20 * medianCount;
-            const barFrac = useLogScale
-                ? (c) => Math.log1p(c) / Math.log1p(maxCount)
-                : (c) => c / maxCount;
-            // Build colormap lookup
-            let _cmapData = null;
-            const _cmapSz = 256;
-            if (stops && stops.length >= 2) {
-                const offscreen = document.createElement('canvas');
-                offscreen.width = _cmapSz; offscreen.height = 1;
-                const oCtx = offscreen.getContext('2d');
-                const g = oCtx.createLinearGradient(0, 0, _cmapSz, 0);
-                const ns = stops.length;
-                for (let si = 0; si < ns; si++) {
-                    const t = ns <= 1 ? 0 : si / (ns - 1);
-                    const rgb = stops[si];
-                    g.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-                }
-                oCtx.fillStyle = g;
-                oCtx.fillRect(0, 0, _cmapSz, 1);
-                _cmapData = oCtx.getImageData(0, 0, _cmapSz, 1).data;
-            }
-            // Histogram area is the top portion (above the gradient strip)
-            const binW = cssW / nBins;
-            for (let i = 0; i < nBins; i++) {
-                const barH = Math.max(0.5, barFrac(counts[i]) * (histAreaH - 2));
-                const x = i * binW;
-                const y = histAreaH - barH;
-                const binCenter = edges ? (edges[i] + edges[i + 1]) / 2 : dmin + (i + 0.5) * (dmax - dmin) / nBins;
-                const inRange = binCenter >= windowVmin && binCenter <= windowVmax;
-                const alpha = inRange ? 0.85 : 0.2;
-                let fillStyle;
-                if (_cmapData) {
-                    const frac = Math.max(0, Math.min(1, (binCenter - windowVmin) / windowRange));
-                    const px = Math.min(_cmapSz - 1, Math.round(frac * (_cmapSz - 1))) * 4;
-                    fillStyle = `rgba(${_cmapData[px]},${_cmapData[px+1]},${_cmapData[px+2]},${alpha})`;
-                } else {
-                    fillStyle = isDark ? `rgba(180,180,200,${alpha * 0.65})` : `rgba(80,80,100,${alpha * 0.6})`;
-                }
-                sCtx.fillStyle = fillStyle;
-                sCtx.fillRect(x, y, binW - 0.5, barH);
-            }
-            // Show a subtle vertical "log" label when auto log-scale is active
-            if (useLogScale) {
-                sCtx.save();
-                sCtx.fillStyle = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-                sCtx.font = '8px sans-serif';
-                // Rotate 90° CCW so text reads bottom-to-top along the left edge
-                sCtx.translate(7, histAreaH - 2);
-                sCtx.rotate(-Math.PI / 2);
-                sCtx.fillText('log', 0, 0);
-                sCtx.restore();
-            }
-        }
-
         function _drawClimLines(sCtx, cssW, stripH) {
             const { vmin: dmin, vmax: dmax } = _histData;
             const range = dmax - dmin || 1;
@@ -9599,11 +9527,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return scaledMin > absMaxScale + 0.001 ? 'max' : null;
         }
 
-        function drawCqSlimCb(v) {
-            // Use ColorBar instance
-            if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
-        }
-
         function compareQmriOnMessage(v, event) {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
@@ -10258,92 +10181,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrap = document.getElementById('qmri-view-wrap');
             if (wrap) wrap.classList.remove('mosaic-dragging');
         });
-
-        // Draw vertical colorbar for qMRI mosaic view
-        function drawQmriMosaicVCb(v) {
-            if (!v._mosaicVcb) return;
-            const mosaicCbIsland = v._mosaicVcb.closest('.cb-island');
-            const canvasCssH = parseInt(v.canvas.style.height);
-            if (!canvasCssH || canvasCssH < 10) { v._mosaicVcb.style.display = 'none'; if (mosaicCbIsland) mosaicCbIsland.style.display = 'none'; return; }
-            if (!colorbarVisible()) { v._mosaicVcb.style.display = 'none'; if (v._mosaicVcbLabels) v._mosaicVcbLabels.style.display = 'none'; if (mosaicCbIsland) mosaicCbIsland.style.display = 'none'; return; }
-            const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
-            if (!stops) return;
-            const vcbW = _cbExpanded ? 30 : 8;
-            const cssH = canvasCssH;
-            const dpr = window.devicePixelRatio || 1;
-            v._mosaicVcb.width = Math.round(vcbW * dpr);
-            v._mosaicVcb.height = Math.round(cssH * dpr);
-            v._mosaicVcb.style.width = vcbW + 'px';
-            v._mosaicVcb.style.height = cssH + 'px';
-            v._mosaicVcb.style.display = '';
-            if (mosaicCbIsland) mosaicCbIsland.style.display = '';
-            const sCtx = v._mosaicVcb.getContext('2d');
-            sCtx.clearRect(0, 0, v._mosaicVcb.width, v._mosaicVcb.height);
-            sCtx.save();
-            sCtx.scale(dpr, dpr);
-            // Draw vertical gradient (top = vmax, bottom = vmin)
-            const grad = sCtx.createLinearGradient(0, 0, 0, cssH);
-            const n = stops.length;
-            for (let i = 0; i < n; i++) {
-                const t = n <= 1 ? 0 : i / (n - 1);
-                const rgb = stops[n - 1 - i]; // reversed: top=max
-                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-            }
-            sCtx.fillStyle = grad;
-            sCtx.fillRect(0, 0, vcbW, cssH);
-            // Draw histogram bars when expanded and histData available
-            if (_cbExpanded && v._histData && v._histData.counts) {
-                const { counts } = v._histData;
-                const maxCount = Math.max(...counts, 1);
-                const nBins = counts.length;
-                const barMaxW = vcbW - 2;
-                for (let bi = 0; bi < nBins; bi++) {
-                    const barH = cssH / nBins;
-                    const barY = cssH - (bi + 1) * barH; // bottom to top
-                    const barW = (counts[bi] / maxCount) * barMaxW;
-                    sCtx.fillStyle = 'rgba(255,255,255,0.45)';
-                    sCtx.fillRect(1, barY, barW, barH - 0.5);
-                }
-            }
-            sCtx.restore();
-            // Update labels
-            if (v._mosaicVcbLabels) {
-                const fmt = val => {
-                    const av = Math.abs(val);
-                    if (av === 0) return '0';
-                    if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
-                    return parseFloat(val.toPrecision(3)).toString();
-                };
-                v._mosaicVcbLabels.style.display = '';
-                v._mosaicVcbLabels.style.height = cssH + 'px';
-                const spans = v._mosaicVcbLabels.querySelectorAll('span');
-                if (spans.length >= 2) {
-                    spans[0].textContent = fmt(v.vmax); // top
-                    spans[1].textContent = fmt(v.vmin); // bottom
-                }
-            }
-        }
-
-        // Fetch histogram for a specific qMRI mosaic view
-        async function _fetchQmriMosaicHist(v) {
-            if (!sid || !indices.length || v._histFetching) return;
-            v._histFetching = true;
-            const qIndices = [...indices];
-            qIndices[qmriDim] = v.qmriIdx;
-            const params = new URLSearchParams({
-                dim_x: dim_x,
-                dim_y: dim_y,
-                indices: qIndices.join(','),
-                complex_mode: complexMode,
-                bins: 64,
-            });
-            try {
-                const resp = await fetch(`/histogram/${sid}?${params}`);
-                if (!resp.ok) { v._histFetching = false; return; }
-                v._histData = await resp.json();
-            } catch (_) { v._histData = null; }
-            v._histFetching = false;
-        }
 
         function qvScaleAllCanvases() {
             const ready = qmriViews.filter(v => v.lastW && v.lastH);
