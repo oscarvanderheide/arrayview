@@ -2043,6 +2043,7 @@
                 _autoFitPending = false;
                 userZoom = Math.max(1.0, capScale / baseScale);
                 _fitZoom = userZoom;
+                _zoomRendered = userZoom; // keep animation origin in sync with layout resets
             }
             // Canvas CSS size grows freely with userZoom (no cap/snap)
             const finalScale = baseScale * userZoom;
@@ -2089,7 +2090,9 @@
             if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             const fromZoom = (_zoomRendered !== undefined) ? _zoomRendered : targetZoom;
             if (Math.abs(fromZoom - targetZoom) < 0.001) {
-                userZoom = targetZoom; _zoomRendered = targetZoom; ModeRegistry.scaleAll(); return;
+                userZoom = targetZoom; _zoomRendered = targetZoom;
+                _cbExpandedHLocked = false;
+                ModeRegistry.scaleAll(); return;
             }
             const DURATION = 150;
             const t0 = performance.now();
@@ -2103,6 +2106,7 @@
                     _zoomAnimId = requestAnimationFrame(step);
                 } else {
                     userZoom = targetZoom; _zoomRendered = targetZoom;
+                    _cbExpandedHLocked = false; // allow histogram height recompute at final zoom
                     ModeRegistry.scaleAll(); _zoomAnimId = null;
                 }
             }
@@ -7286,10 +7290,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             if (e.key === '+' || e.key === '=') {
-                if (!_fullscreenActive &&
+                if (!_fullscreenActive && !_zoomAdjustedByUser &&
                     !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
                     _canFitImmersive()) {
-                    // First =: enter immersive mode, re-fit to larger canvas (no zoom beyond it)
+                    // First =: enter immersive mode (only from default/fit zoom, not after manual zoom)
                     _zoomAdjustedByUser = false;
                     _autoFitPending = true;
                     mainPan.reset();
