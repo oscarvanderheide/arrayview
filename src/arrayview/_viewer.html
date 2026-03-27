@@ -2834,15 +2834,10 @@
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax) {
-                slimVmin.style.display = '';
-                slimVmax.style.display = '';
-                slimVmin.style.color = '';
-                slimVmax.style.color = '';
-                if (_cbExpanded && _histData) {
-                    // Stable data range labels while histogram is visible
-                    slimVmin.textContent = _cbFmt(_histData.vmin);
-                    slimVmax.textContent = _cbFmt(_histData.vmax);
-                } else if (compareActive) {
+                // Hide flanking values when expanded — dmin/dmax drawn on canvas instead
+                slimVmin.style.display = _cbExpanded ? 'none' : '';
+                slimVmax.style.display = _cbExpanded ? 'none' : '';
+                if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
                     slimVmin.textContent = _cbFmt(sharedVmin);
@@ -3025,41 +3020,78 @@
                 ctx.fillRect(px, y, 1, colH);
             }
 
-            // Dashed guide lines + value labels above them
-            if (aT > 0.1 && (vminFrac > 0.005 || vmaxFrac < 0.995)) {
+            // Dashed guide lines + all value labels in the label zone
+            if (aT > 0.1) {
                 ctx.globalAlpha = aT;
-                ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
-                ctx.lineWidth = 0.75;
-                ctx.setLineDash([2, 2]);
-                const labelColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
-                const wVmin = manualVmin ?? currentVmin;
-                const wVmax = manualVmax ?? currentVmax;
-                [[effVmin, wVmin], [effVmax, wVmax]].forEach(([f, val], i) => {
-                    if (f <= 0.003 || f >= 0.997) return;
-                    const x = Math.round(f * cssW) + 0.5;
-                    ctx.beginPath();
-                    ctx.moveTo(x, labelH);
-                    ctx.lineTo(x, cssH);
-                    ctx.stroke();
-                    // Value label above the dashed line
-                    if (labelH > 4) {
-                        ctx.fillStyle = labelColor;
-                        ctx.font = '9px monospace';
-                        ctx.textAlign = i === 0 ? (f < 0.15 ? 'start' : 'center') : (f > 0.85 ? 'end' : 'center');
-                        ctx.fillText(_cbFmt(val), x, labelH - 3);
-                        ctx.textAlign = 'start';
-                    }
-                });
-                ctx.setLineDash([]);
-                // Hover value label
-                if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1 && _histData && labelH > 4) {
+                // Dashed guide lines for vmin/vmax window
+                if (vminFrac > 0.005 || vmaxFrac < 0.995) {
+                    ctx.strokeStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                    ctx.lineWidth = 0.75;
+                    ctx.setLineDash([2, 2]);
+                    [effVmin, effVmax].forEach(f => {
+                        if (f <= 0.003 || f >= 0.997) return;
+                        const x = Math.round(f * cssW) + 0.5;
+                        ctx.beginPath();
+                        ctx.moveTo(x, labelH);
+                        ctx.lineTo(x, cssH);
+                        ctx.stroke();
+                    });
+                    ctx.setLineDash([]);
+                }
+                // Value labels in the label zone
+                // Collect all labels with their x-positions, then cull overlaps
+                if (labelH > 4 && _histData) {
                     const { vmin: dmin, vmax: dmax } = _histData;
-                    const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
-                    const hx = Math.round(_cbHoverFrac * cssW);
-                    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.8)';
-                    ctx.font = '10px monospace';
-                    ctx.textAlign = _cbHoverFrac < 0.1 ? 'start' : _cbHoverFrac > 0.9 ? 'end' : 'center';
-                    ctx.fillText(_cbFmt(hoverVal), hx, labelH - 3);
+                    const wVmin = manualVmin ?? currentVmin;
+                    const wVmax = manualVmax ?? currentVmax;
+                    const dimColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+                    const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
+                    const hoverColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
+                    ctx.font = '9px monospace';
+                    // Measure char width for overlap detection
+                    const charW = ctx.measureText('0').width;
+                    const labelY = labelH - 3;
+                    // Build label list: [{x, text, color, priority}]
+                    // Higher priority labels suppress lower when overlapping
+                    const labels = [];
+                    // dmin at left edge
+                    labels.push({ x: 2, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                    // dmax at right edge
+                    labels.push({ x: cssW - 2, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                    // vmin (if different from dmin)
+                    if (effVmin > 0.01 && effVmin < 0.99) {
+                        const vx = Math.round(effVmin * cssW);
+                        labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
+                    }
+                    // vmax (if different from dmax)
+                    if (effVmax > 0.01 && effVmax < 0.99) {
+                        const vx = Math.round(effVmax * cssW);
+                        labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
+                    }
+                    // Hover value (highest priority)
+                    if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1) {
+                        const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
+                        const hx = Math.round(_cbHoverFrac * cssW);
+                        labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
+                    }
+                    // Sort by priority (lowest first so higher overwrites)
+                    labels.sort((a, b) => a.prio - b.prio);
+                    // Compute pixel extents and cull overlaps
+                    const drawn = []; // [{left, right}] of already drawn labels
+                    for (const lbl of labels) {
+                        const tw = lbl.text.length * charW;
+                        let left, right;
+                        if (lbl.align === 'start') { left = lbl.x; right = lbl.x + tw; }
+                        else if (lbl.align === 'end') { left = lbl.x - tw; right = lbl.x; }
+                        else { left = lbl.x - tw / 2; right = lbl.x + tw / 2; }
+                        // Check overlap with higher-priority already-drawn labels
+                        const overlaps = drawn.some(d => left < d.right + 4 && right > d.left - 4);
+                        if (overlaps) continue; // skip this lower-priority label
+                        ctx.fillStyle = lbl.color;
+                        ctx.textAlign = lbl.align;
+                        ctx.fillText(lbl.text, lbl.x, labelY);
+                        drawn.push({ left, right });
+                    }
                     ctx.textAlign = 'start';
                 }
                 ctx.globalAlpha = 1;
