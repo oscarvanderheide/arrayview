@@ -7766,16 +7766,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`${paneLabel} dynamic range: ${DR_LABELS[hv.drIdx]}`);
                     return;
                 }
-                // In qMRI mode without hovered pane, expand all colorbars
+                // In qMRI mode without hovered pane: show histograms for all panes; cycle quantile on repeat
                 if (qmriActive && !qmriMosaicActive) {
-                    qmriViews.forEach(v => { if (v._colorBar) v._colorBar.expand(); });
-                    showStatus('qMRI: expanded all colorbars');
+                    const cbs = qmriViews.map(v => v._colorBar).filter(Boolean);
+                    if (cbs.some(cb => !cb._expanded)) {
+                        for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
+                        showStatus('histogram');
+                    } else {
+                        let label = null;
+                        for (const v of qmriViews) {
+                            if (!v._colorBar) continue;
+                            const q = v._colorBar.cycleQuantile();
+                            if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                            v._colorBar.startAutoDismiss();
+                        }
+                        if (label) showStatus(`range: ${label}`);
+                    }
                     return;
                 }
-                // In qMRI mosaic mode without hovered pane, expand all mosaic colorbars
+                // In qMRI mosaic mode without hovered pane: show histograms for all panes; cycle quantile on repeat
                 if (qmriActive && qmriMosaicActive) {
-                    qmriViews.forEach(v => { if (v._mosaicColorBar) v._mosaicColorBar.expand(); });
-                    showStatus('qMRI mosaic: expanded all colorbars');
+                    const cbs = qmriViews.map(v => v._mosaicColorBar).filter(Boolean);
+                    if (cbs.some(cb => !cb._expanded)) {
+                        for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
+                        showStatus('histogram');
+                    } else {
+                        let label = null;
+                        for (const v of qmriViews) {
+                            if (!v._mosaicColorBar) continue;
+                            const q = v._mosaicColorBar.cycleQuantile();
+                            if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                            v._mosaicColorBar.startAutoDismiss();
+                        }
+                        if (label) showStatus(`range: ${label}`);
+                    }
                     return;
                 }
                 if (rgbMode) return;
