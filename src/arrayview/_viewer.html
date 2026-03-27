@@ -187,7 +187,7 @@
         :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 0; text-align: center; }
+        .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 5ch; text-align: center; overflow: hidden; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -2984,10 +2984,17 @@
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
         const _cbFmt = v => {
+            // Target: ≤5 characters for monospace label (fits in 5ch width)
             const av = Math.abs(v);
             if (av === 0) return '0';
-            if (av >= 1e4 || (av < 0.01 && av > 0)) return v.toExponential(1);
-            return parseFloat(v.toPrecision(3)).toString();
+            if (av >= 1e3 || (av < 0.01 && av > 0)) {
+                return v.toExponential(0); // e.g. "1e+4", "-2e-3", "6e+3"
+            }
+            // Fixed notation: progressively reduce precision to fit 5 chars
+            let s = parseFloat(v.toPrecision(3)).toString();
+            if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
+            if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
+            return s;
         };
 
         function drawSlimColorbar(markerFrac) {
