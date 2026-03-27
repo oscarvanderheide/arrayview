@@ -3007,6 +3007,8 @@
                 } else {
                     this._buildDOM(opts.container);
                 }
+
+                if (this.interactive) this._attachEvents();
             }
 
             /** Create and append island DOM to container. */
@@ -3314,6 +3316,7 @@
             destroy() {
                 if (this._hoverTimer) clearTimeout(this._hoverTimer);
                 if (this._autoDismissTimer) clearTimeout(this._autoDismissTimer);
+                this._detachEvents();
                 if (this.wrap && this.wrap.parentNode) this.wrap.parentNode.removeChild(this.wrap);
                 this.wrap = null;
                 this.canvas = null;
@@ -3460,6 +3463,207 @@
                 }
                 if (this._syncWith) this._syncWith._quantileIdx = this._quantileIdx;
                 return { vmin: qLo, vmax: qHi, label };
+            }
+
+            /** Attach all event handlers. Called once from constructor if interactive. */
+            _attachEvents() {
+                // Wheel zoom on canvas
+                this.canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const win = this.opts.getWindow();
+                    if (win.vmin == null) return;
+                    const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
+                    const center = (win.vmin + win.vmax) / 2;
+                    const half = (win.vmax - win.vmin) / 2;
+                    const newHalf = half * factor;
+                    const newVmin = center - newHalf;
+                    const newVmax = center + newHalf;
+                    this.opts.setWindow(newVmin, newVmax);
+                    this.draw();
+                    if (this.opts.onWindowChange) this.opts.onWindowChange();
+                    this._syncInteraction('wheel', { vmin: newVmin, vmax: newVmax });
+                }, { passive: false });
+
+                // Mousedown on canvas
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.button !== 0) return;
+                    if (this._expanded && this._histData) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const target = this._hitTest(x);
+                        if (target) {
+                            this._startClimDrag(target, e);
+                            return;
+                        }
+                    }
+                    this._dragX = e.clientX;
+                });
+
+                // Dblclick resets window
+                this.canvas.addEventListener('dblclick', (e) => {
+                    this.opts.setWindow(null, null);
+                    this.draw();
+                    if (this.opts.onWindowChange) this.opts.onWindowChange();
+                    this._syncInteraction('reset', {});
+                });
+
+                // Mousedown on tri handles
+                if (this.triVmin) {
+                    this.triVmin.addEventListener('mousedown', (e) => {
+                        if (this._expanded && this._histData) this._startClimDrag('vmin', e);
+                    });
+                }
+                if (this.triVmax) {
+                    this.triVmax.addEventListener('mousedown', (e) => {
+                        if (this._expanded && this._histData) this._startClimDrag('vmax', e);
+                    });
+                }
+
+                // Mouseenter/leave on wrap
+                this.wrap.addEventListener('mouseenter', () => {
+                    this._mouseOver = true;
+                });
+                this.wrap.addEventListener('mouseleave', () => {
+                    this._mouseOver = false;
+                    if (this._hoverFrac >= 0) {
+                        this._hoverFrac = -1;
+                        this.draw();
+                    }
+                    if (this._autoDismissPending && !this._dragActive) {
+                        this._autoDismissPending = false;
+                        this.collapse();
+                    } else if (this._expanded && !this._dragActive && !this._autoDismissTimer) {
+                        if (this._hoverTimer) clearTimeout(this._hoverTimer);
+                        this._hoverTimer = setTimeout(() => {
+                            this._hoverTimer = null;
+                            this.collapse();
+                        }, 200);
+                    }
+                });
+
+                // Global mousemove and mouseup
+                this._onMouseMove = (e) => this._handleMouseMove(e);
+                this._onMouseUp   = (e) => this._handleMouseUp(e);
+                window.addEventListener('mousemove', this._onMouseMove);
+                window.addEventListener('mouseup',   this._onMouseUp);
+            }
+
+            /** Remove global window listeners. Called by destroy(). */
+            _detachEvents() {
+                if (this._onMouseMove) {
+                    window.removeEventListener('mousemove', this._onMouseMove);
+                    this._onMouseMove = null;
+                }
+                if (this._onMouseUp) {
+                    window.removeEventListener('mouseup', this._onMouseUp);
+                    this._onMouseUp = null;
+                }
+            }
+
+            /** Returns 'vmin', 'vmax', or null based on hit-test of x pixel. */
+            _hitTest(x) {
+                if (this._hitVminX != null && Math.abs(x - this._hitVminX) <= CB_HIT_RADIUS) return 'vmin';
+                if (this._hitVmaxX != null && Math.abs(x - this._hitVmaxX) <= CB_HIT_RADIUS) return 'vmax';
+                return null;
+            }
+
+            /** Begin a clim threshold drag. */
+            _startClimDrag(target, e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this._dragTarget = target;
+                this._dragActive = true;
+                document.body.style.cursor = 'ew-resize';
+            }
+
+            /** Handle global mousemove — drives both threshold drag and pan. */
+            _handleMouseMove(e) {
+                if (!this.canvas) return;
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const cssW = rect.width || this.canvas.clientWidth || 200;
+
+                if (this._dragTarget) {
+                    // Clim threshold drag
+                    const frac = Math.max(0, Math.min(1, x / cssW));
+                    const hd = this._histData;
+                    if (!hd) return;
+                    const val = hd.vmin + frac * (hd.vmax - hd.vmin);
+                    const win = this.opts.getWindow();
+                    const curVmin = win.vmin != null ? win.vmin : hd.vmin;
+                    const curVmax = win.vmax != null ? win.vmax : hd.vmax;
+                    let newVmin = curVmin, newVmax = curVmax;
+                    if (this._dragTarget === 'vmin') {
+                        newVmin = Math.min(val, curVmax - 1e-10);
+                        newVmax = curVmax;
+                    } else {
+                        newVmin = curVmin;
+                        newVmax = Math.max(val, curVmin + 1e-10);
+                    }
+                    this.opts.setWindow(newVmin, newVmax);
+                    this.draw();
+                    if (this.opts.onWindowChange) this.opts.onWindowChange();
+                    this._syncInteraction('drag', { vmin: newVmin, vmax: newVmax });
+                } else if (this._dragX != null) {
+                    // Pan drag
+                    const dx = e.clientX - this._dragX;
+                    this._dragX = e.clientX;
+                    const win = this.opts.getWindow();
+                    if (win.vmin == null) return;
+                    const range = win.vmax - win.vmin;
+                    const shift = -(dx / cssW) * range;
+                    const newVmin = win.vmin + shift;
+                    const newVmax = win.vmax + shift;
+                    this.opts.setWindow(newVmin, newVmax);
+                    this.draw();
+                    if (this.opts.onWindowChange) this.opts.onWindowChange();
+                    this._syncInteraction('pan', { vmin: newVmin, vmax: newVmax });
+                } else if (this._mouseOver && this._expanded) {
+                    // Hover — update hoverFrac and cursor
+                    const frac = Math.max(0, Math.min(1, x / cssW));
+                    const inCanvas = x >= 0 && x <= cssW;
+                    if (inCanvas) {
+                        this._hoverFrac = frac;
+                        const hit = this._hitTest(x);
+                        this.canvas.style.cursor = hit ? 'ew-resize' : 'crosshair';
+                        this.draw();
+                    } else if (this._hoverFrac >= 0) {
+                        this._hoverFrac = -1;
+                        this.canvas.style.cursor = '';
+                        this.draw();
+                    }
+                } else if (this._hoverFrac >= 0) {
+                    this._hoverFrac = -1;
+                    this.draw();
+                }
+            }
+
+            /** Handle global mouseup — end any active drag. */
+            _handleMouseUp(e) {
+                if (this._dragTarget) {
+                    this._dragTarget = null;
+                    this._dragActive = false;
+                    document.body.style.cursor = '';
+                    if (this.opts.onWindowChange) this.opts.onWindowChange();
+                }
+                this._dragX = null;
+            }
+
+            /** Mirror an interaction to the synced ColorBar. */
+            _syncInteraction(type, data) {
+                if (!this._syncWith || this._syncing) return;
+                const sw = this._syncWith;
+                sw._syncing = true;
+                if (type === 'wheel' || type === 'drag' || type === 'pan') {
+                    sw.opts.setWindow(data.vmin, data.vmax);
+                    sw.draw();
+                    if (sw.opts.onWindowChange) sw.opts.onWindowChange();
+                } else if (type === 'reset') {
+                    sw.opts.setWindow(null, null);
+                    sw.draw();
+                    if (sw.opts.onWindowChange) sw.opts.onWindowChange();
+                }
+                sw._syncing = false;
             }
         }
         ColorBar.QUANTILE_PRESETS = [
