@@ -3560,6 +3560,8 @@
                 cvs.width = Math.round(cssW * dpr);
                 cvs.height = Math.round(cssH * dpr);
                 cvs.style.height = cssH + 'px';
+                // Grow the column wrapper so the island background encompasses the histogram
+                if (this.colWrap) this.colWrap.style.height = cssH + 'px';
 
                 const ctx = cvs.getContext('2d');
                 ctx.clearRect(0, 0, cvs.width, cvs.height);
@@ -3672,25 +3674,20 @@
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
-                        // Compute dmin/dmax stripe x so centered label is fully within canvas
-                        const dminText = _cbFmt(dmin), dmaxText = _cbFmt(dmax);
-                        const dminHalf = Math.ceil(ctx.measureText(dminText).width / 2) + 1;
-                        const dmaxHalf = Math.ceil(ctx.measureText(dmaxText).width / 2) + 1;
-                        const dminLX = dminHalf, dmaxLX = cssW - dmaxHalf;
-                        // Draw striped lines at dmin/dmax edge positions
+                        // Draw striped lines at literal left/right histogram edges
                         {
                             const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
                             ctx.fillStyle = edgeStripeColor;
                             const stripeOn = 4, stripeOff = 3;
-                            for (const x of [dminLX, dmaxLX]) {
+                            for (const x of [1, cssW - 2]) {
                                 for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
                                     ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
                                 }
                             }
                         }
                         const labels = [];
-                        labels.push({ x: dminLX, text: dminText, align: 'center', color: dimColor, prio: 0 });
-                        labels.push({ x: dmaxLX, text: dmaxText, align: 'center', color: dimColor, prio: 0 });
+                        labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
@@ -3788,6 +3785,7 @@
                     this._animT += diff * 0.15;
                 }
                 this.draw();
+                if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
                 const morphDone = Math.abs(this._animTarget - this._animT) < 0.003;
                 const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
                              && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
@@ -4342,17 +4340,12 @@
                     // Measure char width for overlap detection
                     const charW = ctx.measureText('0').width;
                     const labelY = labelH - 3;
-                    // Compute dmin/dmax stripe x so centered label is fully within canvas
-                    const dminText = _cbFmt(dmin), dmaxText = _cbFmt(dmax);
-                    const dminHalf = Math.ceil(ctx.measureText(dminText).width / 2) + 1;
-                    const dmaxHalf = Math.ceil(ctx.measureText(dmaxText).width / 2) + 1;
-                    const dminLX = dminHalf, dmaxLX = cssW - dmaxHalf;
-                    // Draw striped lines at dmin/dmax edge positions
+                    // Draw striped lines at literal left/right histogram edges
                     {
                         const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
                         ctx.fillStyle = edgeStripeColor;
                         const stripeOn = 4, stripeOff = 3;
-                        for (const x of [dminLX, dmaxLX]) {
+                        for (const x of [1, cssW - 2]) {
                             for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
                                 ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
                             }
@@ -4361,9 +4354,9 @@
                     // Build label list: [{x, text, color, priority}]
                     // Higher priority labels suppress lower when overlapping
                     const labels = [];
-                    // dmin/dmax centered above their edge stripes
-                    labels.push({ x: dminLX, text: dminText, align: 'center', color: dimColor, prio: 0 });
-                    labels.push({ x: dmaxLX, text: dmaxText, align: 'center', color: dimColor, prio: 0 });
+                    // dmin at left edge (start-aligned at stripe), dmax at right edge (end-aligned)
+                    labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                    labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
                     // vmin (if different from dmin)
                     if (effVmin > 0.01 && effVmin < 0.99) {
                         const vx = Math.round(effVmin * cssW);
@@ -9333,6 +9326,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { qvRender(view); },
+                        onAnimFrame: () => { qvScaleAllCanvases(); },
                     });
                     _qvCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _qvCb;
@@ -9554,6 +9548,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { compareQmriRender(view); },
+                        onAnimFrame: () => { compareQmriScaleAllCanvases(); },
                     });
                     _cqCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _cqCb;
@@ -9754,8 +9749,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 userZoom = 1.0;
             }
             for (const v of ready) {
-                v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
+                const cssW = Math.round(v.lastW * cappedScale);
+                v.canvas.style.width  = cssW + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = cssW + 'px';
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('.cq-header-label');
@@ -10359,6 +10356,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { qvRender(v); },
+                        onAnimFrame: () => { qvScaleAllCanvases(); },
                     });
                     mosaicCb.wrap.classList.add('qmri-mosaic-vcb-island');
                     v._mosaicColorBar = mosaicCb;
@@ -10518,8 +10516,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             const atMax = scaledMin > absMaxScale + 0.001;
             for (const v of ready) {
-                v.canvas.style.width  = Math.round(v.lastW * cappedScale) + 'px';
+                const cssW = Math.round(v.lastW * cappedScale);
+                v.canvas.style.width  = cssW + 'px';
                 v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+                // Keep colorbar island width in sync with canvas width
+                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = cssW + 'px';
             }
             // For n=5: size the invisible placeholder to match a real pane so rows are equal width
             if (n === 5) {
