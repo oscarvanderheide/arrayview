@@ -2908,7 +2908,13 @@
             } else {
                 _cbAnimT += diff * 0.15;
             }
-            _cbMorphDraw();
+            // Draw on the correct canvas for the active mode
+            if (multiViewActive || compareMvActive) {
+                const mvCb = document.getElementById('mv-cb');
+                if (mvCb) _cbMorphDraw(mvCb); else _cbMorphDraw();
+            } else {
+                _cbMorphDraw();
+            }
             // Check if both expand/collapse AND window fractions have converged
             const morphDone = Math.abs(_cbAnimTarget - _cbAnimT) < 0.003;
             const winDone = Math.abs(_cbWinVminF - _cbWinVminTarget) < 0.002
@@ -9811,57 +9817,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (mvVmaxEl) mvVmaxEl.style.display = 'none';
                 return;
             }
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-            if (!stops) return;
-            const wrap = document.getElementById('multi-view-wrap');
-            if (!wrap) return;
-            const cssH = _cbExpanded ? CB_EXPANDED_H : CB_COLLAPSED_H;
-            const dpr = window.devicePixelRatio || 1;
             cbCanvas.style.width = '';
-            cbCanvas.style.height = cssH + 'px';
             cbCanvas.style.display = 'block';
-            if (mvVminEl) mvVminEl.style.display = '';
-            if (mvVmaxEl) mvVmaxEl.style.display = '';
-            const cssW = cbCanvas.clientWidth || Math.min(Math.max(160, wrap.clientWidth * 0.65), 480);
-            cbCanvas.width = Math.round(cssW * dpr);
-            cbCanvas.height = Math.round(cssH * dpr);
-            const sCtx = cbCanvas.getContext('2d');
-            sCtx.clearRect(0, 0, cbCanvas.width, cbCanvas.height);
-            sCtx.save();
-            sCtx.scale(dpr, dpr);
-            // Draw gradient strip at the bottom (hidden when histogram is expanded)
-            const gradY = _cbExpanded ? (cssH - CB_COLLAPSED_H) : 0;
-            const gradH = _cbExpanded ? CB_COLLAPSED_H : cssH;
-            if (!lebesgueMode && !_cbExpanded) {
-                const n = stops.length;
-                for (let col = 0; col < cssW; col++) {
-                    const t = col / (cssW - 1);
-                    const fi = t * (n - 1);
-                    const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
-                    const f = fi - lo;
-                    const r = Math.round(stops[lo][0] * (1-f) + stops[hi][0] * f);
-                    const g = Math.round(stops[lo][1] * (1-f) + stops[hi][1] * f);
-                    const b = Math.round(stops[lo][2] * (1-f) + stops[hi][2] * f);
-                    sCtx.fillStyle = `rgb(${r},${g},${b})`;
-                    sCtx.fillRect(col, gradY, 1, gradH);
-                }
-            }
-            // Draw histogram bars + clim indicators when expanded
-            if (_cbExpanded && _histData && _histData.counts && _histData.counts.length) {
-                _drawHistogramBarsOnColorbar(sCtx, cssW, cssH, stops);
-                _drawClimLines(sCtx, cssW, cssH);
-            }
+            if (mvVminEl) mvVminEl.style.display = _cbExpanded ? 'none' : '';
+            if (mvVmaxEl) mvVmaxEl.style.display = _cbExpanded ? 'none' : '';
             // Auto-refresh histogram when expanded but data is stale
             if (_cbExpanded) {
                 const hDimX = mvViews.length ? mvViews[0].dimX : dim_x;
                 const hDimY = mvViews.length ? mvViews[0].dimY : dim_y;
                 if (_histDataVersion !== (indices.join(',') + ':' + hDimX + ':' + hDimY)) {
                     if (!_histFetching) {
-                        _fetchHistogram().then(() => { if (_cbExpanded) drawMvColorbar(); });
+                        _fetchHistogram().then(() => {
+                            if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
+                        });
                     }
                 }
             }
-            sCtx.restore();
+            // Build KDE if we have histogram data but no smoothed curve yet
+            if (_histData && !_kdeSmooth) _buildKDE();
+            // Use the shared morph renderer (same smooth KDE as normal mode)
+            _cbMorphDraw(cbCanvas);
             // Min/max labels — populate inline spans flanking the canvas
             const v0 = mvViews.find(v => v.lastW);
             if (v0 && mvVminEl && mvVmaxEl) {
@@ -9871,10 +9846,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
                     return parseFloat(val.toPrecision(3)).toString();
                 };
-                if (_cbExpanded) {
-                    mvVminEl.textContent = '';
-                    mvVmaxEl.textContent = '';
-                } else {
+                if (!_cbExpanded) {
                     mvVminEl.textContent = fmt(v0.vmin);
                     mvVmaxEl.textContent = fmt(v0.vmax);
                 }
