@@ -3071,9 +3071,9 @@
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
-            // Cap compare mode width to 500px (like multiview's 480px cap) for better proportions
+            // Cap compare mode width to 500px; normal mode matches canvas pane width (no arbitrary cap)
             const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
-                : Math.max(120, Math.min(rawW, window.innerWidth - 40, 600));
+                : Math.max(120, Math.min(rawW, window.innerWidth - 40));
             if (!cssW || cssW < 10) return;
             const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
             // Mirror the gap between name-bar/title bottom and canvas top
@@ -3097,9 +3097,12 @@
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
                 }
             }
-            // Anchor the island's TOP edge: the top stays fixed at the collapsed
-            // colorbar position, and the island grows downward when expanded.
-            const cbTop = Math.min(_cbAnchorBottom + chromeGap, window.innerHeight - stripH - 34);
+            // Position island so that in collapsed state, the gap above (pane→island)
+            // equals the gap below (island→viewport bottom). Island grows downward on expand.
+            const collapsedIslandH = CB_COLLAPSED_H + 14; // canvas + vertical padding
+            const availSpace = window.innerHeight - _cbAnchorBottom;
+            const equalGap = Math.max(4, (availSpace - collapsedIslandH) / 2);
+            const cbTop = Math.min(_cbAnchorBottom + equalGap, window.innerHeight - stripH - 14 - 4);
             if (wrap) {
                 wrap.style.top  = cbTop + 'px';
                 // Island spans full canvas width; colorbar canvas fills remaining space
