@@ -151,13 +151,16 @@
             transition: opacity 0.3s ease;
         }
         .cb-col {
-            flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative;
+            flex: 1; min-width: 60px; position: relative;
+            height: 13px; overflow: visible;
         }
         .cb-canvas {
             display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
+            position: absolute; bottom: 0; left: 0;
         }
         .cb-tri-zone {
-            position: relative; height: 0; overflow: visible;
+            position: absolute; bottom: -10px; left: 0; width: 100%;
+            height: 0; overflow: visible;
             transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
         }
         .cb-tri-zone.expanded { height: 10px; }
@@ -7796,13 +7799,89 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                     showStatus(`range: ${preset.label}`);
                 } else {
-                    // Quick DR cycle without opening histogram
-                    dr_idx = (dr_idx + 1) % DR_LABELS.length;
-                    window._dQuantileIdx = 0;
-                    manualVmin = null; manualVmax = null;
-                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                    fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                    showStatus(`dynamic range: ${DR_LABELS[dr_idx]}`);
+                    // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
+                    if (!_cbExpanded) {
+                        // First press: expand histogram
+                        _computeCbExpandedH();
+                        _cbExpanded = true;
+                        const triZone = document.getElementById('slim-cb-tri-zone');
+                        if (triZone) triZone.classList.add('expanded');
+                        const fn = compareActive ? _fetchHistogramCompare : _fetchHistogram;
+                        await fn();
+                        _buildKDE();
+                        _cbStartAnim(true);
+                        if (multiViewActive || compareMvActive) {
+                            drawMvColorbar();
+                        } else {
+                            drawSlimColorbar(cbMarkerFrac);
+                        }
+                        showStatus('histogram');
+                        // Auto-dismiss after 3s
+                        if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+                        _histAutoDismissTimer = setTimeout(() => {
+                            _histAutoDismissTimer = null;
+                            if (!_cbMouseOver && !lebesgueMode && _cbExpanded) {
+                                _cbExpanded = false;
+                                const tz = document.getElementById('slim-cb-tri-zone');
+                                if (tz) tz.classList.remove('expanded');
+                                _cbStartAnim(false);
+                                if (multiViewActive || compareMvActive) {
+                                    drawMvColorbar();
+                                } else {
+                                    drawSlimColorbar(cbMarkerFrac);
+                                }
+                            }
+                        }, 3000);
+                    } else {
+                        // Subsequent presses: cycle quantile presets
+                        const _QUANTILE_PRESETS = [
+                            { label: 'full range', lo: 0, hi: 1 },
+                            { label: '0.1\u201399.9%', lo: 0.001, hi: 0.999 },
+                            { label: '1\u201399%', lo: 0.01, hi: 0.99 },
+                            { label: '5\u201395%', lo: 0.05, hi: 0.95 },
+                            { label: '10\u201390%', lo: 0.10, hi: 0.90 },
+                        ];
+                        if (!window._dQuantileIdx) window._dQuantileIdx = 0;
+                        window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+                        const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+                        if (preset.lo === 0 && preset.hi === 1) {
+                            manualVmin = null; manualVmax = null;
+                        } else if (_histData && _histData.counts) {
+                            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                            const total = counts.reduce((a, b) => a + b, 0);
+                            let cumLo = 0, cumHi = 0;
+                            let qLo = dmin, qHi = dmax;
+                            for (let i = 0; i < counts.length; i++) {
+                                cumLo += counts[i];
+                                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+                            }
+                            for (let i = counts.length - 1; i >= 0; i--) {
+                                cumHi += counts[i];
+                                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                            }
+                            manualVmin = qLo; manualVmax = qHi;
+                        }
+                        cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                        fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                        if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                        showStatus(`range: ${preset.label}`);
+                        // Reset auto-dismiss timer
+                        if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+                        _histAutoDismissTimer = setTimeout(() => {
+                            _histAutoDismissTimer = null;
+                            if (!_cbMouseOver && !lebesgueMode && _cbExpanded) {
+                                _cbExpanded = false;
+                                const tz = document.getElementById('slim-cb-tri-zone');
+                                if (tz) tz.classList.remove('expanded');
+                                _cbStartAnim(false);
+                                if (multiViewActive || compareMvActive) {
+                                    drawMvColorbar();
+                                } else {
+                                    drawSlimColorbar(cbMarkerFrac);
+                                }
+                            }
+                        }, 3000);
+                    }
                 }
                 saveState();
             } else if (e.key === 'D') {
