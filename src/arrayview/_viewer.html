@@ -1544,6 +1544,57 @@
                 if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
             },
+            getEggsAnchorBottom() {
+                if (multiViewActive) {
+                    const mvCbWrap = document.getElementById('mv-cb-wrap');
+                    const cbRect = mvCbWrap ? mvCbWrap.getBoundingClientRect() : null;
+                    if (cbRect && cbRect.height > 2) {
+                        return cbRect.bottom + 12;
+                    }
+                    let maxBottom = 0;
+                    document.querySelectorAll('.mv-canvas').forEach(cv => {
+                        const r = cv.getBoundingClientRect();
+                        if (r.bottom > maxBottom) maxBottom = r.bottom;
+                    });
+                    if (maxBottom > 30) return maxBottom + 36;
+                    return null; // layout not ready
+                }
+                if (qmriActive || compareQmriActive || compareMvActive) {
+                    const views = compareQmriActive ? compareQmriViews : (compareMvActive ? compareMvViews : qmriViews);
+                    let maxBottom = 0;
+                    views.forEach(v => {
+                        const r = v.canvas.getBoundingClientRect();
+                        if (r.bottom > maxBottom) maxBottom = r.bottom;
+                    });
+                    return maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
+                }
+                if (compareActive) {
+                    const cbWrap = document.getElementById('slim-cb-wrap');
+                    if (cbWrap && cbWrap.style.display !== 'none') {
+                        return cbWrap.getBoundingClientRect().bottom + 12;
+                    }
+                    let maxBottom = 0;
+                    const paneCbIslands = diffMode > 0 ? document.querySelectorAll('.compare-pane-cb-island') : [];
+                    let usedCbBottom = false;
+                    paneCbIslands.forEach(island => {
+                        if (island.style.display === 'none' || !island.offsetParent) return;
+                        const r = island.getBoundingClientRect();
+                        if (r.height > 2 && r.bottom > maxBottom) { maxBottom = r.bottom; usedCbBottom = true; }
+                    });
+                    if (!usedCbBottom) {
+                        compareCanvases.forEach(cv => {
+                            if (!cv) return;
+                            const pane = cv.closest('.compare-pane');
+                            if (pane && pane.classList.contains('active')) {
+                                const r = cv.getBoundingClientRect();
+                                if (r.bottom > maxBottom) maxBottom = r.bottom;
+                            }
+                        });
+                    }
+                    return maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
+                }
+                return null; // normal mode — handled by positionEggs directly
+            },
         };
 
         // ── PanManager ─────────────────────────────────────────────────
@@ -5462,99 +5513,52 @@
         function positionEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el || !el.innerHTML) return;
-            let eggsTop;
-            if (multiViewActive) {
-                // In multi-view mode, position below the mv colorbar.
-                // Guard: if cbWrap has no height yet (layout not ready), fall back to canvas bottoms.
-                const mvCbWrap = document.getElementById('mv-cb-wrap');
-                const cbRect = mvCbWrap ? mvCbWrap.getBoundingClientRect() : null;
-                if (cbRect && cbRect.height > 2) {
-                    eggsTop = cbRect.bottom + 12;
-                } else {
-                    // canvases might be sized already even if colorbar isn't drawn yet
-                    let maxBottom = 0;
-                    document.querySelectorAll('.mv-canvas').forEach(cv => {
-                        const r = cv.getBoundingClientRect();
-                        if (r.bottom > maxBottom) maxBottom = r.bottom;
-                    });
-                    if (maxBottom > 30) {
-                        // estimate colorbar height (canvas 8px + labels ~18px + margin ~10px = ~36px)
-                        eggsTop = maxBottom + 36;
-                    } else {
-                        return; // layout not ready yet — skip, will be called again after first render
-                    }
-                }
-            } else if (qmriActive || compareQmriActive || compareMvActive) {
-                // Find the actual bottom of the lowest canvas row
-                let maxBottom = 0;
-                const views = compareQmriActive ? compareQmriViews : (compareMvActive ? compareMvViews : qmriViews);
-                views.forEach(v => {
-                    const r = v.canvas.getBoundingClientRect();
-                    if (r.bottom > maxBottom) maxBottom = r.bottom;
-                });
-                // Add 4px gap below the canvas (colorbars are inside qv-canvas-wrap, already above)
-                eggsTop = maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
-            } else if (compareActive) {
-                // Use the shared colorbar position if visible, else panes bottom
+
+            // Fullscreen normal mode: special inline positioning
+            if (_fullscreenActive && !multiViewActive && !compareActive && !qmriActive && !compareQmriActive && !compareMvActive) {
+                const vpEl = document.getElementById('canvas-viewport');
+                if (!vpEl) return;
+                const vpRect = vpEl.getBoundingClientRect();
                 const cbWrap = document.getElementById('slim-cb-wrap');
-                if (cbWrap && cbWrap.style.display !== 'none') {
-                    eggsTop = cbWrap.getBoundingClientRect().bottom + 12;
-                } else {
-                    let maxBottom = 0;
-                    // In diff mode, per-pane colorbars sit below canvases — use their bottom
-                    const paneCbIslands = diffMode > 0 ? document.querySelectorAll('.compare-pane-cb-island') : [];
-                    let usedCbBottom = false;
-                    paneCbIslands.forEach(island => {
-                        if (island.style.display === 'none' || !island.offsetParent) return;
-                        const r = island.getBoundingClientRect();
-                        if (r.height > 2 && r.bottom > maxBottom) { maxBottom = r.bottom; usedCbBottom = true; }
-                    });
-                    if (!usedCbBottom) {
-                        compareCanvases.forEach(cv => {
-                            if (!cv) return;
-                            const pane = cv.closest('.compare-pane');
-                            if (pane && pane.classList.contains('active')) {
-                                const r = cv.getBoundingClientRect();
-                                if (r.bottom > maxBottom) maxBottom = r.bottom;
-                            }
-                        });
-                    }
-                    eggsTop = maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
-                }
-            } else {
-                // Normal mode: use slim colorbar if visible, else canvas bottom.
-                // In fullscreen mode, stack eggs vertically to the left of the canvas.
-                if (_fullscreenActive) {
-                    const vpEl = document.getElementById('canvas-viewport');
-                    if (!vpEl) return;
-                    const vpRect = vpEl.getBoundingClientRect();
-                    const cbWrap = document.getElementById('slim-cb-wrap');
-                    const cbRect = cbWrap ? cbWrap.getBoundingClientRect() : null;
-                    // Position inside canvas, centered, just above colorbar
-                    el.style.flexDirection = 'row';
-                    el.style.alignItems    = 'center';
-                    el.style.left          = vpRect.left + vpRect.width / 2 + 'px';
-                    el.style.transform     = 'translateX(-50%)';
-                    el.style.top           = '';
-                    el.style.right         = '';
-                    el.style.bottom        = cbRect
-                        ? (window.innerHeight - cbRect.top + 6) + 'px'
-                        : (window.innerHeight - vpRect.bottom + 30) + 'px';
-                    return;
-                }
-                el.style.flexDirection = '';
+                const cbRect = cbWrap ? cbWrap.getBoundingClientRect() : null;
+                el.style.flexDirection = 'row';
+                el.style.alignItems    = 'center';
+                el.style.left          = vpRect.left + vpRect.width / 2 + 'px';
+                el.style.transform     = 'translateX(-50%)';
+                el.style.top           = '';
+                el.style.right         = '';
+                el.style.bottom        = cbRect
+                    ? (window.innerHeight - cbRect.top + 6) + 'px'
+                    : (window.innerHeight - vpRect.bottom + 30) + 'px';
+                return;
+            }
+
+            // Try mode-specific anchor
+            const anchorBottom = ModeRegistry.getEggsAnchorBottom();
+            if (anchorBottom !== null) {
+                el.style.position      = '';
+                el.style.bottom        = '';
+                el.style.flexDirection  = '';
                 el.style.alignItems    = '';
                 el.style.right         = '';
-                // When the colorbar is hidden (e.g. RGB mode) add the same ~36px
-                // gap that the colorbar would occupy so eggs aren't flush with the canvas.
-                const wrap = document.getElementById('slim-cb-wrap');
-                if (wrap && wrap.style.display !== 'none') {
-                    eggsTop = wrap.getBoundingClientRect().bottom + 12;
-                } else {
-                    eggsTop = canvas.getBoundingClientRect().bottom + 36;
-                }
+                const eggsTop = Math.min(anchorBottom, window.innerHeight - 26);
+                el.style.top       = eggsTop + 'px';
+                el.style.left      = '50%';
+                el.style.transform = 'translateX(-50%)';
+                return;
             }
-            // Clamp so eggs never overflow the window bottom
+
+            // Normal (non-fullscreen) mode
+            el.style.flexDirection = '';
+            el.style.alignItems    = '';
+            el.style.right         = '';
+            let eggsTop;
+            const wrap = document.getElementById('slim-cb-wrap');
+            if (wrap && wrap.style.display !== 'none') {
+                eggsTop = wrap.getBoundingClientRect().bottom + 12;
+            } else {
+                eggsTop = canvas.getBoundingClientRect().bottom + 36;
+            }
             eggsTop = Math.min(eggsTop, window.innerHeight - 26);
             el.style.top       = eggsTop + 'px';
             el.style.bottom    = '';
