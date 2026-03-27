@@ -7680,45 +7680,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus('qMRI mosaic: expanded all colorbars');
                     return;
                 }
-                // Quantile presets for cycling with repeated d presses
-                const _QUANTILE_PRESETS = [
-                    { label: 'full range', lo: 0, hi: 1 },
-                    { label: '0.1–99.9%', lo: 0.001, hi: 0.999 },
-                    { label: '1–99%', lo: 0.01, hi: 0.99 },
-                    { label: '5–95%', lo: 0.05, hi: 0.95 },
-                    { label: '10–90%', lo: 0.10, hi: 0.90 },
-                ];
+                if (rgbMode) return;
 
-                if (!_cbExpanded) {
-                    // First press: expand histogram without changing vmin/vmax
-                    if (rgbMode) return;
-                    _computeCbExpandedH();
-                    _cbExpanded = true;
-                    window._dQuantileIdx = 0; // reset cycle
-                    // Show tri-zone and hide flanking values immediately
-                    const _tz = document.getElementById('slim-cb-tri-zone');
-                    if (_tz) _tz.classList.add('expanded');
-                    const _sv1 = document.getElementById('slim-cb-vmin');
-                    const _sv2 = document.getElementById('slim-cb-vmax');
-                    if (_sv1) _sv1.style.display = 'none';
-                    if (_sv2) _sv2.style.display = 'none';
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                    fetcher().then(() => {
-                        _buildKDE();
-                        _cbStartAnim(true);
-                        if (multiViewActive || compareMvActive) drawMvColorbar();
-                        else drawSlimColorbar(cbMarkerFrac);
-                    });
-                    showStatus('histogram');
-                } else if (_histData) {
-                    // Already expanded: cycle quantile presets
+                if (lebesgueMode && _histData) {
+                    // Histogram open via w: cycle quantile presets with smooth indicator updates
+                    const _QUANTILE_PRESETS = [
+                        { label: 'full range', lo: 0, hi: 1 },
+                        { label: '0.1–99.9%', lo: 0.001, hi: 0.999 },
+                        { label: '1–99%', lo: 0.01, hi: 0.99 },
+                        { label: '5–95%', lo: 0.05, hi: 0.95 },
+                        { label: '10–90%', lo: 0.10, hi: 0.90 },
+                    ];
                     if (!window._dQuantileIdx) window._dQuantileIdx = 0;
                     window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
                     const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
                     if (preset.lo === 0 && preset.hi === 1) {
                         manualVmin = null; manualVmax = null;
                     } else {
-                        // Compute quantile values from histogram edges
                         const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
                         const total = counts.reduce((a, b) => a + b, 0);
                         let cumLo = 0, cumHi = 0;
@@ -7738,24 +7716,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                     if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                     showStatus(`range: ${preset.label}`);
-                }
-                // Auto-dismiss after 3s unless mouse is over island or lebesgue is active
-                if (!rgbMode && !lebesgueMode) {
-                    clearTimeout(_histAutoDismissTimer);
-                    _histAutoDismissPending = false;
-                    _histAutoDismissTimer = setTimeout(() => {
-                        _histAutoDismissTimer = null;
-                        if (!lebesgueMode && !_cbDragActive) {
-                            if (_cbMouseOver) {
-                                _histAutoDismissPending = true;
-                                return;
-                            }
-                            _cbExpanded = false;
-                            _cbStartAnim(false);
-                            if (multiViewActive || compareMvActive) drawMvColorbar();
-                            else drawSlimColorbar(cbMarkerFrac);
-                        }
-                    }, 3000);
+                } else {
+                    // Quick DR cycle without opening histogram
+                    dr_idx = (dr_idx + 1) % DR_LABELS.length;
+                    window._dQuantileIdx = 0;
+                    manualVmin = null; manualVmax = null;
+                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                    fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                    showStatus(`dynamic range: ${DR_LABELS[dr_idx]}`);
                 }
                 saveState();
             } else if (e.key === 'D') {
