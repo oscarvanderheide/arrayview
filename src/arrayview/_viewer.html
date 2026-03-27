@@ -716,6 +716,41 @@
             pointer-events: none;
         }
 
+        /* ── Non-immersive: strip island styling, show bare chrome ─ */
+        body:not(.fullscreen-mode) #info {
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 0;
+        }
+        body:not(.fullscreen-mode) #slim-cb-wrap {
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 0;
+        }
+        body:not(.fullscreen-mode) #slim-cb-wrap .cb-canvas,
+        body:not(.fullscreen-mode) #slim-cb {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
+        }
+        body:not(.fullscreen-mode) #mv-cb-wrap {
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 14px;
+        }
+        body:not(.fullscreen-mode) #mv-cb-wrap .cb-canvas {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
+        }
+        body:not(.fullscreen-mode) .cb-island {
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 10px;
+        }
+        body:not(.fullscreen-mode) .cb-island .cb-canvas {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
+        }
+        /* Hide rectangular outline when histogram is expanded — KDE stroke replaces it */
+        body:not(.fullscreen-mode) .cb-island.cb-expanded .cb-canvas,
+        body:not(.fullscreen-mode) #slim-cb-wrap.cb-expanded .cb-canvas,
+        body:not(.fullscreen-mode) #slim-cb-wrap.cb-expanded #slim-cb,
+        body:not(.fullscreen-mode) #mv-cb-wrap.cb-expanded .cb-canvas {
+            outline: none;
+        }
+
         /* ── Colormap preview strip ──────────────────────────────── */
         #colormap-strip, #colormap-strip-right {
             position:fixed; display:flex; flex-direction:row; align-items:center; gap:8px;
@@ -3647,6 +3682,28 @@
                     ctx.fillRect(px, y, 1, colH);
                 }
 
+                // KDE curve stroke outline in non-immersive mode
+                if (hasKDE && aT > 0.05 && !document.body.classList.contains('fullscreen-mode')) {
+                    ctx.save();
+                    ctx.globalAlpha = aT * 0.6;
+                    ctx.beginPath();
+                    ctx.moveTo(0, cssH);
+                    for (let px = 0; px <= cssW; px++) {
+                        const t = px / cssW;
+                        const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
+                        const colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                        ctx.lineTo(px, cssH - colH);
+                    }
+                    ctx.lineTo(cssW, cssH);
+                    ctx.closePath();
+                    const isDarkTheme = document.documentElement.classList.contains('light') ||
+                                        document.documentElement.classList.contains('solarized');
+                    ctx.strokeStyle = isDarkTheme ? 'rgba(0,0,0,0.5)' : 'rgba(180,180,180,0.5)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
                 // Dashed guide lines + value labels in the label zone
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
@@ -3800,6 +3857,7 @@
             async expand() {
                 if (this._expanded) return;
                 this._expanded = true;
+                if (this.wrap) this.wrap.classList.add('cb-expanded');
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
                 if (this.opts.fetchHistogram) {
@@ -3820,6 +3878,7 @@
             collapse() {
                 if (!this._expanded || this._dragActive) return;
                 this._expanded = false;
+                if (this.wrap) this.wrap.classList.remove('cb-expanded');
                 this._hitVminX = null;
                 this._hitVmaxX = null;
                 if (this.triZone) this.triZone.classList.remove('expanded');
@@ -4195,6 +4254,10 @@
             } else {
                 _cbAnimT += diff * 0.15;
             }
+            // Toggle cb-expanded class for non-immersive outline removal
+            const _wrapEl = document.getElementById(
+                (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap');
+            if (_wrapEl) _wrapEl.classList.toggle('cb-expanded', _cbExpanded);
             // Redraw colorbar AND reposition island each frame so bottom stays anchored
             if (multiViewActive || compareMvActive) {
                 drawMvColorbar();
@@ -4310,6 +4373,28 @@
                 const alpha = inRange ? 1 : (1 - 0.65 * aT);
                 ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
                 ctx.fillRect(px, y, 1, colH);
+            }
+
+            // KDE curve stroke outline in non-immersive mode
+            if (hasKDE && aT > 0.05 && !document.body.classList.contains('fullscreen-mode')) {
+                ctx.save();
+                ctx.globalAlpha = aT * 0.6;
+                ctx.beginPath();
+                ctx.moveTo(0, cssH);
+                for (let px = 0; px <= cssW; px++) {
+                    const t = px / cssW;
+                    const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
+                    const colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                    ctx.lineTo(px, cssH - colH);
+                }
+                ctx.lineTo(cssW, cssH);
+                ctx.closePath();
+                const _isDarkTheme = document.documentElement.classList.contains('light') ||
+                                     document.documentElement.classList.contains('solarized');
+                ctx.strokeStyle = _isDarkTheme ? 'rgba(0,0,0,0.5)' : 'rgba(180,180,180,0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.restore();
             }
 
             // Striped guide lines + all value labels in the label zone
