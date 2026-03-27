@@ -1496,8 +1496,6 @@
         let qmriMosaicActive = false;  // true when Z mosaic is active in qMRI mode
         let _qmriMosaicZDim = -1;      // which dimension is z in qMRI mosaic
         const MIN_MOSAIC_TILE_PX = 40; // min tile width before switching to overflow/pan
-        let _mosaicPanX = 0, _mosaicPanY = 0;
-        let _mosaicPanDrag = null; // {x, y, panX0, panY0}
         let _mosaicOverflowing = false;
         let compareQmriActive = false; // compare + qMRI combined mode
         let compareQmriViews = [];     // flat array of {sid, colormap, qmriIdx, canvas, ...}
@@ -1550,6 +1548,48 @@
             },
         };
 
+        // ── PanManager ─────────────────────────────────────────────────
+        class PanManager {
+            constructor(opts) {
+                this.opts = opts;
+                this.x = 0;
+                this.y = 0;
+                this._drag = null;
+            }
+            reset() { this.x = 0; this.y = 0; this.opts.apply(0, 0); }
+            clamp() {
+                const vp = this.opts.getViewport();
+                const ct = this.opts.getContent();
+                this.x = Math.max(-(ct.w - vp.w), Math.min(0, this.x));
+                this.y = Math.max(-(ct.h - vp.h), Math.min(0, this.y));
+            }
+            apply() { this.opts.apply(this.x, this.y); }
+            startDrag(e) {
+                this._drag = { startX: e.clientX, startY: e.clientY, panX0: this.x, panY0: this.y };
+                if (this.opts.onDragStart) this.opts.onDragStart();
+            }
+            updateDrag(e) {
+                if (!this._drag) return false;
+                this.x = this._drag.panX0 + (e.clientX - this._drag.startX);
+                this.y = this._drag.panY0 + (e.clientY - this._drag.startY);
+                this.clamp();
+                this.apply();
+                return true;
+            }
+            endDrag() {
+                if (!this._drag) return false;
+                this._drag = null;
+                if (this.opts.onDragEnd) this.opts.onDragEnd();
+                return true;
+            }
+            get dragging() { return this._drag !== null; }
+            get overflows() {
+                const vp = this.opts.getViewport();
+                const ct = this.opts.getContent();
+                return ct.w > vp.w + 1 || ct.h > vp.h + 1;
+            }
+        }
+
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
         const compareWrap = document.getElementById('compare-view-wrap');
@@ -1572,39 +1612,24 @@
             document.getElementById('compare-sixth-title'),
         ];
         // ── compare pan (synced across panes when zoomed past viewport) ───────
-        let _cmpPanX = 0, _cmpPanY = 0;
-        let _cmpPanDrag = null; // {x, y, panX0, panY0}
-        function _cmpIsOverflowing() {
-            const inner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
-            if (!inner || !inner.dataset.vpW) return false;
-            const cv = compareCanvases[0];
-            return (parseInt(cv.style.width) || 0) > parseInt(inner.dataset.vpW) + 2 ||
-                   (parseInt(cv.style.height) || 0) > parseInt(inner.dataset.vpH) + 2;
-        }
-        function _cmpClampPan() {
-            const cv = compareCanvases[0];
-            const inner = cv && cv.closest('.compare-canvas-inner');
-            if (!inner || !inner.dataset.vpW) { _cmpPanX = _cmpPanY = 0; return; }
-            const cssW = parseInt(cv.style.width) || 0;
-            const cssH = parseInt(cv.style.height) || 0;
-            const vpW = parseInt(inner.dataset.vpW);
-            const vpH = parseInt(inner.dataset.vpH);
-            if (cssW <= vpW) _cmpPanX = 0;
-            else _cmpPanX = Math.max(-(cssW - vpW), Math.min(0, _cmpPanX));
-            if (cssH <= vpH) _cmpPanY = 0;
-            else _cmpPanY = Math.max(-(cssH - vpH), Math.min(0, _cmpPanY));
-        }
-        function _cmpApplyPan() {
-            const tx = (_cmpPanX || _cmpPanY) ? `translate(${_cmpPanX}px,${_cmpPanY}px)` : '';
-            // Transform .compare-canvas-inner within its .compare-canvas-clip
-            // wrapper.  Clip handles overflow; inner moves to pan.
-            document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
-            // Counter-translate axes indicators so they stay anchored in the
-            // viewport (they live inside inner which moves for panning).
-            // Minimaps live in the clip wrapper, so they don't need this.
-            const atx = (_cmpPanX || _cmpPanY) ? `translate(${-_cmpPanX}px,${-_cmpPanY}px)` : '';
-            document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
-        }
+        const comparePan = new PanManager({
+            getViewport: () => {
+                const cv = compareCanvases[0];
+                const inner = cv && cv.closest('.compare-canvas-inner');
+                if (!inner || !inner.dataset.vpW) return { w: 0, h: 0 };
+                return { w: parseInt(inner.dataset.vpW), h: parseInt(inner.dataset.vpH) };
+            },
+            getContent: () => {
+                const cv = compareCanvases[0];
+                return { w: cv ? (parseInt(cv.style.width) || cv.width) : 0, h: cv ? (parseInt(cv.style.height) || cv.height) : 0 };
+            },
+            apply: (x, y) => {
+                const tx = (x || y) ? `translate(${x}px,${y}px)` : '';
+                document.querySelectorAll('.compare-canvas-inner').forEach(el => { el.style.transform = tx; });
+                const atx = (x || y) ? `translate(${-x}px,${-y}px)` : '';
+                document.querySelectorAll('.compare-canvas-inner > .axes-indicator').forEach(el => { el.style.transform = atx; });
+            },
+        });
 
         // ── compare-title drag-to-reorder ──────────────────────────────────────
         let _cmpDragSrcIdx = null;
@@ -1798,11 +1823,7 @@
                 return;
             }
             // Right-click pan drag (when zoomed)
-            if (_panDrag !== null) {
-                _panX = _panDrag.panX0 + (e.clientX - _panDrag.x);
-                _panY = _panDrag.panY0 + (e.clientY - _panDrag.y);
-                _clampPan();
-                _applyCanvasPan();
+            if (mainPan.updateDrag(e)) {
                 updateMiniMapViewport();
                 return;
             }
@@ -1839,9 +1860,8 @@
             _cbApplyAndRender();
         });
         window.addEventListener('mouseup', (e) => {
-            if (_panDrag !== null) {
-                _panDrag = null;
-                canvas.style.cursor = _isCanvasOverflowing() ? 'grab' : '';
+            if (mainPan.endDrag()) {
+                canvas.style.cursor = mainPan.overflows ? 'grab' : '';
             }
             if (e.button === 2) { _scrubDrag = null; }
             _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null;
@@ -1975,13 +1995,13 @@
             if (vp) { vp.style.width = vpW + 'px'; vp.style.height = vpH + 'px'; }
             // When first overflowing, center the pan so the user sees the middle
             const overflowing = cssW > vpW + 2 || cssH > vpH + 2;
-            if (overflowing && _panX === 0 && _panY === 0) {
-                _panX = -(cssW - vpW) / 2;
-                _panY = -(cssH - vpH) / 2;
+            if (overflowing && mainPan.x === 0 && mainPan.y === 0) {
+                mainPan.x = -(cssW - vpW) / 2;
+                mainPan.y = -(cssH - vpH) / 2;
             }
             // Clamp pan so visible region stays within image
-            _clampPan();
-            _applyCanvasPan();
+            mainPan.clamp();
+            mainPan.apply();
             if (hasVectorfield) drawVectorOverlay();
             // fixWrapperAlignment must run before drawSlimColorbar so the canvas
             // is in its final viewport position before we anchor the fixed colorbar.
@@ -2193,16 +2213,16 @@
                 }
             }
             // When first overflowing, center the pan
-            if (_cmpIsOverflowing() && _cmpPanX === 0 && _cmpPanY === 0) {
+            if (comparePan.overflows && comparePan.x === 0 && comparePan.y === 0) {
                 const cv = compareCanvases[0];
                 const inner = cv && cv.closest('.compare-canvas-inner');
                 if (inner) {
-                    _cmpPanX = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
-                    _cmpPanY = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
+                    comparePan.x = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
+                    comparePan.y = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
                 }
             }
-            _cmpClampPan();
-            _cmpApplyPan();
+            comparePan.clamp();
+            comparePan.apply();
             // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
             // from pushing the third column to a new row.
             if (hasCenterPane && paneCount === 2) {
@@ -2217,7 +2237,7 @@
             positionEggs();
             updateMiniMap();
             // Update cursor on compare canvases
-            const overflowing = _cmpIsOverflowing();
+            const overflowing = comparePan.overflows;
             compareCanvases.forEach(cv => {
                 if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair';
             });
@@ -6482,57 +6502,49 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Canvas mouse handling: click to focus, drag to draw circular ROI or rect ROI
         // Right-click drag: scrub (fit zoom) or pan (zoomed in)
         let _scrubDrag = null; // {y, idx0} for right-click scrub
-        let _panDrag = null;   // {x, y, panX0, panY0} for right-click pan when zoomed
-        let _panX = 0, _panY = 0; // current canvas pan offsets (px)
-        function _clampPan() {
-            // Clamp pan offsets so the visible viewport stays within the canvas
-            const vp = document.getElementById('canvas-viewport');
-            const cssW = parseInt(canvas.style.width) || canvas.width;
-            const cssH = parseInt(canvas.style.height) || canvas.height;
-            const vpW = vp ? vp.offsetWidth : cssW;
-            const vpH = vp ? vp.offsetHeight : cssH;
-            // Pan offsets are negative (moving canvas left/up to reveal right/bottom)
-            // Min pan: -(cssW - vpW) (fully scrolled to right edge)
-            // Max pan: 0 (fully scrolled to left edge)
-            if (cssW <= vpW) { _panX = 0; }
-            else { _panX = Math.max(-(cssW - vpW), Math.min(0, _panX)); }
-            if (cssH <= vpH) { _panY = 0; }
-            else { _panY = Math.max(-(cssH - vpH), Math.min(0, _panY)); }
-        }
-        function _applyCanvasPan() {
-            const ci = document.getElementById('canvas-inner');
-            if (ci) ci.style.transform = (_panX || _panY) ? `translate(${_panX}px,${_panY}px)` : '';
-        }
-        function _isCanvasOverflowing() {
-            const vp = document.getElementById('canvas-viewport');
-            if (!vp) return false;
-            const cssW = parseInt(canvas.style.width) || canvas.width;
-            const cssH = parseInt(canvas.style.height) || canvas.height;
-            return cssW > vp.offsetWidth + 2 || cssH > vp.offsetHeight + 2;
-        }
-        // --- Mosaic pan/clamp/apply (mirrors _clampPan / _applyCanvasPan) ---
-        function _mosaicClampPan() {
-            const wrap = document.getElementById('qmri-view-wrap');
-            const inner = document.getElementById('qmri-mosaic-inner');
-            if (!wrap || !inner) return;
-            const wW = wrap.offsetWidth, wH = wrap.offsetHeight;
-            const iW = inner.scrollWidth, iH = inner.scrollHeight;
-            if (iW <= wW) _mosaicPanX = 0;
-            else _mosaicPanX = Math.max(-(iW - wW), Math.min(0, _mosaicPanX));
-            if (iH <= wH) _mosaicPanY = 0;
-            else _mosaicPanY = Math.max(-(iH - wH), Math.min(0, _mosaicPanY));
-        }
-        function _mosaicApplyPan() {
-            const inner = document.getElementById('qmri-mosaic-inner');
-            if (inner) inner.style.transform = (_mosaicPanX || _mosaicPanY) ? `translate(${_mosaicPanX}px,${_mosaicPanY}px)` : '';
-        }
+        const mainPan = new PanManager({
+            getViewport: () => {
+                const vp = document.getElementById('canvas-viewport');
+                return { w: vp ? vp.offsetWidth : window.innerWidth, h: vp ? vp.offsetHeight : window.innerHeight };
+            },
+            getContent: () => ({
+                w: parseInt(canvas.style.width) || canvas.width,
+                h: parseInt(canvas.style.height) || canvas.height,
+            }),
+            apply: (x, y) => {
+                const inner = document.getElementById('canvas-inner');
+                if (inner) inner.style.transform = (x || y) ? `translate(${x}px,${y}px)` : '';
+            },
+        });
+        const mosaicPan = new PanManager({
+            getViewport: () => {
+                const wrap = document.getElementById('qmri-view-wrap');
+                return wrap ? { w: wrap.offsetWidth, h: wrap.offsetHeight } : { w: 0, h: 0 };
+            },
+            getContent: () => {
+                const inner = document.getElementById('qmri-mosaic-inner');
+                return inner ? { w: inner.scrollWidth, h: inner.scrollHeight } : { w: 0, h: 0 };
+            },
+            apply: (x, y) => {
+                const inner = document.getElementById('qmri-mosaic-inner');
+                if (inner) inner.style.transform = (x || y) ? `translate(${x}px,${y}px)` : '';
+            },
+            onDragStart: () => {
+                const wrap = document.getElementById('qmri-view-wrap');
+                if (wrap) wrap.classList.add('mosaic-dragging');
+            },
+            onDragEnd: () => {
+                const wrap = document.getElementById('qmri-view-wrap');
+                if (wrap) wrap.classList.remove('mosaic-dragging');
+            },
+        });
         function _mosaicResetPan() {
-            _mosaicPanX = 0; _mosaicPanY = 0;
-            _mosaicPanDrag = null;
+            mosaicPan.x = 0; mosaicPan.y = 0;
+            mosaicPan._drag = null;
             _mosaicOverflowing = false;
             const wrap = document.getElementById('qmri-view-wrap');
             if (wrap) wrap.classList.remove('mosaic-overflow', 'mosaic-dragging');
-            _mosaicApplyPan();
+            mosaicPan.apply();
         }
 
         // Zoom-to-region: Shift+drag draws a selection rectangle, zooms on release
@@ -6553,8 +6565,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.button === 2) {
                 e.preventDefault();
                 if (rectRoiMode) return;
-                if (_isCanvasOverflowing()) {
-                    _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
+                if (mainPan.overflows) {
+                    mainPan.startDrag(e);
                 } else {
                     _scrubDrag = { y: e.clientY, idx0: indices[current_slice_dim] };
                 }
@@ -6587,8 +6599,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             // Left-click pan when zoomed in and not in ROI mode
-            if (!rectRoiMode && _isCanvasOverflowing()) {
-                _panDrag = { x: e.clientX, y: e.clientY, panX0: _panX, panY0: _panY };
+            if (!rectRoiMode && mainPan.overflows) {
+                mainPan.startDrag(e);
                 canvas.style.cursor = 'grabbing';
                 return;
             }
@@ -6893,10 +6905,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const centerFx = (x0 + x1) / 2 / canvas.width;
             const centerFy = (y0 + y1) / 2 / canvas.height;
             // Pan so that center of selection is at center of viewport
-            _panX = -(centerFx * newCssW - newVpW / 2);
-            _panY = -(centerFy * newCssH - newVpH / 2);
-            _clampPan();
-            _applyCanvasPan();
+            mainPan.x = -(centerFx * newCssW - newVpW / 2);
+            mainPan.y = -(centerFy * newCssH - newVpH / 2);
+            mainPan.clamp();
+            mainPan.apply();
             updateMiniMap();
             showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
             saveState();
@@ -7173,7 +7185,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // First =: enter immersive mode, re-fit to larger canvas (no zoom beyond it)
                     _zoomAdjustedByUser = false;
                     _autoFitPending = true;
-                    _panX = 0; _panY = 0; _applyCanvasPan();
+                    mainPan.reset();
                     setFullscreenMode(true);
                 } else {
                     // Already immersive or can't enter: zoom in
@@ -7194,7 +7206,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         setFullscreenMode(false);
                         userZoom = _fitZoom;
                         _zoomAdjustedByUser = false;
-                        _panX = 0; _panY = 0; _applyCanvasPan();
+                        mainPan.reset();
                         _autoFitPending = true;
                     }
                 }
@@ -7213,8 +7225,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (_fullscreenActive) setFullscreenMode(false);
                     userZoom = 1.0;
                     _zoomAdjustedByUser = false;
-                    _panX = 0; _panY = 0; _applyCanvasPan();
-                    _mosaicPanX = 0; _mosaicPanY = 0; _mosaicApplyPan();
+                    mainPan.reset();
+                    mosaicPan.reset();
                     ModeRegistry.scaleAllAutoFit();
                     showStatus(`zoom: fit`);
                     saveState();
@@ -8716,7 +8728,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             comparePending = false;
             compareOverflowNotified = false;
             // Reset compare pan
-            _cmpPanX = 0; _cmpPanY = 0; _cmpPanDrag = null;
+            comparePan.x = 0; comparePan.y = 0; comparePan._drag = null;
             document.querySelectorAll('.compare-canvas-inner').forEach(el => {
                 el.style.transform = '';
                 delete el.dataset.vpW; delete el.dataset.vpH;
@@ -10169,22 +10181,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Only left-click drag for panning
             if (e.button !== 0) return;
             e.preventDefault();
-            _mosaicPanDrag = { x: e.clientX, y: e.clientY, panX0: _mosaicPanX, panY0: _mosaicPanY };
-            wrap.classList.add('mosaic-dragging');
+            mosaicPan.startDrag(e);
         });
         document.addEventListener('mousemove', (e) => {
-            if (!_mosaicPanDrag) return;
+            if (!mosaicPan.dragging) return;
             e.preventDefault();
-            _mosaicPanX = _mosaicPanDrag.panX0 + (e.clientX - _mosaicPanDrag.x);
-            _mosaicPanY = _mosaicPanDrag.panY0 + (e.clientY - _mosaicPanDrag.y);
-            _mosaicClampPan();
-            _mosaicApplyPan();
+            mosaicPan.updateDrag(e);
         });
         document.addEventListener('mouseup', () => {
-            if (!_mosaicPanDrag) return;
-            _mosaicPanDrag = null;
-            const wrap = document.getElementById('qmri-view-wrap');
-            if (wrap) wrap.classList.remove('mosaic-dragging');
+            mosaicPan.endDrag();
         });
 
         function qvScaleAllCanvases() {
@@ -10228,18 +10233,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (wrap) {
                     wrap.classList.toggle('mosaic-overflow', overflows);
                     if (!overflows) {
-                        _mosaicPanX = 0; _mosaicPanY = 0;
-                        _mosaicApplyPan();
+                        mosaicPan.x = 0; mosaicPan.y = 0;
+                        mosaicPan.apply();
                     } else {
                         // Center pan on first overflow
-                        if (_mosaicPanX === 0 && _mosaicPanY === 0) {
+                        if (mosaicPan.x === 0 && mosaicPan.y === 0) {
                             const overW = contentW - window.innerWidth;
                             const overH = contentH - (window.innerHeight - uiReserveV());
-                            if (overW > 0) _mosaicPanX = -Math.round(overW / 2);
-                            if (overH > 0) _mosaicPanY = -Math.round(overH / 2);
+                            if (overW > 0) mosaicPan.x = -Math.round(overW / 2);
+                            if (overH > 0) mosaicPan.y = -Math.round(overH / 2);
                         }
-                        _mosaicClampPan();
-                        _mosaicApplyPan();
+                        mosaicPan.clamp();
+                        mosaicPan.apply();
                     }
                 }
                 fixWrapperAlignment();
@@ -11109,7 +11114,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             setFullscreenMode(false);
                             userZoom = _fitZoom;
                             _zoomAdjustedByUser = false;
-                            _panX = 0; _panY = 0; _applyCanvasPan();
+                            mainPan.reset();
                             _autoFitPending = true;
                         }
                     }
@@ -11133,25 +11138,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Compare pane drag-to-pan when zoomed past viewport
         compareCanvases.forEach(cv => {
             cv.addEventListener('mousedown', (e) => {
-                if (!compareActive || !_cmpIsOverflowing()) return;
+                if (!compareActive || !comparePan.overflows) return;
                 if (e.button !== 0 && e.button !== 2) return;
                 e.preventDefault();
-                _cmpPanDrag = { x: e.clientX, y: e.clientY, panX0: _cmpPanX, panY0: _cmpPanY };
+                comparePan.startDrag(e);
                 cv.style.cursor = 'grabbing';
             });
         });
         window.addEventListener('mousemove', (e) => {
-            if (!_cmpPanDrag) return;
-            _cmpPanX = _cmpPanDrag.panX0 + (e.clientX - _cmpPanDrag.x);
-            _cmpPanY = _cmpPanDrag.panY0 + (e.clientY - _cmpPanDrag.y);
-            _cmpClampPan();
-            _cmpApplyPan();
-            updateMiniMapViewport();
+            if (comparePan.updateDrag(e)) {
+                updateMiniMapViewport();
+            }
         });
         window.addEventListener('mouseup', () => {
-            if (_cmpPanDrag) {
-                _cmpPanDrag = null;
-                const overflowing = _cmpIsOverflowing();
+            if (comparePan.endDrag()) {
+                const overflowing = comparePan.overflows;
                 compareCanvases.forEach(cv => { if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair'; });
             }
         });
@@ -11172,7 +11173,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         compareCanvases.forEach((cv, i) => {
             const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
             cv.addEventListener('mousemove', (e) => {
-                if (!compareActive || _cmpPanDrag) return;
+                if (!compareActive || comparePan.dragging) return;
                 const cvSid = compareDisplaySids[i];
                 if (!cvSid) return;
                 // Crosshair sync across all active compare panes
@@ -11211,7 +11212,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const dx = e.clientX - _cmpClickDown.x, dy = e.clientY - _cmpClickDown.y;
                 _cmpClickDown = null;
                 if (Math.hypot(dx, dy) >= 3) return;
-                if (!compareActive || _cmpPanDrag) return;
+                if (!compareActive || comparePan.dragging) return;
                 const cvSid = compareDisplaySids[i];
                 if (!cvSid) return;
                 const rect = cv.getBoundingClientRect();
@@ -11225,7 +11226,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const _diffCvForXhair = document.getElementById('compare-diff-canvas');
         if (_diffCvForXhair) {
             _diffCvForXhair.addEventListener('mousemove', (e) => {
-                if (!compareActive || _cmpPanDrag) return;
+                if (!compareActive || comparePan.dragging) return;
                 _syncCrosshairsFromCv(_diffCvForXhair, e);
             });
             _diffCvForXhair.addEventListener('mouseleave', () => { hideCompareCrosshairs(); });
@@ -11358,7 +11359,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (Math.abs(userZoom - _fitZoom) < 0.02) {
                 userZoom = _fitZoom;
                 _zoomAdjustedByUser = false;
-                _panX = 0; _panY = 0; _applyCanvasPan();
+                mainPan.reset();
                 _autoFitPending = true;
                 return true;
             }
@@ -11895,8 +11896,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function updateMiniMap() {
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
             const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
-            const compareShouldShow = compareActive && _cmpIsOverflowing() && compareFrame && !multiViewActive && !qmriActive;
-            const normalShouldShow = _isCanvasOverflowing() && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const compareShouldShow = compareActive && comparePan.overflows && compareFrame && !multiViewActive && !qmriActive;
+            const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive;
 
             // ── Per-pane minimaps in compare mode ──
             if (compareShouldShow) {
@@ -11965,8 +11966,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
                 const fx = Math.min(1, vpW / cssW);
                 const fy = Math.min(1, vpH / cssH);
-                const offFx = -_cmpPanX / cssW;
-                const offFy = -_cmpPanY / cssH;
+                const offFx = -comparePan.x / cssW;
+                const offFy = -comparePan.y / cssH;
                 const rW = Math.max(2, Math.round(fx * W));
                 const rH = Math.max(2, Math.round(fy * H));
                 const rX = Math.max(0, Math.min(W - rW, Math.round(offFx * W)));
@@ -11985,7 +11986,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_miniMap || !_miniViewport) return;
             let cssW, cssH, vpW, vpH, offFx, offFy;
             if (compareActive) {
-                if (!_cmpIsOverflowing() || !compareFrames.find(Boolean)) { _miniMap.classList.remove('visible'); return; }
+                if (!comparePan.overflows || !compareFrames.find(Boolean)) { _miniMap.classList.remove('visible'); return; }
                 const cv = compareCanvases[0];
                 const inner = cv && cv.closest('.compare-canvas-inner');
                 if (!cv || !inner) { _miniMap.classList.remove('visible'); return; }
@@ -11993,17 +11994,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 cssH = parseInt(cv.style.height) || cv.height;
                 vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
                 vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
-                offFx = -_cmpPanX / cssW;
-                offFy = -_cmpPanY / cssH;
+                offFx = -comparePan.x / cssW;
+                offFy = -comparePan.y / cssH;
             } else {
-                if (!lastImageData || !_isCanvasOverflowing()) { _miniMap.classList.remove('visible'); return; }
+                if (!lastImageData || !mainPan.overflows) { _miniMap.classList.remove('visible'); return; }
                 const vp = document.getElementById('canvas-viewport');
                 cssW = parseInt(canvas.style.width) || canvas.width;
                 cssH = parseInt(canvas.style.height) || canvas.height;
                 vpW = vp ? vp.offsetWidth : cssW;
                 vpH = vp ? vp.offsetHeight : cssH;
-                offFx = -_panX / cssW;
-                offFy = -_panY / cssH;
+                offFx = -mainPan.x / cssW;
+                offFy = -mainPan.y / cssH;
             }
             // Visible fraction
             const fx = Math.min(1, vpW / cssW);
@@ -12023,7 +12024,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const fx = (e.clientX - rect.left) / rect.width;
             const fy = (e.clientY - rect.top) / rect.height;
             if (compareActive) {
-                if (!_cmpIsOverflowing()) return;
+                if (!comparePan.overflows) return;
                 const cv = compareCanvases[0];
                 const inner = cv && cv.closest('.compare-canvas-inner');
                 if (!cv || !inner) return;
@@ -12031,21 +12032,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cssH = parseInt(cv.style.height) || cv.height;
                 const vpW = parseInt(inner.dataset.vpW) || inner.offsetWidth || cssW;
                 const vpH = parseInt(inner.dataset.vpH) || inner.offsetHeight || cssH;
-                _cmpPanX = -(fx * cssW - vpW / 2);
-                _cmpPanY = -(fy * cssH - vpH / 2);
-                _cmpClampPan();
-                _cmpApplyPan();
+                comparePan.x = -(fx * cssW - vpW / 2);
+                comparePan.y = -(fy * cssH - vpH / 2);
+                comparePan.clamp();
+                comparePan.apply();
             } else {
-                if (!lastImageData || !_isCanvasOverflowing()) return;
+                if (!lastImageData || !mainPan.overflows) return;
                 const cssW = parseInt(canvas.style.width) || canvas.width;
                 const cssH = parseInt(canvas.style.height) || canvas.height;
                 const vp = document.getElementById('canvas-viewport');
                 const vpW = vp ? vp.offsetWidth : cssW;
                 const vpH = vp ? vp.offsetHeight : cssH;
-                _panX = -(fx * cssW - vpW / 2);
-                _panY = -(fy * cssH - vpH / 2);
-                _clampPan();
-                _applyCanvasPan();
+                mainPan.x = -(fx * cssW - vpW / 2);
+                mainPan.y = -(fy * cssH - vpH / 2);
+                mainPan.clamp();
+                mainPan.apply();
             }
             updateMiniMapViewport();
         }
