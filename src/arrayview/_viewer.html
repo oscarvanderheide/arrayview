@@ -4841,7 +4841,8 @@
             }
 
             function _collapseColorbar() {
-                if (!_cbExpanded || _dragTarget || lebesgueMode) return;
+                if (!_cbExpanded || _dragTarget) return;
+                lebesgueMode = false;
                 _cbExpanded = false;
                 _histVminX = null; _histVmaxX = null;
                 cbTooltip.style.display = 'none';
@@ -4885,15 +4886,16 @@
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
                 cbTooltip.style.display = 'none';
-                if (lebesgueMode) return; // persistent histogram mode — never auto-collapse
                 if (_cbExpanded) {
                     // Histogram is open: always start a 3s countdown regardless of how it was opened
                     _histAutoDismissPending = false;
                     if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                     _histAutoDismissTimer = setTimeout(() => {
                         _histAutoDismissTimer = null;
-                        if (!lebesgueMode && !_cbDragActive && !_cbMouseOver && _cbExpanded) {
+                        if (!_cbDragActive && !_cbMouseOver && _cbExpanded) {
+                            lebesgueMode = false;
                             _cbExpanded = false;
+                            _clearLebesgueOverlay();
                             _cbStartAnim(false);
                             _redrawActiveColorbar();
                         }
@@ -8019,6 +8021,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const fn = compareActive ? _fetchHistogramCompare : _fetchHistogram;
                         await fn();
                         _buildKDE();
+                        lebesgueMode = true;
+                        _fetchLebesgueSlice();
                         _cbStartAnim(true);
                         if (multiViewActive || compareMvActive) {
                             drawMvColorbar();
@@ -8030,8 +8034,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!_cbMouseOver && !lebesgueMode && _cbExpanded) {
+                            if (!_cbMouseOver && _cbExpanded) {
+                                lebesgueMode = false;
                                 _cbExpanded = false;
+                                _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
                                 _cbStartAnim(false);
@@ -8040,7 +8046,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (_cbMouseOver && _cbExpanded && !lebesgueMode) {
+                            } else if (_cbMouseOver && _cbExpanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
@@ -8081,8 +8087,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!_cbMouseOver && !lebesgueMode && _cbExpanded) {
+                            if (!_cbMouseOver && _cbExpanded) {
+                                lebesgueMode = false;
                                 _cbExpanded = false;
+                                _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
                                 _cbStartAnim(false);
@@ -8091,7 +8099,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (_cbMouseOver && _cbExpanded && !lebesgueMode) {
+                            } else if (_cbMouseOver && _cbExpanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
