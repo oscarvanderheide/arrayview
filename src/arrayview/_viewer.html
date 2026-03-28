@@ -3312,6 +3312,14 @@
         let _cbExpandedHLocked = false; // once computed, lock the height
         function _computeCbExpandedH() {
             if (_cbExpandedHLocked) return; // already locked — don't recompute
+            // In immersive mode the wrap is fixed near the canvas bottom edge — measuring
+            // wrapTop gives nearly zero downward space. The histogram opens upward into the
+            // canvas area freely, so just use the default height.
+            if (_fullscreenActive) {
+                _cbExpandedH = CB_DEFAULT_EXPANDED_H;
+                _cbExpandedHLocked = true;
+                return;
+            }
             // Compute max height that fits between the island top and viewport bottom.
             // Island overhead = padding(14) + tri(10) + bottomMargin(20) = 44.
             const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
