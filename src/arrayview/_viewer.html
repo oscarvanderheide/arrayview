@@ -7442,7 +7442,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.key === '+' || e.key === '=') {
                 if (!_fullscreenActive && !_zoomAdjustedByUser &&
                     !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
-                    _canFitImmersive()) {
+                    _shouldEnterImmersive()) {
                     // First =: enter immersive mode via animated transition
                     _enterImmersive();
                     showStatus('immersive');
@@ -11920,14 +11920,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             requestAnimationFrame(step);
         }
 
-        function _canFitImmersive() {
-            // Check if the canvas is large enough to fit overlaid chrome
+        function _shouldEnterImmersive() {
+            // Only enter immersive when height is the binding constraint —
+            // i.e. the vertical space limits fit-zoom more than horizontal.
+            // Immersive reclaims the 80px bottom chrome reserve; if width was
+            // already limiting, entering immersive gains nothing.
+            const w = lastImgW || canvas.width;
+            const h = lastImgH || canvas.height;
+            if (!w || !h) return false;
+            const maxW = Math.max(100, window.innerWidth - 80);
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - 80);
+            if ((maxH / h) >= (maxW / w)) return false; // width binding: skip
+            // Canvas must be wide/tall enough to fit overlaid chrome
             const vpEl = document.getElementById('canvas-viewport');
             if (!vpEl) return false;
-            const w = vpEl.offsetWidth;
-            const h = vpEl.offsetHeight;
-            // Need at least 200px width for dim bar and 150px height for chrome
-            return w >= 200 && h >= 150;
+            return vpEl.offsetWidth >= 200 && vpEl.offsetHeight >= 150;
         }
 
         function setFullscreenMode(on) {
