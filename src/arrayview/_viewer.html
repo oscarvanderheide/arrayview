@@ -7490,6 +7490,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
                     // No buffered input: reset zoom and pan
+                    // Cancel any in-progress immersive animation before snapping
+                    if (_immersiveAnimating) {
+                        _immersiveAnimating = false;
+                        if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
+                        for (const el of [document.getElementById('info'), document.getElementById('slim-cb-wrap'), document.getElementById('array-name')]) {
+                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
+                        }
+                    }
                     if (_fullscreenActive) setFullscreenMode(false);
                     userZoom = 1.0;
                     _zoomAdjustedByUser = false;
@@ -12595,7 +12603,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
             const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
             const compareShouldShow = compareActive && comparePan.overflows && compareFrame && !multiViewActive && !qmriActive;
-            const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive;
+            const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive && !_immersiveAnimating;
 
             // ── Per-pane minimaps in compare mode ──
             if (compareShouldShow) {
