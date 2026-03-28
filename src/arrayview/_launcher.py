@@ -603,7 +603,7 @@ def view(
     inline: bool | None = None,
     height: int = 500,
     window: str | bool | None = None,
-    rgb: bool = False,
+    rgb: bool | list = False,
     overlay=None,
 ):
     """
@@ -614,6 +614,7 @@ def view(
         handle = arrayview.view(a)
         ha, hb = arrayview.view(a, b)
         ha, hb, hc = arrayview.view(a, b, c)
+        ha, hb, hc, hd = arrayview.view(a, b, c, d)
 
     ``name`` and ``rgb`` can each be a scalar (broadcast to all arrays) or a
     list of the same length as the number of arrays.
@@ -640,8 +641,8 @@ def view(
 
     Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
     objects for multiple arrays (one per array). In inline/Jupyter mode with
-    multiple arrays, returns ``(IFrame, ViewHandle, ...)`` where the first
-    element is the displayable IFrame.
+    multiple arrays, the IFrame is displayed automatically and a uniform tuple
+    of ``ViewHandle`` objects is returned.
     """
     import numpy as np
     from arrayview._io import _tensor_to_numpy
@@ -698,7 +699,7 @@ def view(
 
     # --- Apply name defaults after conversion (shape is available now) ---
     names = [
-        (f"Array {arrays[i].shape}" if names[i] is None else names[i])
+        (f"Array {getattr(arrays[i], 'shape', '?')}" if names[i] is None else names[i])
         for i in range(n_arrays)
     ]
 
@@ -898,10 +899,10 @@ def view(
             force_vscode=True,
         )
 
+    from arrayview._render import _setup_rgb
+
     session = _session_mod.Session(data, name=name)
     if rgb_primary:
-        from arrayview._render import _setup_rgb
-
         _setup_rgb(session)
     _session_mod.SESSIONS[session.sid] = session
 
@@ -912,7 +913,6 @@ def view(
         _crgb = rgbs[_ci]
         _csession = _session_mod.Session(_carr, name=_cname)
         if _crgb:
-            from arrayview._render import _setup_rgb
             _setup_rgb(_csession)
         _session_mod.SESSIONS[_csession.sid] = _csession
         _compare_sids.append(_csession.sid)
@@ -1063,16 +1063,15 @@ def view(
         url_shell += f"&init_compare_sids={','.join(_compare_sids)}"
 
     if inline:
-        from IPython.display import IFrame
+        from IPython.display import IFrame, display as _ipy_display
 
         iframe = IFrame(src=url_viewer, width="100%", height=height)
         if n_arrays == 1:
             return iframe
-        # Multi-array inline: return (IFrame, ViewHandle, ...) for compare handles
-        return tuple(
-            [iframe]
-            + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
-        )
+        # Multi-array inline: display the IFrame and return a uniform tuple of handles.
+        _ipy_display(iframe)
+        handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
+        return handles
 
     if window and can_native_window and not _force_browser and not _force_vscode:
         if _early_window_opened:
