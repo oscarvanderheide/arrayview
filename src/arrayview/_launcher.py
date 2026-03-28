@@ -597,8 +597,8 @@ class ViewHandle(str):
 
 
 def view(
-    data,
-    name: str = None,
+    *arrays,
+    name=None,
     port: int = 8123,
     inline: bool | None = None,
     height: int = 500,
@@ -608,6 +608,15 @@ def view(
 ):
     """
     Launch the viewer. Does not block the main Python process.
+
+    Accepts one to four arrays::
+
+        handle = arrayview.view(a)
+        ha, hb = arrayview.view(a, b)
+        ha, hb, hc = arrayview.view(a, b, c)
+
+    ``name`` and ``rgb`` can each be a scalar (broadcast to all arrays) or a
+    list of the same length as the number of arrays.
 
     ``window`` controls how the viewer opens:
       - ``None``       auto: native window outside Jupyter, inline IFrame inside Jupyter
@@ -628,11 +637,77 @@ def view(
 
     ``overlay`` — a single array or list of arrays to composite as overlays.
     Each overlay is assigned an auto-palette color from _OVERLAY_PALETTE.
+
+    Returns a ``ViewHandle`` for a single array, or a tuple of ``ViewHandle``
+    objects for multiple arrays (one per array). In inline/Jupyter mode with
+    multiple arrays, returns ``(IFrame, ViewHandle, ...)`` where the first
+    element is the displayable IFrame.
     """
     import numpy as np
     from arrayview._io import _tensor_to_numpy
 
-    # Normalise string window modes.
+    # --- Validate array count ---
+    n_arrays = len(arrays)
+    if n_arrays == 0:
+        raise ValueError("view() requires at least one array.")
+    if n_arrays > 4:
+        raise ValueError(f"view() accepts at most 4 arrays, got {n_arrays}.")
+
+    # --- Normalise per-array kwargs (name, rgb) ---
+    if isinstance(name, list):
+        if len(name) != n_arrays:
+            raise ValueError(
+                f"name list length ({len(name)}) must match number of arrays ({n_arrays})."
+            )
+        names = list(name)
+    else:
+        names = [name] * n_arrays  # scalar broadcast (None is valid)
+
+    if isinstance(rgb, list):
+        if len(rgb) != n_arrays:
+            raise ValueError(
+                f"rgb list length ({len(rgb)}) must match number of arrays ({n_arrays})."
+            )
+        rgbs = list(rgb)
+    else:
+        rgbs = [rgb] * n_arrays  # scalar broadcast
+
+    # --- Duck-type conversion for ALL arrays ---
+    def _convert_array(data):
+        if not isinstance(data, np.ndarray):
+            _mod = type(data).__module__ or ""
+            _is_lazy = "nibabel" in _mod or "zarr" in _mod or "h5py" in _mod
+            if not _is_lazy:
+                if (
+                    hasattr(data, "detach")  # PyTorch
+                    or hasattr(data, "numpy")  # PyTorch / TF / JAX
+                    or hasattr(data, "__jax_array__")  # JAX
+                    or "juliacall" in _mod.lower()  # Julia via PythonCall
+                ):
+                    data = _tensor_to_numpy(data, "view()")
+                else:
+                    try:
+                        converted = np.array(data)
+                        if converted.dtype != object:
+                            data = converted
+                    except Exception:
+                        pass
+        return data
+
+    arrays = tuple(_convert_array(arr) for arr in arrays)
+
+    # --- Apply name defaults after conversion (shape is available now) ---
+    names = [
+        (f"Array {arrays[i].shape}" if names[i] is None else names[i])
+        for i in range(n_arrays)
+    ]
+
+    # Convenience: primary data and name
+    data = arrays[0]
+    name = names[0]
+    rgb_primary = rgbs[0]
+
+    # --- Normalise string window modes ---
     _force_browser = False
     _force_vscode = False
     if isinstance(window, str):
@@ -653,55 +728,25 @@ def view(
                 f"window must be 'inline', 'native', 'browser', or 'vscode', got {window!r}"
             )
 
-    # Duck-typing: accept PyTorch tensors, JAX arrays, Julia/PythonCall arrays, etc.
-    # Zarr and nibabel proxy arrays are already numpy-like and work without conversion.
-    if not isinstance(data, np.ndarray):
-        _mod = type(data).__module__ or ""
-        _is_lazy = "nibabel" in _mod or "zarr" in _mod or "h5py" in _mod
-        if not _is_lazy:
-            if (
-                hasattr(data, "detach")  # PyTorch
-                or hasattr(data, "numpy")  # PyTorch / TF / JAX
-                or hasattr(data, "__jax_array__")  # JAX
-                or "juliacall" in _mod.lower()  # Julia via PythonCall
-            ):
-                data = _tensor_to_numpy(data, "view()")
-            else:
-                # Generic fallback: copy to numpy for any array-like
-                # (catches PythonCall arrays whose module name varies across versions)
-                # Use np.array (copy) so Julia's GC can safely reclaim the source after view() returns.
-                try:
-                    converted = np.array(data)
-                    if converted.dtype != object:
-                        data = converted
-                except Exception:
-                    pass  # keep original; let Session handle it lazily
-
-    if name is None:
-        name = f"Array {data.shape}"
-
     # Remote/tunnel: if the caller didn't override the port and a --serve server
     # is already running on the CLI default (8000), use that instead of 8123.
-    # This ensures av.view(x) in Python/Jupyter/Julia on a tunnel connects to
-    # the persistent server whose port the user has already set to Public.
     _CLI_DEFAULT_PORT = 8000
     if port == 8123 and _is_vscode_remote() and _server_alive(_CLI_DEFAULT_PORT):
         port = _CLI_DEFAULT_PORT
 
-    # Julia/PythonCall: must be handled before the is_jupyter defaults because:
-    # 1. _in_jupyter() returns False for IJulia kernels (not ipykernel)
-    # 2. that would set inline=False and window=True, overriding user intent
-    # The subprocess server is always required here due to GIL.
+    # --- Julia path: only single-array supported ---
     if _is_julia_env():
+        if n_arrays > 1:
+            raise NotImplementedError(
+                "Multi-array view() is not yet supported in Julia mode"
+            )
         if window is True:
             _inline, _window = False, True
         elif inline is True or window is False:
-            # Explicit "not window" → inline (makes sense in Jupyter; harmless elsewhere)
             _inline, _window = True, False
         elif inline is False:
-            _inline, _window = False, False  # explicit inline=False → browser
+            _inline, _window = False, False
         else:
-            # No args: inline in IJulia, window elsewhere.
             _inline = _in_julia_jupyter()
             _window = False
         return _view_julia(
@@ -743,13 +788,15 @@ def view(
     # Auto-detect VS Code terminal: prefer Simple Browser over native window
     if _in_vscode_terminal() and not _force_vscode and not _force_browser:
         _force_vscode = True
-        if window is True:  # Convert bool to False so we hit the browser path below
+        if window is True:
             window = False
 
-    # Julia/PythonCall: the GIL is not released reliably between Julia statements,
-    # so an in-process uvicorn thread cannot serve requests once view() returns.
-    # Use a fully independent subprocess server instead (same approach as the CLI).
+    # Julia/PythonCall (second check after inline/window resolution)
     if not inline and _is_julia_env():
+        if n_arrays > 1:
+            raise NotImplementedError(
+                "Multi-array view() is not yet supported in Julia mode"
+            )
         return _view_julia(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
@@ -758,17 +805,17 @@ def view(
         )
 
     # VS Code tunnel/remote with an existing --serve server: register the array
-    # via /load and open the viewer through the signal-file mechanism.  This
-    # avoids starting a new server on a different port (which wouldn't be Public).
+    # via /load and open the viewer through the signal-file mechanism.
     if _is_vscode_remote() and _server_alive(port):
         try:
             import tempfile as _tf
 
+            # Load primary array
             with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
                 _tmp_path = _tmp.name
             np.save(_tmp_path, data)
             body = json.dumps(
-                {"filepath": _tmp_path, "name": name, "rgb": rgb}
+                {"filepath": _tmp_path, "name": name, "rgb": rgb_primary}
             ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/load",
@@ -786,27 +833,60 @@ def view(
                 raise RuntimeError(result["error"])
             sid = result["sid"]
             url_viewer = f"http://localhost:{port}/?sid={sid}"
-            # On a tunnel, inline IFrames don't work (localhost URL in notebook
-            # webview can't route through VS Code port forwarding).  Always
-            # open via Simple Browser signal file.
+
+            # Load compare arrays (arrays[1:])
+            _compare_sids = []
+            for _ci, _carr in enumerate(arrays[1:], start=1):
+                with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _ctmp:
+                    _ctmp_path = _ctmp.name
+                np.save(_ctmp_path, _carr)
+                _cbody = json.dumps(
+                    {"filepath": _ctmp_path, "name": names[_ci], "rgb": rgbs[_ci]}
+                ).encode()
+                _creq = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/load",
+                    data=_cbody,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(_creq, timeout=300) as _cresp:
+                    _cresult = json.loads(_cresp.read())
+                try:
+                    os.unlink(_ctmp_path)
+                except Exception:
+                    pass
+                if "error" in _cresult:
+                    raise RuntimeError(_cresult["error"])
+                _compare_sids.append(_cresult["sid"])
+
+            if _compare_sids:
+                url_viewer += f"&compare_sid={_compare_sids[0]}"
+                url_viewer += f"&compare_sids={','.join(_compare_sids)}"
+
+            # On a tunnel, inline IFrames don't work — always open via Simple Browser.
             _open_browser(
                 url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}"
             )
             _print_viewer_location(url_viewer)
-            return ViewHandle(url_viewer, sid, port)
+            primary_handle = ViewHandle(url_viewer, sid, port)
+            if n_arrays == 1:
+                return primary_handle
+            return tuple(
+                [primary_handle]
+                + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
+            )
         except Exception as e:
             _vprint(
                 f"[ArrayView] Failed to register with --serve server: {e}", flush=True
             )
             # Fall through to subprocess/in-process paths.
 
-    # VS Code tunnel/remote: the calling Python process may exit shortly after
-    # view() returns (one-shot scripts, non-interactive use).  A daemon-thread
-    # server would die with the process, leaving the user staring at
-    # "session expired" in the browser.  Use a subprocess server that survives
-    # the parent's exit.  (In Jupyter inline mode we stay in-process since the
-    # notebook kernel is long-lived.)
+    # VS Code tunnel/remote: subprocess path (single-array only for now)
     if not inline and _is_vscode_remote() and not _in_jupyter():
+        if n_arrays > 1:
+            raise NotImplementedError(
+                "Multi-array view() is not yet supported in subprocess mode"
+            )
         return _view_subprocess(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
@@ -814,16 +894,28 @@ def view(
             window,
             inline,
             height,
-            rgb=rgb,
+            rgb=rgb_primary,
             force_vscode=True,
         )
 
     session = _session_mod.Session(data, name=name)
-    if rgb:
+    if rgb_primary:
         from arrayview._render import _setup_rgb
 
         _setup_rgb(session)
     _session_mod.SESSIONS[session.sid] = session
+
+    # Register compare sessions (arrays[1:])
+    _compare_sids = []
+    for _ci, _carr in enumerate(arrays[1:], start=1):
+        _cname = names[_ci]
+        _crgb = rgbs[_ci]
+        _csession = _session_mod.Session(_carr, name=_cname)
+        if _crgb:
+            from arrayview._render import _setup_rgb
+            _setup_rgb(_csession)
+        _session_mod.SESSIONS[_csession.sid] = _csession
+        _compare_sids.append(_csession.sid)
 
     # Register overlay sessions.
     _overlay_sids = []
@@ -899,9 +991,6 @@ def view(
 
         # --- Startup animation ---
         # Open the native window with a spinner NOW, before the server is ready.
-        # The pywebview subprocess polls the port itself and navigates when ready.
-        # We still wait for the server-ready event below so that ViewHandle is
-        # safe to use (SERVER_LOOP is set, session is registered, etc.).
         can_native_window = _can_native_window() if window else False
         _early_window_opened = False
         if (
@@ -913,12 +1002,21 @@ def view(
         ):
             encoded_name_early = urllib.parse.quote(name)
             url_shell_early = f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name_early}"
+            if _compare_sids:
+                url_shell_early += f"&init_compare_sid={_compare_sids[0]}"
+                url_shell_early += f"&init_compare_sids={','.join(_compare_sids)}"
             if _overlay_sids:
                 _url_viewer_early = f"http://localhost:{port}/?sid={session.sid}"
                 _url_viewer_early += f"&overlay_sid={','.join(_overlay_sids)}"
                 _url_viewer_early += f"&overlay_colors={','.join(_overlay_colors)}"
+                if _compare_sids:
+                    _url_viewer_early += f"&compare_sid={_compare_sids[0]}"
+                    _url_viewer_early += f"&compare_sids={','.join(_compare_sids)}"
             else:
                 _url_viewer_early = f"http://localhost:{port}/?sid={session.sid}"
+                if _compare_sids:
+                    _url_viewer_early += f"&compare_sid={_compare_sids[0]}"
+                    _url_viewer_early += f"&compare_sids={','.join(_compare_sids)}"
             try:
                 wp = _session_mod._window_process
                 if wp is None or wp.poll() is not None:
@@ -927,8 +1025,6 @@ def view(
                         url_shell_early, win_w, win_h, loading_port=port
                     )
                     _early_window_opened = True
-                # If window is already alive, we'll inject a tab after the server is ready
-                # (same as before — tab injection doesn't need a loading screen).
             except Exception:
                 pass  # fall through to normal open below
 
@@ -955,15 +1051,28 @@ def view(
     if _overlay_sids:
         url_viewer += f"&overlay_sid={','.join(_overlay_sids)}"
         url_viewer += f"&overlay_colors={','.join(_overlay_colors)}"
+    if _compare_sids:
+        url_viewer += f"&compare_sid={_compare_sids[0]}"
+        url_viewer += f"&compare_sids={','.join(_compare_sids)}"
     encoded_name = urllib.parse.quote(name)
     url_shell = (
         f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
     )
+    if _compare_sids:
+        url_shell += f"&init_compare_sid={_compare_sids[0]}"
+        url_shell += f"&init_compare_sids={','.join(_compare_sids)}"
 
     if inline:
         from IPython.display import IFrame
 
-        return IFrame(src=url_viewer, width="100%", height=height)
+        iframe = IFrame(src=url_viewer, width="100%", height=height)
+        if n_arrays == 1:
+            return iframe
+        # Multi-array inline: return (IFrame, ViewHandle, ...) for compare handles
+        return tuple(
+            [iframe]
+            + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
+        )
 
     if window and can_native_window and not _force_browser and not _force_vscode:
         if _early_window_opened:
@@ -975,9 +1084,7 @@ def view(
                 wp = _session_mod._window_process
                 server_loop = _session_mod.SERVER_LOOP
                 window_alive = wp is not None and wp.poll() is None
-                # Try to inject a tab into any connected shell (covers both: window opened
-                # by this Python process AND window opened by a previous Python process on
-                # the same server). wait=True only when we know the window just launched.
+                # Try to inject a tab into any connected shell.
                 notified = False
                 if server_loop is not None and (window_alive or _server_alive(port)):
                     future = asyncio.run_coroutine_threadsafe(
@@ -1015,7 +1122,13 @@ def view(
         )
 
     _print_viewer_location(url_viewer)
-    return ViewHandle(url_viewer, session.sid, port)
+    primary_handle = ViewHandle(url_viewer, session.sid, port)
+    if n_arrays == 1:
+        return primary_handle
+    return tuple(
+        [primary_handle]
+        + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
+    )
 
 
 def _is_script_mode() -> bool:
