@@ -11758,6 +11758,39 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return false;
         }
 
+        // Return the auto-fit userZoom for dimensions w×h, as if _fullscreenActive
+        // were forImmersive. Mirrors the _autoFitPending branch in scaleCanvas.
+        function _calcAutoFitZoom(w, h, forImmersive) {
+            if (!w || !h) return 1;
+            const immersivePad = 12;
+            const bottomReserve = forImmersive ? 0 : 80;
+            const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : 80));
+            const maxH = Math.max(50,  window.innerHeight - uiReserveV() - bottomReserve
+                                                          - (forImmersive ? immersivePad * 2 : 0));
+            const baseScale = getBaseScale(w, h);
+            const capScale  = Math.min(maxW / w, maxH / h);
+            return Math.max(1.0, capScale / baseScale);
+        }
+
+        // Fade `els` from opacity `from` to `to` over `duration` ms via rAF.
+        // Disables CSS opacity transitions on elements during the animation so they
+        // cannot lag behind the JS-driven values. Calls `done` on completion.
+        function _animOpacity(els, from, to, duration, done) {
+            for (const el of els) if (el) { el.style.transition = 'opacity 0s'; el.style.opacity = from; }
+            const t0 = performance.now();
+            function step(now) {
+                const p = Math.min((now - t0) / duration, 1);
+                for (const el of els) if (el) el.style.opacity = from + (to - from) * p;
+                if (p < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    for (const el of els) if (el) el.style.opacity = to;
+                    if (done) done();
+                }
+            }
+            requestAnimationFrame(step);
+        }
+
         function _canFitImmersive() {
             // Check if the canvas is large enough to fit overlaid chrome
             const vpEl = document.getElementById('canvas-viewport');
