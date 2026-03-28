@@ -8864,30 +8864,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 e && e.preventDefault();
                                 if (_selected.has(key)) {
                                     _selected.delete(key);
-                                    _refreshSelMark(); _updateHint(); _updateDimming();
                                 } else if (_selCount() < 4) {
-                                    // Need to load the file first to get a sid
-                                    item.classList.add('cp-item-loading');
-                                    item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(async data => {
-                                        if (data.error === 'insufficient_memory') {
-                                            item.classList.remove('cp-item-loading');
-                                            await _showRamBlockDialog(
-                                                document.getElementById('uni-picker-box'),
-                                                data.filename, data.estimated_bytes, data.available_bytes
-                                            );
-                                            return;
-                                        }
-                                        if (data.error) { showToast(`load error: ${data.error}`); item.classList.remove('cp-item-loading'); return; }
-                                        item.classList.remove('cp-item-loading');
-                                        _selected.set(key, { sid: data.sid, name: data.name || f.name });
-                                        _refreshSelMark(); _updateHint(); _updateDimming();
-                                    }).catch(() => { showToast('load failed'); item.classList.remove('cp-item-loading'); });
+                                    // Mark for selection only — actual load happens on Enter
+                                    _selected.set(key, { sid: null, filepath: f.path, name: f.name });
                                 } else {
                                     showToast('max 4 arrays in compare');
+                                    return;
                                 }
+                                _refreshSelMark(); _updateHint(); _updateDimming();
                             }
                             function openFile() {
                                 if (_selCount() <= 1) {
@@ -8916,23 +8900,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                         }
                                     }).catch(() => { showToast('load failed'); finish(null); });
                                 } else {
-                                    // multi-compare: load then commit
-                                    item.classList.add('cp-item-loading');
-                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(async data => {
-                                        if (data.error === 'insufficient_memory') {
-                                            item.classList.remove('cp-item-loading');
-                                            await _showRamBlockDialog(
-                                                document.getElementById('uni-picker-box'),
-                                                data.filename, data.estimated_bytes, data.available_bytes
-                                            );
-                                            return;
-                                        }
-                                        if (data.error) { showToast(`load error: ${data.error}`); return; }
-                                        if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: data.sid, name: data.name || f.name });
-                                        _commitCompare();
-                                    }).catch(() => { showToast('load failed'); });
+                                    // multi-compare: mark selected, _commitCompare handles loading
+                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: null, filepath: f.path, name: f.name });
+                                    _commitCompare();
                                 }
                             }
                             item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
@@ -8955,9 +8925,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _updateHint();
                 }
 
-                function _commitCompare() {
+                async function _loadSelectedFiles() {
+                    // Load any files that were selected but not yet loaded (sid === null)
+                    const items = [..._selected.entries()];
+                    for (const [key, item] of items) {
+                        if (item.sid) continue;
+                        try {
+                            const r = await fetch('/load', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ filepath: item.filepath, name: item.name }),
+                            });
+                            const data = await r.json();
+                            if (data.error === 'insufficient_memory') {
+                                await _showRamBlockDialog(
+                                    document.getElementById('uni-picker-box'),
+                                    data.filename, data.estimated_bytes, data.available_bytes
+                                );
+                                _selected.delete(key);
+                                return false;
+                            }
+                            if (data.error) { showToast(`load error: ${data.error}`); _selected.delete(key); return false; }
+                            item.sid = data.sid;
+                            item.name = data.name || item.name;
+                        } catch { showToast('load failed'); _selected.delete(key); return false; }
+                    }
+                    return true;
+                }
+
+                async function _commitCompare() {
                     const items = [..._selected.values()];
                     if (items.length < 2) return;
+                    if (!await _loadSelectedFiles()) return;
                     const sids = items.map(i => i.sid).filter(Boolean);
                     const names = items.map(i => i.name);
                     finish({ action: 'compare', sids, names });
@@ -9094,16 +9092,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (e.key === 'q' && !inSearch) { e.preventDefault(); finish(null); return; }
                     if (e.key === 'Enter' && !inSearch && _selCount() >= 2) { e.preventDefault(); _commitCompare(); return; }
                     if (e.key === 'Enter' && _selCount() === 1 && !inSearch) {
-                        // Open the one selected item
-                        const [item] = _selected.values();
-                        if (item.sid) {
+                        e.preventDefault();
+                        (async () => {
+                            if (!await _loadSelectedFiles()) return;
+                            const [item] = _selected.values();
+                            if (!item.sid) return;
                             finish({ action: 'open', sids: [item.sid], names: [item.name] });
                             if (window.parent !== window && window.parent.__arrayviewShell) {
                                 window.parent.addTab(item.sid, item.name || '(unnamed)');
                             } else {
                                 window.location.href = '/?sid=' + item.sid;
                             }
-                        }
+                        })();
                         return;
                     }
                     const items = [...listEl.querySelectorAll('.cp-item:not(.cp-item-dim):not(.cp-item-loading)')];
