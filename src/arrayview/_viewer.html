@@ -300,7 +300,7 @@
             text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
         .sidebar-card { display: flex; gap: 12px; padding: 12px 14px; cursor: pointer;
             border-left: 3px solid transparent; }
-        .sidebar-card:hover { background: var(--surface); }
+        .sidebar-card.sidebar-card-active { background: var(--surface); }
         .sidebar-card.current { background: var(--surface); border-left-color: var(--active-dim); }
         .sidebar-card-thumb { width: 96px; height: 72px; border-radius: 4px; overflow: hidden;
             flex-shrink: 0; background: var(--surface); }
@@ -328,7 +328,8 @@
             cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
         .cp-item { padding: 6px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
             background: var(--surface-2); display: flex; flex-direction: row; align-items: center; gap: 8px; }
-        .cp-item:hover, .cp-item:focus { border-color: var(--picker-accent, var(--active-dim)); outline: none; }
+        .cp-item:focus { outline: none; }
+        .cp-item.cp-item-active { border-color: var(--picker-accent, var(--active-dim)); }
         .cp-item-dim { opacity: 0.4; cursor: default; pointer-events: none; }
         .cp-item-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
         .cp-item-right { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
@@ -8854,6 +8855,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     finish(null);
                                     window.parent.activateTab(tabSid);
                                 };
+                                item.onmouseenter = () => _setActive(item);
                                 item.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); item.onclick(); } };
                                 listEl.appendChild(item);
                             });
@@ -8932,6 +8934,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             }
                             item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
                             item.onclick = openFile;
+                            item.onmouseenter = () => _setActive(item);
                             item.onkeydown = e => {
                                 if (e.key === ' ') { toggleSel(e); return; }
                                 if (e.key === 'Enter') { e.preventDefault(); openFile(); }
@@ -9070,6 +9073,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 window.location.href = '/?sid=' + s.sid;
                             }
                         };
+                        card.onmouseenter = () => _setActive(card);
                         card.onkeydown = e => {
                             if (e.key === 'Enter') { e.preventDefault(); card.onclick(); }
                         };
@@ -9088,6 +9092,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     sidebarEl.innerHTML = '';
                 }
 
+                // Unified active-item tracking: keyboard and mouse share one highlight
+                function _setActive(el) {
+                    overlay.querySelectorAll('.cp-item-active').forEach(e => e.classList.remove('cp-item-active'));
+                    overlay.querySelectorAll('.sidebar-card-active').forEach(e => e.classList.remove('sidebar-card-active'));
+                    if (el) {
+                        if (el.classList.contains('sidebar-card')) el.classList.add('sidebar-card-active');
+                        else el.classList.add('cp-item-active');
+                        el.focus();
+                    }
+                }
+
                 populate();
 
                 overlay.onkeydown = e => {
@@ -9101,14 +9116,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
                         if (e.shiftKey) {
                             // Reverse: files → sidebar → search
-                            if (inFiles && sidebarCards.length) sidebarCards[0].focus();
-                            else if (inSidebar) searchEl.focus();
-                            else if (inSearch && fileItems.length) fileItems[0].focus();
+                            if (inFiles && sidebarCards.length) _setActive(sidebarCards[0]);
+                            else if (inSidebar) { _setActive(null); searchEl.focus(); }
+                            else if (inSearch && fileItems.length) _setActive(fileItems[0]);
                         } else {
                             // Forward: search → sidebar → files
-                            if (inSearch && sidebarCards.length) sidebarCards[0].focus();
-                            else if (inSidebar && fileItems.length) fileItems[0].focus();
-                            else searchEl.focus();
+                            if (inSearch && sidebarCards.length) _setActive(sidebarCards[0]);
+                            else if (inSidebar && fileItems.length) _setActive(fileItems[0]);
+                            else { _setActive(null); searchEl.focus(); }
                         }
                         return;
                     }
@@ -9135,12 +9150,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const idx = items.indexOf(document.activeElement);
                     if (e.key === 'ArrowDown' || (e.key === 'j' && !inSearch)) {
                         e.preventDefault();
-                        if (idx < items.length - 1) items[idx + 1].focus();
-                        else if (idx === -1 && items.length) items[0].focus();
+                        if (idx < items.length - 1) _setActive(items[idx + 1]);
+                        else if (idx === -1 && items.length) _setActive(items[0]);
                     } else if (e.key === 'ArrowUp' || (e.key === 'k' && !inSearch)) {
                         e.preventDefault();
-                        if (idx > 0) items[idx - 1].focus();
-                        else if (idx === 0) searchEl.focus();
+                        if (idx > 0) _setActive(items[idx - 1]);
+                        else if (idx === 0) { _setActive(null); searchEl.focus(); }
                     } else if (inSearch) {
                         return; // let other keys through to the input
                     }
