@@ -727,6 +727,10 @@
             pointer-events: none;
         }
         body.fullscreen-mode #info > * { pointer-events: auto; }
+        /* Minimap floats to the right of the canvas in immersive mode */
+        body.fullscreen-mode #mini-map {
+            position: fixed; z-index: 4;
+        }
         /* Colorbar overlaid bottom-center */
         body.fullscreen-mode #slim-cb-wrap {
             position: fixed !important; z-index: 3; left: 50%; transform: translateX(-50%) !important;
@@ -12058,6 +12062,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
                     if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
                     if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; }
+                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
                     const wrapper = document.getElementById('wrapper');
                     if (wrapper) wrapper.style.paddingTop = '';
                 }
@@ -12110,6 +12115,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
                     if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
                     if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; }
+                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
                     const wrapper = document.getElementById('wrapper');
                     if (wrapper) wrapper.style.paddingTop = '';
 
@@ -12145,6 +12151,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // bottom = distance from viewport bottom to canvas bottom + 10px margin
                 const cbBottom = Math.max(10, window.innerHeight - vpRect.bottom + 10);
                 cbWrap.style.bottom = cbBottom + 'px';
+            }
+            // Position minimap to the right of the canvas, vertically centered
+            if (_miniMap) {
+                const mmH = _miniMap.offsetHeight || 100;
+                _miniMap.style.top = (vpRect.top + (vpRect.height - mmH) / 2) + 'px';
+                _miniMap.style.left = (vpRect.right + 10) + 'px';
+                _miniMap.style.right = 'auto';
             }
         }
 
