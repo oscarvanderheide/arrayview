@@ -2123,6 +2123,17 @@
                 userZoom = Math.max(1.0, capScale / baseScale);
                 _fitZoom = userZoom;
                 _zoomRendered = userZoom; // keep animation origin in sync with layout resets
+            } else if (!_zoomAdjustedByUser && !_fullscreenActive) {
+                // Guard: restored state may have a zoom that overflows the current viewport
+                // (e.g. saved while immersive/zoomed-in). If user intent is fit (not manually
+                // adjusted), silently recalculate rather than showing a spurious minimap.
+                const projW = Math.round(w * baseScale * userZoom);
+                const projH = Math.round(h * baseScale * userZoom);
+                if (projW > maxW + 2 || projH > effectiveMaxH + 2) {
+                    userZoom = Math.max(1.0, capScale / baseScale);
+                    _fitZoom = userZoom;
+                    _zoomRendered = userZoom;
+                }
             }
             // Canvas CSS size grows freely with userZoom (no cap/snap)
             const finalScale = baseScale * userZoom;
@@ -2161,23 +2172,27 @@
         /** Scale all canvases with a brief CSS size-transition for smooth zoom feel. */
         let _zoomAnimId = null;
         let _zoomRendered = undefined; // zoom level currently shown on screen
-        function _scaleAllWithAnim() {
+        function _scaleAllWithAnim(onDone, easeIn) {
             // Animate zoom by interpolating userZoom from current rendered value to
             // target via rAF, calling ModeRegistry.scaleAll() each frame so every
             // element (canvas, viewport, colorbar, eggs) updates together.
+            // onDone: optional callback fired when animation completes.
+            // easeIn: if true, use ease-in cubic (slow start → fast end) for shrink animations.
             const targetZoom = userZoom;
             if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             const fromZoom = (_zoomRendered !== undefined) ? _zoomRendered : targetZoom;
             if (Math.abs(fromZoom - targetZoom) < 0.001) {
                 userZoom = targetZoom; _zoomRendered = targetZoom;
                 _cbExpandedHLocked = false;
-                ModeRegistry.scaleAll(); return;
+                ModeRegistry.scaleAll();
+                if (onDone) onDone();
+                return;
             }
             const DURATION = 150;
             const t0 = performance.now();
             function step(now) {
                 const p = Math.min((now - t0) / DURATION, 1);
-                const ease = 1 - Math.pow(1 - p, 3); // ease-out cubic
+                const ease = easeIn ? Math.pow(p, 3) : 1 - Math.pow(1 - p, 3); // ease-in or ease-out cubic
                 userZoom = fromZoom + (targetZoom - fromZoom) * ease;
                 _zoomRendered = userZoom;
                 ModeRegistry.scaleAll();
@@ -2187,6 +2202,7 @@
                     userZoom = targetZoom; _zoomRendered = targetZoom;
                     _cbExpandedHLocked = false; // allow histogram height recompute at final zoom
                     ModeRegistry.scaleAll(); _zoomAnimId = null;
+                    if (onDone) onDone();
                 }
             }
             _zoomAnimId = requestAnimationFrame(step);
@@ -7440,6 +7456,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             if (e.key === '+' || e.key === '=') {
+                if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                 if (!_fullscreenActive && !_zoomAdjustedByUser &&
                     !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
                     _shouldEnterImmersive()) {
@@ -12055,7 +12072,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const infoEl = document.getElementById('info');
             const cbWrap = document.getElementById('slim-cb-wrap');
             const nameEl = document.getElementById('array-name');
-            const FADE_OUT = 150, SHRINK = 160, FADE_IN = 150;
+            const FADE_OUT = 150, FADE_IN = 150;
 
             // Phase 1: fade out islands (still in immersive layout so positions are correct)
             _animOpacity([infoEl, cbWrap], 1, 0, FADE_OUT, () => {
@@ -12064,6 +12081,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Phase 2: still fullscreen, animate canvas from immersive fit → normal fit.
                 // Shrinking inside the immersive layout keeps the canvas within viewport bounds
                 // (normal fit zoom < immersive fit zoom) — no clipping, no minimap flicker.
+                // Uses ease-in (slow start → fast end): natural for a collapsing motion.
                 const w = lastImgW || canvas.width;
                 const h = lastImgH || canvas.height;
                 const fromZoom = _fitZoom; // immersive fit zoom
@@ -12075,12 +12093,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 userZoom = toZoom;
                 _fitZoom  = toZoom;
                 _zoomRendered = fromZoom;
-                _scaleAllWithAnim();
-
-                // Phase 3: after canvas shrinks, switch to normal layout then fade in chrome
-                setTimeout(() => {
+                // Use onDone callback so Phase 3 fires exactly when animation ends,
+                // not on a fixed timer (rAF frame boundaries can shift the actual end time).
+                _scaleAllWithAnim(() => {
                     if (!_immersiveAnimating) return;
 
+                    // Phase 3: switch to normal layout and fade in chrome
                     _fullscreenActive = false;
                     document.body.classList.remove('fullscreen-mode');
                     const wrap = document.getElementById('slim-cb-wrap');
@@ -12101,7 +12119,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
                     });
-                }, SHRINK);
+                }, true); // true = easeIn: slow start → fast end (natural for shrinking)
             });
         }
 
