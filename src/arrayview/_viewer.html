@@ -292,25 +292,25 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px;
             display: flex; overflow: hidden; position: relative; }
         #uni-picker-box.no-sidebar { max-width: 520px; width: 50vw; }
-        #uni-picker-sidebar { width: 200px; background: var(--surface-2); border-right: 1px solid var(--border);
+        #uni-picker-sidebar { width: 240px; background: var(--surface-2); border-right: 1px solid var(--border);
             display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
         #uni-picker-sidebar:empty { display: none; }
         #uni-picker-main { flex: 1; padding: 16px 20px; display: flex; flex-direction: column; min-width: 0; }
-        .sidebar-header { padding: 10px 12px 6px; font-size: 10px; color: var(--muted);
+        .sidebar-header { padding: 10px 12px 6px; font-size: 11px; color: var(--muted);
             text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
-        .sidebar-card { display: flex; gap: 8px; padding: 8px 12px; cursor: pointer;
+        .sidebar-card { display: flex; gap: 10px; padding: 10px 12px; cursor: pointer;
             border-left: 2px solid transparent; }
         .sidebar-card:hover { background: var(--surface); }
         .sidebar-card.current { background: var(--surface); border-left-color: var(--active-dim); }
-        .sidebar-card-thumb { width: 48px; height: 36px; border-radius: 3px; overflow: hidden;
+        .sidebar-card-thumb { width: 72px; height: 54px; border-radius: 3px; overflow: hidden;
             flex-shrink: 0; background: var(--surface); }
         .sidebar-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
         .sidebar-card-info { min-width: 0; flex: 1; }
-        .sidebar-card-name { font-size: 10px; color: var(--text); white-space: nowrap;
+        .sidebar-card-name { font-size: 12px; color: var(--text); white-space: nowrap;
             overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-        .sidebar-card-meta { font-size: 8px; color: var(--muted); margin-top: 1px; }
-        .sidebar-card-current { font-size: 7px; color: var(--active-dim); margin-top: 2px; }
-        .sidebar-footer { padding: 8px 12px; font-size: 8px; color: var(--muted);
+        .sidebar-card-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+        .sidebar-card-current { font-size: 9px; color: var(--active-dim); margin-top: 3px; }
+        .sidebar-footer { padding: 8px 12px; font-size: 9px; color: var(--muted);
             border-top: 1px solid var(--border); margin-top: auto; }
         #uni-picker-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         #uni-picker-mode-pill { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
@@ -8830,79 +8830,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                     }
 
-                    // Sessions section
-                    if (filtSessions.length) {
-                        const hdr = document.createElement('div');
-                        hdr.className = 'cp-section-header'; hdr.textContent = 'Loaded';
-                        listEl.appendChild(hdr);
-                        filtSessions.forEach(s => {
-                            const key = _itemKey(s);
-                            const shapeStr = Array.isArray(s.shape) ? `[${s.shape.join(', ')}]` : '?';
-                            const shapeKey = Array.isArray(s.shape) ? JSON.stringify(s.shape) : null;
-                            const isCurrent = s.sid === sid;
-                            const item = document.createElement('div');
-                            item.className = 'cp-item'; item.tabIndex = 0;
-                            item.dataset.key = key;
-                            if (shapeKey) item.dataset.shape = shapeKey;
-                            const cbHtml = `<span class="cp-item-cb" title="select for compare"></span>`;
-                            const curMark = isCurrent ? `<span class="cp-item-warn">(current)</span>` : '';
-                            item.innerHTML = `${cbHtml}<span class="cp-item-name">${s.name || '(unnamed)'}</span>`
-                                + `<span class="cp-item-right">${curMark}<span class="cp-item-shape">${shapeStr}</span></span>`;
-
-                            function _refreshSelMark() {
-                                const cb = item.querySelector('.cp-item-cb');
-                                const sel = _selected.has(key);
-                                cb.classList.toggle('checked', sel);
-                                cb.textContent = sel ? '✓' : '';
-                                item.classList.toggle('cp-item-selected', sel);
-                            }
-                            function toggleSel(e) {
-                                e && e.preventDefault();
-                                if (_selected.has(key)) {
-                                    _selected.delete(key);
-                                } else if (_selCount() < 4) {
-                                    _selected.set(key, { sid: s.sid, name: s.name || '' });
-                                } else {
-                                    showToast('max 4 arrays in compare');
-                                    return;
-                                }
-                                _refreshSelMark();
-                                _updateHint();
-                                _updateDimming();
-                            }
-                            function openItem() {
-                                if (mode === 'compare') {
-                                    // In compare mode, clicking a row triggers compare directly
-                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: s.sid, name: s.name || '' });
-                                    const sids  = [..._selected.values()].map(i => i.sid).filter(Boolean);
-                                    const names = [..._selected.values()].map(i => i.name);
-                                    finish({ action: 'compare', sids, names });
-                                } else if (_selCount() <= 1) {
-                                    // open / navigate
-                                    finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
-                                    if (window.parent !== window && window.parent.__arrayviewShell) {
-                                        window.parent.addTab(s.sid, s.name || '(unnamed)');
-                                    } else {
-                                        window.location.href = '/?sid=' + s.sid;
-                                    }
-                                } else {
-                                    // multi-compare: ensure this item is in selection
-                                    if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: s.sid, name: s.name || '' });
-                                    _commitCompare();
-                                }
-                            }
-                            // Checkbox click selects; row click opens
-                            item.querySelector('.cp-item-cb').onclick = e => { e.stopPropagation(); toggleSel(e); };
-                            item.onclick = openItem;
-                            item.onkeydown = e => {
-                                if (e.key === ' ') { toggleSel(e); return; }
-                                if (e.key === 'Enter') { e.preventDefault(); openItem(); }
-                            };
-                            _refreshSelMark();
-                            listEl.appendChild(item);
-                        });
-                    }
-
                     // Files section
                     if (filtFiles.length) {
                         const hdr = document.createElement('div');
@@ -9072,7 +8999,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const thumb = document.createElement('div');
                         thumb.className = 'sidebar-card-thumb';
                         const img = document.createElement('img');
-                        img.src = `/thumbnail/${s.sid}?w=96&h=72`;
+                        img.src = `/thumbnail/${s.sid}?w=144&h=108`;
                         img.loading = 'lazy';
                         img.alt = s.name || 'array';
                         thumb.appendChild(img);
