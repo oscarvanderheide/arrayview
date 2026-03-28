@@ -2079,19 +2079,20 @@ async def get_thumbnail(sid: str, w: int = 96, h: int = 72):
         return Response(status_code=404)
 
     ndim = len(session.shape)
-    # Default view: last two dims, middle index for all others
-    dim_x = ndim - 1
-    dim_y = ndim - 2 if ndim >= 2 else 0
-    idx_list = [s // 2 for s in session.shape]
-
-    try:
-        rgba = await asyncio.to_thread(
-            render_rgba, session, dim_x, dim_y, tuple(idx_list),
-            "gray", 1, 0, False, None, None,
-        )
-    except Exception:
-        # Fallback: return a 1x1 gray pixel
+    if ndim < 2:
         rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
+    else:
+        # Default view: last two dims, middle index for all others
+        dim_x = ndim - 1
+        dim_y = ndim - 2
+        idx_list = [s // 2 for s in session.shape]
+        try:
+            rgba = await asyncio.to_thread(
+                render_rgba, session, dim_x, dim_y, tuple(idx_list),
+                "gray", 1, 0, False, None, None,
+            )
+        except Exception:
+            rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
 
     # Resize to thumbnail dimensions
     Image = _pil_image()
@@ -2099,7 +2100,11 @@ async def get_thumbnail(sid: str, w: int = 96, h: int = 72):
     img = img.resize((w, h), Image.NEAREST if max(rgba.shape[:2]) < h else Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=60)
-    return Response(content=buf.getvalue(), media_type="image/jpeg")
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "max-age=30"},
+    )
 
 
 @app.post("/load")

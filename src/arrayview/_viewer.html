@@ -8697,13 +8697,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + ' GB';
                 return (b / 1024 ** 2).toFixed(0) + ' MB';
             };
+            const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
             const overlay = document.createElement('div');
             overlay.className = 'ram-block-overlay';
             overlay.innerHTML = `<div class="ram-block-box">
                 <div class="ram-block-icon">⚠</div>
                 <div class="ram-block-title">Not enough memory</div>
                 <div class="ram-block-detail">
-                    <strong>${filename}</strong> requires ~${fmt(estimatedBytes)}<br>
+                    <strong>${esc(filename)}</strong> requires ~${fmt(estimatedBytes)}<br>
                     Available RAM: ${fmt(availableBytes)}
                 </div>
                 <div class="ram-block-hint">Close other instances or free memory to continue</div>
@@ -9054,8 +9055,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
                 // Populate sidebar with instance previews
                 sidebarEl.innerHTML = '';
-                const otherSessions = sessions.filter(s => sessions.length > 1);
-                if (otherSessions.length > 1) {
+                if (sessions.length > 1) {
                     pickerBox.classList.remove('no-sidebar');
                     const hdr = document.createElement('div');
                     hdr.className = 'sidebar-header';
@@ -9074,7 +9074,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const img = document.createElement('img');
                         img.src = `/thumbnail/${s.sid}?w=96&h=72`;
                         img.loading = 'lazy';
-                        img.alt = s.name;
+                        img.alt = s.name || 'array';
                         thumb.appendChild(img);
 
                         const info = document.createElement('div');
