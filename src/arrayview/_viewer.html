@@ -188,6 +188,7 @@
         :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
+        .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 5ch; text-align: center; overflow: hidden; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
@@ -315,6 +316,8 @@
         .cp-section-header { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
         .cp-item-loading { opacity: 0.6; pointer-events: none; }
         .cp-item-selected { border-color: #4ade80 !important; }
+        .cp-item-current { border-color: var(--active-dim) !important; opacity: 0.6; pointer-events: none; }
+        .cp-tab-icon { flex-shrink: 0; width: 14px; opacity: 0.5; font-size: 13px; }
         .cp-item-cb {
             flex-shrink: 0; width: 14px; height: 14px; border-radius: 3px;
             border: 1.5px solid var(--muted); background: transparent;
@@ -5961,8 +5964,14 @@
             return true;
         }
 
+        let _statusTimer = null;
         function showStatus(msg, duration) {
-            /* no-op: status text removed for minimal UI */
+            const el = document.getElementById('status');
+            if (el) {
+                el.textContent = msg;
+                clearTimeout(_statusTimer);
+                _statusTimer = setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, duration || 2500);
+            }
         }
 
         function showInlinePrompt(message, defaultValue = '') {
@@ -6267,7 +6276,7 @@
             if (dim_x === dim_y) dim_y = dim_x === 0 ? 1 : 0;
             current_slice_dim = shape.length > 2 ? Math.min(2, shape.length - 1) : 0;
             activeDim = Math.min(activeDim, shape.length - 1);
-            if (rgbMode) cbVisible = false;
+            cbVisible = !rgbMode;
             updateView(); triggerPreload(); renderEggs(); renderInfo();
             drawSlimColorbar(cbMarkerFrac);
             showStatus(rgbMode ? `RGB on (axis ${axis})` : 'RGB off');
@@ -7407,6 +7416,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
+                // For square/wide arrays in single-view: don't zoom out past dimbar width
+                if (lastImgW && lastImgH && lastImgW >= lastImgH &&
+                    !multiViewActive && !compareActive && !qmriActive && !compareMvActive && !compareQmriActive) {
+                    const _infoW = (document.getElementById('info')?.offsetWidth || 0) + 20;
+                    if (_infoW > 40) {
+                        const _minZoom = _infoW / (lastImgW * getBaseScale(lastImgW, lastImgH));
+                        if (_minZoom > 0.05) userZoom = Math.max(userZoom, _minZoom);
+                    }
+                }
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
                     // Auto-exit immersive mode when zooming back to fit
@@ -7828,8 +7846,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 refreshAxesColor();
-                // In diff/center-pane mode, show previewer on per-pane colorbars (both fade out)
-                if (compareActive && (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive)) {
+                // When histogram is open, skip the previewer — just update the colorbar display
+                const _histOpen = _cbExpanded || (_diffLeftCb && _diffLeftCb.expanded);
+                if (_histOpen) {
+                    if (multiViewActive || compareMvActive) drawMvColorbar();
+                    else drawSlimColorbar(cbMarkerFrac);
+                } else if (compareActive && (diffMode > 0 || _wipeActive || _flickerActive || _checkerActive)) {
+                    // In diff/center-pane mode, show previewer on per-pane colorbars (both fade out)
                     const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
                     const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
                     _cmapStripMode = 'diff-side';
@@ -8694,6 +8717,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     filtFiles    = filtFiles    ?? fileEntries;
                     listEl.innerHTML = '';
                     const inSearch = !!searchEl.value.trim();
+
+                    // Open tabs section (shell only) — quick-switch between open instances
+                    const shellTabs = (window.parent !== window && window.parent.__arrayviewShell && window.parent.tabs)
+                        ? window.parent.tabs : null;
+                    if (shellTabs && !inSearch) {
+                        const tabSids = Object.keys(shellTabs);
+                        if (tabSids.length > 1) {
+                            const hdr = document.createElement('div');
+                            hdr.className = 'cp-section-header'; hdr.textContent = 'Open Tabs';
+                            listEl.appendChild(hdr);
+                            tabSids.forEach(tabSid => {
+                                const tab = shellTabs[tabSid];
+                                const tabName = tab.btn ? tab.btn.querySelector('span')?.textContent : tabSid;
+                                const isActive = tabSid === sid;
+                                const item = document.createElement('div');
+                                item.className = 'cp-item' + (isActive ? ' cp-item-current' : '');
+                                item.tabIndex = 0;
+                                const activeMark = isActive ? `<span class="cp-item-warn">(current)</span>` : '';
+                                item.innerHTML = `<span class="cp-tab-icon">⊡</span><span class="cp-item-name">${tabName || tabSid}</span>`
+                                    + `<span class="cp-item-right">${activeMark}</span>`;
+                                item.onclick = () => {
+                                    finish(null);
+                                    window.parent.activateTab(tabSid);
+                                };
+                                item.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); item.onclick(); } };
+                                listEl.appendChild(item);
+                            });
+                        }
+                    }
 
                     // Sessions section
                     if (filtSessions.length) {
@@ -11172,6 +11224,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Sync state from globals (until full migration removes globals)
             cb._animT = _cbAnimT;
             cb._expanded = _cbExpanded;
+            if (cb.triZone) cb.triZone.classList.toggle('expanded', _cbExpanded);
+            if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbExpanded);
             cb._winVminF = _cbWinVminF;
             cb._winVmaxF = _cbWinVmaxF;
             cb._hoverFrac = _cbHoverFrac;
@@ -11702,6 +11756,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.body.classList.toggle('fullscreen-mode', on);
             // Recalc layout with new reserves
             ModeRegistry.scaleAll();
+            // Re-position chrome after CSS padding-top transition completes (0.25s)
+            setTimeout(() => { if (_fullscreenActive === on) ModeRegistry.scaleAll(); }, 270);
             if (!on) {
                 // Restore normal colorbar positioning
                 const wrap = document.getElementById('slim-cb-wrap');
@@ -11730,12 +11786,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (infoEl) {
                 infoEl.style.top = (vpRect.top + 8) + 'px';
             }
-            // Position colorbar anchored to bottom of viewport so histogram grows upward
+            // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
-                // Use bottom positioning so island grows upward during histogram animation
                 cbWrap.style.top = '';
-                cbWrap.style.bottom = '10px';
+                // bottom = distance from viewport bottom to canvas bottom + 10px margin
+                const cbBottom = Math.max(10, window.innerHeight - vpRect.bottom + 10);
+                cbWrap.style.bottom = cbBottom + 'px';
             }
         }
 
@@ -12460,6 +12517,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         });
 
         init();
+
+        // ── Compact mode (K key / programmatic) ─────────────────────────────
+        let _compactModeActive = false;
+        function setCompactMode(on) {
+            _compactModeActive = on;
+            document.body.classList.toggle('compact-mode', on);
+            if (multiViewActive || compareMvActive) {
+                mvScaleAllCanvases();
+            } else if (qmriActive || compareQmriActive) {
+                qvScaleAllCanvases();
+            } else {
+                scaleCanvas();
+            }
+            showStatus(on ? 'compact mode: on' : 'compact mode: off');
+        }
+        function toggleCompactMode() { setCompactMode(!_compactModeActive); }
     </script>
 </body>
 </html>

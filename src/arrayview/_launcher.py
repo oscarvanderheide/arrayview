@@ -973,24 +973,25 @@ def view(
         else:
             try:
                 wp = _session_mod._window_process
-                if wp is not None and wp.poll() is None:
-                    # Webview process is alive — try to inject a new tab.
-                    # Wait up to 2 s for the shell WebSocket to respond (wait=True).
+                server_loop = _session_mod.SERVER_LOOP
+                window_alive = wp is not None and wp.poll() is None
+                # Try to inject a tab into any connected shell (covers both: window opened
+                # by this Python process AND window opened by a previous Python process on
+                # the same server). wait=True only when we know the window just launched.
+                notified = False
+                if server_loop is not None and (window_alive or _server_alive(port)):
                     future = asyncio.run_coroutine_threadsafe(
-                        _server_mod()._notify_shells(session.sid, name),
-                        _session_mod.SERVER_LOOP,
+                        _server_mod()._notify_shells(
+                            session.sid, name, wait=window_alive
+                        ),
+                        server_loop,
                     )
                     try:
                         notified = future.result(timeout=3.0)
                     except Exception:
                         notified = False
-                    if not notified:
-                        # Shell WebSocket not connected (window closed/crashed).
-                        # Open a fresh native window.
-                        _session_mod._window_process = _open_webview_with_fallback(
-                            url_shell, win_w, win_h
-                        )
-                else:
+                if not notified:
+                    # No shell connected — open a fresh native window.
                     _session_mod._window_process = _open_webview_with_fallback(
                         url_shell, win_w, win_h
                     )
