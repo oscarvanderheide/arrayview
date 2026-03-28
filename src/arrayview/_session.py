@@ -183,6 +183,7 @@ class Session:
         self.RGBA_CACHE_BYTES = _RGBA_CACHE_BYTES
         self.MOSAIC_CACHE_BYTES = _MOSAIC_CACHE_BYTES
         self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
+        self._estimated_mem = self._estimate_memory()
 
         self.preload_gen = 0
         self.preload_done = 0
@@ -200,6 +201,12 @@ class Session:
         self.vfield_spatial_axes = None  # image spatial dim -> vfield axis mapping
 
         self.compute_global_stats()
+
+    def _estimate_memory(self):
+        """Estimate memory footprint in bytes (array data + cache budgets)."""
+        itemsize = np.dtype(getattr(self.data, "dtype", np.float32)).itemsize
+        data_bytes = int(np.prod(self.shape)) * itemsize
+        return data_bytes
 
     def compute_global_stats(self):
         try:

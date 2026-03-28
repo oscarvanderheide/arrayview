@@ -2056,16 +2056,19 @@ def list_files(directory: str = ""):
 
 @app.get("/sessions")
 def get_sessions():
-    """Returns list of active sessions (used by shell to populate tabs on load)."""
-    return [
-        {
+    """Returns list of active sessions with metadata for the picker sidebar."""
+    result = []
+    for s in SESSIONS.values():
+        dtype_str = str(getattr(s.data, "dtype", "unknown"))
+        result.append({
             "sid": s.sid,
             "name": s.name,
             "shape": [int(x) for x in s.shape],
             "filepath": s.filepath,
-        }
-        for s in SESSIONS.values()
-    ]
+            "dtype": dtype_str,
+            "estimated_mem": s._estimated_mem,
+        })
+    return result
 
 
 @app.get("/thumbnail/{sid}")
