@@ -10694,7 +10694,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // may be 0 before browser layout settles on first render).
             const cssW = canvasCssW;
             if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
-            const stops = COLORMAP_GRADIENT_STOPS[v.colormap];
+            // v.colormap is set for qMRI panes; for compare-mv panes it may be absent — fall back to global
+            const _cmapName = v.colormap || (colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx]);
+            const stops = _cmapName ? COLORMAP_GRADIENT_STOPS[_cmapName] : customGradientStops;
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
