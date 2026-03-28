@@ -9188,6 +9188,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 window._mvColorBar.canvas.id = 'mv-cb';
                 if (window._mvColorBar.vminLabel) window._mvColorBar.vminLabel.id = 'mv-cb-vmin';
                 if (window._mvColorBar.vmaxLabel) window._mvColorBar.vmaxLabel.id = 'mv-cb-vmax';
+            } else {
+                // wrap.innerHTML = '' above destroyed the ColorBar's DOM — re-attach it
+                wrap.appendChild(window._mvColorBar.wrap);
             }
             // 3 views: each shows a different pair of dims, slicing through the third
             // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
@@ -10707,8 +10710,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cssW = canvasCssW;
             if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
             // v.colormap is set for qMRI panes; for compare-mv panes it may be absent — fall back to global
-            const _cmapName = v.colormap || (colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx]);
-            const stops = _cmapName ? COLORMAP_GRADIENT_STOPS[_cmapName] : customGradientStops;
+            const stops = v.colormap
+                ? COLORMAP_GRADIENT_STOPS[v.colormap]
+                : (colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]]);
             if (!stops) return;
             const stripH = CB_COLLAPSED_H;
             const dpr = window.devicePixelRatio || 1;
