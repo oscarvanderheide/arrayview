@@ -4361,6 +4361,8 @@
                 const range = dmax - dmin || 1;
                 vminFrac = ((manualVmin ?? currentVmin) - dmin) / range;
                 vmaxFrac = ((manualVmax ?? currentVmax) - dmin) / range;
+                vminFrac = Math.max(0, Math.min(1, vminFrac));
+                vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
             }
             // Lerp animated window fractions toward target (snap during drag)
             _cbWinVminTarget = vminFrac;
@@ -4543,8 +4545,8 @@
             const triVmin = document.getElementById('slim-cb-tri-vmin');
             const triVmax = document.getElementById('slim-cb-tri-vmax');
             if (triZone && triVmin && triVmax) {
-                triVmin.style.left = (effVmin * 100) + '%';
-                triVmax.style.left = (effVmax * 100) + '%';
+                triVmin.style.left = Math.max(0, Math.min(100, effVmin * 100)) + '%';
+                triVmax.style.left = Math.max(0, Math.min(100, effVmax * 100)) + '%';
             }
 
             // Update hit-test positions for drag interaction
