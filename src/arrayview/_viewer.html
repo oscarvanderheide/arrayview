@@ -49,7 +49,7 @@
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
-            transition: opacity 0.14s ease, padding-top 0.25s ease;
+            transition: opacity 0.14s ease;
         }
         #wrapper.mode-fade { opacity: 0; }
         #info {
@@ -664,7 +664,7 @@
         /* ── Fullscreen mode (K key) ────────────────────────────── */
         body.fullscreen-mode #array-name {
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
-            transition: opacity 0.25s ease, max-height 0.25s ease;
+            transition: none;
             pointer-events: none;
         }
         /* ── Inline embed (Jupyter IFrame) — hide header to save vertical space */
@@ -11774,8 +11774,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.body.classList.toggle('fullscreen-mode', on);
             // Recalc layout with new reserves
             ModeRegistry.scaleAll();
-            // Re-position chrome after CSS padding-top transition completes (0.25s)
-            setTimeout(() => { if (_fullscreenActive === on) ModeRegistry.scaleAll(); }, 270);
             if (!on) {
                 // Restore normal colorbar positioning
                 const wrap = document.getElementById('slim-cb-wrap');
