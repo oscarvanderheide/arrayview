@@ -643,6 +643,9 @@ def view(
     objects for multiple arrays (one per array). In inline/Jupyter mode with
     multiple arrays, the IFrame is displayed automatically and a uniform tuple
     of ``ViewHandle`` objects is returned.
+
+    Note: in Jupyter inline mode, single-array calls return an IFrame object for auto-display
+    rather than a ViewHandle.
     """
     import numpy as np
     from arrayview._io import _tensor_to_numpy
@@ -869,13 +872,9 @@ def view(
                 url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}"
             )
             _print_viewer_location(url_viewer)
-            primary_handle = ViewHandle(url_viewer, sid, port)
             if n_arrays == 1:
-                return primary_handle
-            return tuple(
-                [primary_handle]
-                + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
-            )
+                return ViewHandle(url_viewer, sid, port)
+            return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
         except Exception as e:
             _vprint(
                 f"[ArrayView] Failed to register with --serve server: {e}", flush=True
@@ -1121,13 +1120,9 @@ def view(
         )
 
     _print_viewer_location(url_viewer)
-    primary_handle = ViewHandle(url_viewer, session.sid, port)
     if n_arrays == 1:
-        return primary_handle
-    return tuple(
-        [primary_handle]
-        + [ViewHandle(url_viewer, _compare_sids[i], port) for i in range(len(_compare_sids))]
-    )
+        return ViewHandle(url_viewer, session.sid, port)
+    return tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
 
 
 def _is_script_mode() -> bool:
