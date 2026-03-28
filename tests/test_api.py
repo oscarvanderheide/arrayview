@@ -1397,3 +1397,39 @@ class TestComplexProjections:
                         "projection_dim": 2, "projection_mode": 3},
             )
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# view() validation guards (no server required)
+# ---------------------------------------------------------------------------
+
+
+class TestViewValidation:
+    """Pure validation tests for view() — no server or display needed."""
+
+    def test_zero_arrays_raises(self):
+        from arrayview._launcher import view
+
+        with pytest.raises(ValueError, match="at least one array"):
+            view()
+
+    def test_five_arrays_raises(self):
+        from arrayview._launcher import view
+
+        a = np.zeros((3, 3))
+        with pytest.raises(ValueError, match="at most 4"):
+            view(a, a, a, a, a)
+
+    def test_mismatched_name_list_raises(self):
+        from arrayview._launcher import view
+
+        a = np.zeros((3, 3))
+        with pytest.raises(ValueError, match="name list length"):
+            view(a, a, name=["x"])
+
+    def test_mismatched_rgb_list_raises(self):
+        from arrayview._launcher import view
+
+        a = np.zeros((3, 3))
+        with pytest.raises(ValueError, match="rgb list length"):
+            view(a, a, rgb=[True])
