@@ -7405,21 +7405,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!_fullscreenActive && !_zoomAdjustedByUser &&
                     !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
                     _canFitImmersive()) {
-                    // First =: enter immersive mode (only from default/fit zoom, not after manual zoom)
-                    _zoomAdjustedByUser = false;
-                    _autoFitPending = true;
-                    mainPan.reset();
-                    setFullscreenMode(true);
+                    // First =: enter immersive mode via animated transition
+                    _enterImmersive();
+                    showStatus('immersive');
+                    saveState();
                 } else {
                     // Already immersive or can't enter: zoom in
                     userZoom = userZoom * 1.1;
                     if (!_snapZoomToFit()) {
                         _zoomAdjustedByUser = true;
                     }
+                    _scaleAllWithAnim();
+                    showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                    saveState();
                 }
-                _scaleAllWithAnim();
-                showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
-                saveState();
             } else if (e.key === '-') {
                 userZoom = Math.max(userZoom / 1.1, 0.1);
                 // For square/wide arrays in single-view: don't zoom out past dimbar width
@@ -7435,11 +7434,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _zoomAdjustedByUser = true;
                     // Auto-exit immersive mode when zooming back to fit
                     if (_fullscreenActive && userZoom <= _fitZoom) {
-                        setFullscreenMode(false);
                         userZoom = _fitZoom;
                         _zoomAdjustedByUser = false;
                         mainPan.reset();
-                        _autoFitPending = true;
+                        _exitImmersive();
+                        showStatus('zoom: fit');
+                        saveState();
+                        return; // _exitImmersive handles layout; skip _scaleAllWithAnim
                     }
                 }
                 _scaleAllWithAnim();
