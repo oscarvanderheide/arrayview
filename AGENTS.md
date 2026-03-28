@@ -74,6 +74,10 @@ Load the relevant skill before touching the corresponding area.
 | `docs-style` | Updating README, in-app help overlay, or docstrings |
 | `task-workflow` | Feature or fix tasks |
 
+## Execution Preferences
+
+When implementing plans, always use **subagent-driven development** (`superpowers:subagent-driven-development`) — not inline execution.
+
 ## Non-Negotiables
 
 - Always use `localhost` (not `127.0.0.1`) — required for VS Code port forwarding
