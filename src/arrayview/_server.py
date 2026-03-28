@@ -2068,6 +2068,37 @@ def get_sessions():
     ]
 
 
+@app.get("/thumbnail/{sid}")
+async def get_thumbnail(sid: str, w: int = 96, h: int = 72):
+    """Return a small JPEG thumbnail of the session's current default view."""
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    ndim = len(session.shape)
+    # Default view: last two dims, middle index for all others
+    dim_x = ndim - 1
+    dim_y = ndim - 2 if ndim >= 2 else 0
+    idx_list = [s // 2 for s in session.shape]
+
+    try:
+        rgba = await asyncio.to_thread(
+            render_rgba, session, dim_x, dim_y, tuple(idx_list),
+            "gray", 1, 0, False, None, None,
+        )
+    except Exception:
+        # Fallback: return a 1x1 gray pixel
+        rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
+
+    # Resize to thumbnail dimensions
+    Image = _pil_image()
+    img = Image.fromarray(rgba[:, :, :3])
+    img = img.resize((w, h), Image.NEAREST if max(rgba.shape[:2]) < h else Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=60)
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
+
+
 @app.post("/load")
 async def load_file(request: Request):
     """Load a file into a new session. Optionally notify webview shells."""
