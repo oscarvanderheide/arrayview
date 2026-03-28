@@ -38,3 +38,18 @@ Hard-won knowledge from past development sessions. Check this before starting wo
 
 **Problem:** Two separate colorbar systems: `slim-cb-wrap` (normal/compare) and `mv-cb-wrap` (multi-view).
 **Key insight:** Many colorbar functions need to check `multiViewActive || compareMvActive` to pick the right element. When adding colorbar features, always handle both paths. The `ColorBar` class abstracts some of this but the global state (`_cbExpanded`, `_cbAnimT`, etc.) is still shared.
+
+## UI Audit Stability
+
+**Problem:** `tests/ui_audit.py` pixel diffs always failed for zoom scenarios (20-40% diff per run).
+**Root cause 1:** Baselines predate major UI changes — stale baselines fail everything. Fix: run `--update-baselines` after intentional UI changes.
+**Root cause 2:** Zoom scenarios have non-deterministic canvas content (sub-pixel rendering differences, canvas pan position). Even with seeded test data, the rendered pixels vary slightly.
+**Fix:** Skip pixel diff for zoom scenarios (`scenario.zoom > 0`). Layout correctness in zoom is validated by DOM assertions (R2/R3/R14 etc.) which are deterministic. Also reset `canvas-wrap` scroll to (0,0) after zoom_in for consistent layout.
+**Key insight:** Pixel diffs are reliable for static modes (fit/compare/qmri). For zoom/pan modes, rely on DOM assertions only.
+
+## cb-tri-zone Yellow Arrows
+
+**Problem:** `.cb-tri-zone` (multiview colorbar) had CSS `position: absolute; bottom: -10px` but height:0. Arrows appeared correct by DOM inspection but were invisible.
+**Root cause:** The CSS for `.cb-tri-zone.expanded` adds `height: 10px`, but the `expanded` class was never added in multiview mode because the drawMvColorbar() function didn't sync the class.
+**Fix (batch commit):** Added `.cb-tri-zone` class CSS rule (was only `#slim-cb-tri-zone`); `drawMvColorbar()` now syncs `expanded` class.
+**Verification:** Check `document.querySelector('.cb-tri-zone').classList.contains('expanded')` 100ms after pressing 'd' — should be `true`.
