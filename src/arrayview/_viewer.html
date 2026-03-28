@@ -6295,7 +6295,11 @@
         // Drop a compatible file to enter compare mode; otherwise open in a new tab.
         const _SUPPORTED_EXTS = new Set(['npy', 'npz', 'nii', 'gz', 'zarr', 'pt', 'pth', 'h5', 'hdf5', 'tif', 'tiff', 'mat']);
         document.body.addEventListener('dragover', (e) => {
-            if (e.dataTransfer.types.includes('Files')) {
+            // e.dataTransfer.types may be a DOMStringList (no .includes) in older WebKit
+            const types = e.dataTransfer.types;
+            const hasFiles = (Array.isArray(types) ? types : Array.from(types))
+                .some(t => t === 'Files' || t === 'public.file-url' || t === 'NSFilenamesPboardType');
+            if (hasFiles || e.dataTransfer.items?.length > 0) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
             }
