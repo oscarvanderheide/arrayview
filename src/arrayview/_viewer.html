@@ -2097,7 +2097,9 @@
             const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             // In fullscreen: center the canvas viewport in the viewport (ignore hidden/fixed chrome)
             const pt = _fullscreenActive
-                ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
+                ? (isInlineEmbed
+                    ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
+                    : 0)
                 : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
