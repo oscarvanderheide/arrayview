@@ -12032,6 +12032,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (wrapper) wrapper.style.paddingTop = '';
                 }
                 userZoom = _calcAutoFitZoom(lastImgW || canvas.width, lastImgH || canvas.height, false);
+                _zoomRendered = userZoom;
                 _fitZoom = userZoom;
                 _zoomAdjustedByUser = false;
                 mainPan.reset();
