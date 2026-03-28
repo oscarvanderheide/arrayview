@@ -4318,6 +4318,7 @@
             // Redraw colorbar AND reposition island each frame so bottom stays anchored
             if (multiViewActive || compareMvActive) {
                 drawMvColorbar();
+                mvScaleAllCanvases();
             } else {
                 drawSlimColorbar(cbMarkerFrac);
             }
