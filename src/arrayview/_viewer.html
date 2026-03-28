@@ -329,6 +329,19 @@
             border-color: #4ade80; background: #4ade80;
             color: #111; font-size: 10px; font-weight: 900; line-height: 1;
         }
+        .ram-block-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); display: flex;
+            align-items: center; justify-content: center; border-radius: var(--radius-lg); z-index: 5; }
+        .ram-block-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: 24px; text-align: center; max-width: 320px; }
+        .ram-block-icon { font-size: 28px; margin-bottom: 8px; }
+        .ram-block-title { font-size: 13px; color: #f87171; font-weight: 600; }
+        .ram-block-detail { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.8; font-family: monospace; }
+        .ram-block-detail strong { color: var(--text); }
+        .ram-block-hint { margin-top: 12px; padding: 8px 12px; background: var(--surface-2); border-radius: 4px;
+            font-size: 9px; color: var(--muted); }
+        .ram-block-ok { margin-top: 14px; padding: 5px 20px; background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 3px; font-size: 10px; color: var(--text); cursor: pointer; }
+        .ram-block-ok:hover { border-color: var(--picker-accent, var(--active-dim)); }
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -8654,6 +8667,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return { sessions, fileEntries };
         }
 
+        function _showRamBlockDialog(parentEl, filename, estimatedBytes, availableBytes) {
+            const fmt = (b) => {
+                if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + ' GB';
+                return (b / 1024 ** 2).toFixed(0) + ' MB';
+            };
+            const overlay = document.createElement('div');
+            overlay.className = 'ram-block-overlay';
+            overlay.innerHTML = `<div class="ram-block-box">
+                <div class="ram-block-icon">⚠</div>
+                <div class="ram-block-title">Not enough memory</div>
+                <div class="ram-block-detail">
+                    <strong>${filename}</strong> requires ~${fmt(estimatedBytes)}<br>
+                    Available RAM: ${fmt(availableBytes)}
+                </div>
+                <div class="ram-block-hint">Close other instances or free memory to continue</div>
+                <button class="ram-block-ok">OK</button>
+            </div>`;
+            parentEl.appendChild(overlay);
+            const btn = overlay.querySelector('.ram-block-ok');
+            btn.focus();
+            return new Promise(resolve => {
+                function dismiss() { overlay.remove(); resolve(); }
+                btn.onclick = dismiss;
+                overlay.onkeydown = e => {
+                    if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); dismiss(); }
+                };
+            });
+        }
+
         function showUnifiedPicker(mode) {
             return new Promise(async resolve => {
                 const { sessions, fileEntries } = await _fetchPickerData();
@@ -8869,7 +8911,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
                                     fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(data => {
+                                    }).then(r => r.json()).then(async data => {
+                                        if (data.error === 'insufficient_memory') {
+                                            item.classList.remove('cp-item-loading');
+                                            await _showRamBlockDialog(
+                                                document.getElementById('uni-picker-box'),
+                                                data.filename, data.estimated_bytes, data.available_bytes
+                                            );
+                                            return;
+                                        }
                                         if (data.error) { showToast(`load error: ${data.error}`); item.classList.remove('cp-item-loading'); return; }
                                         item.classList.remove('cp-item-loading');
                                         _selected.set(key, { sid: data.sid, name: data.name || f.name });
@@ -8886,7 +8936,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
                                     fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(data => {
+                                    }).then(r => r.json()).then(async data => {
+                                        if (data.error === 'insufficient_memory') {
+                                            item.classList.remove('cp-item-loading');
+                                            await _showRamBlockDialog(
+                                                document.getElementById('uni-picker-box'),
+                                                data.filename, data.estimated_bytes, data.available_bytes
+                                            );
+                                            return;
+                                        }
                                         if (data.error) { showToast(`load error: ${data.error}`); finish(null); return; }
                                         finish({ action: 'open', sids: [data.sid], names: [data.name || f.name] });
                                         if (!sid) {
@@ -8902,7 +8960,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     item.classList.add('cp-item-loading');
                                     fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(data => {
+                                    }).then(r => r.json()).then(async data => {
+                                        if (data.error === 'insufficient_memory') {
+                                            item.classList.remove('cp-item-loading');
+                                            await _showRamBlockDialog(
+                                                document.getElementById('uni-picker-box'),
+                                                data.filename, data.estimated_bytes, data.available_bytes
+                                            );
+                                            return;
+                                        }
                                         if (data.error) { showToast(`load error: ${data.error}`); return; }
                                         if (!_selected.has(key) && _selCount() < 4) _selected.set(key, { sid: data.sid, name: data.name || f.name });
                                         _commitCompare();
