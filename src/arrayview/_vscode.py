@@ -57,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.19"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.9.20"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -332,17 +332,22 @@ def _configure_vscode_port_preview(port: int) -> bool:
 
 
 def _find_current_vscode_window_id() -> str | None:
-    """Find the current VS Code window's identifier by matching our parent process
-    tree against the extension host PIDs registered in ~/.arrayview/window-*.json.
+    """Find the current VS Code window by matching ancestor PIDs.
 
-    Returns the window ID (hookTag or PID) if found, None otherwise.
+    On macOS, VS Code spawns per-window renderer processes. The extension host
+    and the terminal's PTY host are both children of the same renderer, giving
+    them a common ancestor that distinguishes them from other windows. We find
+    the window whose extension host shares the closest (deepest) common ancestor
+    with our own process tree.
+
+    Returns the window_id (PID string or hookTag string) or None.
     """
     signal_dir = os.path.expanduser("~/.arrayview")
     if not os.path.isdir(signal_dir):
         return None
 
-    # Get all registered extension host PIDs from window-*.json files
-    ext_pids = {}  # window_id -> pid
+    # Load all window registrations
+    windows = []  # list of (window_id, ext_pid, ext_ppids)
     try:
         for filename in os.listdir(signal_dir):
             if not (filename.startswith("window-") and filename.endswith(".json")):
@@ -350,106 +355,106 @@ def _find_current_vscode_window_id() -> str | None:
             try:
                 with open(os.path.join(signal_dir, filename)) as f:
                     data = json.load(f)
+                window_id = filename[7:-5]
                 ext_pid = data.get("pid")
-                if ext_pid:
-                    # Extract window ID from filename: window-<ID>.json
-                    window_id = filename[7:-5]  # strip "window-" and ".json"
-                    ext_pids[ext_pid] = window_id
+                ext_ppids = data.get("ppids", [])
+                windows.append((window_id, ext_pid, ext_ppids))
             except Exception:
                 continue
     except Exception:
         pass
 
-    if not ext_pids:
+    if not windows:
         return None
 
-    # Get our process's ancestor PIDs AND sibling processes
-    # Strategy: Walk up the tree to find VS Code app, then check all its children
-    our_pid = os.getpid()
-    vscode_app_pid = None
+    if len(windows) == 1:
+        return windows[0][0]
 
-    # First, walk up to find a process that might be VS Code
-    # Look for processes with many children (VS Code spawns many child processes)
-    pid = our_pid
-    for _ in range(30):  # increased from 20
-        if pid <= 1:
-            break
-        # Check if any extension host PID is this PID (direct match)
-        if pid in ext_pids:
-            return ext_pids[pid]
-        # Get parent PID
+    # Helper: get parent PID of a process (macOS/Linux)
+    def _ppid(pid: int) -> int:
         try:
-            with open(f"/proc/{pid}/status") as f:
-                for line in f:
+            with open(f"/proc/{pid}/status") as fh:
+                for line in fh:
                     if line.startswith("PPid:"):
-                        pid = int(line.split()[1])
-                        break
+                        return int(line.split()[1])
         except Exception:
-            # macOS: use ps
-            try:
-                r = subprocess.run(
-                    ["ps", "-p", str(pid), "-o", "ppid="],
-                    capture_output=True,
-                    text=True,
-                    timeout=1,
-                )
-                pid = int(r.stdout.strip())
-            except Exception:
-                break
+            pass
+        try:
+            r = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "ppid="],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            return int(r.stdout.strip())
+        except Exception:
+            return -1
 
-    # Fallback strategies when we can't find a direct ancestor match:
+    # Collect our ancestor PIDs with depth (depth=1 means direct parent)
+    our_ancestors: dict[int, int] = {}
+    cur = os.getpid()
+    for depth in range(1, 25):
+        p = _ppid(cur)
+        if p <= 1 or p in our_ancestors:
+            break
+        our_ancestors[p] = depth
+        cur = p
 
-    # Fallback 1: If only one VS Code window is open, use that
-    if len(ext_pids) == 1:
-        return list(ext_pids.values())[0]
+    # Score each window: find the common ancestor with the smallest combined
+    # depth (ext_depth + our_depth). Lower = more closely related = this window.
+    best_window: str | None = None
+    best_score = float("inf")
 
-    # Fallback 2: When running from VS Code terminal (TERM_PROGRAM=vscode),
-    # find the extension host with the closest start time to our terminal's parent.
-    # The terminal is typically a direct child of a shell that's a child of the
-    # extension host or VS Code app.
+    for window_id, ext_pid, ext_ppids in windows:
+        # Extension host itself is a direct ancestor of our process (rare but possible)
+        if ext_pid and ext_pid in our_ancestors:
+            return window_id
+
+        # Find the closest common ancestor via the extension's recorded ppids
+        for ext_depth, anc_pid in enumerate(ext_ppids, 1):
+            if anc_pid in our_ancestors:
+                our_depth = our_ancestors[anc_pid]
+                score = ext_depth + our_depth
+                if score < best_score:
+                    best_score = score
+                    best_window = window_id
+                break  # take the shallowest match per window
+
+    if best_window:
+        return best_window
+
+    # Fallback: no ppids in registrations (older extension version) or no match.
+    # Use process start time proximity as a heuristic.
     from arrayview._platform import _in_vscode_terminal
 
-    if _in_vscode_terminal() and len(ext_pids) > 0:
+    if _in_vscode_terminal():
         try:
-            # Get our terminal's creation time (use PPID as proxy for terminal start)
             terminal_ppid = os.getppid()
-
-            # Get process start times for all extension hosts
-            closest_pid = None
+            r2 = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", str(terminal_ppid)],
+                capture_output=True, text=True, timeout=1,
+            )
+            term_start = r2.stdout.strip()
+            closest_id: str | None = None
             closest_delta = float("inf")
-
-            for ext_pid, window_id in ext_pids.items():
+            for window_id, ext_pid, _ in windows:
+                if not ext_pid:
+                    continue
                 try:
-                    # Get process start time (macOS: use ps -o lstart)
                     r = subprocess.run(
                         ["ps", "-o", "lstart=", "-p", str(ext_pid)],
-                        capture_output=True,
-                        text=True,
-                        timeout=1,
+                        capture_output=True, text=True, timeout=1,
                     )
                     ext_start = r.stdout.strip()
-
-                    r2 = subprocess.run(
-                        ["ps", "-o", "lstart=", "-p", str(terminal_ppid)],
-                        capture_output=True,
-                        text=True,
-                        timeout=1,
-                    )
-                    term_start = r2.stdout.strip()
-
-                    # Compare as strings (same format from ps)
-                    # Extension host started before terminal is the likely parent
                     if ext_start and term_start and ext_start <= term_start:
-                        # This is a candidate; for now just pick the first valid one
-                        # A more sophisticated approach would parse timestamps and find closest
-                        if closest_pid is None:
-                            closest_pid = ext_pid
-                            closest_delta = abs(hash(ext_start) - hash(term_start))
+                        delta = abs(hash(ext_start) - hash(term_start))
+                        if closest_id is None or delta < closest_delta:
+                            closest_id = window_id
+                            closest_delta = delta
                 except Exception:
                     continue
-
-            if closest_pid:
-                return ext_pids[closest_pid]
+            if closest_id:
+                return closest_id
         except Exception:
             pass
 
@@ -557,14 +562,64 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
 
         ipc_hook = _find_vscode_ipc_hook()
         if ipc_hook and not _is_vscode_remote():
-            # Local VS Code (multi-window safe): write to per-window targeted file.
-            # No registration-file check — writing to the targeted file is safe
-            # even before the extension activates; it will claim the file on activate.
             own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
-            data["hookTag"] = (
-                own_tag  # extension verifies this on shared-fallback claims
-            )
-            filenames: tuple[str, ...] = (f"open-request-ipc-{own_tag}.json",)
+            data["hookTag"] = own_tag
+
+            # On macOS, the extension host can't walk up to find VSCODE_IPC_HOOK_CLI
+            # (it's not in the extension host's process ancestry), so extensions
+            # register in PID mode (fallbackId=true, hookTag="").  If no registered
+            # extension has our hookTag, fall through to PID-based targeting.
+            ext_uses_hook = False
+            try:
+                for _fname in os.listdir(signal_dir):
+                    if _fname.startswith("window-") and _fname.endswith(".json"):
+                        with open(os.path.join(signal_dir, _fname)) as _f:
+                            _reg = json.load(_f)
+                        if _reg.get("hookTag") == own_tag:
+                            ext_uses_hook = True
+                            break
+            except Exception:
+                pass
+
+            if ext_uses_hook:
+                # Extension found its own hook: use hookTag-based targeted file.
+                filenames: tuple[str, ...] = (f"open-request-ipc-{own_tag}.json",)
+            else:
+                # Extension is in PID mode: find it via ancestor matching and write
+                # the pid-based file the extension is actually watching.
+                window_id = _find_current_vscode_window_id()
+                if window_id:
+                    filenames = (
+                        f"open-request-pid-{window_id}.json"
+                        if window_id.isdigit()
+                        else f"open-request-ipc-{window_id}.json",
+                    )
+                else:
+                    from arrayview._platform import _in_vscode_terminal as _in_vsc_t
+
+                    if _in_vsc_t():
+                        _wfiles: list[str] = []
+                        try:
+                            for _fn in os.listdir(signal_dir):
+                                if _fn.startswith("window-") and _fn.endswith(".json"):
+                                    _wid = _fn[7:-5]
+                                    _wfiles.append(
+                                        f"open-request-pid-{_wid}.json"
+                                        if _wid.isdigit()
+                                        else f"open-request-ipc-{_wid}.json"
+                                    )
+                        except Exception:
+                            pass
+                        if len(_wfiles) > 1:
+                            data["broadcast"] = True
+                        filenames = (
+                            tuple(_wfiles) if _wfiles else (_VSCODE_SIGNAL_FILENAME,)
+                        )
+                    else:
+                        filenames = (
+                            _VSCODE_SIGNAL_FILENAME,
+                            *_VSCODE_COMPAT_SIGNAL_FILENAMES,
+                        )
         elif not _is_vscode_remote():
             # Local VS Code but no IPC hook found: try to find the current window
             # by matching our parent process tree against extension host PIDs.

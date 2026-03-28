@@ -24,6 +24,16 @@ Hard-won knowledge from past development sessions. Check this before starting wo
 **Problem:** `_fitZoom`, `userZoom`, `_zoomAdjustedByUser`, and `_autoFitPending` interact in subtle ways.
 **Key insight:** `_fitZoom` is recomputed whenever `scaleCanvas` runs with `_autoFitPending = true`. When entering/exiting immersive mode, set `_autoFitPending = true` and `_zoomAdjustedByUser = false` before calling `setFullscreenMode()` so the layout recalculation uses the correct viewport size.
 
+## VS Code Multi-Window Signal Targeting
+
+**Problem:** With 2 VS Code windows open, SimpleBrowser opens in the wrong window.
+**Root cause:** On macOS, the VS Code extension host process cannot find `VSCODE_IPC_HOOK_CLI` by walking up its process tree (the hook is only inherited by terminal shell processes, not the extension host). So extensions register in "PID mode" (`fallbackId: true`, `hookTag: ""`). Meanwhile, Python CAN find the hook via parent-process walk from the terminal shell. This mismatch meant Python wrote to `open-request-ipc-{hookTag}.json` but extensions only watched `open-request-pid-{EXT_PID}.json`.
+**Fix (v0.9.20):**
+1. Extension records `ppids` (ancestor PIDs up to depth 8) in `window-{id}.json` registration.
+2. Python detects PID-mode extensions (no hookTag in registrations) and falls through to ancestor-PID matching: collects its own ancestor PIDs, finds the window whose extension host shares the closest common ancestor (renderer process is per-window → unique discriminator between windows).
+3. Python writes `open-request-pid-{EXT_PID}.json` when extension is in PID mode, matching what the extension actually watches.
+**Key insight:** On macOS, the VS Code renderer process is per-window and is a common ancestor of BOTH the extension host and the terminal's PTY host. Use depth-scored ancestor intersection to find the correct window.
+
 ## Multi-view vs Normal Mode Colorbar
 
 **Problem:** Two separate colorbar systems: `slim-cb-wrap` (normal/compare) and `mv-cb-wrap` (multi-view).

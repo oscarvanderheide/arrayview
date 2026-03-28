@@ -49,6 +49,25 @@ const TARGETED_SIGNAL_FILE = OWN_HOOK_TAG
     ? path.join(SIGNAL_DIR, `open-request-ipc-${OWN_HOOK_TAG}.json`)
     : path.join(SIGNAL_DIR, `open-request-pid-${process.pid}.json`);
 
+// Collect ancestor PIDs for cross-process window matching.
+// Python can identify which VS Code window spawned a given terminal by finding
+// the window whose extension host shares a common ancestor with the terminal process.
+// Records up to 8 levels: [ppid, pppid, ...] stopping before PID 1.
+function _getAncestorPids(pid, depth) {
+    const result = [];
+    let p = pid;
+    for (let i = 0; i < depth; i++) {
+        const res = spawnSync('ps', ['-p', String(p), '-o', 'ppid='],
+            { encoding: 'utf8', timeout: 1000 });
+        const ppid = parseInt((res.stdout || '').trim(), 10);
+        if (!ppid || ppid <= 1) break;
+        result.push(ppid);
+        p = ppid;
+    }
+    return result;
+}
+const EXT_PPIDS = _getAncestorPids(process.pid, 8);
+
 let version = 'unknown';
 let isProcessingSignal = false;
 let lastHandledRequestId = null;
@@ -344,9 +363,10 @@ function activate(context) {
     const windowId = OWN_HOOK_TAG || String(process.pid);
     const regFile = path.join(SIGNAL_DIR, `window-${windowId}.json`);
     try {
-        fs.writeFileSync(regFile, JSON.stringify({ 
-            hookTag: OWN_HOOK_TAG || '', 
-            pid: process.pid, 
+        fs.writeFileSync(regFile, JSON.stringify({
+            hookTag: OWN_HOOK_TAG || '',
+            pid: process.pid,
+            ppids: EXT_PPIDS,   // ancestor PIDs for multi-window matching by Python
             ts: Date.now(),
             fallbackId: !OWN_HOOK_TAG  // true if using PID fallback
         }));
