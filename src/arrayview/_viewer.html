@@ -12156,11 +12156,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cbBottom = Math.max(10, window.innerHeight - vpRect.bottom + 10);
                 cbWrap.style.bottom = cbBottom + 'px';
             }
-            // Position minimap to the right of the canvas, vertically centered
+            // Position minimap: prefer northeast (inside canvas), fallback to east (outside) if dimbar overlaps
             if (_miniMap) {
+                const mmW = _miniMap.offsetWidth || 100;
                 const mmH = _miniMap.offsetHeight || 100;
-                _miniMap.style.top = (vpRect.top + (vpRect.height - mmH) / 2) + 'px';
-                _miniMap.style.left = (vpRect.right + 10) + 'px';
+                const mmMargin = 8;
+                // Northeast candidate: top-right inside canvas
+                const neTop = vpRect.top + mmMargin;
+                const neRight = vpRect.right - mmW - mmMargin;
+                // Check overlap with dimbar island (#info)
+                const infoEl = document.getElementById('info');
+                let overlaps = false;
+                if (infoEl && infoEl.offsetWidth) {
+                    const infoRect = infoEl.getBoundingClientRect();
+                    // Overlap if minimap rect intersects info rect
+                    overlaps = !(neRight + mmW < infoRect.left ||
+                                 neRight > infoRect.right ||
+                                 neTop + mmH < infoRect.top ||
+                                 neTop > infoRect.bottom);
+                }
+                if (overlaps) {
+                    // East fallback: right of canvas, vertically centered
+                    _miniMap.style.top = (vpRect.top + (vpRect.height - mmH) / 2) + 'px';
+                    _miniMap.style.left = (vpRect.right + 10) + 'px';
+                } else {
+                    // Northeast: inside canvas, top-right corner
+                    _miniMap.style.top = neTop + 'px';
+                    _miniMap.style.left = neRight + 'px';
+                }
                 _miniMap.style.right = 'auto';
             }
         }
