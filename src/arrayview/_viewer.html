@@ -8733,6 +8733,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const hintEl    = document.getElementById('uni-picker-tab-hint');
                 const cancelBtn = document.getElementById('uni-picker-cancel');
                 const searchEl  = document.getElementById('uni-picker-search');
+                const sidebarEl = document.getElementById('uni-picker-sidebar');
+                const pickerBox = document.getElementById('uni-picker-box');
 
                 let done = false;
                 let _searchTimer = null;
@@ -9037,6 +9039,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const filtSessions = q ? sessions.filter(s => (s.name || '').toLowerCase().includes(q)) : sessions;
                         const filtFiles    = q ? fileEntries.filter(f => f.name.toLowerCase().includes(q)) : fileEntries;
                         populate(filtSessions, filtFiles);
+                        // Filter sidebar cards too
+                        sidebarEl.querySelectorAll('.sidebar-card').forEach(card => {
+                            const name = card.querySelector('.sidebar-card-name')?.textContent?.toLowerCase() || '';
+                            card.style.display = (!q || name.includes(q)) ? '' : 'none';
+                        });
                     }, 100);
                 };
 
@@ -9044,9 +9051,112 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 overlay.style.setProperty('--picker-accent', 'var(--active-dim)');
                 searchEl.value = '';
                 searchEl.focus();
+
+                // Populate sidebar with instance previews
+                sidebarEl.innerHTML = '';
+                const otherSessions = sessions.filter(s => sessions.length > 1);
+                if (otherSessions.length > 1) {
+                    pickerBox.classList.remove('no-sidebar');
+                    const hdr = document.createElement('div');
+                    hdr.className = 'sidebar-header';
+                    hdr.textContent = 'Open Instances';
+                    sidebarEl.appendChild(hdr);
+
+                    let totalMem = 0;
+                    for (const s of sessions) {
+                        totalMem += s.estimated_mem || 0;
+                        const card = document.createElement('div');
+                        card.className = 'sidebar-card' + (s.sid === sid ? ' current' : '');
+                        card.tabIndex = 0;
+
+                        const thumb = document.createElement('div');
+                        thumb.className = 'sidebar-card-thumb';
+                        const img = document.createElement('img');
+                        img.src = `/thumbnail/${s.sid}?w=96&h=72`;
+                        img.loading = 'lazy';
+                        img.alt = s.name;
+                        thumb.appendChild(img);
+
+                        const info = document.createElement('div');
+                        info.className = 'sidebar-card-info';
+                        const nameEl = document.createElement('div');
+                        nameEl.className = 'sidebar-card-name';
+                        nameEl.textContent = s.name || '(unnamed)';
+                        info.appendChild(nameEl);
+
+                        const shapeStr = Array.isArray(s.shape) ? `(${s.shape.join(', ')})` : '?';
+                        const meta1 = document.createElement('div');
+                        meta1.className = 'sidebar-card-meta';
+                        meta1.textContent = shapeStr;
+                        info.appendChild(meta1);
+
+                        const dtypeSlice = s.dtype || '';
+                        const meta2 = document.createElement('div');
+                        meta2.className = 'sidebar-card-meta';
+                        meta2.textContent = dtypeSlice;
+                        info.appendChild(meta2);
+
+                        if (s.sid === sid) {
+                            const cur = document.createElement('div');
+                            cur.className = 'sidebar-card-current';
+                            cur.textContent = '(current)';
+                            info.appendChild(cur);
+                        }
+
+                        card.appendChild(thumb);
+                        card.appendChild(info);
+
+                        card.onclick = () => {
+                            if (s.sid === sid) return; // already here
+                            finish({ action: 'open', sids: [s.sid], names: [s.name || ''] });
+                            if (window.parent !== window && window.parent.__arrayviewShell) {
+                                window.parent.activateTab(s.sid);
+                            } else {
+                                window.location.href = '/?sid=' + s.sid;
+                            }
+                        };
+                        card.onkeydown = e => {
+                            if (e.key === 'Enter') { e.preventDefault(); card.onclick(); }
+                        };
+                        sidebarEl.appendChild(card);
+                    }
+
+                    const footer = document.createElement('div');
+                    footer.className = 'sidebar-footer';
+                    const memStr = totalMem >= 1024 ** 3
+                        ? (totalMem / 1024 ** 3).toFixed(1) + ' GB'
+                        : (totalMem / 1024 ** 2).toFixed(0) + ' MB';
+                    footer.textContent = `${sessions.length} instances · ${memStr} used`;
+                    sidebarEl.appendChild(footer);
+                } else {
+                    pickerBox.classList.add('no-sidebar');
+                    sidebarEl.innerHTML = '';
+                }
+
                 populate();
 
                 overlay.onkeydown = e => {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const sidebarCards = [...sidebarEl.querySelectorAll('.sidebar-card')];
+                        const fileItems = [...listEl.querySelectorAll('.cp-item')];
+                        const inSidebar = sidebarCards.includes(document.activeElement);
+                        const inFiles = fileItems.includes(document.activeElement);
+                        const inSearch = document.activeElement === searchEl;
+
+                        if (e.shiftKey) {
+                            // Reverse: files → sidebar → search
+                            if (inFiles && sidebarCards.length) sidebarCards[0].focus();
+                            else if (inSidebar) searchEl.focus();
+                            else if (inSearch && fileItems.length) fileItems[0].focus();
+                        } else {
+                            // Forward: search → sidebar → files
+                            if (inSearch && sidebarCards.length) sidebarCards[0].focus();
+                            else if (inSidebar && fileItems.length) fileItems[0].focus();
+                            else searchEl.focus();
+                        }
+                        return;
+                    }
                     const inSearch = document.activeElement === searchEl;
                     if (e.key === 'Escape') { e.preventDefault(); finish(null); return; }
                     if (e.key === 'q' && !inSearch) { e.preventDefault(); finish(null); return; }
