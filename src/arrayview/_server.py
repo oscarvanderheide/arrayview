@@ -2107,6 +2107,63 @@ async def get_thumbnail(sid: str, w: int = 96, h: int = 72):
     )
 
 
+@app.post("/exploded/{sid}")
+async def get_exploded_slices(
+    sid: str,
+    dim_x: int = Body(...),
+    dim_y: int = Body(...),
+    scroll_dim: int = Body(...),
+    indices: list[int] = Body(...),
+    width: int = Body(256),
+    colormap: str = Body("gray"),
+    dr: int = Body(1),
+    complex_mode: int = Body(0),
+    log_scale: bool = Body(False),
+    vmin_override: float | None = Body(None),
+    vmax_override: float | None = Body(None),
+):
+    """Return JPEG thumbnails for multiple slices along scroll_dim."""
+    import base64
+
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    ndim = len(session.shape)
+    if ndim < 3:
+        return JSONResponse({"error": "need >= 3D array"}, status_code=400)
+
+    Image = _pil_image()
+    results = []
+
+    # Build base index tuple (middle of each dim)
+    base_indices = [s // 2 for s in session.shape]
+
+    for slice_idx in indices:
+        idx_list = list(base_indices)
+        idx_list[scroll_dim] = min(max(0, slice_idx), session.shape[scroll_dim] - 1)
+
+        rgba = await asyncio.to_thread(
+            render_rgba, session, dim_x, dim_y, tuple(idx_list),
+            colormap, dr, complex_mode, log_scale,
+            vmin_override, vmax_override,
+        )
+
+        img = Image.fromarray(rgba[:, :, :3])
+        # Maintain aspect ratio, fit within width
+        aspect = img.height / img.width
+        target_h = max(1, int(width * aspect))
+        resample = Image.NEAREST if img.width <= width else Image.LANCZOS
+        img = img.resize((width, target_h), resample)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=70)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        results.append({"index": slice_idx, "image": f"data:image/jpeg;base64,{b64}"})
+
+    return JSONResponse({"slices": results})
+
+
 @app.post("/load")
 async def load_file(request: Request):
     """Load a file into a new session. Optionally notify webview shells."""
