@@ -2080,6 +2080,30 @@ async def load_file(request: Request):
     for existing in SESSIONS.values():
         if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
             return {"sid": existing.sid, "name": existing.name, "notified": False}
+    # RAM guard: block full-load formats that would exceed available memory.
+    if not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
+        from ._io import FULL_LOAD_EXTS
+        ext = os.path.splitext(filepath)[1].lower()
+        # Handle double extensions like .nii.gz (not relevant here but consistent)
+        if filepath.lower().endswith(".nii.gz"):
+            ext = ".nii.gz"
+        if ext in FULL_LOAD_EXTS:
+            try:
+                import psutil
+                file_size = os.path.getsize(abs_path)
+                available = psutil.virtual_memory().available
+                if file_size > available:
+                    return JSONResponse(
+                        {
+                            "error": "insufficient_memory",
+                            "estimated_bytes": file_size,
+                            "available_bytes": available,
+                            "filename": os.path.basename(filepath),
+                        },
+                        status_code=507,
+                    )
+            except ImportError:
+                pass  # psutil not available — skip guard
     try:
         data = await asyncio.to_thread(load_data, filepath)
     except Exception as e:

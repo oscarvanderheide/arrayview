@@ -152,6 +152,10 @@ _SUPPORTED_EXTS = frozenset(
     ]
 )
 
+# Formats that load the entire array into RAM (no mmap/lazy access).
+# RAM guard only applies to these.
+FULL_LOAD_EXTS = frozenset([".pt", ".pth", ".tif", ".tiff", ".mat"])
+
 
 def _peek_file_shape(fpath: str, ext: str):
     """Try to return shape quickly without loading the full array. Returns None on failure."""
