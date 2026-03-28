@@ -3313,26 +3313,8 @@
         let _cbExpandedHLocked = false; // once computed, lock the height
         function _computeCbExpandedH() {
             if (_cbExpandedHLocked) return; // already locked — don't recompute
-            // In immersive mode the wrap is fixed near the canvas bottom edge — measuring
-            // wrapTop gives nearly zero downward space. The histogram opens upward into the
-            // canvas area freely, so just use the default height.
-            if (_fullscreenActive) {
-                _cbExpandedH = CB_DEFAULT_EXPANDED_H;
-                _cbExpandedHLocked = true;
-                return;
-            }
-            // Compute max height that fits between the island top and viewport bottom.
-            // Island overhead = padding(14) + tri(10) + bottomMargin(20) = 44.
-            const wrapId = (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap';
-            const wrap = document.getElementById(wrapId);
-            if (wrap) {
-                const wrapTop = wrap.getBoundingClientRect().top;
-                const avail = window.innerHeight - wrapTop - 44;
-                _cbExpandedH = Math.max(30, Math.min(avail, CB_DEFAULT_EXPANDED_H));
-            } else {
-                _cbExpandedH = CB_DEFAULT_EXPANDED_H;
-            }
-            _cbExpandedHLocked = true; // lock — reused for all subsequent expansions
+            _cbExpandedH = CB_DEFAULT_EXPANDED_H;
+            _cbExpandedHLocked = true;
         }
 
         function _buildKDE() {
