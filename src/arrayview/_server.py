@@ -55,7 +55,6 @@ from arrayview._render import (
     extract_projection,
     PROJECTION_OPS,
     apply_complex_mode,
-    _compute_otsu_threshold,
     _prepare_display,
     _init_luts,
     _ensure_lut,
@@ -662,60 +661,18 @@ def get_colormap(name: str):
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
 
 
-# Multipliers applied to the Otsu threshold for each mask level (level 0 = off)
-MASK_MULTIPLIERS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0]
-
-
 @app.post("/mask/{sid}")
 async def set_mask(sid: str, request: Request):
-    """Cycle mask level (0=off, 1–7 = increasing Otsu multiplier).
-
-    Client sends ``free_dims`` (list of dim indices to keep free) and
-    ``indices`` (current full index tuple). Otsu is computed on the
-    sub-volume formed by those free dims.
-    """
+    """Toggle mask (0=off, 1=transparent below vmin)."""
     session = SESSIONS.get(sid)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     body = await request.json()
-    level = int(body.get("level", 0))
-    level = max(0, min(level, len(MASK_MULTIPLIERS) - 1))
-    if level == 0:
-        session.mask_level = 0
-        session.mask_threshold = 0.0
-        session.rgba_cache.clear()
-        session._rgba_bytes = 0
-        return {"level": 0, "threshold": 0.0, "multiplier": 0.0}
-    try:
-        free_dims = set(int(d) for d in body.get("free_dims", [0, 1]))
-        indices = [int(v) for v in str(body.get("indices", "0")).split(",")]
-        loop = asyncio.get_running_loop()
-
-        def _extract_subvol():
-            slicer = tuple(
-                slice(None) if i in free_dims else indices[i]
-                for i in range(len(session.shape))
-            )
-            return session.data[slicer]
-
-        subvol = await loop.run_in_executor(None, _extract_subvol)
-        otsu = await loop.run_in_executor(None, lambda: _compute_otsu_threshold(subvol))
-    except Exception as e:
-        return {"error": str(e)}
-    otsu = float(otsu)
-    multiplier = MASK_MULTIPLIERS[level]
-    threshold = otsu * multiplier
+    level = 1 if int(body.get("level", 0)) else 0
     session.mask_level = level
-    session.mask_threshold = threshold
-    session.mask_otsu = otsu
     session.rgba_cache.clear()
     session._rgba_bytes = 0
-    return {
-        "level": level,
-        "threshold": threshold,
-        "otsu": otsu,
-        "multiplier": multiplier,
-    }
+    return {"level": level}
 
 
 @app.post("/preload/{sid}")

@@ -1333,7 +1333,7 @@
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS</span></div>
-                <div class="help-row"><span class="key">M</span><span class="desc">cycle mask threshold (Otsu)</span></div>
+                <div class="help-row"><span class="key">M</span><span class="desc">toggle mask (transparent below vmin)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
@@ -1539,8 +1539,7 @@
         let projectionDim = -1;  // locked dim for projection, independent of h/l scroll changes
         const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
-        const MASK_LEVELS = 8; // 0=off, 1–7 = increasing Otsu multipliers
-        let maskLevel = 0;
+        let maskLevel = 0; // 0=off, 1=on (transparent below vmin)
         let multiViewActive = false;
         let mvViews = [];
         let mvDims = [];
@@ -8378,29 +8377,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     renderInfo();
                 }
             } else if (e.key === 'M') {
-                maskLevel = (maskLevel + 1) % MASK_LEVELS;
+                maskLevel = maskLevel ? 0 : 1;
                 _eggsVisible = true;
-                // Determine free dims based on current view mode
-                let freeDims;
-                if (multiViewActive) {
-                    freeDims = mvDims.slice(); // all 3 spatial dims
-                } else if (dim_z >= 0) {
-                    // mosaic: x + y + z + active scroll dim
-                    const sd = (activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) ? activeDim : -1;
-                    freeDims = sd >= 0 ? [dim_x, dim_y, dim_z, sd] : [dim_x, dim_y, dim_z];
-                } else {
-                    // normal: x + y + active scroll dim
-                    const sd = (activeDim !== dim_x && activeDim !== dim_y) ? activeDim : -1;
-                    freeDims = sd >= 0 ? [dim_x, dim_y, sd] : [dim_x, dim_y];
-                }
                 fetch(`/mask/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        level: maskLevel,
-                        free_dims: freeDims,
-                        indices: indices.join(','),
-                    }),
+                    body: JSON.stringify({ level: maskLevel }),
                 }).then(r => r.json()).then(d => {
                     if (d.error) { showStatus('mask error: ' + d.error); return; }
                     updateView(); triggerPreload();
