@@ -819,22 +819,32 @@
 
         /* ── ROI shape preview strip ───────────────────────────── */
         #roi-shape-strip {
-            position:fixed; pointer-events:none; z-index:8;
+            position:fixed; pointer-events:none; z-index:9999;
             width:0; height:0;
         }
         .roi-shape-icon {
-            position:absolute; display:flex; flex-direction:column; align-items:center; gap:2px;
+            position:absolute; display:flex; flex-direction:column; align-items:center; gap:3px;
             opacity:0; transition:opacity 0.2s ease, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
             transform:translate(-50%,-50%) scale(0.3);
+            /* glassmorphic circular island */
+            width:52px; height:52px; border-radius:50%;
+            background:rgba(30,30,30,0.8);
+            backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+            border:1px solid rgba(255,255,255,0.06);
+            justify-content:center;
+            box-shadow:0 4px 16px rgba(0,0,0,0.35);
         }
+        :root.light .roi-shape-icon { background:rgba(240,240,240,0.85); border-color:rgba(0,0,0,0.08); box-shadow:0 4px 16px rgba(0,0,0,0.12); }
+        :root.solarized .roi-shape-icon { background:rgba(238,232,213,0.85); border-color:rgba(0,0,0,0.08); box-shadow:0 4px 16px rgba(0,0,0,0.15); }
+        :root.nord .roi-shape-icon { background:rgba(36,41,56,0.85); border-color:rgba(216,222,233,0.07); box-shadow:0 4px 16px rgba(0,0,0,0.3); }
         .roi-shape-icon.fan-out {
-            opacity:0.45;
+            opacity:0.65;
             transform:translate(-50%,-50%) scale(1);
         }
-        .roi-shape-icon.fan-out.active { opacity:1; }
-        .roi-shape-icon svg { width:24px; height:24px; stroke:var(--muted); stroke-width:1.5; }
-        .roi-shape-icon.active svg { width:30px; height:30px; stroke:var(--help-key); stroke-width:2; }
-        .roi-shape-icon span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; }
+        .roi-shape-icon.fan-out.active { opacity:1; border-color:rgba(245,200,66,0.25); }
+        .roi-shape-icon svg { width:22px; height:22px; stroke:var(--muted); stroke-width:1.5; flex-shrink:0; }
+        .roi-shape-icon.active svg { width:22px; height:22px; stroke:var(--help-key); stroke-width:2; }
+        .roi-shape-icon span { font-size:8px; color:var(--muted); font-family:monospace; white-space:nowrap; line-height:1; }
         .roi-shape-icon.active span { color:var(--fg); }
 
         /* ── Compare mode preview strip ─────────────────────────── */
@@ -12403,7 +12413,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const curShape = rectRoiMode ? _roiShape : null;
             _roiStrip.innerHTML = '';
             // Fan out in a 120° arc above the cursor
-            const radius = 60;
+            const radius = 70;
             const arcDeg = 120;
             const startDeg = -90 - arcDeg / 2; // center the arc above (pointing up)
             const n = shapes.length;
@@ -12415,8 +12425,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const icon = document.createElement('div');
                 const isActive = s.id === curShape;
                 icon.className = 'roi-shape-icon' + (isActive ? ' active' : '');
-                const sz = isActive ? 30 : 24;
-                icon.innerHTML = `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
+                icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
                     + `<span>${s.label}</span>`;
                 // Place at origin initially, will fan out via class
                 const angleDeg = startDeg + stepDeg * i;
