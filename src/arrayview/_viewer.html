@@ -12042,10 +12042,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const infoEl = document.getElementById('info');
             const cbWrap = document.getElementById('slim-cb-wrap');
             const nameEl = document.getElementById('array-name');
+            // In compare mode, also fade out titles and per-pane colorbars
+            const cmpTitles = compareActive ? Array.from(document.querySelectorAll('.compare-title')) : [];
+            const cmpCbIslands = compareActive ? Array.from(document.querySelectorAll('.compare-pane-cb-island')) : [];
+            const fadeOutEls = [infoEl, cbWrap, nameEl, ...cmpTitles, ...cmpCbIslands];
             const FADE_OUT = 150, GROW = 160, FADE_IN = 150;
 
             // Phase 1: fade out non-immersive chrome
-            _animOpacity([infoEl, cbWrap, nameEl], 1, 0, FADE_OUT, () => {
+            _animOpacity(fadeOutEls, 1, 0, FADE_OUT, () => {
                 if (!_immersiveAnimating) return;
 
                 // Phase 2: switch to immersive layout, animate canvas grow
@@ -12077,6 +12081,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         for (const el of [infoEl, cbWrap, nameEl]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
+                        // Clear inline opacity on compare elements (CSS handles hiding)
+                        for (const el of [...cmpTitles, ...cmpCbIslands]) {
+                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
+                        }
                     });
                 }, GROW);
             });
@@ -12095,6 +12103,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 for (const el of [infoEl, cbWrap, nameEl]) {
                     if (el) { el.style.transition = ''; el.style.opacity = ''; }
                 }
+                // Clear compare element inline styles
+                document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
+                    el.style.transition = ''; el.style.opacity = '';
+                });
                 if (_fullscreenActive) {
                     _fullscreenActive = false;
                     document.body.classList.remove('fullscreen-mode');
@@ -12164,9 +12176,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _autoFitPending = false;
                     ModeRegistry.scaleAll(); // settles layout at toZoom in normal mode
 
-                    _animOpacity([infoEl, cbWrap, nameEl], 0, 1, FADE_IN, () => {
+                    const cmpEls = Array.from(document.querySelectorAll('.compare-title, .compare-pane-cb-island'));
+                    _animOpacity([infoEl, cbWrap, nameEl, ...cmpEls], 0, 1, FADE_IN, () => {
                         _immersiveAnimating = false;
-                        for (const el of [infoEl, cbWrap, nameEl]) {
+                        for (const el of [infoEl, cbWrap, nameEl, ...cmpEls]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
                     });
