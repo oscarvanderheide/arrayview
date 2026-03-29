@@ -769,6 +769,20 @@
             align-items: center;
         }
 
+        #compare-center-island {
+            position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 4px 12px;
+            font-size: 13px; font-family: monospace;
+            color: #ccc;
+            pointer-events: none;
+            display: none;
+            white-space: nowrap;
+        }
+
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
         body:not(.fullscreen-mode) #info {
             background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
@@ -1242,6 +1256,7 @@
     <div id="colormap-strip-right"></div>
     <div id="roi-shape-strip"></div>
     <div id="compare-mode-strip"></div>
+    <div id="compare-center-island"></div>
     <div id="inline-prompt">
         <div id="inline-prompt-box">
             <div id="inline-prompt-msg"></div>
@@ -2797,6 +2812,16 @@
                         el.style.pointerEvents = '';
                     }
                 });
+            }
+            // Update center-mode island content
+            const centerIsland = document.getElementById('compare-center-island');
+            if (centerIsland) {
+                if (newMode > 0 && _fullscreenActive) {
+                    centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
+                    centerIsland.style.display = '';
+                } else {
+                    centerIsland.style.display = 'none';
+                }
             }
             renderEggs();
             saveState();
@@ -12073,6 +12098,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Reset wrapper padding
                 const wrapper = document.getElementById('wrapper');
                 if (wrapper) { wrapper.style.paddingTop = ''; }
+                const centerIsland = document.getElementById('compare-center-island');
+                if (centerIsland) centerIsland.style.display = 'none';
             }
         }
 
@@ -12253,6 +12280,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (minClipTop < Infinity) anchorTop = minClipTop;
                 }
                 infoEl.style.top = (anchorTop + 8) + 'px';
+            }
+            // Position center-mode island below dimbar
+            const centerIsland = document.getElementById('compare-center-island');
+            if (centerIsland && compareActive) {
+                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+                if (hasCenterMode && infoEl) {
+                    centerIsland.style.display = '';
+                    const infoRect = infoEl.getBoundingClientRect();
+                    centerIsland.style.top = (infoRect.bottom + 6) + 'px';
+                } else {
+                    centerIsland.style.display = 'none';
+                }
+            } else if (centerIsland) {
+                centerIsland.style.display = 'none';
             }
             // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
@@ -12599,6 +12640,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const bStyle = _flickerShowA ? 'color:#f2916d;opacity:0.25' : 'color:#f2916d;opacity:1';
                 wipeTitle.innerHTML = `<span style="${aStyle}">A</span><span style="opacity:0.3;margin:0 3px">⇄</span><span style="${bStyle}">B</span>`;
             }
+            // Update center island during flicker
+            if (_fullscreenActive) {
+                const _island = document.getElementById('compare-center-island');
+                if (_island) _island.innerHTML = wipeTitle ? wipeTitle.innerHTML : '';
+            }
         }
 
         // ── 4c. Checkerboard compare ─────────────────────────────────
@@ -12644,6 +12690,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Update title with styled checkerboard indicator
             const wipeTitle = document.getElementById('compare-wipe-title');
             if (wipeTitle) wipeTitle.innerHTML = _centerModeIndicatorHTML(7, `${sz}px`);
+            if (_fullscreenActive) {
+                const _island = document.getElementById('compare-center-island');
+                if (_island) _island.innerHTML = _centerModeIndicatorHTML(7, `${sz}px`);
+            }
         }
 
         // Re-draw center pane whenever compare frames update
