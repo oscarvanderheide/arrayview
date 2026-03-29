@@ -2097,9 +2097,7 @@
             const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             // In fullscreen: center the canvas viewport in the viewport (ignore hidden/fixed chrome)
             const pt = _fullscreenActive
-                ? (isInlineEmbed
-                    ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
-                    : 0)
+                ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
                 : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
@@ -4318,7 +4316,12 @@
             // Redraw colorbar AND reposition island each frame so bottom stays anchored
             if (multiViewActive || compareMvActive) {
                 drawMvColorbar();
+                // Recalc pane layout so canvases track the changing colorbar height,
+                // but preserve userZoom so the clamping inside mvScaleAllCanvases
+                // doesn't fight a concurrent zoom animation.
+                const _savedZoom = userZoom;
                 mvScaleAllCanvases();
+                userZoom = _savedZoom;
             } else {
                 drawSlimColorbar(cbMarkerFrac);
             }
@@ -7475,6 +7478,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 }
             } else if (e.key === '-') {
+                if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                 userZoom = Math.max(userZoom / 1.1, 0.1);
                 // For square/wide arrays in single-view: don't zoom out past dimbar width
                 if (lastImgW && lastImgH && lastImgW >= lastImgH &&
@@ -11449,6 +11453,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Clamp userZoom so pressing + repeatedly doesn't overshoot the visual max
             if (requestedT > absMaxT) {
                 userZoom = 1.0;
+                _zoomRendered = 1.0;
+                if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             }
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
@@ -11655,7 +11661,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function onSliceWheel(e) {
             e.preventDefault();
             // Ctrl / Cmd + scroll → zoom
-            if (e.ctrlKey || e.metaKey) {
+            if ((e.ctrlKey || e.metaKey) && !_immersiveAnimating) {
                 // Use deltaY magnitude to scale zoom — small trackpad pinch
                 // gestures get small zoom steps, big scroll wheel clicks get bigger ones
                 const absDelta = Math.min(Math.abs(e.deltaY), 50);
