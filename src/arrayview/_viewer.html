@@ -763,9 +763,10 @@
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
         }
-        /* Remove canvas-area padding so panes fill completely */
+        /* Remove canvas-area padding and center canvases vertically */
         body.fullscreen-mode .compare-canvas-area {
             padding: 0;
+            align-items: center;
         }
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
