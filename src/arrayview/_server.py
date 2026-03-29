@@ -1270,11 +1270,15 @@ def export_slice(
     dim_y: int,
     indices: str,
     complex_mode: int = 0,
+    save_to_downloads: int = 0,
 ):
     """Return the current 2-D slice as a downloadable .npy file.
 
     The slice is the raw floating-point data (before colormap/LUT), with the
     complex mode applied (mag/phase/real/imag). Used by the N-key shortcut.
+
+    When save_to_downloads=1 (PyWebView), saves the file directly to ~/Downloads
+    instead of returning it as a download response.
     """
     session = SESSIONS.get(sid)
     if not session:
@@ -1289,6 +1293,12 @@ def export_slice(
     name_stem = (session.name or "slice").replace(" ", "_").replace("/", "_")
     idx_str = "_".join(str(v) for v in idx_tuple)
     filename = f"{name_stem}_x{dim_x}_y{dim_y}_{idx_str}.npy"
+    if save_to_downloads:
+        import pathlib
+        downloads = pathlib.Path.home() / "Downloads"
+        dest = downloads / filename if downloads.is_dir() else pathlib.Path(filename)
+        dest.write_bytes(buf.read())
+        return JSONResponse({"path": str(dest)})
     return Response(
         content=buf.read(),
         media_type="application/octet-stream",
