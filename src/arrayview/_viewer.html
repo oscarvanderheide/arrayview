@@ -2796,14 +2796,13 @@
                 const showPaneCbs = newMode > 0;
                 document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
                     if (showPaneCbs) {
-                        el.style.opacity = '1';
-                        el.style.maxHeight = '';
-                        el.style.overflow = '';
-                        el.style.margin = '';
-                        el.style.padding = '';
-                        el.style.pointerEvents = '';
+                        el.style.setProperty('opacity', '1', 'important');
+                        el.style.setProperty('max-height', 'none', 'important');
+                        el.style.setProperty('overflow', 'visible', 'important');
+                        el.style.setProperty('margin', '', '');
+                        el.style.setProperty('padding', '', '');
+                        el.style.setProperty('pointer-events', 'auto', 'important');
                     } else {
-                        // Let CSS rule handle hiding
                         el.style.opacity = '';
                         el.style.maxHeight = '';
                         el.style.overflow = '';
@@ -12100,6 +12099,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (wrapper) { wrapper.style.paddingTop = ''; }
                 const centerIsland = document.getElementById('compare-center-island');
                 if (centerIsland) centerIsland.style.display = 'none';
+                // Clear per-pane colorbar overrides so CSS rules apply normally
+                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
+                    el.style.opacity = '';
+                    el.style.maxHeight = '';
+                    el.style.overflow = '';
+                    el.style.pointerEvents = '';
+                });
             }
         }
 
