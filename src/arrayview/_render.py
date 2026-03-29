@@ -225,30 +225,6 @@ def apply_complex_mode(raw, complex_mode):
     return np.nan_to_num(result).astype(np.float32)
 
 
-def _compute_otsu_threshold(data) -> float:
-    """Compute Otsu's threshold on the absolute values of non-zero, finite elements."""
-    flat = np.abs(np.asarray(data, dtype=np.float64).ravel())
-    flat = flat[np.isfinite(flat) & (flat > 0)]
-    if len(flat) < 10:
-        return 0.0
-    if len(flat) > 1_000_000:
-        rng = np.random.default_rng(42)
-        flat = rng.choice(flat, 1_000_000, replace=False)
-    hist, edges = np.histogram(flat, bins=256)
-    centers = (edges[:-1] + edges[1:]) / 2
-    total = float(hist.sum())
-    if total == 0:
-        return 0.0
-    w_b = np.cumsum(hist) / total
-    w_f = 1.0 - w_b
-    mu_cum = np.cumsum(hist * centers)
-    mu_b = np.where(w_b > 0, mu_cum / np.maximum(w_b * total, 1e-10), 0.0)
-    mu_f = np.where(
-        w_f > 0, (mu_cum[-1] / total - mu_b * w_b) / np.maximum(w_f, 1e-10), 0.0
-    )
-    sigma_b_sq = w_b * w_f * (mu_b - mu_f) ** 2
-    return float(centers[int(np.argmax(sigma_b_sq))])
-
 
 def _prepare_display(
     session, raw, complex_mode, dr, log_scale, vmin_override=None, vmax_override=None
@@ -324,11 +300,8 @@ def apply_colormap_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    mask_thr = getattr(session, "mask_threshold", 0.0)
-    if mask_thr > 0:
-        abs_raw = np.abs(raw)
-        transparent = abs_raw < mask_thr
-    elif vmin > 0 and vmax > vmin:
+    mask_on = getattr(session, "mask_level", 0) > 0
+    if mask_on and vmax > vmin:
         transparent = data < vmin
     else:
         transparent = data == np.float32(0)
@@ -451,7 +424,7 @@ def render_rgba(
             dr,
             complex_mode,
             log_scale,
-            getattr(session, "mask_threshold", 0.0),
+            getattr(session, "mask_level", 0),
         )
         if key in session.rgba_cache:
             session.rgba_cache.move_to_end(key)
@@ -857,7 +830,6 @@ __all__ = [
     "_compute_vmin_vmax",
     "extract_slice",
     "apply_complex_mode",
-    "_compute_otsu_threshold",
     "_prepare_display",
     # RGB
     "_detect_rgb_axis",

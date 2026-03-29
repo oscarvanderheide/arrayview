@@ -70,7 +70,6 @@ from arrayview._render import (  # noqa: F401
     extract_projection,
     PROJECTION_OPS,
     apply_complex_mode,
-    _compute_otsu_threshold,
     _prepare_display,
     _ensure_lut,
     apply_colormap_rgba,
@@ -148,7 +147,6 @@ from arrayview._server import (  # noqa: F401
     _vfield_n_times,
     _render_normalized,
     _render_normalized_mosaic,
-    MASK_MULTIPLIERS,
 )
 
 # ---------------------------------------------------------------------------
