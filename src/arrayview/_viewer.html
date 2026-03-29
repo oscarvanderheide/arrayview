@@ -747,11 +747,13 @@
             gap: 0;
         }
         body.fullscreen-mode #compare-panes {
-            gap: 0;
+            gap: 6px;
             align-items: center;
         }
         body.fullscreen-mode .compare-pane {
             position: relative;
+        }
+        body.fullscreen-mode .compare-canvas-clip {
             outline: 1px solid var(--canvas-border);
             outline-offset: -1px;
         }
@@ -771,6 +773,7 @@
             pointer-events: auto !important;
             position: absolute !important; bottom: 10px; left: 50%; transform: translateX(-50%);
             margin: 0 !important; padding: 2px 8px !important;
+            max-width: min(90%, 400px) !important;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -2271,7 +2274,8 @@
             // .compare-canvas-area vertical padding; reserve colorbar height whenever any
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-            const cbExtra = _anyCenter ? (10 + CB_COLLAPSED_H + 4) : 0; // margin-top + strip + gap
+            // In immersive, per-pane colorbars are overlaid (absolute), so no space reservation needed
+            const cbExtra = (_anyCenter && !_fullscreenActive) ? (10 + CB_COLLAPSED_H + 4) : 0;
             const panePadY = (_fullscreenActive ? 0 : 12) + cbExtra;
             const fitSlack = _fullscreenActive ? 1.0 : 0.96;
             const activeFrames = compareFrames.filter(Boolean);
@@ -3229,6 +3233,12 @@
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
+                // In immersive diff/center mode, per-pane colorbars handle display — hide shared
+                const _fsCenterMode = compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+                if (_fsCenterMode) {
+                    if (wrap) wrap.style.display = 'none';
+                    return;
+                }
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
                 const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
@@ -3286,9 +3296,9 @@
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
-            // Cap compare mode width to 500px; normal mode matches canvas pane width (no arbitrary cap)
+            // Cap colorbar width: 500px in compare mode, 900px in normal mode
             const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
-                : Math.max(120, Math.min(rawW, window.innerWidth - 40));
+                : Math.max(120, Math.min(rawW, window.innerWidth - 40, 900));
             if (!cssW || cssW < 10) return;
             const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
             // Mirror the gap between name-bar/title bottom and canvas top
@@ -12134,6 +12144,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
                 _fullscreenActive = true;
                 document.body.classList.add('fullscreen-mode');
+
+                // If center mode (diff/overlay/wipe) is already active, show per-pane colorbars as islands
+                if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
+                    document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
+                        el.classList.add('fs-overlay');
+                    });
+                }
 
                 // Render canvas at fromZoom in immersive layout (no auto-fit flash)
                 _autoFitPending = false;
