@@ -2244,8 +2244,8 @@
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             const cbExtra = _anyCenter ? (10 + CB_COLLAPSED_H + 4) : 0; // margin-top + strip + gap
-            const panePadY = 12 + cbExtra;
-            const fitSlack = 0.96;
+            const panePadY = (_fullscreenActive ? 0 : 12) + cbExtra;
+            const fitSlack = _fullscreenActive ? 1.0 : 0.96;
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
@@ -2380,10 +2380,8 @@
                     wipeInner.style.height = '';
                 }
             }
-            // Shrink pane slots to wrap content when zoomed out so panes
-            // stay close together for easy visual comparison.
-            // Skip in immersive mode — panes should fill the viewport.
-            if (!_fullscreenActive) {
+            // Shrink pane slots to wrap content so panes stay close together.
+            {
                 for (let i = 0; i < paneCount; i++) {
                     const cv = compareCanvases[i];
                     const inner = cv && cv.closest('.compare-canvas-inner');
@@ -3186,8 +3184,8 @@
             if (_fullscreenActive) {
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
-                const vpW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
-                const fsCbW = Math.max(160, Math.round(vpW * 0.60));
+                const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
+                const fsCbW = Math.max(160, Math.round(cbRefW * 0.60));
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
                     wrap.style.left = '50%';
@@ -11972,10 +11970,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _calcAutoFitZoom(w, h, forImmersive) {
             if (!w || !h) return 1;
             if (compareActive) {
-                // In compare mode, let compareScaleCanvases handle the actual sizing.
-                // Return a reasonable fit zoom; the compare scaler will compute exact per-pane sizing.
-                const uiH = forImmersive ? 0 : (uiReserveV() + 40);
-                const maxW = Math.max(100, window.innerWidth - (forImmersive ? 0 : 80));
+                // In compare mode, compareScaleCanvases handles actual sizing.
+                // At userZoom=1.0 the base scale already fits each image in its pane,
+                // so for immersive entry we want exactly 1.0 (entire slices visible).
+                if (forImmersive) return 1.0;
+                const uiH = uiReserveV() + 40;
+                const maxW = Math.max(100, window.innerWidth - 80);
                 const maxH = Math.max(100, window.innerHeight - uiH);
                 const baseScale = getBaseScale(w, h);
                 const capScale = Math.min(maxW / w, maxH / h);
