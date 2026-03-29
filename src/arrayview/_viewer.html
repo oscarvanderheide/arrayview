@@ -2263,9 +2263,10 @@
             // Use the full compare area; overflow is handled by per-pane clipping
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
+            const immersivePad = 12;
             const uiReserveH = _fullscreenActive ? 0 : (uiReserveV() + 40);
-            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? 0 : 80));
-            const totalH = Math.max(100, window.innerHeight - uiReserveH);
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80));
+            const totalH = Math.max(100, window.innerHeight - uiReserveH - (_fullscreenActive ? immersivePad * 2 : 0));
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Maximum viewport size (how large the clipping container can be)
