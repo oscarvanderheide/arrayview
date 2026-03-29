@@ -2268,7 +2268,7 @@
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Maximum viewport size (how large the clipping container can be)
-            const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - 80)  - (cols - 1) * colGap) / cols - panePadX);
+            const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - (_fullscreenActive ? 0 : 80))  - (cols - 1) * colGap) / cols - panePadX);
             const capPaneH = Math.max(40, (Math.max(100, window.innerHeight - uiReserveH) - (rows - 1) * rowGap) / rows - titleReserve - panePadY);
             const slotW = Math.round(paneOuterW);
             const slotH = Math.round(paneOuterH);
@@ -2381,23 +2381,26 @@
             }
             // Shrink pane slots to wrap content when zoomed out so panes
             // stay close together for easy visual comparison.
-            for (let i = 0; i < paneCount; i++) {
-                const cv = compareCanvases[i];
-                const inner = cv && cv.closest('.compare-canvas-inner');
-                const pane = comparePaneEls[i];
-                if (!inner || !pane || !inner.dataset.vpW) continue;
-                const vpW = parseInt(inner.dataset.vpW);
-                const vpH = parseInt(inner.dataset.vpH);
-                const neededW = vpW + panePadX;
-                const neededH = titleReserve + vpH + panePadY;
-                if (neededW < slotW) {
-                    pane.style.flex = `0 0 ${neededW}px`;
-                    pane.style.width = neededW + 'px';
-                    pane.style.maxWidth = neededW + 'px';
-                }
-                if (neededH < slotH) {
-                    pane.style.height = neededH + 'px';
-                    pane.style.maxHeight = neededH + 'px';
+            // Skip in immersive mode — panes should fill the viewport.
+            if (!_fullscreenActive) {
+                for (let i = 0; i < paneCount; i++) {
+                    const cv = compareCanvases[i];
+                    const inner = cv && cv.closest('.compare-canvas-inner');
+                    const pane = comparePaneEls[i];
+                    if (!inner || !pane || !inner.dataset.vpW) continue;
+                    const vpW = parseInt(inner.dataset.vpW);
+                    const vpH = parseInt(inner.dataset.vpH);
+                    const neededW = vpW + panePadX;
+                    const neededH = titleReserve + vpH + panePadY;
+                    if (neededW < slotW) {
+                        pane.style.flex = `0 0 ${neededW}px`;
+                        pane.style.width = neededW + 'px';
+                        pane.style.maxWidth = neededW + 'px';
+                    }
+                    if (neededH < slotH) {
+                        pane.style.height = neededH + 'px';
+                        pane.style.maxHeight = neededH + 'px';
+                    }
                 }
             }
             // Shrink center pane (diff/wipe) using its own inner dimensions
@@ -12208,14 +12211,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Position dim bar inside canvas, 8px from canvas top
             const infoEl = document.getElementById('info');
             if (infoEl) {
-                infoEl.style.top = (vpRect.top + 8) + 'px';
+                let anchorTop = vpRect.top;
+                if (compareActive) {
+                    const clips = document.querySelectorAll('.compare-canvas-clip');
+                    let minClipTop = Infinity;
+                    clips.forEach(c => {
+                        const r = c.getBoundingClientRect();
+                        if (r.top < minClipTop) minClipTop = r.top;
+                    });
+                    if (minClipTop < Infinity) anchorTop = minClipTop;
+                }
+                infoEl.style.top = (anchorTop + 8) + 'px';
             }
             // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap && cbWrap.style.display !== 'none') {
                 cbWrap.style.top = '';
-                // bottom = distance from viewport bottom to canvas bottom + 10px margin
-                const cbBottom = Math.max(10, window.innerHeight - vpRect.bottom + 10);
+                // In compare mode, anchor to actual canvas clip bottom, not the wrap
+                let anchorBottom = vpRect.bottom;
+                if (compareActive) {
+                    const clips = document.querySelectorAll('.compare-canvas-clip');
+                    let maxClipBottom = 0;
+                    clips.forEach(c => {
+                        const r = c.getBoundingClientRect();
+                        if (r.bottom > maxClipBottom) maxClipBottom = r.bottom;
+                    });
+                    if (maxClipBottom > 0) anchorBottom = maxClipBottom;
+                }
+                const cbBottom = Math.max(10, window.innerHeight - anchorBottom + 10);
                 cbWrap.style.bottom = cbBottom + 'px';
             }
             // Per-pane minimaps in compare mode are positioned via CSS (absolute within pane)
