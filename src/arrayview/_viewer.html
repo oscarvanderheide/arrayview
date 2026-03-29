@@ -927,7 +927,7 @@
 
         /* ── Per-pane minimap (compare mode) ────────────────────── */
         .cmp-mini-map {
-            position:absolute; top:6px; right:6px; z-index:4;
+            position:absolute; z-index:4;
             width:80px; height:80px; overflow:hidden; display:none;
             background:var(--bg); border:1px solid var(--border);
             pointer-events:none;
@@ -12766,6 +12766,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _updatePerPaneMinimaps() {
             const W = 80, H = 80;
+            const activeCount = compareFrames.filter(Boolean).length;
+            const layout = compareLayoutMode || 'horizontal';
+            const baseCols = layout === 'horizontal' ? activeCount
+                : layout === 'vertical' ? 1
+                : layout === 'grid' ? 2
+                : activeCount <= 2 ? activeCount : (activeCount === 4 ? 2 : 3);
             for (let i = 0; i < compareCanvases.length; i++) {
                 const cv = compareCanvases[i];
                 const frame = compareFrames[i];
@@ -12776,6 +12782,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!cv || !frame || !clip) {
                     // Remove minimap if pane is inactive
                     const old = clip && clip.querySelector('.cmp-mini-map');
+                    if (old) old.classList.remove('visible');
+                    continue;
+                }
+                // Determine corner placement based on pane position in grid
+                const col = i % baseCols;
+                const row = Math.floor(i / baseCols);
+                const rows = Math.ceil(activeCount / baseCols);
+                const isLeft = col === 0;
+                const isRight = col === baseCols - 1;
+                const isTop = row === 0;
+                const isBottom = row === rows - 1 && rows > 1;
+                // 3-pane horizontal: skip middle pane minimap
+                if (activeCount === 3 && layout === 'horizontal' && col === 1) {
+                    const old = clip.querySelector('.cmp-mini-map');
                     if (old) old.classList.remove('visible');
                     continue;
                 }
@@ -12792,6 +12812,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     mm.appendChild(mmVp);
                     clip.appendChild(mm);
                 }
+                // Position: NW for left panes, NE for right panes,
+                // SW for bottom-left, SE for bottom-right
+                mm.style.top = isBottom ? 'auto' : '6px';
+                mm.style.bottom = isBottom ? '6px' : 'auto';
+                mm.style.left = isLeft ? '6px' : 'auto';
+                mm.style.right = isRight ? '6px' : 'auto';
                 mm.classList.add('visible');
                 const mmCv = mm.querySelector('canvas');
                 const mmVp = mm.querySelector('.cmp-mini-vp');
