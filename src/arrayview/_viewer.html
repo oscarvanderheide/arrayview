@@ -3211,8 +3211,10 @@
                 // Eggs
                 const eggsEl = document.getElementById('mode-eggs');
                 if (eggsEl) {
+                    const wasHidden = eggsEl.style.display === 'none';
                     eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
                     eggsEl.style.opacity = '';
+                    if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
                 }
                 // Triangle zone
                 const triZone = document.getElementById('slim-cb-tri-zone');
@@ -3298,8 +3300,10 @@
             // Hide mode eggs when histogram is expanded (they sit underneath)
             const eggsEl = document.getElementById('mode-eggs');
             if (eggsEl) {
+                const wasHidden = eggsEl.style.display === 'none';
                 eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
                 eggsEl.style.opacity = '';
+                if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
             }
             // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
@@ -5777,6 +5781,9 @@
         function positionEggs() {
             const el = document.getElementById('mode-eggs');
             if (!el || !el.innerHTML) return;
+            // Don't reposition while eggs are hidden during histogram expand/collapse —
+            // wrap height is animated and would give a wrong anchor.
+            if (el.style.display === 'none') return;
 
             // Fullscreen normal mode: special inline positioning
             if (_fullscreenActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
