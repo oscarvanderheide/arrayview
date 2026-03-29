@@ -11962,6 +11962,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // were forImmersive. Mirrors the _autoFitPending branch in scaleCanvas.
         function _calcAutoFitZoom(w, h, forImmersive) {
             if (!w || !h) return 1;
+            if (compareActive) {
+                // In compare mode, let compareScaleCanvases handle the actual sizing.
+                // Return a reasonable fit zoom; the compare scaler will compute exact per-pane sizing.
+                const uiH = forImmersive ? 0 : (uiReserveV() + 40);
+                const maxW = Math.max(100, window.innerWidth - (forImmersive ? 0 : 80));
+                const maxH = Math.max(100, window.innerHeight - uiH);
+                const baseScale = getBaseScale(w, h);
+                const capScale = Math.min(maxW / w, maxH / h);
+                return Math.max(1.0, capScale / baseScale);
+            }
             const immersivePad = 12;
             const bottomReserve = forImmersive ? 0 : 80;
             const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : 80));
