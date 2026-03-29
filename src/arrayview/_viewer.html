@@ -11979,8 +11979,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const maxW = Math.max(100, window.innerWidth - 80);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - 80);
             if ((maxH / h) >= (maxW / w)) return false; // width binding: skip
-            // Canvas must be wide/tall enough to fit overlaid chrome
-            const vpEl = document.getElementById('canvas-viewport');
+            // Container must be wide/tall enough to fit overlaid chrome
+            const vpEl = compareActive
+                ? document.getElementById('compare-view-wrap')
+                : document.getElementById('canvas-viewport');
             if (!vpEl) return false;
             return vpEl.offsetWidth >= 200 && vpEl.offsetHeight >= 150;
         }
