@@ -742,24 +742,30 @@
             padding: 6px 14px !important;
         }
         body.fullscreen-mode #slim-cb-wrap > * { pointer-events: auto; }
-        /* Compare mode: panes fill viewport with minimal gap */
+        /* Compare mode immersive: panes touch, gray borders, no titles */
         body.fullscreen-mode #compare-view-wrap.active {
-            gap: 2px;
+            gap: 0;
         }
         body.fullscreen-mode #compare-panes {
-            gap: 2px;
+            gap: 0;
         }
-        body.fullscreen-mode .compare-pane { position: relative; }
-        /* Per-pane name pills overlaid at top of each pane */
+        body.fullscreen-mode .compare-pane {
+            position: relative;
+            border: 1px solid var(--canvas-border);
+        }
+        /* Collapse title completely */
         body.fullscreen-mode .compare-title {
-            position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
-            z-index: 3;
-            background: rgba(30, 30, 30, 0.8);
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 10px;
-            padding: 3px 12px;
+            opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
+        }
+        /* Hide per-pane inline colorbars (replaced by shared island) */
+        body.fullscreen-mode .compare-pane-cb-island {
+            opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
+            pointer-events: none;
+        }
+        /* Remove canvas-area padding so panes fill completely */
+        body.fullscreen-mode .compare-canvas-area {
+            padding: 0;
         }
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
