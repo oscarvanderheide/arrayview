@@ -300,7 +300,7 @@ def apply_colormap_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    mask_on = getattr(session, "mask_level", 0) > 0
+    mask_on = getattr(session, "alpha_level", 0) > 0
     if mask_on and vmax > vmin:
         transparent = data < vmin
     else:
@@ -424,7 +424,7 @@ def render_rgba(
             dr,
             complex_mode,
             log_scale,
-            getattr(session, "mask_level", 0),
+            getattr(session, "alpha_level", 0),
         )
         if key in session.rgba_cache:
             session.rgba_cache.move_to_end(key)

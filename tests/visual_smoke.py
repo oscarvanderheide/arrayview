@@ -48,7 +48,7 @@ DISPLAY
   n               cycle compare session     ✗ (needs multi-session setup)
   Z               zen mode                  ✓ 06
    L               log scale                 ✓ 18, 40a (LOG egg in #mode-eggs); no-op in RGB mode (toast shown)
-   M               mask threshold            ✓ 40f (MASK egg in #mode-eggs)
+   M               alpha threshold            ✓ 40f (ALPHA egg in #mode-eggs)
    m               cycle complex mode        ✓ 25 (complex array + m), 40b-e (complex egg in #mode-eggs); no-op in RGB mode (toast shown)
    f               centred FFT (dialog)      ✓ 42 (inline prompt, enter axes)
    T               cycle theme               ✓ 26
@@ -128,7 +128,7 @@ STABILITY (keys must not cause UI element jumps)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
     compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
     compare zoom overflow keeps one row      ✓ 71 (minimap visible; panes stay side-by-side)
-  LOG, complex, and mask eggs               ✓ 40 (badges in #mode-eggs below canvas)
+  LOG, complex, and alpha eggs              ✓ 40 (badges in #mode-eggs below canvas)
   RGB egg spacing below canvas              ✓ 46 (eggs top > canvas bottom + 30px)
   V custom multiview dims                   ✓ 41 (inline prompt)
   f FFT via inline prompt                   ✓ 42 (inline prompt)
@@ -614,14 +614,14 @@ def run_smoke(page, base, client, tmp):
     _press(page, "Shift+X", wait=400)  # 0: off
     _shot(page, "39g_off")
 
-    # ── 40: LOG, complex, and mask eggs in #mode-eggs ────────────────────────
+    # ── 40: LOG, complex, and alpha eggs in #mode-eggs ───────────────────────
     _goto(page, base, sid3d)
     _focus(page)
     _press(page, "Shift+L", wait=400)  # LOG on → LOG egg
     _shot(page, "40a_log_egg")
     _press(page, "Shift+L", wait=200)  # LOG off
-    _press(page, "Shift+M", wait=600)  # MASK on → MASK egg
-    _shot(page, "40f_mask_egg")
+    _press(page, "Shift+M", wait=600)  # ALPHA on → ALPHA egg
+    _shot(page, "40f_alpha_egg")
     _press(page, "Shift+M", wait=400)  # cycle back off (level 0)
     for _ in range(6):
         _press(page, "Shift+M", wait=200)

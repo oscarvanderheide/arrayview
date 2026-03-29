@@ -420,7 +420,7 @@
                               border: 1px solid rgba(230,160,30,0.25); }
         .mode-badge-complex { background: rgba(80,200,200,0.15); color: #6ed4d4;
                               border: 1px solid rgba(80,200,200,0.25); }
-        .mode-badge-mask    { background: rgba(200,80,80,0.15); color: #e07070;
+        .mode-badge-alpha   { background: rgba(200,80,80,0.15); color: #e07070;
                               border: 1px solid rgba(200,80,80,0.25); }
         .mode-badge-rgb     { background: rgba(210,90,200,0.15); color: #da7fd8;
                               border: 1px solid rgba(210,90,200,0.25); }
@@ -434,7 +434,7 @@
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
-        :root.light .mode-badge-mask { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
+        :root.light .mode-badge-alpha { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
         :root.light .mode-badge-rgb  { background: rgba(170,50,160,0.1); color: #a030a0; border-color: rgba(170,50,160,0.25); }
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
@@ -1362,7 +1362,7 @@
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS</span></div>
-                <div class="help-row"><span class="key">M</span><span class="desc">toggle mask (transparent below vmin)</span></div>
+                <div class="help-row"><span class="key">M</span><span class="desc">toggle alpha (transparent below vmin)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
@@ -1568,7 +1568,7 @@
         let projectionDim = -1;  // locked dim for projection, independent of h/l scroll changes
         const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
-        let maskLevel = 0; // 0=off, 1=on (transparent below vmin)
+        let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
         let multiViewActive = false;
         let mvViews = [];
         let mvDims = [];
@@ -5811,8 +5811,8 @@
                 const modeName = isComplex ? COMPLEX_MODES[complexMode] : REAL_MODES[complexMode];
                 html += `<span class="mode-badge mode-badge-complex">${MODE_LABEL[modeName] || modeName.toUpperCase()}</span>`;
             }
-            if (maskLevel > 0)
-                html += `<span class="mode-badge mode-badge-mask">MASK</span>`;
+            if (alphaLevel > 0)
+                html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
@@ -8433,14 +8433,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     renderInfo();
                 }
             } else if (e.key === 'M') {
-                maskLevel = maskLevel ? 0 : 1;
+                alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
-                fetch(`/mask/${sid}`, {
+                fetch(`/alpha/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ level: maskLevel }),
+                    body: JSON.stringify({ level: alphaLevel }),
                 }).then(r => r.json()).then(d => {
-                    if (d.error) { showStatus('mask error: ' + d.error); return; }
+                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
                     updateView(); triggerPreload();
                     renderEggs();
                 });

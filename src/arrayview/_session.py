@@ -191,7 +191,7 @@ class Session:
         self.preload_skipped = False
         self.preload_lock = threading.Lock()
 
-        self.mask_level = 0  # 0=off, 1=transparent below vmin
+        self.alpha_level = 0  # 0=off, 1=transparent below vmin
 
         self.vfield = None  # Optional deformation vector field
         self.vfield_component_dim = None  # axis holding xyz displacement components

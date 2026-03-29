@@ -545,7 +545,7 @@ class TestKeyExhaustiveness:
       d       — dynamic range: explicit mvViews.forEach ✓
       D       — manual range: explicit mvViews.forEach; blocked in qMRI ✓
       L       — log scale: updateView() routes to mvRender ✓
-      M       — mask: explicit mvDims freeDims branch ✓
+      M       — alpha: explicit mvDims freeDims branch ✓
       w       — histogram: explicit multiViewActive branch ✓ (fixed)
       n       — compare target: guarded by !compareActive ✓
       o/O     — crosshair reset: guarded by !multiViewActive ✓
