@@ -300,14 +300,15 @@ def apply_colormap_rgba(
     _ensure_lut(colormap)
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
-    mask_on = getattr(session, "alpha_level", 0) > 0
-    if mask_on and vmax > vmin:
-        transparent = data < vmin
-    else:
-        transparent = data == np.float32(0)
-    if transparent.any():
-        rgba = rgba.copy()
-        rgba[transparent, 3] = 0
+    alpha_on = getattr(session, "alpha_level", 0) > 0
+    if alpha_on:
+        if vmax > vmin:
+            transparent = data < vmin
+        else:
+            transparent = data == np.float32(0)
+        if transparent.any():
+            rgba = rgba.copy()
+            rgba[transparent, 3] = 0
     return rgba
 
 
