@@ -661,15 +661,15 @@ def get_colormap(name: str):
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
 
 
-@app.post("/mask/{sid}")
-async def set_mask(sid: str, request: Request):
-    """Toggle mask (0=off, 1=transparent below vmin)."""
+@app.post("/alpha/{sid}")
+async def set_alpha(sid: str, request: Request):
+    """Toggle alpha (0=off, 1=transparent below vmin)."""
     session = SESSIONS.get(sid)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     body = await request.json()
     level = 1 if int(body.get("level", 0)) else 0
-    session.mask_level = level
+    session.alpha_level = level
     session.rgba_cache.clear()
     session._rgba_bytes = 0
     return {"level": level}
