@@ -2776,6 +2776,28 @@
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
             }
+            // In immersive mode, show per-pane colorbars when center mode is active
+            if (_fullscreenActive) {
+                const showPaneCbs = newMode > 0;
+                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
+                    if (showPaneCbs) {
+                        el.style.opacity = '1';
+                        el.style.maxHeight = '';
+                        el.style.overflow = '';
+                        el.style.margin = '';
+                        el.style.padding = '';
+                        el.style.pointerEvents = '';
+                    } else {
+                        // Let CSS rule handle hiding
+                        el.style.opacity = '';
+                        el.style.maxHeight = '';
+                        el.style.overflow = '';
+                        el.style.margin = '';
+                        el.style.padding = '';
+                        el.style.pointerEvents = '';
+                    }
+                });
+            }
             renderEggs();
             saveState();
         }
