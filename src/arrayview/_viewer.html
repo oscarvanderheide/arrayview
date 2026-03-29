@@ -2222,8 +2222,8 @@
         function compareScaleCanvases() {
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
-            const titleReserve = 28;
-            const panePadX = 16; // .compare-canvas-area horizontal padding (8 + 8)
+            const titleReserve = _fullscreenActive ? 0 : 28;
+            const panePadX = _fullscreenActive ? 0 : 16;
             // .compare-canvas-area vertical padding; reserve colorbar height whenever any
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
@@ -2247,8 +2247,8 @@
             // Use the full compare area; overflow is handled by per-pane clipping
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
-            const uiReserveH = uiReserveV() + 40; // status/info + compare colorbar
-            const totalW = Math.max(100, window.innerWidth - 80);
+            const uiReserveH = _fullscreenActive ? 0 : (uiReserveV() + 40);
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? 0 : 80));
             const totalH = Math.max(100, window.innerHeight - uiReserveH);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
@@ -2443,6 +2443,7 @@
             fixWrapperAlignment();
             positionEggs();
             updateMiniMap();
+            if (_fullscreenActive) _positionFullscreenChrome();
             // Update cursor on compare canvases
             const overflowing = comparePan.overflows;
             compareCanvases.forEach(cv => {
@@ -6544,8 +6545,22 @@
         }
 
         // Download helper: tries <a download> first, falls back to server POST (for PyWebView)
+        const _inPyWebView = (() => {
+            try { return window.parent !== window && !!window.parent.__arrayviewShell; } catch(e) { return false; }
+        })();
         function _downloadFile(dataUrl, filename) {
-            // Try <a download> first
+            if (_inPyWebView) {
+                // PyWebView doesn't support <a download> — it navigates to the data URL
+                // and destroys the app. Use server-side save only.
+                fetch('/save_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename, data: dataUrl })
+                }).then(() => setStatus(`Saved ${filename} to Downloads.`))
+                  .catch(() => setStatus(`Failed to save ${filename}.`));
+                return;
+            }
+            // Browser: use <a download>
             const link = document.createElement('a');
             link.download = filename;
             link.href = dataUrl;
@@ -6553,7 +6568,7 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            // Also POST to server as fallback for native webviews
+            // Also POST to server as fallback
             fetch('/save_file', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -7841,13 +7856,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     indices: idxStr,
                     complex_mode: complexMode,
                 });
-                const a = document.createElement('a');
-                a.href = `/export_slice/${sid}?${params}`;
-                a.download = '';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                showStatus('slice saved to Downloads (.npy)');
+                if (_inPyWebView) {
+                    fetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
+                        .then(r => r.ok ? setStatus('slice saved to Downloads (.npy)') : setStatus('slice export failed'))
+                        .catch(() => setStatus('slice export failed'));
+                } else {
+                    const a = document.createElement('a');
+                    a.href = `/export_slice/${sid}?${params}`;
+                    a.download = '';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    showStatus('slice saved to Downloads (.npy)');
+                }
             } else if (e.key === 'g') {
                 if (ModeRegistry.isMultiPane) { showStatus('GIF export: not available in this mode'); return; }
                 saveGif();
@@ -12155,7 +12176,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _positionFullscreenChrome() {
             if (!_fullscreenActive) return;
-            const vp = document.getElementById('canvas-viewport');
+            // Use compare-view-wrap as anchor in compare mode, canvas-viewport otherwise
+            const vp = compareActive
+                ? document.getElementById('compare-view-wrap')
+                : document.getElementById('canvas-viewport');
             if (!vp) return;
             const vpRect = vp.getBoundingClientRect();
             // Position dim bar inside canvas, 8px from canvas top
@@ -12171,8 +12195,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cbBottom = Math.max(10, window.innerHeight - vpRect.bottom + 10);
                 cbWrap.style.bottom = cbBottom + 'px';
             }
-            // Position minimap: prefer northeast (inside canvas), fallback to east (outside) if dimbar overlaps
-            if (_miniMap) {
+            // Per-pane minimaps in compare mode are positioned via CSS (absolute within pane)
+            // Only position global minimap for single-view mode
+            if (!compareActive && _miniMap) {
                 const mmW = _miniMap.offsetWidth || 100;
                 const mmH = _miniMap.offsetHeight || 100;
                 const mmMargin = 8;
@@ -12180,22 +12205,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const neTop = vpRect.top + mmMargin;
                 const neRight = vpRect.right - mmW - mmMargin;
                 // Check overlap with dimbar island (#info)
-                const infoEl = document.getElementById('info');
+                const infoEl2 = document.getElementById('info');
                 let overlaps = false;
-                if (infoEl && infoEl.offsetWidth) {
-                    const infoRect = infoEl.getBoundingClientRect();
-                    // Overlap if minimap rect intersects info rect
+                if (infoEl2 && infoEl2.offsetWidth) {
+                    const infoRect = infoEl2.getBoundingClientRect();
                     overlaps = !(neRight + mmW < infoRect.left ||
                                  neRight > infoRect.right ||
                                  neTop + mmH < infoRect.top ||
                                  neTop > infoRect.bottom);
                 }
                 if (overlaps) {
-                    // East fallback: right of canvas, vertically centered
                     _miniMap.style.top = (vpRect.top + (vpRect.height - mmH) / 2) + 'px';
                     _miniMap.style.left = (vpRect.right + 10) + 'px';
                 } else {
-                    // Northeast: inside canvas, top-right corner
                     _miniMap.style.top = neTop + 'px';
                     _miniMap.style.left = neRight + 'px';
                 }
