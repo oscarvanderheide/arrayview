@@ -748,20 +748,33 @@
         }
         body.fullscreen-mode #compare-panes {
             gap: 0;
+            align-items: center;
         }
         body.fullscreen-mode .compare-pane {
             position: relative;
-            border: 1px solid var(--canvas-border);
+            outline: 1px solid var(--canvas-border);
+            outline-offset: -1px;
         }
         /* Collapse title completely */
         body.fullscreen-mode .compare-title {
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
         }
-        /* Hide per-pane inline colorbars (replaced by shared island) */
+        /* Hide per-pane inline colorbars by default in immersive */
         body.fullscreen-mode .compare-pane-cb-island {
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
+        }
+        /* Show per-pane colorbars as overlaid islands when center mode active */
+        body.fullscreen-mode .compare-pane-cb-island.fs-overlay {
+            opacity: 1 !important; max-height: none !important; overflow: visible !important;
+            pointer-events: auto !important;
+            position: absolute !important; bottom: 10px; left: 50%; transform: translateX(-50%);
+            margin: 0 !important; padding: 2px 8px !important;
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px; z-index: 2;
         }
         /* Remove canvas-area padding and center canvases vertically */
         body.fullscreen-mode .compare-canvas-area {
@@ -2285,8 +2298,8 @@
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Maximum viewport size (how large the clipping container can be)
-            const capPaneW = Math.max(40, (Math.max(100, window.innerWidth - (_fullscreenActive ? 0 : 80))  - (cols - 1) * colGap) / cols - panePadX);
-            const capPaneH = Math.max(40, (Math.max(100, window.innerHeight - uiReserveH) - (rows - 1) * rowGap) / rows - titleReserve - panePadY);
+            const capPaneW = Math.max(40, paneOuterW - panePadX);
+            const capPaneH = Math.max(40, paneOuterH - titleReserve - panePadY);
             const slotW = Math.round(paneOuterW);
             const slotH = Math.round(paneOuterH);
             const applyPaneSlot = (pane) => {
@@ -2791,28 +2804,14 @@
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
             }
-            // In immersive mode, show per-pane colorbars when center mode is active
+            // In immersive mode, toggle per-pane colorbars as overlaid islands
             if (_fullscreenActive) {
                 const showPaneCbs = newMode > 0;
                 document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    if (showPaneCbs) {
-                        el.style.setProperty('opacity', '1', 'important');
-                        el.style.setProperty('max-height', 'none', 'important');
-                        el.style.setProperty('overflow', 'visible', 'important');
-                        el.style.setProperty('margin', '', '');
-                        el.style.setProperty('padding', '', '');
-                        el.style.setProperty('pointer-events', 'auto', 'important');
-                    } else {
-                        el.style.opacity = '';
-                        el.style.maxHeight = '';
-                        el.style.overflow = '';
-                        el.style.margin = '';
-                        el.style.padding = '';
-                        el.style.pointerEvents = '';
-                    }
+                    el.classList.toggle('fs-overlay', showPaneCbs);
                 });
             }
-            // Update center-mode island content
+            // Update center-mode island content and re-position chrome
             const centerIsland = document.getElementById('compare-center-island');
             if (centerIsland) {
                 if (newMode > 0 && _fullscreenActive) {
@@ -2822,6 +2821,7 @@
                     centerIsland.style.display = 'none';
                 }
             }
+            if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
         }
@@ -12099,12 +12099,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (wrapper) { wrapper.style.paddingTop = ''; }
                 const centerIsland = document.getElementById('compare-center-island');
                 if (centerIsland) centerIsland.style.display = 'none';
-                // Clear per-pane colorbar overrides so CSS rules apply normally
+                // Remove overlaid colorbar class
                 document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.style.opacity = '';
-                    el.style.maxHeight = '';
-                    el.style.overflow = '';
-                    el.style.pointerEvents = '';
+                    el.classList.remove('fs-overlay');
                 });
             }
         }
