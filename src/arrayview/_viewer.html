@@ -5760,8 +5760,10 @@
             if (!el || !el.innerHTML) return;
 
             // Fullscreen normal mode: special inline positioning
-            if (_fullscreenActive && !multiViewActive && !compareActive && !qmriActive && !compareQmriActive && !compareMvActive) {
-                const vpEl = document.getElementById('canvas-viewport');
+            if (_fullscreenActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
+                const vpEl = compareActive
+                    ? document.getElementById('compare-view-wrap')
+                    : document.getElementById('canvas-viewport');
                 if (!vpEl) return;
                 const vpRect = vpEl.getBoundingClientRect();
                 const cbWrap = document.getElementById('slim-cb-wrap');
