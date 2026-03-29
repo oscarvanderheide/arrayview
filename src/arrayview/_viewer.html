@@ -7467,7 +7467,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.key === '+' || e.key === '=') {
                 if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                 if (!_fullscreenActive && !_zoomAdjustedByUser &&
-                    !multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive &&
+                    !multiViewActive && !qmriActive &&
                     _shouldEnterImmersive()) {
                     // First =: enter immersive mode via animated transition
                     _enterImmersive();
