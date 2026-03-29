@@ -819,13 +819,19 @@
 
         /* ── ROI shape preview strip ───────────────────────────── */
         #roi-shape-strip {
-            position:fixed; display:flex; flex-direction:row; align-items:center; gap:12px;
-            opacity:0; pointer-events:none; transition:opacity 0.25s ease;
-            z-index:8;
+            position:fixed; pointer-events:none; z-index:8;
+            width:0; height:0;
         }
-        #roi-shape-strip.visible { opacity:1; }
-        .roi-shape-icon { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.45; transition:opacity 0.15s ease; }
-        .roi-shape-icon.active { opacity:1; }
+        .roi-shape-icon {
+            position:absolute; display:flex; flex-direction:column; align-items:center; gap:2px;
+            opacity:0; transition:opacity 0.2s ease, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+            transform:translate(-50%,-50%) scale(0.3);
+        }
+        .roi-shape-icon.fan-out {
+            opacity:0.45;
+            transform:translate(-50%,-50%) scale(1);
+        }
+        .roi-shape-icon.fan-out.active { opacity:1; }
         .roi-shape-icon svg { width:24px; height:24px; stroke:var(--muted); stroke-width:1.5; }
         .roi-shape-icon.active svg { width:30px; height:30px; stroke:var(--help-key); stroke-width:2; }
         .roi-shape-icon span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; }
@@ -12391,33 +12397,48 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const shapes = [
                 { id: 'rect',     label: 'rect',     svg: '<rect x="4" y="4" width="16" height="16" rx="1" fill="none"/>' },
                 { id: 'circle',   label: 'circle',   svg: '<circle cx="12" cy="12" r="9" fill="none"/>' },
-                { id: 'freehand', label: 'freehand', svg: '<path d="M4 16 C6 4, 18 4, 20 16 C18 20, 6 20, 4 16Z" fill="none"/>' },
-                { id: 'floodfill', label: 'flood',   svg: '<path d="M12 4 L8 12 L12 8 L16 12 L12 4Z M6 14 Q12 22, 18 14 Q12 18, 6 14Z" fill="none"/>' },
+                { id: 'freehand', label: 'free',      svg: '<path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" fill="none" stroke-linecap="round"/>' },
+                { id: 'floodfill', label: 'fill',     svg: '<path d="M7 2 L17 12 L12 12 Z" fill="none"/><path d="M5 14 Q12 24, 19 14" fill="none" stroke-linecap="round"/>' },
             ];
             const curShape = rectRoiMode ? _roiShape : null;
             _roiStrip.innerHTML = '';
-            shapes.forEach(s => {
+            // Fan out in a 120° arc above the cursor
+            const radius = 60;
+            const arcDeg = 120;
+            const startDeg = -90 - arcDeg / 2; // center the arc above (pointing up)
+            const n = shapes.length;
+            const stepDeg = n > 1 ? arcDeg / (n - 1) : 0;
+            // Position the strip origin at cursor
+            _roiStrip.style.left = _lastMouseX + 'px';
+            _roiStrip.style.top  = _lastMouseY + 'px';
+            shapes.forEach((s, i) => {
                 const icon = document.createElement('div');
-                icon.className = 'roi-shape-icon' + (s.id === curShape ? ' active' : '');
-                const sz = s.id === curShape ? 30 : 24;
+                const isActive = s.id === curShape;
+                icon.className = 'roi-shape-icon' + (isActive ? ' active' : '');
+                const sz = isActive ? 30 : 24;
                 icon.innerHTML = `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
                     + `<span>${s.label}</span>`;
+                // Place at origin initially, will fan out via class
+                const angleDeg = startDeg + stepDeg * i;
+                const angleRad = angleDeg * Math.PI / 180;
+                const tx = Math.cos(angleRad) * radius;
+                const ty = Math.sin(angleRad) * radius;
+                icon.style.left = tx + 'px';
+                icon.style.top  = ty + 'px';
                 _roiStrip.appendChild(icon);
+                // Trigger fan-out animation on next frame
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    icon.classList.add('fan-out');
+                }));
             });
-            // Position strip centered on the colorbar
-            const cbWrap = document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
-            if (cbWrap) {
-                const cbRect = cbWrap.getBoundingClientRect();
-                _roiStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
-                _roiStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
-                _roiStrip.style.transform = 'translateX(-50%)';
-                cbWrap.style.opacity = '0';
-            }
-            _roiStrip.classList.add('visible');
             clearTimeout(_roiStripTimer);
             _roiStripTimer = setTimeout(() => {
-                _roiStrip.classList.remove('visible');
-                if (cbWrap) cbWrap.style.opacity = '1';
+                const icons = _roiStrip.querySelectorAll('.roi-shape-icon');
+                icons.forEach(ic => {
+                    ic.classList.remove('fan-out');
+                    ic.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                });
+                setTimeout(() => { _roiStrip.innerHTML = ''; }, 300);
             }, 1500);
         }
 
