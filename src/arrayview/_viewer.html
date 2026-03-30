@@ -1355,6 +1355,7 @@
                 <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">toggle histogram mode (pixel highlight)</span></div>
                                 <div class="help-row"><span class="key">P</span><span class="desc">open picker in Compare mode (Tab cycles Open / Compare / Overlay)</span></div>
                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O, Shift+O) — instance sidebar with thumbnails when multiple arrays loaded; RAM guard blocks oversized .pt/.tif/.mat files; Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
+                <div class="help-row"><span class="key">Shift+O</span><span class="desc">cycle overlay visibility: all → off → individual masks (when overlays active)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
                 <div class="help-row"><span class="key">[ / ]</span><span class="desc">movie: fps · flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
@@ -1622,6 +1623,7 @@
         let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe,6=flicker,7=checker
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
+        let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let pendingViewMode = null;
         let pendingMvDims = null;
         let pendingQmriDim = null;
@@ -5435,8 +5437,7 @@
                     params.set('vmin_override', String(manualVmin));
                     params.set('vmax_override', String(manualVmax));
                 }
-                if (overlay_sid) params.set('overlay_sid', overlay_sid);
-                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
@@ -5523,7 +5524,8 @@
                         reqParams.set('vmax_override', String(pVmax));
                     }
                     if (sidVal === sid && overlay_sid) {
-                        reqParams.set('overlay_sid', overlay_sid);
+                        const _visSid = _getVisibleOverlaySids();
+                        if (_visSid) { reqParams.set('overlay_sid', _visSid); if (overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) reqParams.set('overlay_colors', _visCol); } }
                         reqParams.set('overlay_alpha', String(overlayAlpha));
                     }
                     return fetchSliceFrame(reqParams, sidVal);
@@ -6127,6 +6129,27 @@
             }
         }
 
+        function _getVisibleOverlaySids() {
+            if (!overlay_sid) return '';
+            if (_overlayVisibility === 'all') return overlay_sid;
+            if (_overlayVisibility === 'none') return '';
+            // Individual mask index
+            const sids = overlay_sid.split(',');
+            const idx = _overlayVisibility;
+            if (idx >= 0 && idx < sids.length) return sids[idx];
+            return overlay_sid;
+        }
+
+        function _getVisibleOverlayColors() {
+            if (!overlay_colors) return '';
+            if (_overlayVisibility === 'all') return overlay_colors;
+            if (_overlayVisibility === 'none') return '';
+            const colors = overlay_colors.split(',');
+            const idx = _overlayVisibility;
+            if (idx >= 0 && idx < colors.length) return colors[idx];
+            return overlay_colors;
+        }
+
         function showInlinePrompt(message, defaultValue = '') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('inline-prompt');
@@ -6558,8 +6581,8 @@
                 direction: lastDirection,
                 vmin_override: manualVmin,
                 vmax_override: manualVmax,
-                overlay_sid,
-                overlay_colors,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
                 overlay_alpha: overlayAlpha,
                 canvas_w,
                 canvas_h,
@@ -7636,6 +7659,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`zoom: fit`);
                     saveState();
                 }
+            } else if (e.key === 'O' && e.shiftKey && !modKey && overlay_sid) {
+                // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
+                const sids = overlay_sid.split(',');
+                const nMasks = sids.length;
+                if (_overlayVisibility === 'all') {
+                    _overlayVisibility = 'none';
+                } else if (_overlayVisibility === 'none') {
+                    _overlayVisibility = nMasks > 1 ? 0 : 'all';
+                } else {
+                    // Currently showing individual mask
+                    const next = _overlayVisibility + 1;
+                    _overlayVisibility = next >= nMasks ? 'all' : next;
+                }
+                // Status message
+                if (_overlayVisibility === 'all') {
+                    showStatus('overlays: all');
+                } else if (_overlayVisibility === 'none') {
+                    showStatus('overlays: off');
+                } else {
+                    const colors = (overlay_colors || '').split(',');
+                    const colorHex = colors[_overlayVisibility] || '';
+                    const colorTag = colorHex ? ` (#${colorHex})` : '';
+                    showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
+                }
+                updateView();
             } else if (((e.key === 'o' || e.key === 'O') && modKey) || (e.key === 'O' && e.shiftKey && !modKey)) {
                 if (isInlineEmbed) return;
                 const result = await showUnifiedPicker('open');
@@ -10080,8 +10128,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 dr: dr_idx, complex_mode: complexMode,
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
-                overlay_sid,
-                overlay_colors,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
@@ -10107,8 +10155,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     log_scale: String(logScale && v.qmriIdx < 2),
                     slice_dim: String(current_slice_dim),
                 });
-                if (overlay_sid) params.set('overlay_sid', overlay_sid);
-                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
@@ -10461,8 +10508,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
-                overlay_sid,
-                overlay_colors,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
                 canvas_w: _cw,
                 canvas_h: _ch,
                 projection_mode: projectionMode,
@@ -10486,8 +10533,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     log_scale: String(logScale),
                     slice_dim: String(v.sliceDir),
                 });
-                if (overlay_sid) params.set('overlay_sid', overlay_sid);
-                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
@@ -10655,8 +10701,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
-                overlay_sid,
-                overlay_colors,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
                 canvas_w: _qcw,
                 canvas_h: _qch,
                 projection_mode: projectionMode,
@@ -10690,8 +10736,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('projection_mode', String(projectionMode));
                     params.set('projection_dim', String(projectionDim));
                 }
-                if (overlay_sid) params.set('overlay_sid', overlay_sid);
-                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
                 v.vmin = frame.vmin;
@@ -11140,8 +11185,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
-                overlay_sid,
-                overlay_colors,
+                overlay_sid: _getVisibleOverlaySids() || null,
+                overlay_colors: _getVisibleOverlayColors() || null,
                 canvas_w: _mvcw,
                 canvas_h: _mvch,
                 projection_mode: projectionMode,
@@ -11165,8 +11210,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     log_scale: String(logScale),
                     slice_dim: String(v.sliceDir),
                 });
-                if (overlay_sid) params.set('overlay_sid', overlay_sid);
-                if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
+                { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
