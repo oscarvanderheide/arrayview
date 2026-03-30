@@ -41,13 +41,34 @@ pip install arrayview
 
 Arrays are passed zero-copy via the buffer protocol (in-process Python). `arrayview()` enables this automatically — just call it before any other `py.*` call in your MATLAB session.
 
+## PyTorch / Deep Learning
+
+```python
+from arrayview import view_batch, TrainingMonitor
+
+# Browse a DataLoader batch
+view_batch(train_loader)
+view_batch(train_loader, overlay='label')
+
+# Live training monitor — updates every N epochs
+monitor = TrainingMonitor(every=5, samples=3)
+for epoch in range(100):
+    for batch in val_loader:
+        pred = model(batch['image'])
+        monitor.step(input=batch['image'], target=batch['label'],
+                     prediction=pred, epoch=epoch)
+```
+
+`view_batch()` accepts DataLoaders, Datasets, dicts, tuples, or raw tensors. `TrainingMonitor` opens a compare window and calls `handle.update()` automatically. PyTorch is not required at import time.
+
+
 ## Formats
 
 `.npy` `.npz` `.nii` `.nii.gz` `.zarr` `.pt` `.h5` `.tif` `.mat`
 
 ## Once open
 
-`c` colormaps · `d` dynamic range · `v` 3-plane · `z` mosaic · `?` help · colorbar dblclick histogram
+`c` colormaps · `d` dynamic range · `v` 3-plane · `z` mosaic · `Shift+O` overlay toggle · `?` help · colorbar dblclick histogram
 
 ## Config
 

@@ -44,6 +44,7 @@ CLI / Python API
 | `_vscode.py` | Extension management, signal-file IPC, browser opening |
 | `_platform.py` | Platform/environment detection |
 | `_io.py` | Array I/O, format detection |
+| `_torch.py` | PyTorch DL integration: `view_batch()`, `TrainingMonitor` |
 | `_app.py` | **Compat shim only** — re-exports; add no logic here |
 
 ### Frontend
