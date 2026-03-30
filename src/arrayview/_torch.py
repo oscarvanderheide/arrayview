@@ -38,12 +38,14 @@ def _extract_images(source, *, key=None):
     if isinstance(source, dict):
         if key is not None:
             return _tensor_to_ndarray(source[key])
-        best_key, best_size = None, -1
+        best_arr, best_size = None, -1
         for k, v in source.items():
             arr = _tensor_to_ndarray(v)
             if arr.size > best_size:
-                best_key, best_size = k, arr.size
-        return _tensor_to_ndarray(source[best_key])
+                best_arr, best_size = arr, arr.size
+        if best_arr is None:
+            raise ValueError("Cannot extract images from an empty dict batch.")
+        return best_arr
     if isinstance(source, (tuple, list)):
         return _tensor_to_ndarray(source[0])
     if hasattr(source, "detach") or hasattr(source, "numpy"):
