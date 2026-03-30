@@ -5913,6 +5913,10 @@
             if (data.name) {
                 _sessionName = data.name;
                 document.getElementById('array-name-text').textContent = data.name;
+                const loadNameEl = document.createElement('div');
+                loadNameEl.className = 'av-load-name';
+                loadNameEl.textContent = data.name;
+                _loadingOverlay.appendChild(loadNameEl);
             }
             _isWelcomeScreen = data.name === 'welcome';
             if (_isWelcomeScreen) {
