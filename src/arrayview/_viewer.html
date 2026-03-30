@@ -615,7 +615,7 @@
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease; }
-        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; flex: 1; min-width: 0; }
+        .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; width: 100%; position: absolute; bottom: 0; left: 0; background: transparent; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         .compare-canvas {
@@ -772,7 +772,6 @@
            so they float over the canvas content. */
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay {
             opacity: 1 !important; max-height: none !important; overflow: visible !important;
-            pointer-events: auto !important;
             position: absolute !important; bottom: 10px !important; left: 50% !important;
             transform: translateX(-50%) !important;
             margin: 0 !important; padding: 6px 14px !important;
@@ -782,6 +781,13 @@
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
             border-radius: 14px !important; z-index: 2;
             box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
+            /* Match single-view immersive island layout */
+            align-items: flex-end !important; gap: 8px !important;
+            pointer-events: none !important;
+        }
+        body.fullscreen-mode .compare-pane-cb-island.fs-overlay > * { pointer-events: auto; }
+        body.fullscreen-mode .compare-pane-cb-island.fs-overlay .compare-pane-cb-val {
+            font-size: 13px; width: 5ch; text-align: center; overflow: hidden;
         }
         /* Wrap is the positioning context for overlaid colorbar islands */
         body.fullscreen-mode .compare-canvas-wrap {
@@ -1092,7 +1098,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-left-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-left-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-left-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-left-pane-cb-labels"></div>
                             </div>
@@ -1108,7 +1116,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-diff-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-diff-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-diff-pane-cb-labels"></div>
                             </div>
@@ -1152,7 +1162,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-right-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-right-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-right-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-right-pane-cb-labels"></div>
                             </div>
@@ -1177,7 +1189,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-third-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-third-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-third-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-third-pane-cb-labels"></div>
                             </div>
@@ -1202,7 +1216,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-fourth-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-fourth-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-fourth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-fourth-pane-cb-labels"></div>
                             </div>
@@ -1227,7 +1243,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-fifth-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-fifth-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-fifth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-fifth-pane-cb-labels"></div>
                             </div>
@@ -1252,7 +1270,9 @@
                             </div>
                             <div class="cb-island compare-pane-cb-island">
                                 <span class="compare-pane-cb-val" id="compare-sixth-pane-cb-vmin"></span>
-                                <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
+                                <div class="cb-col compare-pane-cb-col">
+                                    <canvas class="compare-pane-cb" id="compare-sixth-pane-cb"></canvas>
+                                </div>
                                 <span class="compare-pane-cb-val" id="compare-sixth-pane-cb-vmax"></span>
                                 <div class="compare-pane-cb-labels" id="compare-sixth-pane-cb-labels"></div>
                             </div>
@@ -3031,7 +3051,7 @@
             cbCanvas.style.display = '';
             const sideIslandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
             if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = sideIslandW + 'px'; }
-            // Canvas uses flex:1 inside the island; measure after layout
+            // Canvas fills cb-col inside the island; measure after layout
             const actualCbW = cbCanvas.clientWidth || sideIslandW;
             cbCanvas.width = Math.round(actualCbW * dpr);
             cbCanvas.height = Math.round(stripH * dpr);
@@ -5252,6 +5272,24 @@
             targetCanvas.style.display = '';
         }
 
+        /** Unpack optional vectorfield trailer from a WS binary frame. */
+        function _unpackVfieldTrailer(buf, width, height) {
+            const rgbaEnd = 20 + width * height * 4;
+            if (buf.byteLength <= rgbaEnd) return null;
+            const hdr = new Uint32Array(buf, rgbaEnd, 2);
+            const nArrows = hdr[0];
+            const stride  = hdr[1];
+            const scaleArr = new Float32Array(buf, rgbaEnd + 8, 1);
+            const scale = scaleArr[0];
+            const arrowData = new Float32Array(buf, rgbaEnd + 12, nArrows * 4);
+            const arrows = [];
+            for (let i = 0; i < nArrows; i++) {
+                const off = i * 4;
+                arrows.push([arrowData[off], arrowData[off+1], arrowData[off+2], arrowData[off+3]]);
+            }
+            return { arrows, scale, stride };
+        }
+
         function _vfieldRender(data) {
             _renderVfieldArrows(vfieldCanvas, canvas, data, flip_x, flip_y);
         }
@@ -5408,7 +5446,18 @@
                         if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
                     }
                     scaleCanvas(width, height);
-                    drawVectorOverlay();
+                    if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
+                        const vfTrailer = _unpackVfieldTrailer(buf, width, height);
+                        if (vfTrailer) {
+                            const cacheKey = `${sid},${dim_x},${dim_y},${indices.join(',')},${vfieldT},${vfDensityLevel}`;
+                            _vfieldCache = { key: cacheKey, data: vfTrailer };
+                            _vfieldRender(vfTrailer);
+                        } else {
+                            drawVectorOverlay();
+                        }
+                    } else {
+                        drawVectorOverlay();
+                    }
                     updateMiniMap();
                     if (!_reportedFirstFrame) {
                         _reportedFirstFrame = true;
@@ -6659,6 +6708,8 @@
                 canvas_h,
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
+                vf_density: hasVectorfield ? vfDensityLevel : undefined,
+                vf_t: hasVectorfield ? vfieldT : undefined,
             }));
             // Phase 3: delayed loading indicator — show spinner only when
             // the server takes longer than WS_SLOW_THRESHOLD_MS to respond.
@@ -11276,6 +11327,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 canvas_h: _mvch,
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? v.sliceDir : -1,
+                vf_density: hasVectorfield ? vfDensityLevel : undefined,
+                vf_t: hasVectorfield ? vfieldT : undefined,
             }));
         }
 
@@ -11621,7 +11674,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
                 drawMvColorbar();
-                if (hasVectorfield && vfieldVisible) mvDrawVectorOverlay(v, mvViews.indexOf(v));
+                if (hasVectorfield && vfieldVisible) {
+                    const vfTrailer = _unpackVfieldTrailer(buf, width, height);
+                    if (vfTrailer) {
+                        const viewIndex = mvViews.indexOf(v);
+                        const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY).join(',');
+                        const key = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+                        _mvVfieldCache.set(viewIndex, { key, data: vfTrailer });
+                        const ovCanvas = _getMvVfieldCanvas(v.canvas);
+                        _renderVfieldArrows(ovCanvas, v.canvas, vfTrailer, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+                    } else {
+                        mvDrawVectorOverlay(v, mvViews.indexOf(v));
+                    }
+                }
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
