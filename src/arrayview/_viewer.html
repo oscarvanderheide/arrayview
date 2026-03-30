@@ -2234,11 +2234,12 @@
                 }
                 childrenH += h + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
-            const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             // In fullscreen: center the canvas viewport in the viewport (ignore hidden/fixed chrome)
+            // In normal mode: center all in-flow children; scaleCanvas already reserves
+            // bottom space so the fixed colorbar/eggs won't overlap the canvas.
             const pt = _fullscreenActive
                 ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
-                : Math.max(14, Math.floor((window.innerHeight - childrenH - bottomReserve) / 2));
+                : Math.max(14, Math.floor((window.innerHeight - childrenH) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
