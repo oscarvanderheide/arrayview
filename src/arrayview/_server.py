@@ -512,7 +512,21 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                 rgba = np.array(pil)
                 h, w = rgba.shape[:2]
                 header = np.array([seq, w, h], dtype=np.uint32).tobytes()
-            await ws.send_bytes(header + vminmax + rgba.tobytes())
+            payload = header + vminmax + rgba.tobytes()
+            # Append vectorfield binary trailer when a vfield is attached
+            if session.vfield is not None:
+                vf_density = int(msg.get("vf_density", 0))
+                vf_t = int(msg.get("vf_t", 0))
+                vf_result = _compute_vfield_arrows(
+                    session, dim_x, dim_y, idx_tuple,
+                    t_index=vf_t, density_offset=vf_density,
+                )
+                if vf_result is not None:
+                    arrows = vf_result["arrows"]
+                    vf_hdr = np.array([len(arrows), vf_result["stride"]], dtype=np.uint32).tobytes()
+                    vf_scale = np.array([vf_result["scale"]], dtype=np.float32).tobytes()
+                    payload += vf_hdr + vf_scale + arrows.tobytes()
+            await ws.send_bytes(payload)
 
             # Warm neighbor slices in the background (Phase 3 prefetch)
             if slice_dim >= 0 and not (dim_z >= 0):
