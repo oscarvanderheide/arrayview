@@ -79,6 +79,21 @@ Load the relevant skill before touching the corresponding area.
 
 When implementing plans, always use **subagent-driven development** (`superpowers:subagent-driven-development`) — not inline execution.
 
+## Eggs (Mode Badges)
+
+Eggs are small pill-shaped badges below the canvas showing active visualization state. They are **composable transforms** — each one modifies how the underlying data is displayed, and they stack naturally:
+
+- `FFT` → show frequency domain
+- `LOG` → apply log scale
+- `MAGNITUDE` / `PHASE` / `REAL` / `IMAG` → complex component
+- `RGB` → interpret channels as color
+- `ALPHA` → overlay blending level
+- `PROJECTION` → reduce along an axis (MAX/MIN/MEAN/STD/SOS)
+
+Stacking makes sense: "LOG of MAGNITUDE of FFT of data" is a meaningful composition.
+
+**ROI and SEGMENT do not belong in this model.** They are **interaction modes** — they take over canvas input (clicks, drags) rather than transforming displayed data. They are also mutually incompatible (both consume the overlay canvas and pointer events). Treat them as a separate UI concept from eggs.
+
 ## Non-Negotiables
 
 - Always use `localhost` (not `127.0.0.1`) — required for VS Code port forwarding
