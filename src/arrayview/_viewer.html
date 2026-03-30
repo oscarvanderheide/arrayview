@@ -5466,9 +5466,14 @@
                     // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
                     // sees the real childrenH and computes the correct paddingTop.
                     if (document.getElementById('loading-overlay').style.display !== 'none') {
-                        document.getElementById('loading-overlay').style.display = 'none';
+                        // Show canvas-wrap immediately (still invisible due to av-loading opacity:0)
                         document.getElementById('canvas-wrap').style.display = '';
                         if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
+                        // Fade out overlay, fade in wrapper contents
+                        const ol = document.getElementById('loading-overlay');
+                        ol.style.opacity = '0';
+                        document.body.classList.remove('av-loading');
+                        ol.addEventListener('transitionend', () => { ol.style.display = 'none'; }, { once: true });
                     }
                     scaleCanvas(width, height);
                     if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
@@ -5811,7 +5816,10 @@
         }
 
         function hideLoadingOverlay() {
-            document.getElementById('loading-overlay').style.display = 'none';
+            document.body.classList.remove('av-loading');
+            const ol = document.getElementById('loading-overlay');
+            ol.style.opacity = '';
+            ol.style.display = 'none';
             document.getElementById('empty-hint').classList.remove('visible');
         }
 
