@@ -2981,7 +2981,8 @@
                     if (cbIsland) cbIsland.style.display = 'none';
                     return;
                 }
-                if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = cssW + 'px'; }
+                const islandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+                if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = islandW + 'px'; }
                 cbCanvas.style.display = '';
                 cb.draw();
                 cb.updateLabels();
@@ -3018,9 +3019,10 @@
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.style.width = '';
             cbCanvas.style.display = '';
-            if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = cssW + 'px'; }
+            const sideIslandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+            if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = sideIslandW + 'px'; }
             // Canvas uses flex:1 inside the island; measure after layout
-            const actualCbW = cbCanvas.clientWidth || cssW;
+            const actualCbW = cbCanvas.clientWidth || sideIslandW;
             cbCanvas.width = Math.round(actualCbW * dpr);
             cbCanvas.height = Math.round(stripH * dpr);
             const sCtx = cbCanvas.getContext('2d');
@@ -3084,7 +3086,8 @@
                         if (diffCbIsland) diffCbIsland.style.display = 'none';
                         return;
                     }
-                    if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = cssW + 'px'; }
+                    const diffIslandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+                    if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW + 'px'; }
                     if (diffPaneCb) diffPaneCb.style.display = '';
                 }
                 // Update range for the diff center ColorBar and delegate
@@ -3116,8 +3119,9 @@
             const dpr = window.devicePixelRatio || 1;
             diffPaneCb.style.width = '';
             diffPaneCb.style.display = 'block';
-            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = cssW + 'px'; }
-            const actualDiffCbW = diffPaneCb.clientWidth || cssW;
+            const diffIslandW2 = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW2 + 'px'; }
+            const actualDiffCbW = diffPaneCb.clientWidth || diffIslandW2;
             diffPaneCb.width = Math.round(actualDiffCbW * dpr);
             diffPaneCb.height = Math.round(stripH * dpr);
             const ctx2 = diffPaneCb.getContext('2d');
@@ -12146,10 +12150,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.body.classList.add('fullscreen-mode');
 
                 // If center mode (diff/overlay/wipe) is already active, show per-pane colorbars as islands
+                // and populate the center-mode indicator island
                 if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
                     document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
                         el.classList.add('fs-overlay');
                     });
+                    const centerIsland = document.getElementById('compare-center-island');
+                    if (centerIsland) {
+                        const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
+                        centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
+                        centerIsland.style.display = '';
+                    }
                 }
 
                 // Render canvas at fromZoom in immersive layout (no auto-fit flash)
