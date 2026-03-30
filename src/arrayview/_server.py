@@ -1072,7 +1072,7 @@ def get_roi_multi(
         return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
-    arr = session.array
+    arr = session.data
     ndim = arr.ndim
     idx_list = [int(v) for v in indices.split(",")]
 
