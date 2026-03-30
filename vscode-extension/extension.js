@@ -68,6 +68,237 @@ function _getAncestorPids(pid, depth) {
 }
 const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 
+// ---------------------------------------------------------------------------
+// PythonBridge: spawns `python -m arrayview --mode stdio <filepath>` and
+// bridges length-prefixed binary responses from stdout / JSON requests on stdin.
+// ---------------------------------------------------------------------------
+class PythonBridge {
+    constructor(filePath, onSessionReady) {
+        this.filePath = filePath;
+        this.process = null;
+        this.sid = null;
+        this._buffer = Buffer.alloc(0);
+        this._pendingCallbacks = [];
+        this.onSessionReady = onSessionReady;
+    }
+
+    start() {
+        this._spawn('python3');
+    }
+
+    _spawn(cmd) {
+        const { spawn } = require('child_process');
+        const args = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
+        this.process = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        this.process.on('error', (err) => {
+            if (err.code === 'ENOENT' && cmd === 'python3') {
+                log('PYTHON: python3 not found, trying python');
+                this._spawn('python');
+            } else {
+                log(`PYTHON: spawn error: ${err.message}`);
+            }
+        });
+
+        this._attachHandlers();
+    }
+
+    _attachHandlers() {
+        // Handle stderr for SESSION: lines and errors
+        this.process.stderr.on('data', (data) => {
+            const lines = data.toString().split('\n');
+            for (const line of lines) {
+                if (line.startsWith('SESSION:')) {
+                    try {
+                        const info = JSON.parse(line.slice(8));
+                        this.sid = info.sid;
+                        if (this.onSessionReady) this.onSessionReady(info);
+                    } catch (_) {}
+                } else if (line.trim()) {
+                    log(`PYTHON: ${line}`);
+                }
+            }
+        });
+
+        // Handle stdout: read length-prefixed responses
+        this.process.stdout.on('data', (chunk) => {
+            this._buffer = Buffer.concat([this._buffer, chunk]);
+            this._processBuffer();
+        });
+
+        this.process.on('exit', (code) => {
+            log(`PYTHON: exited with code ${code}`);
+        });
+    }
+
+    _processBuffer() {
+        while (this._buffer.length >= 4) {
+            const len = this._buffer.readUInt32LE(0);
+            if (this._buffer.length < 4 + len) break;
+
+            const payload = this._buffer.slice(4, 4 + len);
+            this._buffer = this._buffer.slice(4 + len);
+
+            const cb = this._pendingCallbacks.shift();
+            if (cb) cb(payload);
+        }
+    }
+
+    sendRequest(msg) {
+        return new Promise((resolve) => {
+            this._pendingCallbacks.push(resolve);
+            this.process.stdin.write(JSON.stringify(msg) + '\n');
+        });
+    }
+
+    destroy() {
+        if (this.process) {
+            this.process.kill();
+            this.process = null;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Direct webview: embeds the viewer HTML directly (no iframe/server)
+// ---------------------------------------------------------------------------
+async function openDirectWebview(filePath, title) {
+    const label = title || path.basename(filePath);
+
+    const viewColumn = vscode.window.activeTextEditor
+        ? vscode.ViewColumn.Beside
+        : vscode.ViewColumn.Active;
+
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.viewer',
+        `ArrayView: ${label}`,
+        { viewColumn, preserveFocus: false },
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+        }
+    );
+
+    // Spawn Python subprocess
+    const bridge = new PythonBridge(filePath, (sessionInfo) => {
+        log(`SESSION READY: sid=${sessionInfo.sid} name=${sessionInfo.name}`);
+    });
+    bridge.start();
+
+    // Wait for the session to be ready (max 30 seconds)
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timeout waiting for Python session')), 30000);
+        const origCb = bridge.onSessionReady;
+        bridge.onSessionReady = (info) => {
+            clearTimeout(timer);
+            if (origCb) origCb(info);
+            resolve();
+        };
+    });
+
+    // Get the rendered viewer HTML from the Python subprocess
+    const htmlPayload = await bridge.sendRequest({
+        type: 'get-viewer-html',
+        sid: bridge.sid,
+    });
+
+    let viewerHtml;
+    try {
+        const response = JSON.parse(htmlPayload.toString());
+        viewerHtml = response.html;
+    } catch (e) {
+        vscode.window.showErrorMessage(`ArrayView: Failed to get viewer HTML: ${e.message}`);
+        bridge.destroy();
+        panel.dispose();
+        return;
+    }
+
+    // Set the webview HTML
+    panel.webview.html = viewerHtml;
+
+    // Bridge messages between webview and Python subprocess
+    panel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.type === 'ws-send') {
+            // Slice request from viewer -> forward to Python
+            const request = {
+                type: 'slice',
+                sid: msg.sid || bridge.sid,
+                ...msg.data,
+            };
+            const payload = await bridge.sendRequest(request);
+
+            // Check if this is a binary slice response or a JSON error
+            // JSON responses start with '{' (0x7b)
+            if (payload[0] === 0x7b) {
+                try {
+                    const err = JSON.parse(payload.toString());
+                    log(`SLICE ERROR: ${err.error}`);
+                } catch (_) {}
+                return;
+            }
+
+            // Convert Node.js Buffer to ArrayBuffer for postMessage
+            const ab = payload.buffer.slice(
+                payload.byteOffset,
+                payload.byteOffset + payload.byteLength
+            );
+
+            panel.webview.postMessage({
+                type: 'slice-data',
+                channelId: msg.channelId,
+                buffer: ab,
+            });
+        } else if (msg.type === 'fetch-proxy') {
+            // Proxied fetch from viewer -> forward to Python
+            const url = msg.url;
+            const parts = url.replace(/^\//, '').split('/');
+            const route = parts[0];
+            const sid = parts[1] || bridge.sid;
+
+            let request;
+            if (route === 'metadata') {
+                request = { type: 'metadata', sid };
+            } else if (route === 'clearcache') {
+                request = { type: 'clearcache', sid };
+            } else if (route === 'sessions') {
+                request = { type: 'sessions' };
+            } else {
+                request = { type: 'fetch-proxy', endpoint: url };
+            }
+
+            try {
+                const payload = await bridge.sendRequest(request);
+                const data = JSON.parse(payload.toString());
+
+                panel.webview.postMessage({
+                    type: 'fetch-response',
+                    id: msg.id,
+                    ok: !data.error,
+                    status: data.error ? 500 : 200,
+                    data,
+                    headers: {},
+                });
+            } catch (e) {
+                panel.webview.postMessage({
+                    type: 'fetch-response',
+                    id: msg.id,
+                    ok: false,
+                    status: 500,
+                    data: { error: e.message },
+                    headers: {},
+                });
+            }
+        }
+    });
+
+    // Clean up on panel close
+    panel.onDidDispose(() => {
+        bridge.destroy();
+    });
+
+    log(`DIRECT: opened "${label}" for ${filePath}`);
+}
+
 let version = 'unknown';
 let isProcessingSignal = false;
 let lastHandledRequestId = null;
@@ -284,6 +515,12 @@ function openInWebviewPanel(url, title) {
 async function processSignalData(data) {
     isProcessingSignal = true;
     try {
+        // Direct webview mode: bypass iframe and use embedded viewer
+        if (data.mode === 'direct' && data.filepath) {
+            await openDirectWebview(data.filepath, data.title);
+            return;
+        }
+
         const url = data.url;
         if (!url) { log('SIGNAL: missing url'); return; }
 
@@ -404,6 +641,31 @@ function activate(context) {
     } catch (err) {
         log(`WATCH: fs.watch failed (polling still active): ${err.message}`);
     }
+
+    // Register arrayview.openFile command for direct webview mode
+    const openFileCmd = vscode.commands.registerCommand('arrayview.openFile', async (uri) => {
+        let filePath;
+        if (uri && uri.fsPath) {
+            filePath = uri.fsPath;
+        } else {
+            const selected = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectMany: false,
+                filters: {
+                    'Array files': ['npy', 'npz', 'nii', 'gz', 'h5', 'hdf5', 'zarr', 'mat', 'tif', 'tiff', 'png', 'jpg', 'jpeg'],
+                },
+            });
+            if (!selected || !selected.length) return;
+            filePath = selected[0].fsPath;
+        }
+
+        try {
+            await openDirectWebview(filePath);
+        } catch (e) {
+            vscode.window.showErrorMessage(`ArrayView: ${e.message}`);
+        }
+    });
+    context.subscriptions.push(openFileCmd);
 
     log('=== ACTIVATE DONE ===');
 }
