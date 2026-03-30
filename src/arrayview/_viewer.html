@@ -5703,7 +5703,7 @@
                 currentVmax = compareFrames[0].vmax;
                 applyCompareLayout();
                 drawCompareFramesFromCache();
-                document.getElementById('loading-overlay').style.display = 'none';
+                hideLoadingOverlay();
                 document.getElementById('canvas-wrap').style.display = 'none';
                 if (diffMode > 0) fetchAndDrawDiff();
             } catch (e) {
@@ -8963,7 +8963,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
-                hideLoadingOverlay();
                 document.getElementById('canvas-wrap').style.display = 'none';
                 document.getElementById('array-name').style.display = 'none';
                 compareWrap.classList.add('active');
@@ -9004,7 +9003,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
-                hideLoadingOverlay();
                 document.getElementById('canvas-wrap').style.display = 'none';
                 document.getElementById('array-name').style.display = 'none';
                 compareWrap.classList.add('active');
