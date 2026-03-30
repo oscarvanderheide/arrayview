@@ -437,6 +437,9 @@
                               border: 1px solid rgba(140,100,240,0.25); }
         .mode-badge-roi     { background: rgba(45,90,39,0.8); color: #7ec87e;
                               border: 1px solid rgba(80,160,70,0.35); }
+        .mode-badge-seg     { background: rgba(200,60,120,0.25); color: #e87aaf;
+                              border: 1px solid rgba(200,60,120,0.35); }
+        :root.light .mode-badge-seg { background: rgba(200,60,120,0.15); color: #b03070; border-color: rgba(200,60,120,0.3); }
         :root.light .mode-badge-roi { background: rgba(45,90,39,0.6); color: #3a7a34; border-color: rgba(45,90,39,0.4); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
@@ -1391,6 +1394,7 @@
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
                  <div class="help-row"><span class="key">A</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
+                 <div class="help-row"><span class="key">S</span><span class="desc">nnInteractive segmentation: click add · shift+click exclude · r reset · enter accept · esc exit</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -1564,6 +1568,9 @@
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
         let rectRoiMode = false; // A key toggles rectangle ROI selection mode
+        let _segMode = false;  // S key toggles nnInteractive segmentation mode
+        let _segOverlaySid = null; // overlay session ID for segmentation mask
+        let _segActivating = false; // true while connecting/launching server
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats} for multi-ROI
@@ -6000,6 +6007,8 @@
             }
             if (rectRoiMode)
                 html += `<span class="mode-badge mode-badge-roi">ROI</span>`;
+            if (_segMode)
+                html += `<span class="mode-badge mode-badge-seg">SEGMENT</span>`;
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
@@ -6296,14 +6305,21 @@
         }
 
         function _getVisibleOverlaySids() {
-            if (!overlay_sid) return '';
-            if (_overlayVisibility === 'all') return overlay_sid;
-            if (_overlayVisibility === 'none') return '';
-            // Individual mask index
-            const sids = overlay_sid.split(',');
-            const idx = _overlayVisibility;
-            if (idx >= 0 && idx < sids.length) return sids[idx];
-            return overlay_sid;
+            let base = '';
+            if (overlay_sid) {
+                if (_overlayVisibility === 'all') base = overlay_sid;
+                else if (_overlayVisibility === 'none') base = '';
+                else {
+                    const sids = overlay_sid.split(',');
+                    const idx = _overlayVisibility;
+                    base = (idx >= 0 && idx < sids.length) ? sids[idx] : overlay_sid;
+                }
+            }
+            // Append nnInteractive segmentation overlay
+            if (_segMode && _segOverlaySid) {
+                return base ? base + ',' + _segOverlaySid : _segOverlaySid;
+            }
+            return base;
         }
 
         function _getVisibleOverlayColors() {
@@ -7705,6 +7721,98 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } catch (e) { /* clipboard may fail in non-secure contexts */ }
         }
 
+        // ---------------------------------------------------------------
+        // nnInteractive segmentation helpers
+        // ---------------------------------------------------------------
+        async function _segActivate() {
+            if (_segActivating) return;
+            if (compareActive || multiViewActive || qmriActive) {
+                showStatus('segmentation: not available in this mode'); return;
+            }
+            _segActivating = true;
+            showStatus('segmentation: connecting...');
+            canvas.style.cursor = 'wait';
+            try {
+                const r = await fetch(`/seg/activate/${sid}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') {
+                    showToast(`segmentation: ${d.message}`);
+                    canvas.style.cursor = 'crosshair';
+                    _segActivating = false;
+                    return;
+                }
+                _segMode = true;
+                _segOverlaySid = null;
+                showStatus('segmentation: on · click to add point · shift+click to exclude · r reset · enter accept · esc exit');
+                canvas.style.cursor = 'crosshair';
+                renderEggs();
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+                canvas.style.cursor = 'crosshair';
+            }
+            _segActivating = false;
+        }
+
+        function _segDeactivate() {
+            _segMode = false;
+            _segOverlaySid = null;
+            canvas.style.cursor = 'crosshair';
+            showStatus('segmentation: off');
+            renderEggs();
+            // Remove segmentation overlay from view
+            updateView();
+        }
+
+        async function _segClick(px, py, positive) {
+            showStatus(positive ? 'segmentation: predicting...' : 'segmentation: excluding...');
+            try {
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x), dim_y: String(dim_y),
+                    indices: indices.join(','), px: String(px), py: String(py),
+                    positive: positive ? 'true' : 'false',
+                });
+                const r = await fetch(`/seg/click/${sid}?${params}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                _segOverlaySid = d.overlay_sid;
+                _segRefreshOverlay();
+                showStatus('segmentation: click to refine · shift+click to exclude · r reset · enter accept');
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            }
+        }
+
+        async function _segAccept() {
+            try {
+                const r = await fetch(`/seg/accept/${sid}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                _segOverlaySid = d.overlay_sid;
+                _segRefreshOverlay();
+                showStatus('segmentation: accepted · click to segment next object');
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            }
+        }
+
+        async function _segReset() {
+            try {
+                const r = await fetch(`/seg/reset/${sid}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                _segOverlaySid = d.overlay_sid;
+                _segRefreshOverlay();
+                showStatus('segmentation: interactions reset · click to start again');
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            }
+        }
+
+        function _segRefreshOverlay() {
+            // _getVisibleOverlaySids() auto-appends _segOverlaySid when in seg mode
+            updateView();
+        }
+
         // Click-to-copy: main canvas — track mousedown position
         let _clickCopyDown = null; // {x, y} client coords at mousedown
         canvas.addEventListener('mousedown', (e) => {
@@ -7722,6 +7830,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+            if (_segMode) {
+                _segClick(px, py, !e.shiftKey);
+                return;
+            }
             _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
         });
 
@@ -8035,6 +8147,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 showStatus(`theme: ${THEMES[themeIdx]}`);
                 saveState();
             } else if (e.key === 'r') {
+                if (_segMode) { _segReset(); return; }
                 if (multiViewActive) {
                     // Global axis swap: swap dim_x and dim_y, rebuild all pane definitions
                     const oldDimX = dim_x, oldDimY = dim_y;
@@ -8151,6 +8264,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 renderEggs();
             } else if (e.key === 's') {
                 saveScreenshot();
+            } else if (e.key === 'S') {
+                // Toggle nnInteractive segmentation mode
+                if (_segMode) {
+                    _segDeactivate();
+                } else {
+                    _segActivate();
+                }
             } else if (e.key === 'N') {
                 // Export current 2-D slice as .npy
                 if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; }
@@ -8843,6 +8963,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }, 2000);
                 showStatus(`jump to slice: ${sliceJumpBuffer}_`);
             } else if (e.key === 'Enter') {
+                if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
                 // Enter key: jump to buffered slice index (1-based input)
                 if (sliceJumpBuffer.length > 0) {
                     const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
@@ -8882,6 +9003,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 }
             } else if (e.key === 'Escape') {
+                if (_segMode) { _segDeactivate(); return; }
                 // Escape: clear slice jump buffer
                 if (sliceJumpBuffer.length > 0) {
                     sliceJumpBuffer = '';

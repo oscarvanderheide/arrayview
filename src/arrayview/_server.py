@@ -1133,6 +1133,241 @@ def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
     return base64.b64encode(sub.tobytes()).decode("ascii")
 
 
+# ---------------------------------------------------------------------------
+# nnInteractive segmentation
+# ---------------------------------------------------------------------------
+
+_seg_overlay_sid: str | None = None  # current segmentation overlay session ID
+_seg_label_mask: np.ndarray | None = None  # cumulative multi-label mask
+_seg_current_label: int = 0  # label counter for accept
+
+
+def _seg_coord_3d(
+    session, dim_x: int, dim_y: int, idx_tuple: tuple[int, ...], px: int, py: int
+) -> tuple[int, ...]:
+    """Map a canvas click (px, py) back to a full N-D array index."""
+    idx = list(idx_tuple)
+    idx[dim_x] = px
+    idx[dim_y] = py
+    return tuple(idx)
+
+
+@app.post("/seg/activate/{sid}")
+async def seg_activate(sid: str):
+    """Connect to nnInteractive server (auto-launch if needed) and upload volume."""
+    from arrayview import _segmentation as seg
+
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    ndim = len(session.shape)
+    if session.rgb_axis is not None:
+        ndim -= 1
+    if ndim != 3:
+        return {"status": "error", "message": f"nnInteractive requires 3D data (got {ndim}D)"}
+
+    # Connect or launch
+    if not seg.is_connected():
+        if not seg.try_connect():
+            err = await asyncio.to_thread(seg.try_launch)
+            if err:
+                return {"status": "error", "message": err}
+
+    # Upload volume
+    data = np.asarray(session.data)
+    if session.rgb_axis is not None:
+        # Take first channel for segmentation
+        slc = [slice(None)] * data.ndim
+        slc[session.rgb_axis] = 0
+        data = data[tuple(slc)]
+    try:
+        await asyncio.to_thread(seg.upload_volume, data)
+    except Exception as exc:
+        return {"status": "error", "message": f"upload failed: {exc}"}
+
+    # Reset label state
+    global _seg_overlay_sid, _seg_label_mask, _seg_current_label
+    _seg_label_mask = np.zeros(data.shape, dtype=np.uint8)
+    _seg_current_label = 0
+    _seg_overlay_sid = None
+
+    return {"status": "ok", "message": "connected"}
+
+
+@app.post("/seg/click/{sid}")
+async def seg_click(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    px: int,
+    py: int,
+    positive: bool = True,
+):
+    """Send a point interaction to nnInteractive and return overlay session ID."""
+    from arrayview import _segmentation as seg
+
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if not seg.is_connected():
+        return {"status": "error", "message": "not connected"}
+
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    coord = _seg_coord_3d(session, dim_x, dim_y, idx_tuple, px, py)
+
+    try:
+        mask = await asyncio.to_thread(seg.add_point, coord, positive)
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+    return _seg_apply_mask(mask)
+
+
+@app.post("/seg/bbox/{sid}")
+async def seg_bbox(sid: str, body: dict = Body(...)):
+    """Send a bounding box interaction to nnInteractive."""
+    from arrayview import _segmentation as seg
+
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if not seg.is_connected():
+        return {"status": "error", "message": "not connected"}
+
+    dim_x = int(body["dim_x"])
+    dim_y = int(body["dim_y"])
+    idx_tuple = tuple(int(x) for x in body["indices"].split(","))
+    x0, y0 = int(body["x0"]), int(body["y0"])
+    x1, y1 = int(body["x1"]), int(body["y1"])
+
+    coord1 = _seg_coord_3d(session, dim_x, dim_y, idx_tuple, x0, y0)
+    coord2 = _seg_coord_3d(session, dim_x, dim_y, idx_tuple, x1, y1)
+
+    try:
+        mask = await asyncio.to_thread(seg.add_bbox, coord1, coord2, True)
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+    return _seg_apply_mask(mask)
+
+
+@app.post("/seg/reset/{sid}")
+async def seg_reset(sid: str):
+    """Reset interactions for next object."""
+    from arrayview import _segmentation as seg
+
+    if not seg.is_connected():
+        return {"status": "error", "message": "not connected"}
+    try:
+        await asyncio.to_thread(seg.reset_interactions)
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+    # Clear current prediction overlay but keep cumulative label mask
+    return _seg_update_overlay()
+
+
+@app.post("/seg/accept/{sid}")
+async def seg_accept(sid: str):
+    """Commit current prediction to cumulative label mask, increment label."""
+    from arrayview import _segmentation as seg
+
+    global _seg_current_label
+    if _seg_overlay_sid is None or _seg_label_mask is None:
+        return {"status": "error", "message": "no active segmentation"}
+
+    ov_session = SESSIONS.get(_seg_overlay_sid)
+    if ov_session is None:
+        return {"status": "error", "message": "overlay session lost"}
+
+    # Merge current binary prediction into cumulative mask
+    _seg_current_label += 1
+    current_mask = np.asarray(ov_session.data)
+    _seg_label_mask[current_mask > 0] = _seg_current_label
+
+    # Reset nnInteractive interactions for next object
+    try:
+        await asyncio.to_thread(seg.reset_interactions)
+    except Exception:
+        pass
+
+    # Update overlay to show cumulative labels
+    return _seg_update_overlay()
+
+
+@app.post("/seg/disconnect")
+async def seg_disconnect():
+    """Disconnect from nnInteractive server."""
+    from arrayview import _segmentation as seg
+
+    global _seg_overlay_sid, _seg_label_mask, _seg_current_label
+    seg.disconnect()
+    _seg_overlay_sid = None
+    _seg_label_mask = None
+    _seg_current_label = 0
+    return {"status": "ok"}
+
+
+def _seg_apply_mask(mask: np.ndarray) -> dict:
+    """Store prediction mask (+ cumulative labels) as overlay session."""
+    global _seg_overlay_sid
+
+    # Combine: cumulative labels in background, current prediction on top
+    if _seg_label_mask is not None:
+        combined = _seg_label_mask.copy()
+        combined[mask > 0] = _seg_current_label + 1  # next label for current
+    else:
+        combined = mask
+
+    if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
+        # Update existing overlay session in-place
+        ov = SESSIONS[_seg_overlay_sid]
+        ov.data = combined
+        ov.shape = combined.shape
+        ov.raw_cache.clear()
+        ov.rgba_cache.clear()
+        ov.mosaic_cache.clear()
+        ov._raw_bytes = 0
+        ov._rgba_bytes = 0
+        ov._mosaic_bytes = 0
+        ov.data_version += 1
+    else:
+        ov = Session(combined, name="nnInteractive segmentation")
+        SESSIONS[ov.sid] = ov
+        _seg_overlay_sid = ov.sid
+
+    return {"status": "ok", "overlay_sid": _seg_overlay_sid}
+
+
+def _seg_update_overlay() -> dict:
+    """Update overlay to show cumulative label mask only (after reset/accept)."""
+    global _seg_overlay_sid
+
+    if _seg_label_mask is None:
+        return {"status": "ok", "overlay_sid": None}
+
+    combined = _seg_label_mask.copy()
+
+    if _seg_overlay_sid and _seg_overlay_sid in SESSIONS:
+        ov = SESSIONS[_seg_overlay_sid]
+        ov.data = combined
+        ov.shape = combined.shape
+        ov.raw_cache.clear()
+        ov.rgba_cache.clear()
+        ov.mosaic_cache.clear()
+        ov._raw_bytes = 0
+        ov._rgba_bytes = 0
+        ov._mosaic_bytes = 0
+        ov.data_version += 1
+    else:
+        ov = Session(combined, name="nnInteractive segmentation")
+        SESSIONS[ov.sid] = ov
+        _seg_overlay_sid = ov.sid
+
+    return {"status": "ok", "overlay_sid": _seg_overlay_sid}
+
+
 @app.get("/line_profile/{sid}")
 def get_line_profile(
     sid: str,
