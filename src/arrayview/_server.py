@@ -1178,6 +1178,9 @@ async def seg_activate(sid: str, dim_x: int = 0, dim_y: int = 1, scroll_dim: int
     if ndim < 3:
         return {"status": "error", "message": f"nnInteractive requires 3D+ data (got {ndim}D)"}
 
+    global _seg_overlay_sid, _seg_label_mask, _seg_current_label
+    global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape
+
     # Connect or launch
     if not seg.is_connected():
         if not seg.try_connect():
@@ -1185,9 +1188,13 @@ async def seg_activate(sid: str, dim_x: int = 0, dim_y: int = 1, scroll_dim: int
             if err:
                 return {"status": "error", "message": err}
 
-    # Determine 3D volume axes and extract subvolume
-    global _seg_overlay_sid, _seg_label_mask, _seg_current_label
-    global _seg_vol_axes, _seg_fixed_indices, _seg_full_shape
+    # If already have a label mask for this session, just resume
+    if _seg_label_mask is not None and seg.is_connected():
+        return {
+            "status": "ok", "message": "resumed",
+            "ndim": ndim, "overlay_sid": _seg_overlay_sid,
+            "labels": _seg_get_label_info(),
+        }
 
     data = np.asarray(session.data)
     if session.rgb_axis is not None:
@@ -1523,7 +1530,7 @@ def _seg_update_overlay() -> dict:
 
     overlay_data = _seg_expand_to_full(_seg_label_mask.copy())
     _seg_set_overlay(overlay_data)
-    return {"status": "ok", "overlay_sid": _seg_overlay_sid}
+    return {"status": "ok", "overlay_sid": _seg_overlay_sid, "labels": _seg_get_label_info()}
 
 
 def _seg_set_overlay(data: np.ndarray) -> None:
@@ -1544,6 +1551,74 @@ def _seg_set_overlay(data: np.ndarray) -> None:
         ov = Session(data, name="nnInteractive segmentation")
         SESSIONS[ov.sid] = ov
         _seg_overlay_sid = ov.sid
+
+
+# Label colors matching _render.py LABEL_COLORS for frontend display
+_LABEL_HEX = [
+    "#ff5050", "#50a0ff", "#50d250", "#ffaf32", "#b950ff",
+    "#ff64be", "#3cd2c3", "#f0dc32", "#a06e3c", "#b4b4b4",
+]
+
+_seg_label_names: dict[int, str] = {}  # label_id → user-assigned name
+
+
+def _seg_get_label_info() -> list[dict]:
+    """Return info about all accepted labels."""
+    if _seg_label_mask is None:
+        return []
+    labels = []
+    for lbl in range(1, _seg_current_label + 1):
+        voxels = int(np.sum(_seg_label_mask == lbl))
+        if voxels == 0:
+            continue
+        labels.append({
+            "label": lbl,
+            "name": _seg_label_names.get(lbl, f"segment {lbl}"),
+            "color": _LABEL_HEX[(lbl - 1) % len(_LABEL_HEX)],
+            "voxels": voxels,
+        })
+    return labels
+
+
+@app.get("/seg/labels/{sid}")
+def seg_labels(sid: str):
+    """Return info about all accepted segmentation labels."""
+    return {"labels": _seg_get_label_info(), "overlay_sid": _seg_overlay_sid}
+
+
+@app.post("/seg/rename/{sid}")
+def seg_rename(sid: str, label: int, name: str):
+    """Rename a segmentation label."""
+    _seg_label_names[label] = name
+    return {"status": "ok"}
+
+
+@app.post("/seg/delete_label/{sid}")
+def seg_delete_label(sid: str, label: int):
+    """Delete a segmentation label from the cumulative mask."""
+    if _seg_label_mask is None:
+        return {"status": "error", "message": "no segmentation active"}
+    _seg_label_mask[_seg_label_mask == label] = 0
+    _seg_label_names.pop(label, None)
+    overlay_data = _seg_expand_to_full(_seg_label_mask.copy())
+    _seg_set_overlay(overlay_data)
+    return {"status": "ok", "labels": _seg_get_label_info(), "overlay_sid": _seg_overlay_sid}
+
+
+@app.get("/seg/export/{sid}")
+def seg_export(sid: str):
+    """Export cumulative label mask as downloadable .npy file."""
+    if _seg_label_mask is None:
+        return Response(status_code=404)
+    buf = io.BytesIO()
+    # Export in full N-D shape if >3D
+    export_data = _seg_expand_to_full(_seg_label_mask)
+    np.save(buf, export_data)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=segmentation.npy"},
+    )
 
 
 @app.get("/line_profile/{sid}")

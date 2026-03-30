@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import gzip
 import io
 import logging
@@ -98,13 +99,20 @@ def try_launch(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str | None
 
 
 def disconnect() -> None:
-    """Disconnect and optionally kill launched server."""
+    """Disconnect and kill launched server (if we started it)."""
     global _base_url, _volume_shape, _server_process
     _base_url = None
     _volume_shape = None
     if _server_process is not None:
         _server_process.terminate()
         _server_process = None
+
+
+@atexit.register
+def _cleanup():
+    """Kill nnInteractive server subprocess on interpreter exit."""
+    if _server_process is not None:
+        _server_process.terminate()
 
 
 # ---------------------------------------------------------------------------
