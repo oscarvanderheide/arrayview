@@ -771,6 +771,83 @@ async def get_metadata(sid: str):
         )
 
 
+def _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index=0, density_offset=0):
+    """Compute downsampled vector field arrows for a 2-D view.
+
+    Returns ``{"arrows": coords, "scale": float, "stride": int}`` where
+    *coords* is a float32 numpy array of shape (N, 4), or ``None`` if no
+    vector field is available.
+    """
+    if session.vfield is None:
+        return None
+    layout = _get_vfield_layout(session)
+    if layout is None:
+        return None
+
+    vf = session.vfield
+
+    slices = [slice(None)] * vf.ndim
+    time_dim = layout["time_dim"]
+    if time_dim is not None:
+        t = max(0, min(int(layout["n_times"]) - 1, t_index))
+        slices[int(time_dim)] = t
+
+    spatial_axes = tuple(int(ax) for ax in layout["spatial_axes"])
+    comp_dim = int(layout["components_dim"])
+    vf_x_axis = spatial_axes[dim_x]
+    vf_y_axis = spatial_axes[dim_y]
+    for img_dim, vf_axis in enumerate(spatial_axes):
+        if img_dim in (dim_x, dim_y):
+            continue
+        slices[vf_axis] = int(idx_tuple[img_dim])
+
+    vf_slice = np.asarray(vf[tuple(slices)], dtype=np.float32)
+    free_axes = [ax for ax, sl in enumerate(slices) if isinstance(sl, slice)]
+    axis_pos = {ax: i for i, ax in enumerate(free_axes)}
+    vf_slice = vf_slice.transpose(
+        axis_pos[vf_y_axis], axis_pos[vf_x_axis], axis_pos[comp_dim]
+    )
+
+    H, W = vf_slice.shape[:2]
+    n_comp = vf_slice.shape[2]
+    n_spatial = len(spatial_axes)
+
+    # Component mapping: when the image has more spatial dims than the VF
+    # has components (e.g. 4-D image with a time-like leading dim but only
+    # 3 displacement components), the components align to the *last*
+    # n_comp spatial dims.  Dims before that offset have no displacement.
+    comp_offset = n_spatial - n_comp
+    cy = dim_y - comp_offset
+    cx = dim_x - comp_offset
+    vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
+    vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
+
+    # Uniform random sampling with a fixed seed derived from (H, W) so that
+    # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
+    base_stride = max(1, max(H, W) // 32)
+    # density_offset: positive = denser (smaller stride), negative = sparser
+    # Use √2 per step (half-octave) for finer control than 2x per step
+    stride = max(1, round(base_stride * (1.4142**-density_offset)))
+    MAX_ARROWS = 4096
+    n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
+    rng = np.random.default_rng(int(H) * 10007 + int(W))
+    gy = rng.integers(0, H, n_arrows).astype(int)
+    gx = rng.integers(0, W, n_arrows).astype(int)
+
+    vx_s = vx_comp[gy, gx]
+    vy_s = vy_comp[gy, gx]
+
+    # Scale: stride * 0.75 / p95_magnitude  (image pixels per voxel unit)
+    mags = np.sqrt(vx_s**2 + vy_s**2)
+    nonzero = mags[mags > 0]
+    p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
+    scale = float(stride * 0.75 / max(p95, 1e-9))
+
+    # Stack into a single array for faster serialization
+    coords = np.column_stack([gx, gy, vx_s, vy_s]).astype(np.float32)
+    return {"arrows": coords, "scale": scale, "stride": int(stride)}
+
+
 @app.get("/vectorfield/{sid}")
 def get_vectorfield(
     sid: str,
@@ -785,73 +862,11 @@ def get_vectorfield(
     if not session or session.vfield is None:
         return Response(status_code=404)
     try:
-        vf = session.vfield
-        layout = _get_vfield_layout(session)
-        if layout is None:
-            return Response(status_code=404)
         idx_tuple = tuple(int(x) for x in indices.split(","))
-
-        slices = [slice(None)] * vf.ndim
-        time_dim = layout["time_dim"]
-        if time_dim is not None:
-            t = max(0, min(int(layout["n_times"]) - 1, t_index))
-            slices[int(time_dim)] = t
-
-        spatial_axes = tuple(int(ax) for ax in layout["spatial_axes"])
-        comp_dim = int(layout["components_dim"])
-        vf_x_axis = spatial_axes[dim_x]
-        vf_y_axis = spatial_axes[dim_y]
-        for img_dim, vf_axis in enumerate(spatial_axes):
-            if img_dim in (dim_x, dim_y):
-                continue
-            slices[vf_axis] = int(idx_tuple[img_dim])
-
-        vf_slice = np.asarray(vf[tuple(slices)], dtype=np.float32)
-        free_axes = [ax for ax, sl in enumerate(slices) if isinstance(sl, slice)]
-        axis_pos = {ax: i for i, ax in enumerate(free_axes)}
-        vf_slice = vf_slice.transpose(
-            axis_pos[vf_y_axis], axis_pos[vf_x_axis], axis_pos[comp_dim]
-        )
-
-        H, W = vf_slice.shape[:2]
-        n_comp = vf_slice.shape[2]
-        n_spatial = len(spatial_axes)
-
-        # Component mapping: when the image has more spatial dims than the VF
-        # has components (e.g. 4-D image with a time-like leading dim but only
-        # 3 displacement components), the components align to the *last*
-        # n_comp spatial dims.  Dims before that offset have no displacement.
-        comp_offset = n_spatial - n_comp
-        cy = dim_y - comp_offset
-        cx = dim_x - comp_offset
-        vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
-        vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
-
-        # Uniform random sampling with a fixed seed derived from (H, W) so that
-        # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
-        base_stride = max(1, max(H, W) // 32)
-        # density_offset: positive = denser (smaller stride), negative = sparser
-        # Use √2 per step (half-octave) for finer control than 2x per step
-        stride = max(1, round(base_stride * (1.4142**-density_offset)))
-        MAX_ARROWS = 4096
-        n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
-        rng = np.random.default_rng(int(H) * 10007 + int(W))
-        gy = rng.integers(0, H, n_arrows).astype(int)
-        gx = rng.integers(0, W, n_arrows).astype(int)
-
-        vx_s = vx_comp[gy, gx]
-        vy_s = vy_comp[gy, gx]
-
-        # Scale: stride * 0.75 / p95_magnitude  (image pixels per voxel unit)
-        mags = np.sqrt(vx_s**2 + vy_s**2)
-        nonzero = mags[mags > 0]
-        p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
-        scale = float(stride * 0.75 / max(p95, 1e-9))
-
-        # Stack into a single array for faster serialization
-        coords = np.column_stack([gx, gy, vx_s, vy_s])
-        arrows = coords.tolist()
-        return {"arrows": arrows, "scale": scale, "stride": int(stride)}
+        result = _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index, density_offset)
+        if result is None:
+            return Response(status_code=404)
+        return {"arrows": result["arrows"].tolist(), "scale": result["scale"], "stride": result["stride"]}
     except Exception as e:
         import traceback
 
