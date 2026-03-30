@@ -1424,7 +1424,7 @@
                   <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
-                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS</span></div>
+                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">toggle alpha (transparent below vmin)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
@@ -1655,7 +1655,7 @@
         // Statistical projection mode: 0=off, 1=MAX, 2=MIN, 3=MEAN, 4=STD, 5=SOS
         let projectionMode = 0;
         let projectionDim = -1;  // locked dim for projection, independent of h/l scroll changes
-        const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS'];
+        const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS', 'SUM'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
         let multiViewActive = false;
