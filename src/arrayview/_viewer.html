@@ -767,17 +767,25 @@
             opacity: 0; max-height: 0; overflow: hidden; margin: 0; padding: 0;
             pointer-events: none;
         }
-        /* Show per-pane colorbars as overlaid islands when center mode active */
+        /* Show per-pane colorbars as overlaid islands when center mode active.
+           Islands are repositioned by JS into the .compare-canvas-clip container
+           so they float over the canvas content. */
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay {
             opacity: 1 !important; max-height: none !important; overflow: visible !important;
             pointer-events: auto !important;
-            position: absolute !important; bottom: 10px; left: 50%; transform: translateX(-50%);
+            position: absolute !important; bottom: 10px !important; left: 50% !important;
+            transform: translateX(-50%) !important;
             margin: 0 !important; padding: 6px 14px !important;
             max-width: min(60%, 350px) !important;
-            background: rgba(30, 30, 30, 0.8);
-            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px; z-index: 2;
+            background: rgba(30, 30, 30, 0.8) !important;
+            backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            border-radius: 14px !important; z-index: 2;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
+        }
+        /* Wrap is the positioning context for overlaid colorbar islands */
+        body.fullscreen-mode .compare-canvas-wrap {
+            position: relative;
         }
         /* Remove canvas-area padding and center canvases vertically */
         body.fullscreen-mode .compare-canvas-area {
@@ -4903,6 +4911,20 @@
             return overlay;
         }
 
+        /** Get or create a vector field overlay canvas for a multi-view pane. */
+        function _getMvVfieldCanvas(targetCv) {
+            const parent = targetCv.parentElement;
+            if (!parent) return null;
+            let ov = parent.querySelector('.mv-vfield-overlay');
+            if (!ov) {
+                ov = document.createElement('canvas');
+                ov.className = 'mv-vfield-overlay';
+                ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;';
+                parent.appendChild(ov);
+            }
+            return ov;
+        }
+
         function _drawLebesgueHighlight(binLow, binHigh) {
             if (compareActive) {
                 // Highlight on all compare panes
@@ -5198,18 +5220,22 @@
         }
 
         let _vfieldCache = null; // { key, data } — avoids re-fetch when only length changes
-        function _vfieldRender(data) {
-            const dispW = parseInt(canvas.style.width)  || canvas.width;
-            const dispH = parseInt(canvas.style.height) || canvas.height;
-            vfieldCanvas.style.width  = canvas.style.width;
-            vfieldCanvas.style.height = canvas.style.height;
-            const imgW = canvas.width, imgH = canvas.height;
+        const _mvVfieldCache = new Map();   // viewIndex → {key, data}
+        const _mvVfieldAborts = new Map();  // viewIndex → AbortController
+
+        /** Shared arrow-rendering helper used by both single-view and multi-view. */
+        function _renderVfieldArrows(targetCanvas, refCanvas, data, flipX, flipY) {
+            const dispW = parseInt(refCanvas.style.width)  || refCanvas.width;
+            const dispH = parseInt(refCanvas.style.height) || refCanvas.height;
+            targetCanvas.style.width  = refCanvas.style.width;
+            targetCanvas.style.height = refCanvas.style.height;
+            const imgW = refCanvas.width, imgH = refCanvas.height;
             const sx = dispW / imgW, sy = dispH / imgH;
-            if (vfieldCanvas.width !== dispW || vfieldCanvas.height !== dispH) {
-                vfieldCanvas.width  = dispW;
-                vfieldCanvas.height = dispH;
+            if (targetCanvas.width !== dispW || targetCanvas.height !== dispH) {
+                targetCanvas.width  = dispW;
+                targetCanvas.height = dispH;
             }
-            const ctx2 = vfieldCanvas.getContext('2d');
+            const ctx2 = targetCanvas.getContext('2d');
             ctx2.clearRect(0, 0, dispW, dispH);
             ctx2.strokeStyle = 'rgba(80, 200, 90, 0.88)';
             ctx2.fillStyle   = 'rgba(80, 200, 90, 0.88)';
@@ -5217,13 +5243,17 @@
             ctx2.lineCap = 'round';
             const arrowScale = data.scale * (1.4142 ** vfLengthLevel);
             for (const [ix, iy, vx, vy] of data.arrows) {
-                const ax = (flip_x ? (imgW - 1 - ix) : ix) * sx;
-                const ay = (flip_y ? (imgH - 1 - iy) : iy) * sy;
-                const avx = (flip_x ? -vx : vx) * sx;
-                const avy = (flip_y ? -vy : vy) * sy;
+                const ax = (flipX ? (imgW - 1 - ix) : ix) * sx;
+                const ay = (flipY ? (imgH - 1 - iy) : iy) * sy;
+                const avx = (flipX ? -vx : vx) * sx;
+                const avy = (flipY ? -vy : vy) * sy;
                 _drawArrow(ctx2, ax + 0.5, ay + 0.5, ax + 0.5 + avx * arrowScale, ay + 0.5 + avy * arrowScale);
             }
-            vfieldCanvas.style.display = '';
+            targetCanvas.style.display = '';
+        }
+
+        function _vfieldRender(data) {
+            _renderVfieldArrows(vfieldCanvas, canvas, data, flip_x, flip_y);
         }
         async function drawVectorOverlay() {
             if (!hasVectorfield || !vfieldVisible || compareActive || multiViewActive || qmriActive) {
@@ -5251,6 +5281,47 @@
             } catch (e) {
                 if (e.name !== 'AbortError') { /* ignore */ }
             }
+        }
+
+        /** Fetch and render vector field overlay for a single multi-view pane. */
+        async function mvDrawVectorOverlay(v, viewIndex) {
+            const ovCanvas = _getMvVfieldCanvas(v.canvas);
+            if (!hasVectorfield || !vfieldVisible || obliqueVecs) {
+                if (ovCanvas) ovCanvas.style.display = 'none';
+                return;
+            }
+            const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY);
+            const key = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+            const cached = _mvVfieldCache.get(viewIndex);
+            if (cached && cached.key === key) {
+                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+                return;
+            }
+            // Abort previous in-flight request for this pane
+            _mvVfieldAborts.get(viewIndex)?.abort();
+            const ac = new AbortController();
+            _mvVfieldAborts.set(viewIndex, ac);
+            const params = new URLSearchParams({
+                dim_x: String(v.dimX), dim_y: String(v.dimY),
+                indices: indices.join(','), t_index: String(vfieldT),
+                density_offset: String(vfDensityLevel)
+            });
+            try {
+                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
+                if (!res.ok || ac.signal.aborted) return;
+                const data = await res.json();
+                if (ac.signal.aborted) return;
+                _mvVfieldCache.set(viewIndex, { key, data });
+                _renderVfieldArrows(ovCanvas, v.canvas, data, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+            } catch (e) {
+                if (e.name !== 'AbortError') { /* ignore */ }
+            }
+        }
+
+        /** Redraw vector field overlays on all multi-view panes. */
+        function mvDrawAllVectorOverlays() {
+            if (!multiViewActive || !hasVectorfield || !vfieldVisible) return;
+            mvViews.forEach((v, i) => mvDrawVectorOverlay(v, i));
         }
 
         function applyMvFlips(v, imageData, w, h) {
@@ -7766,14 +7837,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 } else if (hasVectorfield && !overlay_sid && !compareActive) {
                     vfDensityLevel = Math.max(-5, Math.min(5, vfDensityLevel + (e.key === ']' ? 1 : -1)));
-                    drawVectorOverlay();
+                    if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
+                    else drawVectorOverlay();
                     showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
                 } else {
                     showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                 }
             } else if ((e.key === '{' || e.key === '}') && hasVectorfield && !compareActive) {
                 vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
-                drawVectorOverlay();
+                if (multiViewActive) mvDrawAllVectorOverlays();
+                else drawVectorOverlay();
                 showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
             } else if (e.key === 'i') {
                 _pixelInfoVisible = !_pixelInfoVisible;
@@ -8735,8 +8808,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!vfieldVisible) {
                     if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
                     vfieldCanvas.style.display = 'none';
+                    if (multiViewActive) {
+                        _mvVfieldAborts.forEach(ac => ac.abort());
+                        _mvVfieldAborts.clear();
+                        _mvVfieldCache.clear();
+                        document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
+                    }
                 } else {
-                    drawVectorOverlay();
+                    if (multiViewActive) mvDrawAllVectorOverlays();
+                    else drawVectorOverlay();
                 }
                 showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
                 saveState();
@@ -9670,6 +9750,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function exitMultiView() {
             multiViewActive = false;
+            // Clean up multiview vector field state
+            _mvVfieldCache.clear();
+            _mvVfieldAborts.forEach(ac => ac.abort());
+            _mvVfieldAborts.clear();
             // Sync per-dim flip state back to single-view flip_x/flip_y so flips made in
             // multiview (or before entering) are preserved on the main canvas
             flip_x = flipDims[dim_x] ?? flip_x;
@@ -11236,6 +11320,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
                 drawMvColorbar();
+                if (hasVectorfield && vfieldVisible) mvDrawVectorOverlay(v, mvViews.indexOf(v));
             } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; mvRender(v); }
@@ -11535,6 +11620,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
                 drawMvColorbar();
+                if (hasVectorfield && vfieldVisible) mvDrawVectorOverlay(v, mvViews.indexOf(v));
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; mvRender(v); }
