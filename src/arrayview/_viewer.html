@@ -5290,7 +5290,7 @@
                 if (ovCanvas) ovCanvas.style.display = 'none';
                 return;
             }
-            const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY);
+            const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY).join(',');
             const key = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
             const cached = _mvVfieldCache.get(viewIndex);
             if (cached && cached.key === key) {
@@ -9754,6 +9754,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mvVfieldCache.clear();
             _mvVfieldAborts.forEach(ac => ac.abort());
             _mvVfieldAborts.clear();
+            document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
             // Sync per-dim flip state back to single-view flip_x/flip_y so flips made in
             // multiview (or before entering) are preserved on the main canvas
             flip_x = flipDims[dim_x] ?? flip_x;
