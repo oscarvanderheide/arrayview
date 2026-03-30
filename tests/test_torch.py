@@ -124,3 +124,100 @@ class TestViewBatch:
         mock_view.assert_called_once()
         arr_arg = mock_view.call_args[0][0]
         assert arr_arg.shape == (4, 64, 64)
+
+
+# ---------- TrainingMonitor ----------
+
+class TestTrainingMonitor:
+    @patch('arrayview._torch.view')
+    def test_first_step_opens_viewer(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = (handle, handle, handle)
+
+        mon = TrainingMonitor(every=1, samples=1)
+        mon.step(
+            input=np.random.rand(1, 64, 64),
+            target=np.ones((1, 64, 64), dtype=np.int32),
+            prediction=np.random.rand(1, 64, 64),
+            epoch=0,
+        )
+        mock_view.assert_called_once()
+
+    @patch('arrayview._torch.view')
+    def test_skipped_epoch(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = (handle, handle, handle)
+
+        mon = TrainingMonitor(every=5, samples=1)
+        # epoch 0 — opens viewer
+        mon.step(input=np.zeros((1, 8, 8)), target=np.zeros((1, 8, 8)),
+                 prediction=np.zeros((1, 8, 8)), epoch=0)
+        mock_view.assert_called_once()
+
+        # epoch 1 — skipped (not divisible by 5, not epoch 0)
+        handle.reset_mock()
+        mon.step(input=np.zeros((1, 8, 8)), target=np.zeros((1, 8, 8)),
+                 prediction=np.zeros((1, 8, 8)), epoch=1)
+        handle.update.assert_not_called()
+
+    @patch('arrayview._torch.view')
+    def test_update_called_on_matching_epoch(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = (handle, handle, handle)
+
+        mon = TrainingMonitor(every=5, samples=1)
+        mon.step(input=np.zeros((1, 8, 8)), target=np.zeros((1, 8, 8)),
+                 prediction=np.zeros((1, 8, 8)), epoch=0)
+
+        # epoch 5 — should update
+        mon.step(input=np.ones((1, 8, 8)), target=np.ones((1, 8, 8)),
+                 prediction=np.ones((1, 8, 8)), epoch=5)
+        assert handle.update.call_count == 3  # input, target, prediction handles
+
+    @patch('arrayview._torch.view')
+    def test_two_pane_mode(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = (handle, handle)
+
+        mon = TrainingMonitor(every=1, samples=1)
+        mon.step(input=np.zeros((1, 8, 8)), prediction=np.zeros((1, 8, 8)), epoch=0)
+        assert mock_view.call_count == 1
+        # Should have been called with 2 arrays
+        args = mock_view.call_args[0]
+        assert len(args) == 2
+
+    @patch('arrayview._torch.view')
+    def test_single_pane_mode(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = handle
+
+        mon = TrainingMonitor(every=1, samples=1)
+        mon.step(prediction=np.zeros((1, 8, 8)), epoch=0)
+        assert mock_view.call_count == 1
+        args = mock_view.call_args[0]
+        assert len(args) == 1
+
+    @patch('arrayview._torch.view')
+    def test_multiple_samples_stacked(self, mock_view):
+        from arrayview._torch import TrainingMonitor
+        handle = MagicMock()
+        mock_view.return_value = (handle, handle, handle)
+
+        mon = TrainingMonitor(every=1, samples=3)
+        # Call step 3 times in same epoch → collects 3 samples
+        for i in range(3):
+            mon.step(
+                input=np.full((1, 8, 8), i, dtype=np.float32),
+                target=np.zeros((1, 8, 8), dtype=np.int32),
+                prediction=np.full((1, 8, 8), i * 0.1, dtype=np.float32),
+                epoch=0,
+            )
+        # view() called once, after samples collected, with stacked arrays
+        assert mock_view.call_count == 1
+        arr_arg = mock_view.call_args[0][0]
+        assert arr_arg.shape[0] == 3  # 3 samples stacked
