@@ -163,10 +163,43 @@ These imports must be lazy — `_torch.py` imports `torch` only when its functio
 - Integration test: `TrainingMonitor.step()` with mock tensors, verify `view()` and `handle.update()` are called correctly.
 - No need to test the viewer itself — that's already covered.
 
+## Feature 3: Overlay Visibility Toggle (Shift+O)
+
+A keyboard shortcut to cycle through overlay visibility states in the viewer.
+
+### Current state
+
+- `[`/`]` adjusts overlay alpha (transparency) — already works
+- Shift+O opens file picker (redundant with Cmd+O / Ctrl+O)
+- No way to hide overlays or view individual masks
+
+### New behavior: Shift+O cycles through
+
+1. **All overlays shown** (default, current behavior)
+2. **No overlays** (base image only)
+3. **Mask 1 only** (if multiple overlays)
+4. **Mask 2 only**
+5. ...etc for each mask
+6. Back to all
+
+When cycling, show a status message like `"overlays: all"`, `"overlays: off"`, `"overlay 1/3: red"`.
+
+If only one overlay is present, the cycle is just: **shown → hidden → shown**.
+
+### Implementation
+
+- Frontend only (`_viewer.html`): add keyboard handler for Shift+O
+- Track `overlayVisibility` state: `'all'` | `'none'` | index (0, 1, 2, ...)
+- When rendering, filter which `overlay_sid` values are sent in the slice request based on visibility state
+- No server changes needed — the server already supports rendering with any subset of overlays
+
+### Why this matters for DL integration
+
+With `TrainingMonitor(overlay=True)`, researchers get ground truth and prediction as separate overlay masks. Shift+O lets them quickly compare: just the prediction, just the ground truth, both, or neither.
+
 ## Out of scope
 
 - PyTorch Lightning / other framework callbacks (future wrapper around `TrainingMonitor`).
 - Feature map / activation visualization.
 - Loss curves / scalar metrics.
 - Attention maps / GradCAM.
-- Any server or frontend modifications.
