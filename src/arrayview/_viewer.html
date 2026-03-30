@@ -52,6 +52,13 @@
             transition: opacity 0.14s ease;
         }
         #wrapper.mode-fade { opacity: 0; }
+        body.av-loading #array-name,
+        body.av-loading #info,
+        body.av-loading #canvas-wrap,
+        body.av-loading #slim-cb-wrap { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap {
+            transition: opacity 0.3s ease;
+        }
         #info {
             margin-bottom: 10px; font-size: 18px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
@@ -661,6 +668,16 @@
         #loading-overlay {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             position: fixed; inset: 0; z-index: 5; pointer-events: none;
+        }
+        #loading-overlay {
+            transition: opacity 0.3s ease;
+        }
+        #loading-overlay .av-load-logo {
+            width: 64px; height: 64px;
+        }
+        #loading-overlay .av-load-name {
+            margin-top: 14px; font-size: 11px; color: var(--muted);
+            letter-spacing: 0.1em; text-transform: uppercase;
         }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
@@ -3275,8 +3292,16 @@
                 }
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
-                const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
-                const fsCbW = Math.max(160, Math.round(cbRefW * 0.60));
+                let cbRefW;
+                if (compareActive) {
+                    // Use actual pane viewport width, not window width
+                    const firstInner = document.querySelector('.compare-canvas-inner');
+                    const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
+                    cbRefW = vpW > 0 ? vpW : Math.round(canvasRect.width / 2);
+                } else {
+                    cbRefW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
+                }
+                const fsCbW = Math.min(Math.max(160, Math.round(cbRefW * 0.60)), 350);
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
                     wrap.style.left = '50%';
@@ -12493,20 +12518,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 : document.getElementById('canvas-viewport');
             if (!vp) return;
             const vpRect = vp.getBoundingClientRect();
-            // Position dim bar inside canvas, 8px from canvas top
+            // Position dim bar inside canvas, 8px from canvas top, clamped to pane bounds
             const infoEl = document.getElementById('info');
             if (infoEl) {
                 let anchorTop = vpRect.top;
+                let anchorBottom = vpRect.bottom;
                 if (compareActive) {
                     const clips = document.querySelectorAll('.compare-canvas-clip');
-                    let minClipTop = Infinity;
+                    let minClipTop = Infinity, maxClipBottom = 0;
                     clips.forEach(c => {
                         const r = c.getBoundingClientRect();
                         if (r.top < minClipTop) minClipTop = r.top;
+                        if (r.bottom > maxClipBottom) maxClipBottom = r.bottom;
                     });
                     if (minClipTop < Infinity) anchorTop = minClipTop;
+                    if (maxClipBottom > 0) anchorBottom = maxClipBottom;
                 }
-                infoEl.style.top = (anchorTop + 8) + 'px';
+                const infoH = infoEl.offsetHeight || 0;
+                const desiredTop = anchorTop + 8;
+                const maxTop = anchorBottom - infoH - 4;
+                infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
             }
             // Position center-mode island below dimbar
             const centerIsland = document.getElementById('compare-center-island');
@@ -12600,7 +12631,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
             const pool = overridePool || COLORMAPS;
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
-            const SIDE = 2; // show 2 before and 2 after current
+            // Compute how many thumbs fit in available width (~76px per thumb incl gap)
+            const THUMB_W = 76;
+            let availW = 999;
+            if (_fullscreenActive && compareActive) {
+                const firstInner = anchorEl ? anchorEl.closest('.compare-canvas-inner') : document.querySelector('.compare-canvas-inner');
+                const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
+                if (vpW > 0) availW = vpW;
+            } else if (_fullscreenActive) {
+                const vpEl = document.getElementById('canvas-viewport');
+                if (vpEl) availW = vpEl.offsetWidth;
+            }
+            const maxThumbs = Math.min(5, Math.max(1, Math.floor(availW / THUMB_W)));
+            const SIDE = Math.floor((maxThumbs - 1) / 2);
             _cmapStrip.innerHTML = '';
             if (_cmapStripRight) _cmapStripRight.innerHTML = '';
             function _makeThumb(idx, isCurrent) {
