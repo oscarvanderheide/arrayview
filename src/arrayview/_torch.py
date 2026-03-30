@@ -115,3 +115,103 @@ def view_batch(source, *, samples=None, overlay=None, key=None, **kwargs):
         kwargs["overlay"] = ov
 
     return view(images, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# TrainingMonitor
+# ---------------------------------------------------------------------------
+
+class TrainingMonitor:
+    """Live training visualisation — updates an arrayview window periodically.
+
+    Parameters
+    ----------
+    every : int
+        Update the viewer every *every* epochs (default 1).
+    samples : int
+        Number of validation samples to collect per epoch (default 1).
+    overlay : bool
+        If True, show target/prediction as overlays on input instead of side-by-side.
+    """
+
+    def __init__(self, *, every=1, samples=1, overlay=False):
+        self.every = every
+        self.samples = samples
+        self.overlay = overlay
+        self._handles = None
+        self._epoch_buf = {}
+        self._last_epoch = None
+
+    def step(self, *, input=None, target=None, prediction=None, epoch):
+        """Record a validation sample. Opens/updates the viewer as needed.
+
+        On skipped epochs (not divisible by every, except epoch 0) the call is a no-op.
+        """
+        if epoch != 0 and epoch % self.every != 0:
+            return
+
+        arrays = {}
+        if input is not None:
+            arrays['input'] = _tensor_to_ndarray(input)
+        if target is not None:
+            arrays['target'] = _tensor_to_ndarray(target)
+        if prediction is not None:
+            arrays['prediction'] = _tensor_to_ndarray(prediction)
+
+        if not arrays:
+            return
+
+        if epoch != self._last_epoch:
+            self._epoch_buf[epoch] = {k: [] for k in arrays}
+            self._last_epoch = epoch
+
+        buf = self._epoch_buf[epoch]
+        for k, v in arrays.items():
+            if k not in buf:
+                buf[k] = []
+            if len(buf[k]) < self.samples:
+                buf[k].append(v)
+
+        any_key = next(iter(buf))
+        if len(buf[any_key]) < self.samples:
+            return
+
+        stacked = {}
+        for k, arrs in buf.items():
+            stacked[k] = np.concatenate(arrs, axis=0) if len(arrs) > 1 else arrs[0]
+
+        panes = []
+        names = []
+        if 'input' in stacked:
+            panes.append(stacked['input'])
+            names.append('input')
+        if 'target' in stacked:
+            panes.append(stacked['target'])
+            names.append('target')
+        if 'prediction' in stacked:
+            panes.append(stacked['prediction'])
+            names.append('prediction')
+
+        if self._handles is None:
+            kwargs = {'name': names}
+            if self.overlay and 'input' in stacked:
+                overlays = []
+                if 'target' in stacked:
+                    overlays.append(stacked['target'])
+                if 'prediction' in stacked:
+                    overlays.append(stacked['prediction'])
+                if overlays:
+                    kwargs['overlay'] = overlays if len(overlays) > 1 else overlays[0]
+                result = view(stacked['input'], **kwargs)
+                self._handles = (result,) if not isinstance(result, tuple) else result
+            else:
+                result = view(*panes, **kwargs)
+                self._handles = (result,) if not isinstance(result, tuple) else result
+        else:
+            if self.overlay and 'input' in stacked:
+                self._handles[0].update(stacked['input'])
+            else:
+                for handle, (k, arr) in zip(self._handles, stacked.items()):
+                    handle.update(arr)
+
+        self._epoch_buf.pop(epoch, None)
