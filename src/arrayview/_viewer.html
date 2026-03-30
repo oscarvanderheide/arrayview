@@ -5877,6 +5877,16 @@
         }
 
         async function init() {
+            // ── Loading screen: show pulsing logo while fetching data ──
+            const _loadingOverlay = document.getElementById('loading-overlay');
+            if (sid) {
+                document.body.classList.add('av-loading');
+                const loadLogo = document.getElementById('av-logo-svg').cloneNode(true);
+                loadLogo.removeAttribute('id');
+                loadLogo.classList.add('av-load-logo', 'av-logo-loading');
+                _loadingOverlay.appendChild(loadLogo);
+            }
+
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
             reportParent('metadata-request', { sid });
             const res = await fetch(`/metadata/${sid}`);
