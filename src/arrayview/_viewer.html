@@ -3292,16 +3292,15 @@
                 }
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
-                let cbRefW;
+                const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
+                // Cap width: use pane viewport width if available, otherwise % of reference
+                let maxCbW = 350;
                 if (compareActive) {
-                    // Use actual pane viewport width, not window width
                     const firstInner = document.querySelector('.compare-canvas-inner');
                     const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
-                    cbRefW = vpW > 0 ? vpW : Math.round(canvasRect.width / 2);
-                } else {
-                    cbRefW = vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width);
+                    if (vpW > 0) maxCbW = Math.round(vpW * 0.6);
                 }
-                const fsCbW = Math.min(Math.max(160, Math.round(cbRefW * 0.60)), 350);
+                const fsCbW = Math.max(160, Math.min(Math.round(cbRefW * 0.60), maxCbW));
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
                     wrap.style.left = '50%';
