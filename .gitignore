@@ -11,6 +11,7 @@ wheels/
 
 *.npy
 .claude/
+.worktrees/
 !.claude/skills/
 !.claude/skills/**
 CLAUDE.md
