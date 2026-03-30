@@ -1839,9 +1839,47 @@ def arrayview():
             "Also accepts 0-based integer pair like '2,3'."
         ),
     )
+    parser.add_argument(
+        "--mode",
+        choices=["server", "stdio"],
+        default="server",
+        help="Run mode: server (default HTTP/WS) or stdio (VS Code extension subprocess)",
+    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
+
+    # --mode stdio: run the stdio server (for VS Code extension subprocess)
+    if args.mode == "stdio":
+        from pathlib import Path as _Path
+
+        from arrayview._render import _setup_rgb
+        from arrayview._stdio_server import run_stdio_server
+
+        if args.files:
+            from arrayview._io import load_data
+            from arrayview._session import SESSIONS, Session
+
+            for file_path in args.files:
+                data = load_data(file_path)
+                session = Session(
+                    data=data,
+                    filepath=file_path,
+                    name=_Path(file_path).name,
+                )
+                if getattr(args, "rgb", False):
+                    _setup_rgb(session)
+                SESSIONS[session.sid] = session
+                info = json.dumps(
+                    {
+                        "sid": session.sid,
+                        "name": session.name,
+                        "shape": [int(s) for s in session.shape],
+                    }
+                )
+                print(f"SESSION:{info}", file=sys.stderr)
+        run_stdio_server()
+        return
 
     # --diagnose: print detection results and exit
     if getattr(args, "diagnose", False):
