@@ -138,6 +138,7 @@ PERFORMANCE
 
 OVERLAY
   multiple masks (overlay_sid=sid1,sid2)   ✓ 51 (two binary masks, red+green palette)
+  Shift+O overlay visibility toggle        ✓ 51b-e (cycle: off → mask1 → mask2 → all)
   heatmap for float/many-label overlays    ✓ test_api.py (TestOverlayIsLabelMap)
   drag-and-drop .npy upload               ✓ test_api.py (TestLoadUpload)
 
@@ -980,6 +981,28 @@ def run_smoke(page, base, client, tmp):
     page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
     page.wait_for_timeout(1400)
     _shot(page, "51_multi_overlay")
+
+    # Shift+O: cycle overlay visibility (all → off → mask1 → mask2 → all)
+    _focus(page)
+    _press(page, "Shift+O", wait=600)
+    status_off = page.evaluate("() => document.getElementById('status')?.textContent || ''")
+    _shot(page, "51b_overlay_off")
+    assert "off" in status_off, f"Expected 'overlays: off', got '{status_off}'"
+
+    _press(page, "Shift+O", wait=600)
+    status_m1 = page.evaluate("() => document.getElementById('status')?.textContent || ''")
+    _shot(page, "51c_overlay_mask1")
+    assert "overlay 1/" in status_m1, f"Expected 'overlay 1/2', got '{status_m1}'"
+
+    _press(page, "Shift+O", wait=600)
+    status_m2 = page.evaluate("() => document.getElementById('status')?.textContent || ''")
+    _shot(page, "51d_overlay_mask2")
+    assert "overlay 2/" in status_m2, f"Expected 'overlay 2/2', got '{status_m2}'"
+
+    _press(page, "Shift+O", wait=600)
+    status_all = page.evaluate("() => document.getElementById('status')?.textContent || ''")
+    _shot(page, "51e_overlay_all")
+    assert "all" in status_all, f"Expected 'overlays: all', got '{status_all}'"
 
     # ── 52: dimbar hover — no grayish background on any dim label ─────────
     print("52: dimbar hover no-highlight on any dim label")
