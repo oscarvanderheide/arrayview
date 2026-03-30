@@ -772,12 +772,12 @@
             opacity: 1 !important; max-height: none !important; overflow: visible !important;
             pointer-events: auto !important;
             position: absolute !important; bottom: 10px; left: 50%; transform: translateX(-50%);
-            margin: 0 !important; padding: 2px 8px !important;
-            max-width: min(90%, 400px) !important;
+            margin: 0 !important; padding: 6px 14px !important;
+            max-width: min(60%, 350px) !important;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 10px; z-index: 2;
+            border-radius: 14px; z-index: 2;
         }
         /* Remove canvas-area padding and center canvases vertically */
         body.fullscreen-mode .compare-canvas-area {
@@ -2822,7 +2822,7 @@
             if (centerIsland) {
                 if (newMode > 0 && _fullscreenActive) {
                     centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
-                    centerIsland.style.display = '';
+                    centerIsland.style.display = 'block';
                 } else {
                     centerIsland.style.display = 'none';
                 }
@@ -2983,7 +2983,7 @@
                     if (cbIsland) cbIsland.style.display = 'none';
                     return;
                 }
-                const islandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+                const islandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
                 if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = islandW + 'px'; }
                 cbCanvas.style.display = '';
                 cb.draw();
@@ -3021,7 +3021,7 @@
             const dpr = window.devicePixelRatio || 1;
             cbCanvas.style.width = '';
             cbCanvas.style.display = '';
-            const sideIslandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+            const sideIslandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
             if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = sideIslandW + 'px'; }
             // Canvas uses flex:1 inside the island; measure after layout
             const actualCbW = cbCanvas.clientWidth || sideIslandW;
@@ -3088,7 +3088,7 @@
                         if (diffCbIsland) diffCbIsland.style.display = 'none';
                         return;
                     }
-                    const diffIslandW = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+                    const diffIslandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
                     if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW + 'px'; }
                     if (diffPaneCb) diffPaneCb.style.display = '';
                 }
@@ -3121,7 +3121,7 @@
             const dpr = window.devicePixelRatio || 1;
             diffPaneCb.style.width = '';
             diffPaneCb.style.display = 'block';
-            const diffIslandW2 = _fullscreenActive ? Math.min(cssW, 400) : cssW;
+            const diffIslandW2 = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
             if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW2 + 'px'; }
             const actualDiffCbW = diffPaneCb.clientWidth || diffIslandW2;
             diffPaneCb.width = Math.round(actualDiffCbW * dpr);
@@ -12203,7 +12203,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (centerIsland) {
                         const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
                         centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
-                        centerIsland.style.display = '';
+                        centerIsland.style.display = 'block';
                     }
                 }
 
@@ -12361,7 +12361,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (centerIsland && compareActive) {
                 const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
                 if (hasCenterMode && infoEl) {
-                    centerIsland.style.display = '';
+                    centerIsland.style.display = 'block';
                     const infoRect = infoEl.getBoundingClientRect();
                     centerIsland.style.top = (infoRect.bottom + 6) + 'px';
                 } else {
