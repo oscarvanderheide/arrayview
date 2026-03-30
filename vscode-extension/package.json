@@ -19,5 +19,12 @@
     "package.json",
     "LICENSE"
   ],
-  "contributes": {}
+  "contributes": {
+    "commands": [
+      {
+        "command": "arrayview.openFile",
+        "title": "ArrayView: Open File"
+      }
+    ]
+  }
 }

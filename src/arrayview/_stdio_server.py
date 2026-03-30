@@ -442,6 +442,35 @@ def _handle_slice(msg: dict) -> None:
     _write_response(payload)
 
 
+def _handle_get_viewer_html(msg: dict) -> None:
+    """Return the rendered viewer HTML with template substitutions."""
+    from importlib.resources import files as _pkg_files
+
+    from arrayview._config import get_viewer_colormaps
+    from arrayview._render import COLORMAP_GRADIENT_STOPS, COMPLEX_MODES, REAL_MODES
+    from arrayview._session import COLORMAPS, DR_LABELS
+
+    template = _pkg_files("arrayview").joinpath("_viewer.html").read_text(encoding="utf-8")
+
+    _cfg_colormaps = get_viewer_colormaps()
+    _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
+
+    sid = msg.get("sid", "")
+
+    query_val = json.dumps(f"?sid={sid}&transport=postMessage") if sid else "null"
+
+    html = (
+        template.replace("__COLORMAPS__", str(_active_colormaps))
+        .replace("__DR_LABELS__", str(DR_LABELS))
+        .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
+        .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
+        .replace("__REAL_MODES__", str(REAL_MODES))
+        .replace("__ARRAYVIEW_QUERY__", query_val)
+    )
+
+    _write_json({"html": html})
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -474,6 +503,8 @@ def run_stdio_server() -> None:
                 _handle_fetch_proxy(msg)
             elif msg_type == "slice":
                 _handle_slice(msg)
+            elif msg_type == "get-viewer-html":
+                _handle_get_viewer_html(msg)
             else:
                 _write_error(f"unknown type: {msg_type}")
         except Exception as e:
