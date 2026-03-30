@@ -151,6 +151,7 @@ PROJECTION_OPS = {
     3: ("mean", np.mean),
     4: ("std", np.std),
     5: ("sos", None),  # sum of squares — custom implementation
+    6: ("sum", np.sum),
 }
 
 
