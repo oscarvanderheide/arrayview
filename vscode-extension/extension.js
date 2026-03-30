@@ -83,7 +83,11 @@ class PythonBridge {
     }
 
     start() {
-        this._spawn('python3');
+        return new Promise((resolve, reject) => {
+            this._startResolve = resolve;
+            this._startReject = reject;
+            this._spawn('python3');
+        });
     }
 
     _spawn(cmd) {
@@ -95,15 +99,17 @@ class PythonBridge {
             if (err.code === 'ENOENT' && cmd === 'python3') {
                 log('PYTHON: python3 not found, trying python');
                 this._spawn('python');
-            } else {
-                log(`PYTHON: spawn error: ${err.message}`);
+                return;
+            }
+            log(`PYTHON: spawn error: ${err.message}`);
+            if (this._startReject) {
+                this._startReject(new Error(
+                    cmd === 'python' ? 'Python not found. Install Python and arrayview (pip install arrayview).' : err.message
+                ));
+                this._startReject = null;
             }
         });
 
-        this._attachHandlers();
-    }
-
-    _attachHandlers() {
         // Handle stderr for SESSION: lines and errors
         this.process.stderr.on('data', (data) => {
             const lines = data.toString().split('\n');
@@ -113,6 +119,10 @@ class PythonBridge {
                         const info = JSON.parse(line.slice(8));
                         this.sid = info.sid;
                         if (this.onSessionReady) this.onSessionReady(info);
+                        if (this._startResolve) {
+                            this._startResolve(info);
+                            this._startResolve = null;
+                        }
                     } catch (_) {}
                 } else if (line.trim()) {
                     log(`PYTHON: ${line}`);
@@ -128,6 +138,16 @@ class PythonBridge {
 
         this.process.on('exit', (code) => {
             log(`PYTHON: exited with code ${code}`);
+            // Reject any pending request callbacks
+            for (const cb of this._pendingCallbacks) {
+                cb(Buffer.from(JSON.stringify({ error: `process exited with code ${code}` })));
+            }
+            this._pendingCallbacks = [];
+            // Reject start promise if still pending
+            if (this._startReject) {
+                this._startReject(new Error(`Python process exited with code ${code}`));
+                this._startReject = null;
+            }
         });
     }
 
@@ -179,22 +199,14 @@ async function openDirectWebview(filePath, title) {
         }
     );
 
-    // Spawn Python subprocess
+    // Spawn Python subprocess and wait for session to be ready
     const bridge = new PythonBridge(filePath, (sessionInfo) => {
         log(`SESSION READY: sid=${sessionInfo.sid} name=${sessionInfo.name}`);
     });
-    bridge.start();
-
-    // Wait for the session to be ready (max 30 seconds)
-    await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Timeout waiting for Python session')), 30000);
-        const origCb = bridge.onSessionReady;
-        bridge.onSessionReady = (info) => {
-            clearTimeout(timer);
-            if (origCb) origCb(info);
-            resolve();
-        };
-    });
+    const sessionInfo = await Promise.race([
+        bridge.start(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for Python session (30s)')), 30000)),
+    ]);
 
     // Get the rendered viewer HTML from the Python subprocess
     const htmlPayload = await bridge.sendRequest({
@@ -237,16 +249,15 @@ async function openDirectWebview(filePath, title) {
                 return;
             }
 
-            // Convert Node.js Buffer to ArrayBuffer for postMessage
-            const ab = payload.buffer.slice(
-                payload.byteOffset,
-                payload.byteOffset + payload.byteLength
-            );
+            // VS Code postMessage uses structured clone which handles
+            // Uint8Array but NOT raw ArrayBuffer reliably across the IPC bridge.
+            // Send as Uint8Array — the viewer side reconstructs the ArrayBuffer.
+            const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
 
             panel.webview.postMessage({
                 type: 'slice-data',
                 channelId: msg.channelId,
-                buffer: ab,
+                buffer: bytes,
             });
         } else if (msg.type === 'fetch-proxy') {
             // Proxied fetch from viewer -> forward to Python

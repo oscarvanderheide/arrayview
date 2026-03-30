@@ -1501,7 +1501,17 @@
                 if (msg.type === 'slice-data') {
                     const channel = _postMessageChannels.get(msg.channelId);
                     if (channel && channel.onmessage) {
-                        channel.onmessage({ data: msg.buffer });
+                        // Buffer may arrive as Uint8Array (VS Code structured clone).
+                        // Ensure we pass a plain ArrayBuffer to the binary parser.
+                        let buf = msg.buffer;
+                        if (buf && !(buf instanceof ArrayBuffer)) {
+                            if (buf.buffer instanceof ArrayBuffer) {
+                                buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                            } else {
+                                buf = new Uint8Array(buf).buffer;
+                            }
+                        }
+                        channel.onmessage({ data: buf });
                     }
                 } else if (msg.type === 'fetch-response') {
                     const pending = _pendingFetches.get(msg.id);
@@ -1514,6 +1524,7 @@
                             json: () => Promise.resolve(msg.data),
                             text: () => Promise.resolve(typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)),
                             blob: () => Promise.resolve(new Blob([msg.data])),
+                            arrayBuffer: () => Promise.resolve(msg.data instanceof ArrayBuffer ? msg.data : new TextEncoder().encode(JSON.stringify(msg.data)).buffer),
                         });
                     }
                 }
