@@ -13250,7 +13250,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                  neTop > infoRect.bottom);
                 }
                 if (overlaps) {
-                    _miniMap.style.top = (vpRect.top + (vpRect.height - mmH) / 2) + 'px';
+                    _miniMap.style.top = vpRect.top + mmMargin + 'px';
                     _miniMap.style.left = (vpRect.right + 10) + 'px';
                 } else {
                     _miniMap.style.top = neTop + 'px';
