@@ -5,6 +5,7 @@ This module was extracted from _app.py during the modular refactor.
 
 import asyncio
 import io
+import itertools
 import json
 import math
 import os
@@ -1047,6 +1048,116 @@ def get_roi(
         "std": _safe_float(finite.std()) if finite.size else None,
         "n": int(finite.size),
     }
+
+
+@app.get("/roi_multi/{sid}")
+def get_roi_multi(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    x0: int = 0,
+    y0: int = 0,
+    x1: int = 0,
+    y1: int = 0,
+    complex_mode: int = 0,
+):
+    """ROI stats across dimension combinations for multi-dim export.
+
+    Uses bounding box (x0,y0,x1,y1) for rect ROIs. Circle and freehand ROIs
+    are converted to bounding boxes client-side before calling this endpoint.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+    if session.rgb_axis is not None:
+        return {"error": "not supported for RGB sessions"}
+    arr = session.array
+    ndim = arr.ndim
+    idx_list = [int(v) for v in indices.split(",")]
+
+    roi_dims = {dim_x, dim_y}
+    other_dims = [d for d in range(ndim) if d not in roi_dims]
+
+    def extract_roi(data_2d):
+        """Extract finite ROI pixels from a 2D slice using bounding box."""
+        h, w = data_2d.shape
+        xa, xb = max(0, min(x0, x1, w - 1)), min(w, max(x0, x1) + 1)
+        ya, yb = max(0, min(y0, y1, h - 1)), min(h, max(y0, y1) + 1)
+        roi = data_2d[ya:yb, xa:xb]
+        if roi.size == 0:
+            return np.array([])
+        return roi[np.isfinite(roi)]
+
+    rows = []
+
+    # 1. Base slice (just the ROI plane)
+    bitmask = ['0'] * ndim
+    bitmask[dim_x] = '1'
+    bitmask[dim_y] = '1'
+    base_slice = extract_slice(session, dim_x, dim_y, idx_list)
+    base_data = apply_complex_mode(base_slice, complex_mode)
+    finite = extract_roi(base_data)
+    if finite.size:
+        rows.append({
+            "dims": ''.join(bitmask),
+            "min": _safe_float(finite.min()),
+            "max": _safe_float(finite.max()),
+            "mean": _safe_float(finite.mean()),
+            "std": _safe_float(finite.std()),
+            "n": int(finite.size),
+        })
+
+    # 2. Single-dimension extensions
+    for ext_dim in other_dims:
+        bitmask_ext = list(bitmask)
+        bitmask_ext[ext_dim] = '1'
+        all_finite = []
+        for val in range(arr.shape[ext_dim]):
+            idx_copy = list(idx_list)
+            idx_copy[ext_dim] = val
+            sl = extract_slice(session, dim_x, dim_y, idx_copy)
+            data = apply_complex_mode(sl, complex_mode)
+            finite = extract_roi(data)
+            if finite.size:
+                all_finite.append(finite)
+        if all_finite:
+            combined = np.concatenate(all_finite)
+            rows.append({
+                "dims": ''.join(bitmask_ext),
+                "min": _safe_float(combined.min()),
+                "max": _safe_float(combined.max()),
+                "mean": _safe_float(combined.mean()),
+                "std": _safe_float(combined.std()),
+                "n": int(combined.size),
+            })
+
+    # 3. All dimensions
+    if len(other_dims) > 1:
+        bitmask_all = ['1'] * ndim
+        all_finite = []
+        ranges = [range(arr.shape[d]) for d in other_dims]
+        for combo in itertools.product(*ranges):
+            idx_copy = list(idx_list)
+            for d, val in zip(other_dims, combo):
+                idx_copy[d] = val
+            sl = extract_slice(session, dim_x, dim_y, idx_copy)
+            data = apply_complex_mode(sl, complex_mode)
+            finite = extract_roi(data)
+            if finite.size:
+                all_finite.append(finite)
+        if all_finite:
+            combined = np.concatenate(all_finite)
+            rows.append({
+                "dims": ''.join(bitmask_all),
+                "min": _safe_float(combined.min()),
+                "max": _safe_float(combined.max()),
+                "mean": _safe_float(combined.mean()),
+                "std": _safe_float(combined.std()),
+                "n": int(combined.size),
+            })
+
+    return {"rows": rows}
 
 
 @app.get("/roi_floodfill/{sid}")

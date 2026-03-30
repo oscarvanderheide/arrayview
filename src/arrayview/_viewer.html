@@ -435,12 +435,6 @@
                               border: 1px solid rgba(255,130,90,0.25); }
         .mode-badge-proj    { background: rgba(140,100,240,0.15); color: #a78bfa;
                               border: 1px solid rgba(140,100,240,0.25); }
-        .mode-badge-roi     { background: rgba(45,90,39,0.8); color: #7ec87e;
-                              border: 1px solid rgba(80,160,70,0.35); }
-        .mode-badge-seg     { background: rgba(200,60,120,0.25); color: #e87aaf;
-                              border: 1px solid rgba(200,60,120,0.35); }
-        :root.light .mode-badge-seg { background: rgba(200,60,120,0.15); color: #b03070; border-color: rgba(200,60,120,0.3); }
-        :root.light .mode-badge-roi { background: rgba(45,90,39,0.6); color: #3a7a34; border-color: rgba(45,90,39,0.4); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
         :root.light .mode-badge-log { background: rgba(200,140,20,0.1); color: #a07010; border-color: rgba(200,140,20,0.25); }
         :root.light .mode-badge-complex { background: rgba(20,160,160,0.1); color: #10808a; border-color: rgba(20,160,160,0.25); }
@@ -526,48 +520,61 @@
             user-select: none; transition: color 0.12s, border-color 0.12s;
         }
         #help-hint:hover { color: var(--text); border-color: var(--muted); }
-        #roi-panel {
+        #dynamic-island {
             position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
-            background: var(--roi-bg); border: 1px solid var(--border);
-            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-            border-radius: var(--radius); padding: 10px 14px;
-            font-size: 12px; color: var(--text); font-family: monospace;
-            line-height: 1.8; display: none; white-space: nowrap; z-index: 5;
-            max-height: 80vh; overflow-y: auto;
+            background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-radius: 14px; padding: 10px 12px;
+            font-size: 11px; color: var(--text); font-family: var(--mono);
+            display: none; z-index: 5; min-width: 200px;
+            transition: height 0.3s ease, opacity 0.3s ease;
+            cursor: default; user-select: none;
         }
-        #roi-panel table { border-collapse: collapse; width: 100%; }
-        #roi-panel th { color: var(--muted); font-weight: normal; text-align: right; padding: 0 6px; font-size: 11px; }
-        #roi-panel th:first-child { text-align: center; }
-        #roi-panel td { text-align: right; padding: 1px 6px; }
-        #roi-panel td:first-child { text-align: center; padding-right: 6px; }
-        .roi-delete { opacity: 0.4; cursor: pointer; font-size: 12px; text-align: center !important; padding: 0 4px !important; }
-        .roi-delete:hover { opacity: 0.8; }
-        #roi-panel .roi-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-        #roi-panel .roi-header span { font-weight: bold; color: var(--active-dim); }
-        #roi-panel .roi-section { margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-        #roi-panel .roi-section:last-of-type { border-bottom: none; margin-bottom: 2px; }
-        #roi-export-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 11px; padding: 3px 10px; cursor: pointer; margin-top: 4px; }
-        #roi-export-btn:hover { border-color: var(--active-dim); color: var(--active-dim); }
-
-        #seg-panel {
-            position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
-            background: var(--roi-bg); border: 1px solid var(--border);
-            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-            border-radius: var(--radius); padding: 10px 14px;
-            font-size: 12px; color: var(--text); font-family: monospace;
-            line-height: 1.8; display: none; white-space: nowrap; z-index: 5;
-            max-height: 80vh; overflow-y: auto; min-width: 160px;
+        #dynamic-island.visible { display: block; }
+        #dynamic-island .island-header {
+            display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: grab;
         }
-        #seg-panel .seg-title { font-weight: bold; color: #e87aaf; margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-        #seg-panel .seg-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--border); }
-        #seg-panel .seg-item:last-of-type { border-bottom: none; }
-        #seg-panel .seg-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-        #seg-panel .seg-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-        #seg-panel .seg-voxels { color: var(--muted); font-size: 10px; }
-        #seg-panel .seg-delete { opacity: 0.4; cursor: pointer; font-size: 11px; }
-        #seg-panel .seg-delete:hover { opacity: 0.8; color: #ff5050; }
-        .seg-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 11px; padding: 3px 10px; cursor: pointer; margin-top: 6px; }
-        .seg-btn:hover { border-color: #e87aaf; color: #e87aaf; }
+        #dynamic-island .island-header:active { cursor: grabbing; }
+        #dynamic-island .island-drag-handle {
+            width: 14px; display: flex; flex-direction: column; gap: 2px; opacity: 0.2; flex-shrink: 0;
+        }
+        #dynamic-island .island-drag-handle span { display: block; height: 1px; background: #fff; }
+        #dynamic-island .island-title { font-weight: 600; flex-shrink: 0; }
+        #dynamic-island .island-title-roi { color: #e8e8e8; }
+        #dynamic-island .island-title-seg { color: #e8e8e8; }
+        #dynamic-island .island-dot { color: #333; flex-shrink: 0; }
+        #dynamic-island .island-shapes { display: flex; align-items: center; gap: 5px; flex: 1; }
+        #dynamic-island .island-shapes svg { cursor: pointer; transition: opacity 0.15s; }
+        #dynamic-island .island-shapes svg:hover { opacity: 0.8 !important; }
+        #dynamic-island .island-download {
+            flex-shrink: 0; cursor: pointer; opacity: 0.4; transition: opacity 0.15s;
+        }
+        #dynamic-island .island-download:hover { opacity: 0.9; }
+        #dynamic-island .island-rows { display: flex; flex-direction: column; gap: 3px; }
+        #dynamic-island .island-row {
+            display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 4px;
+            background: rgba(255,255,255,0.02);
+        }
+        #dynamic-island .island-row.selected { border: 1px solid rgba(240,198,116,0.12); }
+        #dynamic-island .island-row.selected-roi { background: rgba(240,198,116,0.08); border-color: rgba(240,198,116,0.12); }
+        #dynamic-island .island-row.selected-seg { background: rgba(232,122,175,0.08); border-color: rgba(232,122,175,0.12); }
+        #dynamic-island .island-swatch { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+        #dynamic-island .island-name {
+            color: #ccc; flex: 1; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        #dynamic-island .island-name.editable { border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 1px; cursor: text; }
+        #dynamic-island .island-name.default-name { font-style: italic; color: #999; }
+        #dynamic-island .island-stats { color: #777; font-size: 9px; white-space: nowrap; }
+        #dynamic-island .island-delete { color: #444; font-size: 10px; cursor: pointer; flex-shrink: 0; line-height: 1; }
+        #dynamic-island .island-delete:hover { color: #ff5050; }
+        /* Light theme */
+        :root.light #dynamic-island { background: rgba(245,245,245,0.95); border-color: rgba(0,0,0,0.1); }
+        :root.light #dynamic-island .island-name { color: #333; }
+        :root.light #dynamic-island .island-name.default-name { color: #888; }
+        :root.light #dynamic-island .island-stats { color: #666; }
+        :root.light #dynamic-island .island-delete { color: #aaa; }
+        :root.light #dynamic-island .island-delete:hover { color: #cc3030; }
+        :root.light #dynamic-island .island-drag-handle span { background: #333; }
         #roi-hover-tooltip {
             position: absolute; pointer-events: none; z-index: 8;
             background: var(--surface); border: 1px solid var(--border);
@@ -915,9 +922,6 @@
         .cmap-thumb.active canvas { border-color: var(--help-key); height:12px; width:72px; }
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--fg); }
-
-        /* ── ROI badge inline icon ─────────────────────────────── */
-        .mode-badge-roi svg, .mode-badge-seg svg { vertical-align: middle; margin-left: 1px; }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -1353,8 +1357,7 @@
     </div>
     <div id="help-hint">?</div>
     <canvas id="mv-orientation"></canvas>
-    <div id="roi-panel"><div id="roi-content"></div><button id="roi-export-btn" title="Export ROI stats to CSV">export CSV</button></div>
-    <div id="seg-panel"><div class="seg-title">segments</div><div id="seg-list"></div><button class="seg-btn" id="seg-export-btn" title="Export label map as .npy">export .npy</button></div>
+    <div id="dynamic-island"></div>
     <div id="info-overlay">
         <div id="info-box"><table id="info-table"></table></div>
     </div>
@@ -1579,6 +1582,7 @@
         let _segOverlaySid = null; // overlay session ID for segmentation mask
         let _segActivating = false; // true while connecting/launching server
         let _segMethod = 'click'; // 'click' | 'circle' | 'scribble' | 'lasso'
+        let _segLabels = [];  // labels array from server, kept for island rendering
         const _SEG_METHODS = ['click', 'circle', 'scribble', 'lasso'];
         let _segDrawing = false; // true while dragging for circle/scribble/lasso
         let _segDrawStart = null; // {x, y} for circle start
@@ -1586,6 +1590,21 @@
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats} for multi-ROI
+        let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
+
+        const _ROI_SHAPE_ICONS = {
+            rect:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
+            circle:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
+            freehand:  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            floodfill: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 3Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
+        };
+        const _SEG_METHOD_ICONS = {
+            click:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>',
+            circle:   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
+            scribble: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            lasso:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+        };
+        const _DOWNLOAD_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v7"/><path d="M4 7l3 3 3-3"/><path d="M2 11h10"/></svg>';
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
@@ -6021,27 +6040,10 @@
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
             }
-            if (rectRoiMode) {
-                const roiIcons = {
-                    rect:      '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
-                    circle:    '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-                    freehand:  '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-                    floodfill: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 1Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
-                };
-                html += `<span class="mode-badge mode-badge-roi">ROI ${roiIcons[_roiShape] || ''}</span>`;
-            }
-            if (_segMode) {
-                const segIcons = {
-                    click:    '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>',
-                    circle:   '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-                    scribble: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-                    lasso:    '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-                };
-                html += `<span class="mode-badge mode-badge-seg">SEG ${segIcons[_segMethod] || ''}</span>`;
-            }
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
+            renderIsland();
         }
 
         function positionEggs() {
@@ -6104,6 +6106,196 @@
             el.style.left      = '50%';
             el.style.transform = 'translateX(-50%)';
         }
+
+        function _positionIsland() {
+            const el = document.getElementById('dynamic-island');
+            if (!el) return;
+            if (_islandDragPos) {
+                el.style.left = _islandDragPos.x + 'px';
+                el.style.top = _islandDragPos.y + 'px';
+                el.style.transform = 'none';
+            } else {
+                el.style.left = '16px';
+                el.style.top = '50%';
+                el.style.transform = 'translateY(-50%)';
+            }
+        }
+
+        function _islandSetShape(shape) {
+            if (rectRoiMode) {
+                _roiShape = shape;
+                const modeHint = shape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
+                showStatus(`ROI mode: ${shape} · A to cycle · ${modeHint}`);
+            } else if (_segMode) {
+                _segMethod = shape;
+                _segShowMethodStatus();
+            }
+            renderIsland();
+        }
+        window._islandSetShape = _islandSetShape;
+
+        function _islandDeleteRoi(idx) {
+            if (idx < 0 || idx >= _rois.length) return;
+            _rois.splice(idx, 1);
+            _drawAllRois();
+            renderIsland();
+            showStatus(`ROI ${idx + 1} deleted`);
+        }
+        window._islandDeleteRoi = _islandDeleteRoi;
+
+        async function _islandDeleteSeg(label) {
+            try {
+                const r = await fetch(`/seg/delete_label/${sid}?label=${label}`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
+                _segOverlaySid = d.overlay_sid;
+                _segUpdatePanel(d.labels);
+                _segRefreshOverlay();
+            } catch (err) {
+                showToast(`segmentation: ${err.message}`);
+            }
+        }
+        window._islandDeleteSeg = _islandDeleteSeg;
+
+        function _islandExport() {
+            if (rectRoiMode) {
+                _exportRoisCsv();
+            } else if (_segMode) {
+                const a = document.createElement('a');
+                a.href = `/seg/export/${sid}`;
+                a.download = '';
+                a.click();
+            }
+        }
+        window._islandExport = _islandExport;
+
+        function _islandMorph() {
+            const el = document.getElementById('dynamic-island');
+            if (!el) return;
+            el.style.opacity = '0';
+            setTimeout(() => {
+                renderIsland();
+                el.style.opacity = '1';
+            }, 150);
+        }
+
+        function renderIsland() {
+            const el = document.getElementById('dynamic-island');
+            if (!el) return;
+
+            const active = rectRoiMode ? 'roi' : _segMode ? 'seg' : null;
+            if (!active) {
+                el.classList.remove('visible');
+                return;
+            }
+
+            const isRoi = active === 'roi';
+            const title = isRoi ? 'ROI' : 'SEG';
+            const accentColor = isRoi ? '#f0c674' : '#e87aaf';
+            const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
+            const currentShape = isRoi ? _roiShape : _segMethod;
+            const shapeKeys = Object.keys(shapes);
+
+            // Header: drag handle + title + shape icons + download
+            let html = `<div class="island-header">`;
+            html += `<div class="island-drag-handle"><span></span><span></span><span></span></div>`;
+            html += `<span class="island-title island-title-${active}">${title}</span>`;
+            html += `<span class="island-dot">\u00b7</span>`;
+            html += `<div class="island-shapes">`;
+            for (const key of shapeKeys) {
+                const isActive = key === currentShape;
+                const color = isActive ? accentColor : '#555';
+                const opacity = isActive ? '1' : '0.5';
+                html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+            }
+            html += `</div>`;
+            html += `<span class="island-download" onclick="_islandExport()">${_DOWNLOAD_ICON}</span>`;
+            html += `</div>`;
+
+            // Rows
+            html += `<div class="island-rows">`;
+            if (isRoi) {
+                html += _renderRoiRows();
+            } else {
+                html += _renderSegRows();
+            }
+            html += `</div>`;
+
+            el.innerHTML = html;
+            el.classList.add('visible');
+            _positionIsland();
+        }
+
+        function _renderRoiRows() {
+            const fmt = v => {
+                const a = Math.abs(v);
+                if (a === 0) return '0';
+                if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
+                return parseFloat(v.toPrecision(4)).toString();
+            };
+            let html = '';
+            for (let i = 0; i < _rois.length; i++) {
+                const r = _rois[i];
+                const c = _roiColors[i % _roiColors.length];
+                const s = r.stats;
+                const selected = i === 0 ? ' selected-roi' : '';
+                html += `<div class="island-row${selected}">`;
+                html += `<div class="island-swatch" style="background:${c.stroke}"></div>`;
+                html += `<span class="island-name">ROI ${i + 1}</span>`;
+                if (s) {
+                    html += `<span class="island-stats">${fmt(s.mean)} \u00b1 ${fmt(s.std)}</span>`;
+                }
+                html += `<span class="island-delete" data-roi="${i}" onclick="_islandDeleteRoi(${i})" title="Delete ROI ${i + 1}">\u00d7</span>`;
+                html += `</div>`;
+            }
+            return html;
+        }
+
+        let _segLabelNames = {};  // {labelNumber: 'user name'} — persisted per session
+
+        function _renderSegRows() {
+            let html = '';
+            if (!_segLabels || !_segLabels.length) return html;
+            for (let i = 0; i < _segLabels.length; i++) {
+                const l = _segLabels[i];
+                const userSet = _segLabelNames[l.label] !== undefined;
+                const name = userSet ? _segLabelNames[l.label] : l.name;
+                const nameClass = userSet ? 'editable' : 'editable default-name';
+                const selected = i === 0 ? ' selected-seg' : '';
+                html += `<div class="island-row${selected}">`;
+                html += `<div class="island-swatch" style="background:${l.color}"></div>`;
+                html += `<span class="island-name ${nameClass}" data-label="${l.label}" onclick="_islandEditSegName(this)" title="Click to rename">${name}</span>`;
+                html += `<span class="island-delete" onclick="_islandDeleteSeg(${l.label})" title="Delete segment">\u00d7</span>`;
+                html += `</div>`;
+            }
+            return html;
+        }
+
+        function _islandEditSegName(spanEl) {
+            const label = parseInt(spanEl.dataset.label);
+            const current = spanEl.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = current;
+            input.style.cssText = 'background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.3);color:#ccc;font-size:10px;font-family:var(--mono);width:100%;outline:none;padding:0;';
+            spanEl.replaceWith(input);
+            input.focus();
+            input.select();
+            const commit = () => {
+                const val = input.value.trim();
+                if (val) _segLabelNames[label] = val;
+                renderIsland();
+            };
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                if (e.key === 'Escape') { input.blur(); }
+                e.stopPropagation();  // prevent viewer shortcuts while editing
+            });
+            input.addEventListener('keypress', e => e.stopPropagation());
+            input.addEventListener('keyup', e => e.stopPropagation());
+        }
+        window._islandEditSegName = _islandEditSegName;
 
         /* Build a slash with a bottom-to-top gradient fill indicating scroll progress.
            fillColor = bright color for the filled portion, mutedColor for unfilled. */
@@ -7335,15 +7527,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                     }
                 }
-                // Show stats in ROI panel
-                const panel = document.getElementById('roi-panel');
-                if (panel) {
-                    panel.style.display = '';
-                    panel.innerHTML = `<b>Flood Fill</b> · n=${data.n}<br>`
-                        + `min: ${_cbFmt(data.min)} · max: ${_cbFmt(data.max)}<br>`
-                        + `mean: ${_cbFmt(data.mean)} · std: ${_cbFmt(data.std)}<br>`
-                        + `seed: ${_cbFmt(data.seed_value)} · tol: ${(_floodFillTolerance * 100).toFixed(0)}%`;
-                }
+                // Push floodfill ROI into list so it appears in the island
+                _rois.push({
+                    type: 'floodfill',
+                    bbox: data.bbox,
+                    stats: { n: data.n, min: data.min, max: data.max, mean: data.mean, std: data.std }
+                });
+                _updateRoiPanel();
+
                 showStatus(`flood fill: ${data.n} pixels · [ ] to adjust tolerance`);
             } catch (e) {
                 showStatus(`flood fill error: ${e.message}`);
@@ -7427,56 +7618,64 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return false;
         }
         function _updateRoiPanel() {
-            const panel = document.getElementById('roi-panel');
-            const content = document.getElementById('roi-content');
-            if (!_rois.length) { panel.style.display = 'none'; return; }
-            const fmt = v => {
-                const a = Math.abs(v);
-                if (a === 0) return '0';
-                if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
-                return parseFloat(v.toPrecision(4)).toString();
-            };
-            let html = '<table><tr><th></th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th><th></th></tr>';
+            renderIsland();
+        }
+        async function _exportRoisCsv() {
+            if (!_rois.length) return;
+            showStatus('exporting ROI stats...');
+            const rows = [['roi', 'dims', 'mean', 'std', 'min', 'max', 'n_pixels'].join(',')];
+
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
-                const c = _roiColors[i % _roiColors.length];
-                const s = r.stats;
-                if (!s) continue;
-                html += `<tr><td style="color:${c.stroke};font-weight:bold">${i + 1}</td>`;
-                html += `<td>${s.n.toLocaleString()}</td>`;
-                html += `<td>${fmt(s.min)}</td>`;
-                html += `<td>${fmt(s.max)}</td>`;
-                html += `<td>${fmt(s.mean)}</td>`;
-                html += `<td>${fmt(s.std)}</td>`;
-                html += `<td class="roi-delete" data-roi="${i}" title="Delete ROI ${i + 1}">\u00d7</td></tr>`;
+                if (!r.stats) continue;
+
+                if (shape.length <= 2) {
+                    // 2D array — single row per ROI, bitmask is all 1s
+                    const bitmask = shape.map(() => '1').join('');
+                    const s = r.stats;
+                    rows.push([`ROI ${i + 1}`, bitmask, s.mean, s.std, s.min, s.max, s.n].join(','));
+                } else {
+                    // Multi-dim — fetch from server
+                    // Convert all ROI types to bounding box for multi-dim query
+                    let bx0, by0, bx1, by1;
+                    if (r.type === 'circle') {
+                        bx0 = Math.round(r.cx - r.r); by0 = Math.round(r.cy - r.r);
+                        bx1 = Math.round(r.cx + r.r); by1 = Math.round(r.cy + r.r);
+                    } else if (r.type === 'freehand' && r.points) {
+                        const xs = r.points.map(p => p[0]), ys = r.points.map(p => p[1]);
+                        bx0 = Math.min(...xs); by0 = Math.min(...ys);
+                        bx1 = Math.max(...xs); by1 = Math.max(...ys);
+                    } else {
+                        bx0 = r.x0 ?? 0; by0 = r.y0 ?? 0;
+                        bx1 = r.x1 ?? 0; by1 = r.y1 ?? 0;
+                    }
+                    try {
+                        const params = new URLSearchParams({
+                            dim_x: String(dim_x), dim_y: String(dim_y),
+                            indices: indices.join(','),
+                            x0: String(bx0), y0: String(by0),
+                            x1: String(bx1), y1: String(by1),
+                            complex_mode: String(complexMode),
+                        });
+                        const resp = await fetch(`/roi_multi/${sid}?${params}`);
+                        const data = await resp.json();
+                        if (data.rows) {
+                            for (const row of data.rows) {
+                                rows.push([`ROI ${i + 1}`, row.dims, row.mean, row.std, row.min, row.max, row.n].join(','));
+                            }
+                        }
+                    } catch (err) {
+                        showToast(`export error: ${err.message}`);
+                    }
+                }
             }
-            html += '</table>';
-            content.innerHTML = html;
-            panel.style.display = 'block';
-        }
-        function _exportRoisCsv() {
-            if (!_rois.length) return;
-            const rows = [['roi','n','min','max','mean','std'].join(',')];
-            for (let i = 0; i < _rois.length; i++) {
-                const s = _rois[i].stats;
-                if (!s) continue;
-                rows.push([i + 1, s.n, s.min, s.max, s.mean, s.std].join(','));
-            }
+
             const csvText = rows.join('\n');
             const dataUrl = 'data:text/csv;base64,' + btoa(csvText);
             _downloadFile(dataUrl, 'roi_stats.csv');
+            showStatus('ROI stats exported');
         }
-        document.getElementById('roi-export-btn').addEventListener('click', _exportRoisCsv);
-        document.getElementById('roi-content').addEventListener('click', e => {
-            const del = e.target.closest('.roi-delete');
-            if (!del) return;
-            const idx = parseInt(del.dataset.roi);
-            if (isNaN(idx) || idx < 0 || idx >= _rois.length) return;
-            _rois.splice(idx, 1);
-            _drawAllRois();
-            _updateRoiPanel();
-            showStatus(`ROI ${idx + 1} deleted`);
-        });
+        // Old roi-export-btn and roi-content listeners removed — now handled by island actions
         // Zoom-to-region: mousemove updates the selection rectangle
         canvas.addEventListener('mousemove', e => {
             if (!_zoomSelectDrag) return;
@@ -7812,8 +8011,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _segDrawStart = null;
             canvas.style.cursor = 'crosshair';
             showStatus('segmentation: off (server stays active · S to resume)');
-            const panel = document.getElementById('seg-panel');
-            if (panel) panel.style.display = 'none';
+            renderIsland();  // hides island since _segMode is now false
             renderEggs();
             _segClearDrawOverlay();
             updateView();
@@ -7872,44 +8070,46 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _segUpdatePanel(labels) {
-            const panel = document.getElementById('seg-panel');
-            const list = document.getElementById('seg-list');
-            if (!panel || !list) return;
-            if (!labels || labels.length === 0) {
-                panel.style.display = 'none';
-                return;
-            }
-            panel.style.display = 'block';
-            list.innerHTML = labels.map(l => `
-                <div class="seg-item">
-                    <span class="seg-swatch" style="background:${l.color}"></span>
-                    <span class="seg-name">${l.name}</span>
-                    <span class="seg-voxels">${l.voxels.toLocaleString()}</span>
-                    <span class="seg-delete" title="Delete segment" onclick="_segDeleteLabel(${l.label})">x</span>
-                </div>
-            `).join('');
+            _segLabels = labels || [];
+            renderIsland();
         }
 
-        // Make delete accessible from onclick
-        window._segDeleteLabel = async function(label) {
-            try {
-                const r = await fetch(`/seg/delete_label/${sid}?label=${label}`, { method: 'POST' });
-                const d = await r.json();
-                if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
-                _segOverlaySid = d.overlay_sid;
-                _segUpdatePanel(d.labels);
-                _segRefreshOverlay();
-                showToast('segment deleted');
-            } catch (err) { showToast(`segmentation: ${err.message}`); }
-        };
+        // Old seg-export-btn listener removed — now handled by _islandExport()
 
-        // Export button
-        document.getElementById('seg-export-btn')?.addEventListener('click', () => {
-            const a = document.createElement('a');
-            a.href = `/seg/export/${sid}`;
-            a.download = 'segmentation.npy';
-            a.click();
-        });
+        // Dynamic island drag support
+        (function() {
+            const island = document.getElementById('dynamic-island');
+            if (!island) return;
+            let dragging = false, dragOffX = 0, dragOffY = 0;
+
+            island.addEventListener('mousedown', e => {
+                if (!e.target.closest('.island-header')) return;
+                if (e.target.closest('.island-shapes') || e.target.closest('.island-download')) return;
+                dragging = true;
+                const rect = island.getBoundingClientRect();
+                dragOffX = e.clientX - rect.left;
+                dragOffY = e.clientY - rect.top;
+                island.style.transition = 'none';
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                const x = e.clientX - dragOffX;
+                const y = e.clientY - dragOffY;
+                island.style.left = x + 'px';
+                island.style.top = y + 'px';
+                island.style.transform = 'none';
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (!dragging) return;
+                dragging = false;
+                island.style.transition = '';
+                const rect = island.getBoundingClientRect();
+                _islandDragPos = { x: rect.left, y: rect.top };
+            });
+        })();
 
         // Segmentation drawing overlay — reuses the ROI overlay canvas
         function _segCanvasCoord(e) {
@@ -8511,6 +8711,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (compareActive || multiViewActive || qmriActive) {
                     showStatus('ROI mode: not available in this mode'); return;
                 }
+                // Deactivate SEG if active — modes are mutually exclusive
+                if (_segMode) {
+                    _segDeactivate();
+                    _islandMorph();
+                }
                 if (!rectRoiMode) {
                     rectRoiMode = true; _roiShape = 'rect';
                 } else if (_roiShape === 'rect') {
@@ -8523,7 +8728,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     rectRoiMode = false; _roiShape = 'rect';
                     _rois = []; _roiFreehandPts = [];
                     _floodFillTolerance = 0.1;
-                    document.getElementById('roi-panel').style.display = 'none';
                     _clearRoiOverlay();
                 }
                 canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
@@ -8545,6 +8749,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         renderEggs();
                     }
                 } else {
+                    // Deactivate ROI if active — modes are mutually exclusive
+                    if (rectRoiMode) {
+                        rectRoiMode = false; _roiShape = 'rect';
+                        _rois = []; _roiFreehandPts = [];
+                        _floodFillTolerance = 0.1;
+                        _clearRoiOverlay();
+                        _islandMorph();
+                    }
                     _segActivate();
                 }
             } else if (e.key === 'N') {
