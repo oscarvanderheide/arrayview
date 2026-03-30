@@ -829,6 +829,20 @@
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay .compare-pane-cb-val {
             font-size: 13px; width: 5ch; text-align: center; overflow: hidden;
         }
+        /* qMRI per-map colorbars as floating islands in immersive */
+        body.fullscreen-mode .qv-cb-island.fs-overlay {
+            opacity: 1 !important; position: absolute !important; bottom: 6px !important;
+            left: 50% !important; transform: translateX(-50%) !important;
+            margin: 0 !important; padding: 4px 10px !important;
+            max-width: min(80%, 250px) !important;
+            background: rgba(30, 30, 30, 0.8) !important;
+            backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            border-radius: 10px !important; z-index: 2;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
+            pointer-events: none !important;
+        }
+        body.fullscreen-mode .qv-cb-island.fs-overlay > * { pointer-events: auto; }
         /* Wrap is the positioning context for overlaid colorbar islands */
         body.fullscreen-mode .compare-canvas-wrap {
             position: relative;
@@ -1601,8 +1615,10 @@
 
         let userZoom = 1.0;
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
+        let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
         let _autoFitPending = true; // auto-fit to viewport on first render
+        let _lastZeroPress = 0; // timestamp of last '0' keypress for double-tap detection
         let _mvPrevZoom = 1.0;
         let _mvPrevSquareStretch = false;
         let _cmvPrevSquareStretch = false;
@@ -2232,6 +2248,7 @@
                 _autoFitPending = false;
                 userZoom = Math.max(1.0, capScale / baseScale);
                 _fitZoom = userZoom;
+                if (!_fullscreenActive) _normalFitZoom = userZoom;
                 _zoomRendered = userZoom; // keep animation origin in sync with layout resets
             } else if (!_zoomAdjustedByUser && !_fullscreenActive) {
                 // Guard: restored state may have a zoom that overflows the current viewport
@@ -2242,6 +2259,7 @@
                 if (projW > maxW + 2 || projH > effectiveMaxH + 2) {
                     userZoom = Math.max(1.0, capScale / baseScale);
                     _fitZoom = userZoom;
+                    _normalFitZoom = userZoom;
                     _zoomRendered = userZoom;
                 }
             }
@@ -8093,7 +8111,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.key === '+' || e.key === '=') {
                 if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                 if (!_fullscreenActive && !_zoomAdjustedByUser &&
-                    !multiViewActive && !qmriActive &&
                     _shouldEnterImmersive()) {
                     // First =: enter immersive mode via animated transition
                     _enterImmersive();
@@ -8111,16 +8128,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             } else if (e.key === '-') {
                 if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
-                userZoom = Math.max(userZoom / 1.1, 0.1);
-                // For square/wide arrays in single-view: don't zoom out past dimbar width
-                if (lastImgW && lastImgH && lastImgW >= lastImgH &&
-                    !multiViewActive && !compareActive && !qmriActive && !compareMvActive && !compareQmriActive) {
-                    const _infoW = (document.getElementById('info')?.offsetWidth || 0) + 20;
-                    if (_infoW > 40) {
-                        const _minZoom = _infoW / (lastImgW * getBaseScale(lastImgW, lastImgH));
-                        if (_minZoom > 0.05) userZoom = Math.max(userZoom, _minZoom);
-                    }
-                }
+                userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
                     // Auto-exit immersive mode when zooming back to fit
@@ -8142,7 +8150,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; showStatus(''); }, 2000);
                     showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                 } else {
-                    // No buffered input: reset zoom and pan
+                    const now = performance.now();
+                    const isDoubleTap = _fullscreenActive && (now - _lastZeroPress < 500);
+                    _lastZeroPress = now;
                     // Cancel any in-progress immersive animation before snapping
                     if (_immersiveAnimating) {
                         _immersiveAnimating = false;
@@ -8151,13 +8161,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
                     }
-                    if (_fullscreenActive) setFullscreenMode(false);
-                    userZoom = 1.0;
-                    _zoomAdjustedByUser = false;
-                    mainPan.reset();
-                    mosaicPan.reset();
-                    ModeRegistry.scaleAllAutoFit();
-                    showStatus(`zoom: fit`);
+                    if (isDoubleTap) {
+                        // Double-tap 0: exit immersive + full reset
+                        if (_fullscreenActive) setFullscreenMode(false);
+                        userZoom = 1.0;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        mosaicPan.reset();
+                        ModeRegistry.scaleAllAutoFit();
+                        showStatus('zoom: fit');
+                    } else if (_fullscreenActive) {
+                        // First tap in immersive: reset to immersive-fit level
+                        const w = lastImgW || canvas.width;
+                        const h = lastImgH || canvas.height;
+                        userZoom = _calcAutoFitZoom(w, h, true);
+                        _fitZoom = userZoom;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        ModeRegistry.scaleAll();
+                        showStatus('immersive · press 0 again to exit');
+                    } else {
+                        // Not in immersive: reset to normal fit
+                        userZoom = 1.0;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        mosaicPan.reset();
+                        ModeRegistry.scaleAllAutoFit();
+                        showStatus('zoom: fit');
+                    }
                     saveState();
                 }
             } else if (e.key === 'O' && e.shiftKey && !modKey && overlay_sid) {
@@ -12356,19 +12387,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const absDelta = Math.min(Math.abs(e.deltaY), 50);
                 const zoomFactor = 1 + absDelta * 0.004; // ~1.02 for small pinch, ~1.2 for big scroll
                 userZoom = e.deltaY > 0
-                    ? Math.max(userZoom / zoomFactor, 0.1)
+                    ? Math.max(userZoom / zoomFactor, _normalFitZoom)
                     : Math.min(userZoom * zoomFactor, 10.0);
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
                     // Auto-exit immersive on scroll zoom out to fit level
-                    if (!multiViewActive && !qmriActive && !compareMvActive && !compareQmriActive) {
-                        if (_fullscreenActive && userZoom <= _fitZoom) {
-                            setFullscreenMode(false);
-                            userZoom = _fitZoom;
-                            _zoomAdjustedByUser = false;
-                            mainPan.reset();
-                            _autoFitPending = true;
-                        }
+                    if (_fullscreenActive && userZoom <= _fitZoom) {
+                        _exitImmersive();
+                        showStatus('zoom: fit');
+                        saveState();
+                        return;
                     }
                 }
                 _scaleAllWithAnim();
@@ -12615,6 +12643,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _autoFitPending = true;
                 return true;
             }
+            // Also snap to normal-fit floor when close (prevents fractional drift below floor)
+            if (!_fullscreenActive && Math.abs(userZoom - _normalFitZoom) < 0.02) {
+                userZoom = _normalFitZoom;
+                _zoomAdjustedByUser = false;
+                mainPan.reset();
+                _autoFitPending = true;
+                return true;
+            }
             return false;
         }
 
@@ -12675,8 +12711,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - 80);
             if ((maxH / h) >= (maxW / w)) return false; // width binding: skip
             // Container must be wide/tall enough to fit overlaid chrome
-            const vpEl = compareActive
-                ? document.getElementById('compare-view-wrap')
+            const vpEl = compareActive ? document.getElementById('compare-view-wrap')
+                : multiViewActive ? document.getElementById('mv-panes')
+                : qmriActive ? document.getElementById('qmri-view-wrap')
                 : document.getElementById('canvas-viewport');
             if (!vpEl) return false;
             return vpEl.offsetWidth >= 200 && vpEl.offsetHeight >= 150;
@@ -12725,7 +12762,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // In compare mode, also fade out titles and per-pane colorbars
             const cmpTitles = compareActive ? Array.from(document.querySelectorAll('.compare-title')) : [];
             const cmpCbIslands = compareActive ? Array.from(document.querySelectorAll('.compare-pane-cb-island')) : [];
-            const fadeOutEls = [infoEl, cbWrap, nameEl, ...cmpTitles, ...cmpCbIslands];
+            const mvCbWrap = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
+            const qmriCbEls = qmriActive ? Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island')) : [];
+            const fadeOutEls = [infoEl, cbWrap, nameEl, ...cmpTitles, ...cmpCbIslands, mvCbWrap, ...qmriCbEls].filter(Boolean);
             const FADE_OUT = 150, GROW = 160, FADE_IN = 150;
 
             // Phase 1: fade out non-immersive chrome
@@ -12755,6 +12794,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 }
 
+                // qMRI: mark per-map colorbars as floating overlays
+                if (qmriActive) {
+                    document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                        el.classList.add('fs-overlay');
+                    });
+                }
+
                 // Render canvas at fromZoom in immersive layout (no auto-fit flash)
                 _autoFitPending = false;
                 userZoom = fromZoom;
@@ -12770,13 +12816,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Phase 3: fade in islands (already positioned correctly)
                 setTimeout(() => {
                     if (!_immersiveAnimating) return;
-                    _animOpacity([infoEl, cbWrap], 0, 1, FADE_IN, () => {
+                    _animOpacity([infoEl, cbWrap, mvCbWrap, ...qmriCbEls].filter(Boolean), 0, 1, FADE_IN, () => {
                         _immersiveAnimating = false;
-                        for (const el of [infoEl, cbWrap, nameEl]) {
+                        for (const el of [infoEl, cbWrap, nameEl, mvCbWrap]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
-                        // Clear inline opacity on compare elements (CSS handles hiding)
-                        for (const el of [...cmpTitles, ...cmpCbIslands]) {
+                        // Clear inline opacity on compare/multiview/qMRI elements
+                        for (const el of [...cmpTitles, ...cmpCbIslands, ...qmriCbEls]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
                     });
@@ -12797,8 +12843,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 for (const el of [infoEl, cbWrap, nameEl]) {
                     if (el) { el.style.transition = ''; el.style.opacity = ''; }
                 }
-                // Clear compare element inline styles
+                // Clear compare/multiview/qMRI element inline styles
                 document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
+                    el.style.transition = ''; el.style.opacity = '';
+                });
+                const _mvCb = document.getElementById('mv-cb-wrap');
+                if (_mvCb) { _mvCb.style.transition = ''; _mvCb.style.opacity = ''; }
+                document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                    el.classList.remove('fs-overlay');
                     el.style.transition = ''; el.style.opacity = '';
                 });
                 if (_fullscreenActive) {
@@ -12828,10 +12880,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const infoEl = document.getElementById('info');
             const cbWrap = document.getElementById('slim-cb-wrap');
             const nameEl = document.getElementById('array-name');
+            const _exitMvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
+            const _exitQmriCbs = qmriActive ? Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island')) : [];
             const FADE_OUT = 150, FADE_IN = 150;
 
             // Phase 1: fade out islands (still in immersive layout so positions are correct)
-            _animOpacity([infoEl, cbWrap], 1, 0, FADE_OUT, () => {
+            _animOpacity([infoEl, cbWrap, _exitMvCb, ..._exitQmriCbs].filter(Boolean), 1, 0, FADE_OUT, () => {
                 if (!_immersiveAnimating) return;
 
                 // Phase 2: still fullscreen, animate canvas from immersive fit → normal fit.
@@ -12871,9 +12925,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     ModeRegistry.scaleAll(); // settles layout at toZoom in normal mode
 
                     const cmpEls = Array.from(document.querySelectorAll('.compare-title, .compare-pane-cb-island'));
-                    _animOpacity([infoEl, cbWrap, nameEl, ...cmpEls], 0, 1, FADE_IN, () => {
+                    const mvCb = document.getElementById('mv-cb-wrap');
+                    const qmriCbs = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island'));
+                    // Remove qMRI overlay class
+                    qmriCbs.forEach(el => el.classList.remove('fs-overlay'));
+                    _animOpacity([infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs].filter(Boolean), 0, 1, FADE_IN, () => {
                         _immersiveAnimating = false;
-                        for (const el of [infoEl, cbWrap, nameEl, ...cmpEls]) {
+                        for (const el of [infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
                     });
@@ -12883,9 +12941,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _positionFullscreenChrome() {
             if (!_fullscreenActive) return;
-            // Use compare-view-wrap as anchor in compare mode, canvas-viewport otherwise
-            const vp = compareActive
-                ? document.getElementById('compare-view-wrap')
+            // Use mode-appropriate container as anchor for chrome positioning
+            const vp = compareActive ? document.getElementById('compare-view-wrap')
+                : multiViewActive ? document.getElementById('mv-panes')
+                : qmriActive ? document.getElementById('qmri-view-wrap')
                 : document.getElementById('canvas-viewport');
             if (!vp) return;
             const vpRect = vp.getBoundingClientRect();
