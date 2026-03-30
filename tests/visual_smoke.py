@@ -1780,6 +1780,37 @@ def run_smoke(page, base, client, tmp):
     assert arrows_on_again, "FAIL: U should show vector arrows again"
     print("  OK: U toggles vector arrows")
 
+    # ── 73: vectorfield in 3-view mode ───────────────────────────────────────
+    print("73: vectorfield arrows in 3-view mode")
+    _goto(page, base, sid3d_vf, wait=900)
+    _focus(page)
+    page.wait_for_timeout(700)
+    _press(page, "v", wait=800)  # enter 3-view
+    mv_vf_overlays = page.evaluate(
+        "() => document.querySelectorAll('.mv-vfield-overlay').length"
+    )
+    mv_vf_visible = page.evaluate(
+        "() => [...document.querySelectorAll('.mv-vfield-overlay')].some(el => el.style.display !== 'none')"
+    )
+    _shot(page, "73a_vfield_3view_on")
+    assert mv_vf_visible, "FAIL: vectorfield overlays should be visible in 3-view"
+    # Toggle off with U
+    _press(page, "U", wait=400)
+    mv_vf_hidden = page.evaluate(
+        "() => [...document.querySelectorAll('.mv-vfield-overlay')].every(el => el.style.display === 'none')"
+    )
+    _shot(page, "73b_vfield_3view_off")
+    assert mv_vf_hidden, "FAIL: U should hide vectorfield overlays in 3-view"
+    # Toggle back on
+    _press(page, "U", wait=500)
+    mv_vf_back = page.evaluate(
+        "() => [...document.querySelectorAll('.mv-vfield-overlay')].some(el => el.style.display !== 'none')"
+    )
+    _shot(page, "73c_vfield_3view_on_again")
+    assert mv_vf_back, "FAIL: U should show vectorfield overlays again in 3-view"
+    _press(page, "v", wait=400)  # exit 3-view
+    print("  OK: vectorfield arrows work in 3-view mode")
+
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
 
