@@ -7809,11 +7809,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _rois[roiIdx].stats = d;
                         _updateRoiPanel();
                     });
-                    // Auto-exit ROI mode after freehand draw
-                    setTimeout(() => {
-                        rectRoiMode = false; _roiShape = 'rect';
-                        renderEggs();
-                    }, 1000);
+                    renderEggs();
                 } else {
                     const rw = Math.abs(roiEnd.x - roiStart.x);
                     const rh = Math.abs(roiEnd.y - roiStart.y);
