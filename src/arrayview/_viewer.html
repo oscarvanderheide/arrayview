@@ -7791,6 +7791,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (d.labels) _segUpdatePanel(d.labels);
                 if (_segOverlaySid) _segRefreshOverlay();
                 _segShowMethodStatus();
+                showSegShapeStrip();
                 canvas.style.cursor = 'crosshair';
                 renderEggs();
             } catch (err) {
@@ -8509,6 +8510,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else {
                         _segMethod = _SEG_METHODS[next];
                         _segShowMethodStatus();
+                        showSegShapeStrip();
                         renderEggs();
                     }
                 } else {
@@ -13144,6 +13146,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 { id: 'floodfill', label: 'fill',     svg: '<path d="M7 2 L17 12 L12 12 Z" fill="none"/><path d="M5 14 Q12 24, 19 14" fill="none" stroke-linecap="round"/>' },
             ];
             const curShape = rectRoiMode ? _roiShape : null;
+
+            // If icons already exist, just update active state (no re-animate)
+            const existing = _roiStrip.querySelectorAll('.roi-shape-icon');
+            if (existing.length === shapes.length) {
+                existing.forEach((ic, i) => {
+                    ic.classList.toggle('active', shapes[i].id === curShape);
+                });
+                clearTimeout(_roiStripTimer);
+                _roiStripTimer = setTimeout(() => {
+                    existing.forEach(ic => {
+                        ic.classList.remove('fan-out');
+                        ic.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                    });
+                    setTimeout(() => { _roiStrip.innerHTML = ''; }, 300);
+                }, 1500);
+                return;
+            }
+
             _roiStrip.innerHTML = '';
             // Fan out in a 120° arc above the cursor
             const radius = 70;
@@ -13160,7 +13180,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 icon.className = 'roi-shape-icon' + (isActive ? ' active' : '');
                 icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
                     + `<span>${s.label}</span>`;
-                // Place at origin initially, will fan out via class
                 const angleDeg = startDeg + stepDeg * i;
                 const angleRad = angleDeg * Math.PI / 180;
                 const tx = Math.cos(angleRad) * radius;
@@ -13169,6 +13188,69 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 icon.style.top  = ty + 'px';
                 _roiStrip.appendChild(icon);
                 // Trigger fan-out animation on next frame
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    icon.classList.add('fan-out');
+                }));
+            });
+            clearTimeout(_roiStripTimer);
+            _roiStripTimer = setTimeout(() => {
+                const icons = _roiStrip.querySelectorAll('.roi-shape-icon');
+                icons.forEach(ic => {
+                    ic.classList.remove('fan-out');
+                    ic.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                });
+                setTimeout(() => { _roiStrip.innerHTML = ''; }, 300);
+            }, 1500);
+        }
+
+        function showSegShapeStrip() {
+            if (!_roiStrip) return;
+            const shapes = [
+                { id: 'click',    label: 'click',    svg: '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="8" fill="none"/>' },
+                { id: 'circle',   label: 'circle',   svg: '<circle cx="12" cy="12" r="9" fill="none"/>' },
+                { id: 'scribble', label: 'scribble',  svg: '<path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" fill="none" stroke-linecap="round"/>' },
+                { id: 'lasso',    label: 'lasso',     svg: '<path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" fill="none" stroke-linecap="round"/>' },
+            ];
+            const curMethod = _segMode ? _segMethod : null;
+
+            // If icons already exist, just update active state (no re-animate)
+            const existing = _roiStrip.querySelectorAll('.roi-shape-icon');
+            if (existing.length === shapes.length) {
+                existing.forEach((ic, i) => {
+                    ic.classList.toggle('active', shapes[i].id === curMethod);
+                });
+                clearTimeout(_roiStripTimer);
+                _roiStripTimer = setTimeout(() => {
+                    existing.forEach(ic => {
+                        ic.classList.remove('fan-out');
+                        ic.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                    });
+                    setTimeout(() => { _roiStrip.innerHTML = ''; }, 300);
+                }, 1500);
+                return;
+            }
+
+            _roiStrip.innerHTML = '';
+            const radius = 70;
+            const arcDeg = 120;
+            const startDeg = -90 - arcDeg / 2;
+            const n = shapes.length;
+            const stepDeg = n > 1 ? arcDeg / (n - 1) : 0;
+            _roiStrip.style.left = _lastMouseX + 'px';
+            _roiStrip.style.top  = _lastMouseY + 'px';
+            shapes.forEach((s, i) => {
+                const icon = document.createElement('div');
+                const isActive = s.id === curMethod;
+                icon.className = 'roi-shape-icon' + (isActive ? ' active' : '');
+                icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${s.svg}</svg>`
+                    + `<span>${s.label}</span>`;
+                const angleDeg = startDeg + stepDeg * i;
+                const angleRad = angleDeg * Math.PI / 180;
+                const tx = Math.cos(angleRad) * radius;
+                const ty = Math.sin(angleRad) * radius;
+                icon.style.left = tx + 'px';
+                icon.style.top  = ty + 'px';
+                _roiStrip.appendChild(icon);
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     icon.classList.add('fan-out');
                 }));
