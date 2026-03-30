@@ -174,6 +174,33 @@ def add_bbox(
     return _decode_mask(r.content)
 
 
+def _send_mask_interaction(
+    endpoint: str, mask_3d: np.ndarray, positive: bool = True,
+) -> np.ndarray:
+    """Send a 3D binary mask interaction (scribble or lasso), return result mask."""
+    buf = io.BytesIO()
+    np.save(buf, mask_3d.astype(np.uint8))
+    compressed = gzip.compress(buf.getvalue())
+    r = httpx.post(
+        _url(endpoint),
+        files={"file": ("volume.npy.gz", compressed, "application/octet-stream")},
+        data={"positive_click": str(positive).lower()},
+        timeout=_REQUEST_TIMEOUT,
+    )
+    r.raise_for_status()
+    return _decode_mask(r.content)
+
+
+def add_scribble(mask_3d: np.ndarray, positive: bool = True) -> np.ndarray:
+    """Send a scribble interaction (3D mask with marks on one slice)."""
+    return _send_mask_interaction("/add_scribble_interaction", mask_3d, positive)
+
+
+def add_lasso(mask_3d: np.ndarray, positive: bool = True) -> np.ndarray:
+    """Send a lasso interaction (3D mask with filled contour on one slice)."""
+    return _send_mask_interaction("/add_lasso_interaction", mask_3d, positive)
+
+
 def reset_interactions() -> None:
     """Upload a zeroed mask to reset all interactions."""
     assert _volume_shape is not None

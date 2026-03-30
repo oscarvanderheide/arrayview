@@ -1394,7 +1394,7 @@
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
                  <div class="help-row"><span class="key">A</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
-                 <div class="help-row"><span class="key">S</span><span class="desc">nnInteractive segmentation: click add · shift+click exclude · r reset · enter accept · esc exit</span></div>
+                 <div class="help-row"><span class="key">S</span><span class="desc">nnInteractive segmentation: cycle click → circle → scribble → lasso → off · shift = exclude · r reset · enter accept</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
                 <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
@@ -1571,6 +1571,11 @@
         let _segMode = false;  // S key toggles nnInteractive segmentation mode
         let _segOverlaySid = null; // overlay session ID for segmentation mask
         let _segActivating = false; // true while connecting/launching server
+        let _segMethod = 'click'; // 'click' | 'circle' | 'scribble' | 'lasso'
+        const _SEG_METHODS = ['click', 'circle', 'scribble', 'lasso'];
+        let _segDrawing = false; // true while dragging for circle/scribble/lasso
+        let _segDrawStart = null; // {x, y} for circle start
+        let _segDrawPoints = []; // points for scribble/lasso
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats} for multi-ROI
@@ -6008,7 +6013,7 @@
             if (rectRoiMode)
                 html += `<span class="mode-badge mode-badge-roi">ROI</span>`;
             if (_segMode)
-                html += `<span class="mode-badge mode-badge-seg">SEGMENT</span>`;
+                html += `<span class="mode-badge mode-badge-seg">SEG:${_segMethod.toUpperCase()}</span>`;
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
             if (html) positionEggs();
@@ -7724,16 +7729,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // ---------------------------------------------------------------
         // nnInteractive segmentation helpers
         // ---------------------------------------------------------------
+        function _segShowMethodStatus() {
+            const hints = {
+                click: 'click add · shift+click exclude',
+                circle: 'drag circle (sent as bbox)',
+                scribble: 'draw freehand scribble',
+                lasso: 'draw closed contour',
+            };
+            showStatus(`segmentation: ${_segMethod} · ${hints[_segMethod]} · S cycle · r reset · enter accept · esc exit`);
+        }
+
         async function _segActivate() {
             if (_segActivating) return;
             if (compareActive || multiViewActive || qmriActive) {
                 showStatus('segmentation: not available in this mode'); return;
             }
             _segActivating = true;
+            _segMethod = 'click';
             showStatus('segmentation: connecting...');
             canvas.style.cursor = 'wait';
             try {
-                const r = await fetch(`/seg/activate/${sid}`, { method: 'POST' });
+                // Send current axis info for >3D subvolume extraction
+                const scrollDim = current_slice_dim >= 0 ? current_slice_dim
+                    : indices.findIndex((_, i) => i !== dim_x && i !== dim_y);
+                const params = new URLSearchParams({
+                    dim_x: String(dim_x), dim_y: String(dim_y),
+                    scroll_dim: String(scrollDim >= 0 ? scrollDim : -1),
+                    indices: indices.join(','),
+                });
+                const r = await fetch(`/seg/activate/${sid}?${params}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') {
                     showToast(`segmentation: ${d.message}`);
@@ -7743,7 +7767,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 _segMode = true;
                 _segOverlaySid = null;
-                showStatus('segmentation: on · click to add point · shift+click to exclude · r reset · enter accept · esc exit');
+                _segShowMethodStatus();
                 canvas.style.cursor = 'crosshair';
                 renderEggs();
             } catch (err) {
@@ -7756,10 +7780,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _segDeactivate() {
             _segMode = false;
             _segOverlaySid = null;
+            _segDrawing = false;
+            _segDrawPoints = [];
+            _segDrawStart = null;
             canvas.style.cursor = 'crosshair';
             showStatus('segmentation: off');
             renderEggs();
-            // Remove segmentation overlay from view
+            _segClearDrawOverlay();
             updateView();
         }
 
@@ -7802,7 +7829,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
                 _segRefreshOverlay();
-                showStatus('segmentation: interactions reset · click to start again');
+                showStatus('segmentation: interactions reset');
+                setTimeout(() => _segShowMethodStatus(), 1500);
             } catch (err) {
                 showToast(`segmentation: ${err.message}`);
             }
@@ -7813,12 +7841,153 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             updateView();
         }
 
+        // Segmentation drawing overlay — reuses the ROI overlay canvas
+        function _segCanvasCoord(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                px: Math.floor((e.clientX - rect.left) * canvas.width / rect.width),
+                py: Math.floor((e.clientY - rect.top) * canvas.height / rect.height),
+                cx: e.clientX, cy: e.clientY,
+            };
+        }
+
+        function _segDrawOverlay() {
+            // Draw current segmentation drawing on the ROI overlay canvas
+            const oc = document.getElementById('roi-overlay');
+            if (!oc) return;
+            const ctx = oc.getContext('2d');
+            // Match overlay canvas to main canvas size
+            if (oc.width !== canvas.width || oc.height !== canvas.height) {
+                oc.width = canvas.width;
+                oc.height = canvas.height;
+            }
+            ctx.clearRect(0, 0, oc.width, oc.height);
+
+            ctx.strokeStyle = 'rgba(232, 122, 175, 0.8)';
+            ctx.fillStyle = 'rgba(232, 122, 175, 0.2)';
+            ctx.lineWidth = 2;
+
+            if (_segMethod === 'circle' && _segDrawStart && _segDrawPoints.length > 0) {
+                const s = _segDrawStart, e = _segDrawPoints[_segDrawPoints.length - 1];
+                const cx = (s.px + e.px) / 2, cy = (s.py + e.py) / 2;
+                const rx = Math.abs(e.px - s.px) / 2, ry = Math.abs(e.py - s.py) / 2;
+                ctx.beginPath();
+                ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.fill();
+            } else if ((_segMethod === 'scribble' || _segMethod === 'lasso') && _segDrawPoints.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(_segDrawPoints[0].px, _segDrawPoints[0].py);
+                for (let i = 1; i < _segDrawPoints.length; i++) {
+                    ctx.lineTo(_segDrawPoints[i].px, _segDrawPoints[i].py);
+                }
+                if (_segMethod === 'lasso' && _segDrawPoints.length >= 3) {
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.stroke();
+            }
+        }
+
+        function _segClearDrawOverlay() {
+            const oc = document.getElementById('roi-overlay');
+            if (!oc) return;
+            const ctx = oc.getContext('2d');
+            ctx.clearRect(0, 0, oc.width, oc.height);
+        }
+
+        async function _segFinishDraw(positive) {
+            _segDrawing = false;
+            _segClearDrawOverlay();
+
+            if (_segMethod === 'circle' && _segDrawStart && _segDrawPoints.length > 0) {
+                // Send as bounding box
+                const s = _segDrawStart, e = _segDrawPoints[_segDrawPoints.length - 1];
+                const x0 = Math.min(s.px, e.px), y0 = Math.min(s.py, e.py);
+                const x1 = Math.max(s.px, e.px), y1 = Math.max(s.py, e.py);
+                showStatus('segmentation: predicting...');
+                try {
+                    const r = await fetch(`/seg/bbox/${sid}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            dim_x, dim_y, indices: indices.join(','),
+                            x0, y0, x1, y1,
+                        }),
+                    });
+                    const d = await r.json();
+                    if (d.status === 'error') { showToast(`segmentation: ${d.message}`); }
+                    else { _segOverlaySid = d.overlay_sid; _segRefreshOverlay(); }
+                } catch (err) { showToast(`segmentation: ${err.message}`); }
+            } else if (_segMethod === 'scribble' && _segDrawPoints.length >= 1) {
+                showStatus('segmentation: predicting...');
+                try {
+                    const r = await fetch(`/seg/scribble/${sid}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            dim_x, dim_y, indices: indices.join(','),
+                            points: _segDrawPoints.map(p => [p.px, p.py]),
+                            positive,
+                        }),
+                    });
+                    const d = await r.json();
+                    if (d.status === 'error') { showToast(`segmentation: ${d.message}`); }
+                    else { _segOverlaySid = d.overlay_sid; _segRefreshOverlay(); }
+                } catch (err) { showToast(`segmentation: ${err.message}`); }
+            } else if (_segMethod === 'lasso' && _segDrawPoints.length >= 3) {
+                showStatus('segmentation: predicting...');
+                try {
+                    const r = await fetch(`/seg/lasso/${sid}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            dim_x, dim_y, indices: indices.join(','),
+                            points: _segDrawPoints.map(p => [p.px, p.py]),
+                            positive,
+                        }),
+                    });
+                    const d = await r.json();
+                    if (d.status === 'error') { showToast(`segmentation: ${d.message}`); }
+                    else { _segOverlaySid = d.overlay_sid; _segRefreshOverlay(); }
+                } catch (err) { showToast(`segmentation: ${err.message}`); }
+            }
+            _segDrawStart = null;
+            _segDrawPoints = [];
+            _segShowMethodStatus();
+        }
+
         // Click-to-copy: main canvas — track mousedown position
         let _clickCopyDown = null; // {x, y} client coords at mousedown
         canvas.addEventListener('mousedown', (e) => {
             if (e.button === 0) _clickCopyDown = { x: e.clientX, y: e.clientY };
+            // Segmentation drawing start
+            if (e.button === 0 && _segMode && _segMethod !== 'click') {
+                const c = _segCanvasCoord(e);
+                _segDrawing = true;
+                _segDrawStart = c;
+                _segDrawPoints = [c];
+            }
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (_segDrawing && _segMode && _segMethod !== 'click') {
+                const c = _segCanvasCoord(e);
+                if (_segMethod === 'circle') {
+                    _segDrawPoints = [c]; // only track endpoint
+                } else {
+                    _segDrawPoints.push(c);
+                }
+                _segDrawOverlay();
+            }
         });
         canvas.addEventListener('mouseup', (e) => {
+            // Segmentation drawing finish
+            if (_segDrawing && _segMode && _segMethod !== 'click' && e.button === 0) {
+                const positive = !e.shiftKey;
+                _segFinishDraw(positive);
+                _clickCopyDown = null;
+                return;
+            }
             if (e.button !== 0 || !_clickCopyDown) { _clickCopyDown = null; return; }
             const dx = e.clientX - _clickCopyDown.x, dy = e.clientY - _clickCopyDown.y;
             _clickCopyDown = null;
@@ -7830,7 +7999,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rect = canvas.getBoundingClientRect();
             const px = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
             const py = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
-            if (_segMode) {
+            if (_segMode && _segMethod === 'click') {
                 _segClick(px, py, !e.shiftKey);
                 return;
             }
@@ -8265,9 +8434,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'S') {
-                // Toggle nnInteractive segmentation mode
+                // Toggle/cycle nnInteractive segmentation mode
                 if (_segMode) {
-                    _segDeactivate();
+                    const idx = _SEG_METHODS.indexOf(_segMethod);
+                    const next = (idx + 1) % (_SEG_METHODS.length + 1);
+                    if (next >= _SEG_METHODS.length) {
+                        _segDeactivate();
+                    } else {
+                        _segMethod = _SEG_METHODS[next];
+                        _segShowMethodStatus();
+                        renderEggs();
+                    }
                 } else {
                     _segActivate();
                 }
