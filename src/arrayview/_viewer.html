@@ -12770,6 +12770,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // ── 3b. ROI shape preview strip ───────────────────────────────
         const _roiStrip = document.getElementById('roi-shape-strip');
         let _roiStripTimer = null;
+        let _roiStripDismissId = 0;
         function showRoiShapeStrip() {
             if (!_roiStrip) return;
             const shapes = [
@@ -12780,9 +12781,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             ];
             const curShape = rectRoiMode ? _roiShape : null;
             _roiStrip.innerHTML = '';
-            // Fan out in a 120° arc above the cursor
-            const radius = 70;
-            const arcDeg = 120;
+            _roiStripDismissId = (_roiStripDismissId || 0) + 1;
+            // Fan out in a 160° arc above the cursor
+            const radius = 80;
+            const arcDeg = 160;
             const startDeg = -90 - arcDeg / 2; // center the arc above (pointing up)
             const n = shapes.length;
             const stepDeg = n > 1 ? arcDeg / (n - 1) : 0;
@@ -12809,13 +12811,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }));
             });
             clearTimeout(_roiStripTimer);
+            const dismissId = _roiStripDismissId;
             _roiStripTimer = setTimeout(() => {
+                if (_roiStripDismissId !== dismissId) return;
                 const icons = _roiStrip.querySelectorAll('.roi-shape-icon');
                 icons.forEach(ic => {
                     ic.classList.remove('fan-out');
                     ic.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
                 });
-                setTimeout(() => { _roiStrip.innerHTML = ''; }, 300);
+                setTimeout(() => {
+                    if (_roiStripDismissId !== dismissId) return;
+                    _roiStrip.innerHTML = '';
+                }, 300);
             }, 1500);
         }
 
