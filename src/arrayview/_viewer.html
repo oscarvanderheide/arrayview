@@ -925,6 +925,10 @@
         body:not(.fullscreen-mode) .cb-island .cb-canvas {
             outline: 1px solid var(--canvas-border); border-radius: 3px;
         }
+        body:not(.fullscreen-mode) #dynamic-island {
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 0;
+        }
         /* Hide rectangular outline when histogram is expanded — KDE stroke replaces it */
         body:not(.fullscreen-mode) .cb-island.cb-expanded .cb-canvas,
         body:not(.fullscreen-mode) #slim-cb-wrap.cb-expanded .cb-canvas,
