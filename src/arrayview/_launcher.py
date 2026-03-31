@@ -39,6 +39,8 @@ import arrayview._platform as _platform_mod  # for mutable globals
 
 from arrayview._vscode import (
     _configure_vscode_port_preview,
+    _ensure_vscode_extension,
+    _open_direct_via_signal_file,
     _print_viewer_location,
     _open_browser,
 )
@@ -1839,9 +1841,47 @@ def arrayview():
             "Also accepts 0-based integer pair like '2,3'."
         ),
     )
+    parser.add_argument(
+        "--mode",
+        choices=["server", "stdio"],
+        default="server",
+        help="Run mode: server (default HTTP/WS) or stdio (VS Code extension subprocess)",
+    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
+
+    # --mode stdio: run the stdio server (for VS Code extension subprocess)
+    if args.mode == "stdio":
+        from pathlib import Path as _Path
+
+        from arrayview._render import _setup_rgb
+        from arrayview._stdio_server import run_stdio_server
+
+        if args.files:
+            from arrayview._io import load_data
+            from arrayview._session import SESSIONS, Session
+
+            for file_path in args.files:
+                data = load_data(file_path)
+                session = Session(
+                    data=data,
+                    filepath=file_path,
+                    name=_Path(file_path).name,
+                )
+                if getattr(args, "rgb", False):
+                    _setup_rgb(session)
+                SESSIONS[session.sid] = session
+                info = json.dumps(
+                    {
+                        "sid": session.sid,
+                        "name": session.name,
+                        "shape": [int(s) for s in session.shape],
+                    }
+                )
+                print(f"SESSION:{info}", file=sys.stderr)
+        run_stdio_server()
+        return
 
     # --diagnose: print detection results and exit
     if getattr(args, "diagnose", False):
@@ -2347,7 +2387,7 @@ def arrayview():
                 _vprint("[ArrayView] Falling back to browser", flush=True)
                 url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
-                _open_browser(url, blocking=True, title=f"ArrayView: {name}")
+                _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file)
         else:
             url = f"http://localhost:{args.port}/{qs}"
             if getattr(args, "watch", False):
@@ -2357,7 +2397,33 @@ def arrayview():
                 blocking=True,
                 force_vscode=(window_mode == "vscode"),
                 title=f"ArrayView: {name}",
+                filepath=base_file,
             )
+        return
+
+    # Direct webview mode for VS Code tunnel sessions: skip starting the
+    # WebSocket server entirely.  The extension spawns a Python subprocess
+    # with --mode stdio and bridges via postMessage — no ports needed.
+    is_remote = _is_vscode_remote()
+    if is_remote and not args.overlay and not compare_files and not getattr(args, 'vectorfield', None):
+        _ensure_vscode_extension()
+        _open_direct_via_signal_file(base_file, title=f"ArrayView: {name}")
+        _vprint(
+            "[ArrayView] Remote tunnel → direct webview mode (no server needed)",
+            flush=True,
+        )
+        # Block so the CLI doesn't exit immediately (the extension handles
+        # everything, but the user expects the command to "stay alive").
+        print(
+            f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n"
+            f"  Press Ctrl+C to exit.\n",
+            flush=True,
+        )
+        try:
+            import signal
+            signal.pause()
+        except (KeyboardInterrupt, AttributeError):
+            pass
         return
 
     sid = uuid.uuid4().hex
