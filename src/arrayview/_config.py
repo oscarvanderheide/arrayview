@@ -41,6 +41,23 @@ def get_viewer_colormaps() -> list[str] | None:
     return None
 
 
+def get_nninteractive_url() -> str | None:
+    """Return configured nnInteractive server URL, or None.
+
+    Priority: ARRAYVIEW_NNINTERACTIVE_URL env var > config[nninteractive][url].
+    """
+    env_val = os.environ.get("ARRAYVIEW_NNINTERACTIVE_URL", "").strip()
+    if env_val:
+        return env_val
+    cfg = load_config()
+    nn_cfg = cfg.get("nninteractive", {})
+    if isinstance(nn_cfg, dict):
+        url = nn_cfg.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+    return None
+
+
 def get_window_default(environment: str) -> str | None:
     """Return the user's preferred window mode for the given environment.
 

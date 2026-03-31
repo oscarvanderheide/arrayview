@@ -39,14 +39,17 @@ def is_connected() -> bool:
     return _base_url is not None
 
 
-def try_connect(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
-    """Check if an nnInteractive server is reachable."""
+def try_connect(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, *, url: str | None = None) -> bool:
+    """Check if an nnInteractive server is reachable.
+
+    If *url* is provided, use it directly instead of constructing from host/port.
+    """
     global _base_url
-    url = f"http://{host}:{port}"
+    target = url.rstrip("/") if url else f"http://{host}:{port}"
     try:
-        r = httpx.get(f"{url}/docs", timeout=_CONNECT_TIMEOUT)
+        r = httpx.get(f"{target}/docs", timeout=_CONNECT_TIMEOUT)
         if r.status_code < 500:
-            _base_url = url
+            _base_url = target
             return True
     except (httpx.ConnectError, httpx.TimeoutException):
         pass
