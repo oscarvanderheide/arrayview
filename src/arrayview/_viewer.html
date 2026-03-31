@@ -5402,33 +5402,57 @@
         /** Fetch and render vector field overlay for a single multi-view pane. */
         async function mvDrawVectorOverlay(v, viewIndex) {
             const ovCanvas = _getMvVfieldCanvas(v.canvas);
-            if (!hasVectorfield || !vfieldVisible || obliqueVecs) {
+            if (!hasVectorfield || !vfieldVisible) {
                 if (ovCanvas) ovCanvas.style.display = 'none';
                 return;
             }
-            const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY).join(',');
-            const key = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+            // Build fetch URL — oblique or axis-aligned
+            let fetchUrl, cacheKey;
+            if (obliqueVecs) {
+                const vi = obliqueVecs[viewIndex];
+                // Replicate center computation from mvRenderOblique
+                const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
+                const depthOff = dot3(diff, vi.n);
+                const center3d = [...indices];
+                mvDims.forEach((d, k) => { center3d[d] = (shape[d] - 1) / 2 + depthOff * vi.n[k]; });
+                const params = new URLSearchParams({
+                    center: center3d.join(','),
+                    basis_h: vi.bh.join(','),
+                    basis_v: vi.bv.join(','),
+                    mv_dims: mvDims.join(','),
+                    size_w: String(shape[v.dimX]),
+                    size_h: String(shape[v.dimY]),
+                    density_offset: String(vfDensityLevel),
+                    t_index: String(vfieldT),
+                });
+                fetchUrl = `/oblique_vectorfield/${sid}?${params}`;
+                cacheKey = `oblique,${sid},${viewIndex},${center3d.join(',')},${vi.bh.join(',')},${vi.bv.join(',')},${vfieldT},${vfDensityLevel}`;
+            } else {
+                const relevantIdx = indices.filter((_, i) => i !== v.dimX && i !== v.dimY).join(',');
+                const params = new URLSearchParams({
+                    dim_x: String(v.dimX), dim_y: String(v.dimY),
+                    indices: indices.join(','), t_index: String(vfieldT),
+                    density_offset: String(vfDensityLevel)
+                });
+                fetchUrl = `/vectorfield/${sid}?${params}`;
+                cacheKey = `${sid},${v.dimX},${v.dimY},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+            }
             const cached = _mvVfieldCache.get(viewIndex);
-            if (cached && cached.key === key) {
-                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+            if (cached && cached.key === cacheKey) {
+                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, obliqueVecs ? false : (flipDims[v.dimX] || false), obliqueVecs ? false : (flipDims[v.dimY] || false));
                 return;
             }
             // Abort previous in-flight request for this pane
             _mvVfieldAborts.get(viewIndex)?.abort();
             const ac = new AbortController();
             _mvVfieldAborts.set(viewIndex, ac);
-            const params = new URLSearchParams({
-                dim_x: String(v.dimX), dim_y: String(v.dimY),
-                indices: indices.join(','), t_index: String(vfieldT),
-                density_offset: String(vfDensityLevel)
-            });
             try {
-                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
+                const res = await fetch(fetchUrl, { signal: ac.signal });
                 if (!res.ok || ac.signal.aborted) return;
                 const data = await res.json();
                 if (ac.signal.aborted) return;
-                _mvVfieldCache.set(viewIndex, { key, data });
-                _renderVfieldArrows(ovCanvas, v.canvas, data, flipDims[v.dimX] || false, flipDims[v.dimY] || false);
+                _mvVfieldCache.set(viewIndex, { key: cacheKey, data });
+                _renderVfieldArrows(ovCanvas, v.canvas, data, obliqueVecs ? false : (flipDims[v.dimX] || false), obliqueVecs ? false : (flipDims[v.dimY] || false));
             } catch (e) {
                 if (e.name !== 'AbortError') { /* ignore */ }
             }
@@ -11991,6 +12015,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvScaleAllCanvases();
                 mvDrawFrame(v);
                 drawMvColorbar();
+                if (hasVectorfield && vfieldVisible) mvDrawVectorOverlay(v, mvViews.indexOf(v));
             } catch (e) { /* ignore aborted / transient errors */ } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; mvRender(v); }
