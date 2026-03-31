@@ -2927,7 +2927,6 @@
             saveState();
         }
 
-        let _cmodStripTimer = null;
         function _positionCompareModeStrip(el) {
             // Position strip at a fixed distance above the bottom of the compare-panes area
             const panes = document.getElementById('compare-panes');
@@ -2940,25 +2939,6 @@
                 el.style.bottom = Math.max(24, desiredBottom) + 'px';
             }
         }
-        function showCompareModeStrip() {
-            const el = document.getElementById('compare-mode-strip');
-            if (!el) return;
-            el.innerHTML = '';
-            const n = COMPARE_CENTER_LABELS.length;
-            for (let i = 1; i < n; i++) { // skip 0 ("off")
-                const thumb = document.createElement('div');
-                thumb.className = 'cmode-thumb' + (i === compareCenterMode ? ' active' : '');
-                const lbl = document.createElement('span');
-                lbl.textContent = COMPARE_CENTER_LABELS[i];
-                thumb.appendChild(lbl);
-                el.appendChild(thumb);
-            }
-            _positionCompareModeStrip(el);
-            el.classList.add('visible');
-            clearTimeout(_cmodStripTimer);
-            _cmodStripTimer = setTimeout(() => el.classList.remove('visible'), 2200);
-        }
-
         let _projStripTimer = null;
         function showProjectionStrip() {
             const el = document.getElementById('compare-mode-strip');
@@ -8462,7 +8442,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
                     : compareCenterMode + 1;
                 _setCompareCenterMode(nextMode);
-                if (nextMode > 0) showCompareModeStrip();
                 return;
             } else if (e.key === 'R') {
                 await toggleRgbMode();
