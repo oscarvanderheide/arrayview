@@ -70,6 +70,19 @@ for epoch in range(100):
 
 `c` colormaps · `d` dynamic range · `v` 3-plane · `z` mosaic · `Shift+O` overlay toggle · `?` help · colorbar dblclick histogram
 
+
+## nnInteractive Segmentation
+
+`S` starts AI-assisted 3D segmentation (requires CUDA). Click/draw to segment, `Enter` to accept.
+
+```toml
+[nninteractive]
+url = "http://gpu-server:1527"   # skip auto-launch, use running server
+```
+
+Or: `ARRAYVIEW_NNINTERACTIVE_URL=http://gpu-server:1527`
+
+
 ## Config
 
 `~/.arrayview/config.toml`:
