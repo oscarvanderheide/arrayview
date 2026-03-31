@@ -186,17 +186,19 @@
         .slim-cb-tri {
             position: absolute; bottom: 0; width: 0; height: 0;
             border-left: 5px solid transparent; border-right: 5px solid transparent;
-            border-bottom: 6px solid rgba(255,255,100,0.9);
+            border-bottom: 6px solid var(--muted);
             transform: translateX(-5px);
             cursor: ew-resize; pointer-events: auto;
             transition: opacity 0.3s ease;
             opacity: 0;
         }
-        :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
-        :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
+        :root.light .slim-cb-tri { border-bottom-color: var(--muted); }
+        :root.solarized .slim-cb-tri { border-bottom-color: var(--muted); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
+        .slim-cb-range-col { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+        .slim-cb-dval { font-size: 9px; color: var(--muted); opacity: 0.5; font-family: monospace; white-space: nowrap; width: 5ch; text-align: center; overflow: hidden; display: none; }
         .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 5ch; text-align: center; overflow: hidden; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
@@ -1136,7 +1138,10 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
-            <span class="slim-cb-val" id="slim-cb-vmin"></span>
+            <div class="slim-cb-range-col">
+                <span class="slim-cb-dval" id="slim-cb-dmin"></span>
+                <span class="slim-cb-val" id="slim-cb-vmin"></span>
+            </div>
             <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-tri-zone">
@@ -1144,7 +1149,10 @@
                     <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
                 </div>
             </div>
-            <span class="slim-cb-val" id="slim-cb-vmax"></span>
+            <div class="slim-cb-range-col">
+                <span class="slim-cb-dval" id="slim-cb-dmax"></span>
+                <span class="slim-cb-val" id="slim-cb-vmax"></span>
+            </div>
             <div id="slim-cb-labels"></div>
             <div id="slim-cb-tooltip"></div>
         </div>
@@ -3601,9 +3609,6 @@
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax && !_cmapInIsland) {
-                // Hide flanking values when expanded — dmin/dmax drawn on canvas instead
-                slimVmin.style.display = _cbExpanded ? 'none' : '';
-                slimVmax.style.display = _cbExpanded ? 'none' : '';
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
@@ -3612,6 +3617,15 @@
                 } else {
                     slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
                     slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                }
+                // Show dmin/dmax above vmin/vmax when expanded
+                const slimDmin = document.getElementById('slim-cb-dmin');
+                const slimDmax = document.getElementById('slim-cb-dmax');
+                if (slimDmin && slimDmax && _histData) {
+                    slimDmin.textContent = _cbFmt(_histData.vmin);
+                    slimDmax.textContent = _cbFmt(_histData.vmax);
+                    slimDmin.style.display = _cbExpanded ? '' : 'none';
+                    slimDmax.style.display = _cbExpanded ? '' : 'none';
                 }
             }
         }
@@ -4081,7 +4095,7 @@
                     ctx.globalAlpha = aT;
 
                     if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                        ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
                         const stripeOn = 4, stripeOff = 3;
                         [effVmin, effVmax].forEach(f => {
                             if (f <= 0.003 || f >= 0.997) return;
@@ -4093,30 +4107,16 @@
                     }
 
                     if (labelH > 4 && this._histData) {
-                        const { vmin: dmin, vmax: dmax } = this._histData;
                         const win = this.opts.getWindow();
                         const wVmin = win.vmin;
                         const wVmax = win.vmax;
-                        const dimColor   = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                         const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
                         const hoverColor  = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
-                        // Draw striped lines at literal left/right histogram edges
-                        {
-                            const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
-                            ctx.fillStyle = edgeStripeColor;
-                            const stripeOn = 4, stripeOff = 3;
-                            for (const x of [1, cssW - 2]) {
-                                for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                                    ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
-                                }
-                            }
-                        }
                         const labels = [];
-                        labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                        labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                        // vmin/vmax at window edges
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
@@ -4125,7 +4125,9 @@
                             const vx = Math.round(effVmax * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
                         }
+                        // Hover value (highest priority)
                         if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
+                            const { vmin: dmin, vmax: dmax } = this._histData;
                             const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
                             const hx = Math.round(this._hoverFrac * cssW);
                             labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
@@ -4183,16 +4185,25 @@
                 this.canvas = null;
             }
 
-            /** Update vmin/vmax flanking labels from opts.getRange(). Hides when expanded. */
+            /** Update vmin/vmax flanking labels from opts.getRange(). Show dmin/dmax when expanded. */
             updateLabels() {
                 const range = this.opts.getRange();
                 if (this.vminLabel) {
                     this.vminLabel.textContent = _cbFmt(range.vmin);
-                    this.vminLabel.style.display = this._expanded ? 'none' : '';
                 }
                 if (this.vmaxLabel) {
                     this.vmaxLabel.textContent = _cbFmt(range.vmax);
-                    this.vmaxLabel.style.display = this._expanded ? 'none' : '';
+                }
+                // Show dmin/dmax above vmin/vmax when expanded
+                const dminEl = this.dminLabel || (this.vminLabel && this.vminLabel.parentElement.querySelector('.slim-cb-dval'));
+                const dmaxEl = this.dmaxLabel || (this.vmaxLabel && this.vmaxLabel.parentElement.querySelector('.slim-cb-dval'));
+                if (dminEl && this._histData) {
+                    dminEl.textContent = _cbFmt(this._histData.vmin);
+                    dminEl.style.display = this._expanded ? '' : 'none';
+                }
+                if (dmaxEl && this._histData) {
+                    dmaxEl.textContent = _cbFmt(this._histData.vmax);
+                    dmaxEl.style.display = this._expanded ? '' : 'none';
                 }
             }
 
@@ -4782,7 +4793,7 @@
                 ctx.globalAlpha = aT;
                 // Striped guide lines for vmin/vmax window
                 if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                    ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
+                    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
                     const stripeOn = 4, stripeOff = 3;
                     [effVmin, effVmax].forEach(f => {
                         if (f <= 0.003 || f >= 0.997) return;
@@ -4792,65 +4803,40 @@
                         }
                     });
                 }
-                // Value labels in the label zone
-                // Collect all labels with their x-positions, then cull overlaps
+                // Value labels in the label zone (vmin/vmax + hover only; dmin/dmax shown as DOM labels)
                 if (labelH > 4 && _histData) {
                     const { vmin: dmin, vmax: dmax } = _histData;
                     const wVmin = manualVmin ?? currentVmin;
                     const wVmax = manualVmax ?? currentVmax;
-                    const dimColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                     const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
                     const hoverColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
                     ctx.font = '9px monospace';
-                    // Measure char width for overlap detection
                     const charW = ctx.measureText('0').width;
                     const labelY = labelH - 3;
-                    // Draw striped lines at literal left/right histogram edges
-                    {
-                        const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
-                        ctx.fillStyle = edgeStripeColor;
-                        const stripeOn = 4, stripeOff = 3;
-                        for (const x of [1, cssW - 2]) {
-                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
-                            }
-                        }
-                    }
-                    // Build label list: [{x, text, color, priority}]
-                    // Higher priority labels suppress lower when overlapping
                     const labels = [];
-                    // dmin at left edge (start-aligned at stripe), dmax at right edge (end-aligned)
-                    labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                    labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
-                    // vmin (if different from dmin)
                     if (effVmin > 0.01 && effVmin < 0.99) {
                         const vx = Math.round(effVmin * cssW);
                         labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
                     }
-                    // vmax (if different from dmax)
                     if (effVmax > 0.01 && effVmax < 0.99) {
                         const vx = Math.round(effVmax * cssW);
                         labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
                     }
-                    // Hover value (highest priority)
                     if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1) {
                         const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
                         const hx = Math.round(_cbHoverFrac * cssW);
                         labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                     }
-                    // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
                     labels.sort((a, b) => b.prio - a.prio);
-                    // Compute pixel extents and cull overlaps
-                    const drawn = []; // [{left, right}] of already drawn labels
+                    const drawn = [];
                     for (const lbl of labels) {
                         const tw = lbl.text.length * charW;
                         let left, right;
                         if (lbl.align === 'start') { left = lbl.x; right = lbl.x + tw; }
                         else if (lbl.align === 'end') { left = lbl.x - tw; right = lbl.x; }
                         else { left = lbl.x - tw / 2; right = lbl.x + tw / 2; }
-                        // Check overlap with higher-priority already-drawn labels
                         const overlaps = drawn.some(d => left < d.right + 4 && right > d.left - 4);
-                        if (overlaps) continue; // skip this lower-priority label
+                        if (overlaps) continue;
                         ctx.fillStyle = lbl.color;
                         ctx.textAlign = lbl.align;
                         ctx.fillText(lbl.text, lbl.x, labelY);
