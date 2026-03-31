@@ -1,5 +1,18 @@
 # TODO
 
+- WebGL oblique slice acceleration (investigated, not yet implemented):
+  - Upload 3D volume as TEXTURE_3D (R16F), sample oblique planes in fragment shader
+  - Hardware trilinear interpolation, colormap/contrast adjustment become client-side
+  - Concern: 4D data requires re-uploading ~80-256MB per index change (slow over tunnels)
+  - Hybrid approach: use WebGL only during oblique drag, keep server path for everything else
+  - CuPy rejected as dependency (version must match CUDA version, manual user hassle)
+  - See docs/superpowers/specs/2026-03-31-webgl-oblique-investigation.md for full analysis
+
+
+# done (2026-03-31, batch 3)
+- [x] Fix crosshair line stretch in 3-view mode (compute scale from CSS style, not getBoundingClientRect)
+- [x] FFT loading animation → arrayview logo (rotating blocks, same as startup)
+
 # done (2026-03-31, batch 2)
 - [x] FFT loading animation (spinning 2x2 blocks, 150ms delay)
 - [x] Remove compare mode strip on X key (title already shows mode)
