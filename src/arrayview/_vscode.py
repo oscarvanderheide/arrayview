@@ -582,6 +582,14 @@ def _open_direct_via_shm(
     shm = SharedMemory(create=True, size=arr.nbytes)
     np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)[:] = arr
 
+    # The subprocess will unlink the SHM after reading it.  Unregister from
+    # Python's resource tracker so it doesn't warn about "leaked" SHM at exit.
+    from multiprocessing import resource_tracker
+    try:
+        resource_tracker.unregister(f"/{shm.name}", "shared_memory")
+    except Exception:
+        pass
+
     # Keep the shm alive until the subprocess reads it (or this process exits).
     _ACTIVE_SHM.append(shm)
 
