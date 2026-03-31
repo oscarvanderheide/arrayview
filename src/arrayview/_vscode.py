@@ -57,7 +57,6 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.10.0"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -173,19 +172,30 @@ def _ensure_vscode_extension() -> bool:
     reinstalling with --force causes an extension-host reload, which creates a
     timing gap during which a signal file may be missed.  Old extension
     directories are cleaned up before any fresh install.
+
+    The authoritative version is read from the bundled VSIX — no hardcoded
+    version constant needed.
     """
     global _VSCODE_EXT_INSTALLED, _VSCODE_EXT_FRESH_INSTALL
     if _VSCODE_EXT_INSTALLED:
         return True
 
+    vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
+    if not os.path.isfile(vsix_path):
+        return False
+    ext_version = _bundled_vscode_vsix_version(vsix_path)
+    if not ext_version:
+        _vprint("[ArrayView] could not read version from bundled VSIX", flush=True)
+        return False
+
     # Fast path: correct version already installed — no reinstall needed.
     # Reinstalling with --force triggers an extension-host reload, which
     # creates a ~10-15s gap during which the signal file can be missed.
-    _remove_old_extension_versions(_VSCODE_EXT_VERSION)
-    if _extension_on_disk(_VSCODE_EXT_VERSION):
+    _remove_old_extension_versions(ext_version)
+    if _extension_on_disk(ext_version):
         _VSCODE_EXT_INSTALLED = True
         _vprint(
-            f"[ArrayView] extension v{_VSCODE_EXT_VERSION} already installed — skipping reinstall",
+            f"[ArrayView] extension v{ext_version} already installed — skipping reinstall",
             flush=True,
         )
         return True
@@ -198,18 +208,6 @@ def _ensure_vscode_extension() -> bool:
     ipc = _find_vscode_ipc_hook()
     if ipc and "VSCODE_IPC_HOOK_CLI" not in env:
         env["VSCODE_IPC_HOOK_CLI"] = ipc
-
-    vsix_path = str(_pkg_files("arrayview").joinpath("arrayview-opener.vsix"))
-    if not os.path.isfile(vsix_path):
-        return False
-    bundled_version = _bundled_vscode_vsix_version(vsix_path)
-    if bundled_version != _VSCODE_EXT_VERSION:
-        _vprint(
-            f"[ArrayView] extension version mismatch: bundled={bundled_version!r} "
-            f"expected={_VSCODE_EXT_VERSION!r} — rebuild arrayview-opener.vsix",
-            flush=True,
-        )
-        return False
 
     try:
         r = subprocess.run(
@@ -227,7 +225,7 @@ def _ensure_vscode_extension() -> bool:
             or "Error:" in combined
         )
         if r.returncode == 0 and not install_failed:
-            _patch_vscode_extension_metadata(_VSCODE_EXT_VERSION)
+            _patch_vscode_extension_metadata(ext_version)
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
             return True
@@ -400,6 +398,10 @@ def _find_current_vscode_window_id() -> str | None:
         our_ancestors[p] = depth
         cur = p
 
+    _vprint(f"[ArrayView] window-match: pid={os.getpid()} ancestors={our_ancestors}", flush=True)
+    for window_id, ext_pid, ext_ppids in windows:
+        _vprint(f"[ArrayView] window-match: window={window_id} ext_pid={ext_pid} ext_ppids={ext_ppids}", flush=True)
+
     # Score each window: find the common ancestor with the smallest combined
     # depth (ext_depth + our_depth). Lower = more closely related = this window.
     best_window: str | None = None
@@ -408,6 +410,7 @@ def _find_current_vscode_window_id() -> str | None:
     for window_id, ext_pid, ext_ppids in windows:
         # Extension host itself is a direct ancestor of our process (rare but possible)
         if ext_pid and ext_pid in our_ancestors:
+            _vprint(f"[ArrayView] window-match: ext_pid {ext_pid} is our ancestor → window={window_id}", flush=True)
             return window_id
 
         # Find the closest common ancestor via the extension's recorded ppids
@@ -415,12 +418,14 @@ def _find_current_vscode_window_id() -> str | None:
             if anc_pid in our_ancestors:
                 our_depth = our_ancestors[anc_pid]
                 score = ext_depth + our_depth
+                _vprint(f"[ArrayView] window-match: window={window_id} common_ancestor={anc_pid} ext_depth={ext_depth} our_depth={our_depth} score={score}", flush=True)
                 if score < best_score:
                     best_score = score
                     best_window = window_id
                 break  # take the shallowest match per window
 
     if best_window:
+        _vprint(f"[ArrayView] window-match: WINNER={best_window} score={best_score}", flush=True)
         return best_window
 
     # Fallback: no ppids in registrations (older extension version) or no match.
@@ -458,6 +463,45 @@ def _find_current_vscode_window_id() -> str | None:
         except Exception:
             pass
 
+    return None
+
+
+def _find_arrayview_window_id() -> str | None:
+    """Find ARRAYVIEW_WINDOW_ID from own env or ancestor processes.
+
+    The VS Code extension injects this env var into all terminals via
+    EnvironmentVariableCollection.  It identifies which VS Code window
+    the terminal belongs to.  ``uv run`` and similar launchers may strip
+    env vars, so we also walk the process tree (same as _find_vscode_ipc_hook).
+    """
+    # Direct env first
+    val = os.environ.get("ARRAYVIEW_WINDOW_ID", "")
+    if val:
+        return val
+
+    # Walk ancestors looking for ARRAYVIEW_WINDOW_ID in /proc/<pid>/environ
+    def _ppid(pid: int) -> int:
+        try:
+            with open(f"/proc/{pid}/status") as fh:
+                for line in fh:
+                    if line.startswith("PPid:"):
+                        return int(line.split()[1])
+        except Exception:
+            pass
+        return -1
+
+    pid = os.getpid()
+    for _ in range(12):
+        pid = _ppid(pid)
+        if pid <= 1:
+            break
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as fh:
+                for entry in fh.read().split(b"\0"):
+                    if entry.startswith(b"ARRAYVIEW_WINDOW_ID="):
+                        return entry[len(b"ARRAYVIEW_WINDOW_ID="):].decode()
+        except Exception:
+            pass
     return None
 
 
@@ -504,15 +548,82 @@ def _open_direct_via_signal_file(
     the viewer HTML directly in a webview panel with postMessage transport.
     No ports, no WebSocket, no authentication — just IPC.
     """
+    import sys as _sys
+
     payload: dict = {
         "action": "open-preview",
         "mode": "direct",
         "filepath": os.path.abspath(filepath),
+        "pythonPath": _sys.executable,
         "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
     }
     if title:
         payload["title"] = title
-    return _write_vscode_signal(payload)
+    return _write_vscode_signal(payload, skip_compat=True)
+
+
+def _open_direct_via_shm(
+    data: "np.ndarray",
+    name: str = "array",
+    title: str | None = None,
+) -> bool:
+    """Write a direct-mode signal file with shared memory parameters.
+
+    Places the array in POSIX shared memory so the extension-spawned subprocess
+    can read it without any disk I/O.
+    """
+    import atexit
+    import sys as _sys
+    from multiprocessing.shared_memory import SharedMemory
+
+    import numpy as np
+
+    arr = np.ascontiguousarray(data)
+    shm = SharedMemory(create=True, size=arr.nbytes)
+    np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)[:] = arr
+
+    # The subprocess will unlink the SHM after reading it.  Unregister from
+    # Python's resource tracker so it doesn't warn about "leaked" SHM at exit.
+    from multiprocessing import resource_tracker
+    try:
+        resource_tracker.unregister(f"/{shm.name}", "shared_memory")
+    except Exception:
+        pass
+
+    # Keep the shm alive until the subprocess reads it (or this process exits).
+    _ACTIVE_SHM.append(shm)
+
+    def _cleanup():
+        try:
+            shm.close()
+        except Exception:
+            pass
+        try:
+            shm.unlink()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup)
+
+    payload: dict = {
+        "action": "open-preview",
+        "mode": "direct",
+        "shm": {
+            "name": shm.name,
+            "shape": ",".join(str(int(s)) for s in arr.shape),
+            "dtype": str(arr.dtype),
+        },
+        "arrayName": name,
+        "pythonPath": _sys.executable,
+        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+    }
+    if title:
+        payload["title"] = title
+    return _write_vscode_signal(payload, skip_compat=True)
+
+
+# Shared memory blocks kept alive until process exit or subprocess reads them.
+_ACTIVE_SHM: list = []
 
 
 def _schedule_remote_open_retries(
@@ -544,7 +655,7 @@ def _schedule_remote_open_retries(
     threading.Thread(target=_loop, daemon=True).start()
 
 
-def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
+def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = False) -> bool:
     """Write a versioned control payload for the VS Code opener extension.
 
     Signal-file targeting strategy:
@@ -558,12 +669,12 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
       This prevents multi-window races.
 
     REMOTE / TUNNEL VS Code:
-      The extension host process is spawned by VS Code Server, not from the
-      user's terminal, so it does NOT inherit VSCODE_IPC_HOOK_CLI.  Therefore
-      OWN_HOOK_TAG is "" in the extension and TARGETED_SIGNAL_FILE is null —
-      the extension only polls the shared fallback file.  Python must write to
-      the shared fallback in this case.  On a tunnel there is only one VS Code
-      session per remote, so there is no multi-window race concern.
+      The terminal and extension host have *different* IPC hooks (different
+      process trees), so hookTag matching can't work directly.  Instead,
+      Python uses PID ancestry matching (``_find_current_vscode_window_id``)
+      to identify which extension host's window spawned this terminal, then
+      writes to that extension's targeted signal file.  Falls back to the
+      shared signal file only when no window match is found.
 
     Falls back to the shared signal file when ipc_hook is not found at all
     (e.g. non-VS Code environment or fully-stripped env).
@@ -690,14 +801,43 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0) -> bool:
                         *_VSCODE_COMPAT_SIGNAL_FILENAMES,
                     )
         else:
-            # Remote/tunnel OR no IPC hook found:
-            # On remote, the extension host does not inherit VSCODE_IPC_HOOK_CLI
-            # (different process tree: VS Code Server), so OWN_HOOK_TAG="" and
-            # TARGETED_SIGNAL_FILE=null in the extension — it only polls the shared
-            # fallback.  On tunnel there is only one VS Code session, so no
-            # multi-window race.
-            filenames = (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
+            # Remote/tunnel: the IPC hook and PID ancestry are shared across
+            # all windows in a tunnel, so they can't distinguish windows.
+            # Instead, use ARRAYVIEW_WINDOW_ID env var injected by the extension
+            # into each terminal via EnvironmentVariableCollection.
+            env_wid = _find_arrayview_window_id()
+            _vprint(f"[ArrayView] signal: remote mode, ARRAYVIEW_WINDOW_ID={env_wid or '(not found)'}", flush=True)
 
+            if env_wid:
+                # Verify the window is still registered
+                reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
+                if os.path.isfile(reg_file):
+                    _vprint(f"[ArrayView] signal: env window match → ipc-{env_wid}", flush=True)
+                    filenames = (f"open-request-ipc-{env_wid}.json",)
+                else:
+                    _vprint(f"[ArrayView] signal: env window {env_wid} not registered, falling back", flush=True)
+                    env_wid = None
+
+            if not env_wid:
+                # Fallback: PID ancestry (may misfire with multiple windows)
+                _vprint(f"[ArrayView] signal: trying PID ancestry fallback", flush=True)
+                window_id = _find_current_vscode_window_id()
+                if window_id:
+                    _vprint(f"[ArrayView] signal: PID ancestry matched window={window_id}", flush=True)
+                    filenames = (
+                        f"open-request-pid-{window_id}.json"
+                        if window_id.isdigit()
+                        else f"open-request-ipc-{window_id}.json",
+                    )
+                else:
+                    _vprint(f"[ArrayView] signal: no window match, using shared fallback", flush=True)
+                    filenames = (
+                        (_VSCODE_SIGNAL_FILENAME,)
+                        if skip_compat
+                        else (_VSCODE_SIGNAL_FILENAME, *_VSCODE_COMPAT_SIGNAL_FILENAMES)
+                    )
+
+        _vprint(f"[ArrayView] signal: writing to {[f for f in filenames]} broadcast={data.get('broadcast', False)}", flush=True)
         for filename in filenames:
             try:
                 os.unlink(os.path.join(signal_dir, filename))

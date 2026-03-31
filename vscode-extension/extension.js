@@ -73,30 +73,44 @@ const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 // bridges length-prefixed binary responses from stdout / JSON requests on stdin.
 // ---------------------------------------------------------------------------
 class PythonBridge {
-    constructor(filePath, onSessionReady) {
+    constructor(filePath, onSessionReady, pythonPath, shmParams) {
         this.filePath = filePath;
+        this.shmParams = shmParams || null;  // {name, shape, dtype}
         this.process = null;
         this.sid = null;
         this._buffer = Buffer.alloc(0);
         this._pendingCallbacks = [];
         this.onSessionReady = onSessionReady;
+        this.pythonPath = pythonPath || null;
     }
 
     start() {
         return new Promise((resolve, reject) => {
             this._startResolve = resolve;
             this._startReject = reject;
-            this._spawn('python3');
+            this._spawn(this.pythonPath || 'python3');
         });
     }
 
     _spawn(cmd) {
         const { spawn } = require('child_process');
-        const args = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
+        let args;
+        if (this.shmParams) {
+            args = ['-m', 'arrayview', '--mode', 'stdio',
+                '--shm-name', this.shmParams.name,
+                '--shm-shape', this.shmParams.shape,
+                '--shm-dtype', this.shmParams.dtype];
+            if (this.shmParams.arrayName) {
+                args.push('--name', this.shmParams.arrayName);
+            }
+        } else {
+            args = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
+        }
+        log(`PYTHON: spawning ${cmd} ${args.join(' ')}`);
         this.process = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
         this.process.on('error', (err) => {
-            if (err.code === 'ENOENT' && cmd === 'python3') {
+            if (err.code === 'ENOENT' && cmd === 'python3' && !this.pythonPath) {
                 log('PYTHON: python3 not found, trying python');
                 this._spawn('python');
                 return;
@@ -182,8 +196,8 @@ class PythonBridge {
 // ---------------------------------------------------------------------------
 // Direct webview: embeds the viewer HTML directly (no iframe/server)
 // ---------------------------------------------------------------------------
-async function openDirectWebview(filePath, title) {
-    const label = title || path.basename(filePath);
+async function openDirectWebview(filePath, title, pythonPath, shmParams) {
+    const label = title || (filePath ? path.basename(filePath) : (shmParams && shmParams.arrayName) || 'Array');
 
     const viewColumn = vscode.window.activeTextEditor
         ? vscode.ViewColumn.Beside
@@ -202,7 +216,7 @@ async function openDirectWebview(filePath, title) {
     // Spawn Python subprocess and wait for session to be ready
     const bridge = new PythonBridge(filePath, (sessionInfo) => {
         log(`SESSION READY: sid=${sessionInfo.sid} name=${sessionInfo.name}`);
-    });
+    }, pythonPath, shmParams);
     const sessionInfo = await Promise.race([
         bridge.start(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for Python session (30s)')), 30000)),
@@ -375,7 +389,10 @@ async function tryOpenSignalFile() {
     // If we are currently showing a URL, leave any pending signal files on disk.
     // The 1-second polling loop will pick them up once we are done.  This avoids
     // in-memory queues that can be lost when the extension host reloads.
-    if (isProcessingSignal) return;
+    if (isProcessingSignal) {
+        log(`SKIP: isProcessingSignal=true`);
+        return;
+    }
 
     // Check targeted file first (matches our window's IPC hook or PID), then primary,
     // then compat signal files for older/published arrayview Python versions.
@@ -453,6 +470,7 @@ async function tryOpenSignalFile() {
 
         if (isExpiredSignal(data)) continue;
 
+        log(`DISPATCH: file=${path.basename(signalFile)} mode=${data.mode} hasFilepath=${!!data.filepath} hasShm=${!!data.shm} hasUrl=${!!data.url} keys=${Object.keys(data).join(',')}`);
         try {
             await processSignalData(data);
         } catch (error) {
@@ -525,10 +543,17 @@ function openInWebviewPanel(url, title) {
 
 async function processSignalData(data) {
     isProcessingSignal = true;
+    log(`LOCK: isProcessingSignal=true`);
     try {
+        log(`SIGNAL-DATA: mode=${data.mode} filepath=${data.filepath || '(none)'} shm=${data.shm ? JSON.stringify(data.shm) : '(none)'} url=${data.url || '(none)'}`);
         // Direct webview mode: bypass iframe and use embedded viewer
-        if (data.mode === 'direct' && data.filepath) {
-            await openDirectWebview(data.filepath, data.title);
+        if (data.mode === 'direct' && (data.filepath || data.shm)) {
+            // Clean up any compat signal duplicates to prevent double-processing
+            for (const compat of ['open-request-v0800.json', 'open-request-v0400.json']) {
+                try { fs.unlinkSync(path.join(SIGNAL_DIR, compat)); } catch (_) {}
+            }
+            const shmParams = data.shm ? { ...data.shm, arrayName: data.arrayName } : null;
+            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams);
             return;
         }
 
@@ -586,6 +611,7 @@ async function processSignalData(data) {
         log(`ERROR: ${error.message}`);
     } finally {
         isProcessingSignal = false;
+        log(`UNLOCK: isProcessingSignal=false`);
         // Signal files for subsequent arrays remain on disk; the 1-second poll
         // will pick them up now that isProcessingSignal is false again.
     }
@@ -604,11 +630,18 @@ function activate(context) {
 
     try { fs.mkdirSync(SIGNAL_DIR, { recursive: true }); } catch (_) {}
 
-    // Write registration so Python can find this window's hookTag or PID.
-    // Python reads ~/.arrayview/window-<hookTag>.json to know which targeted
-    // signal file to write for this specific VS Code window.
-    // Fallback: use PID when IPC hook isn't available (local macOS/Windows).
+    // Inject ARRAYVIEW_WINDOW_ID into all terminals opened in this window.
+    // Python reads this env var to know which targeted signal file to write,
+    // solving multi-window targeting in tunnels where IPC hooks and PID
+    // ancestry are shared across windows.
     const windowId = OWN_HOOK_TAG || String(process.pid);
+    try {
+        const envCollection = context.environmentVariableCollection;
+        envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
+        log(`ENV: set ARRAYVIEW_WINDOW_ID=${windowId} in terminal env`);
+    } catch (e) {
+        log(`ENV: failed to set ARRAYVIEW_WINDOW_ID: ${e.message}`);
+    }
     const regFile = path.join(SIGNAL_DIR, `window-${windowId}.json`);
     try {
         fs.writeFileSync(regFile, JSON.stringify({
