@@ -1517,17 +1517,124 @@
             (_overlayColorsArr[i] || _OVERLAY_PALETTE[i % _OVERLAY_PALETTE.length])
         );
         const overlay_colors = _overlayColors.join(',') || null;
-        const transport = urlParams.get('transport') || 'ws';
+        const transport = urlParams.get('transport') || (typeof acquireVsCodeApi !== 'undefined' ? 'postMessage' : 'ws');
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
         const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
+        const postMessageTransport = transport === 'postMessage';
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
 
+        /* ── VS Code postMessage transport plumbing ── */
+        let _vscodeApi = null;
+        const _postMessageChannels = new Map();
+        let _pendingFetches = new Map();
+        let _fetchSeq = 0;
+
+        if (postMessageTransport) {
+            _vscodeApi = acquireVsCodeApi();
+            window.addEventListener('message', (event) => {
+                const msg = event.data;
+                if (!msg || msg.source === 'arrayview-viewer') return;
+
+                if (msg.type === 'slice-data') {
+                    const channel = _postMessageChannels.get(msg.channelId);
+                    if (channel && channel.onmessage) {
+                        // Buffer may arrive as Uint8Array (VS Code structured clone).
+                        // Ensure we pass a plain ArrayBuffer to the binary parser.
+                        let buf = msg.buffer;
+                        if (buf && !(buf instanceof ArrayBuffer)) {
+                            if (buf.buffer instanceof ArrayBuffer) {
+                                buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                            } else {
+                                buf = new Uint8Array(buf).buffer;
+                            }
+                        }
+                        channel.onmessage({ data: buf });
+                    }
+                } else if (msg.type === 'fetch-response') {
+                    const pending = _pendingFetches.get(msg.id);
+                    if (pending) {
+                        _pendingFetches.delete(msg.id);
+                        pending.resolve({
+                            ok: msg.ok,
+                            status: msg.status,
+                            headers: { get: (key) => (msg.headers || {})[key] || null },
+                            json: () => Promise.resolve(msg.data),
+                            text: () => Promise.resolve(typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)),
+                            blob: () => Promise.resolve(new Blob([msg.data])),
+                            arrayBuffer: () => Promise.resolve(msg.data instanceof ArrayBuffer ? msg.data : new TextEncoder().encode(JSON.stringify(msg.data)).buffer),
+                        });
+                    }
+                }
+            });
+        }
+
+        /**
+         * Create a transport connection (WebSocket or postMessage channel).
+         * Returns an object with the same interface as WebSocket:
+         *   .readyState, .send(data), .close(), .onopen, .onmessage, .onclose, .onerror
+         */
+        function createTransport(transportSid, onMessage, onOpen, onClose, onError) {
+            if (postMessageTransport) {
+                const channelId = 'ch_' + Math.random().toString(36).slice(2, 10);
+                const t = {
+                    readyState: WebSocket.OPEN,
+                    send(data) {
+                        _vscodeApi.postMessage({ type: 'ws-send', channelId, sid: transportSid, data: JSON.parse(data) });
+                    },
+                    close() { t.readyState = WebSocket.CLOSED; },
+                    onopen: onOpen || null,
+                    onmessage: onMessage || null,
+                    onclose: onClose || null,
+                    onerror: onError || null,
+                };
+                _postMessageChannels.set(channelId, t);
+                setTimeout(() => { if (t.onopen) t.onopen(); }, 0);
+                return t;
+            } else {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${proto}//${location.host}/ws/${transportSid}`);
+                ws.binaryType = 'arraybuffer';
+                if (onOpen) ws.onopen = onOpen;
+                if (onMessage) ws.onmessage = onMessage;
+                if (onClose) ws.onclose = onClose;
+                if (onError) ws.onerror = onError;
+                return ws;
+            }
+        }
+
+        /**
+         * Proxy fetch through the VS Code extension in postMessage mode.
+         * In ws/http mode, just calls native fetch.
+         */
+        function proxyFetch(url, options) {
+            if (!postMessageTransport) return fetch(url, options);
+            return new Promise((resolve, reject) => {
+                const id = ++_fetchSeq;
+                _pendingFetches.set(id, { resolve, reject });
+                _vscodeApi.postMessage({
+                    type: 'fetch-proxy',
+                    id,
+                    url,
+                    method: (options && options.method) || 'GET',
+                    body: (options && options.body) || null,
+                    headers: (options && options.headers) || null,
+                });
+            });
+        }
+
         function reportParent(phase, detail) {
             try {
-                if (window.parent && window.parent !== window) {
+                if (postMessageTransport && _vscodeApi) {
+                    _vscodeApi.postMessage({
+                        source: 'arrayview-viewer',
+                        type: 'viewer-event',
+                        phase,
+                        detail: detail || null,
+                    });
+                } else if (window.parent && window.parent !== window) {
                     window.parent.postMessage({
                         source: 'arrayview-viewer',
                         phase,
@@ -2106,7 +2213,7 @@
         // Dblclick: reset to auto range
         let _cbDragX = null;
         function _cbApplyAndRender() {
-            fetch(`/clearcache/${sid}`);
+            proxyFetch(`/clearcache/${sid}`);
             updateView();
             saveState();
         }
@@ -4769,7 +4876,7 @@
                 bins: 64,
             });
             try {
-                const resp = await fetch(`/histogram/${sid}?${params}`);
+                const resp = await proxyFetch(`/histogram/${sid}?${params}`);
                 if (!resp.ok) { _histFetching = false; return; }
                 _histData = await resp.json();
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY;
@@ -4793,7 +4900,7 @@
             });
             try {
                 const histPromises = allSids.map(s =>
-                    fetch(`/histogram/${s}?${params}`).then(r => r.ok ? r.json() : null)
+                    proxyFetch(`/histogram/${s}?${params}`).then(r => r.ok ? r.json() : null)
                 );
                 const allHists = await Promise.all(histPromises);
                 const valid = allHists.filter(Boolean);
@@ -4886,7 +4993,7 @@
             const cached = _lebesguePerSession[fetchSid];
             if (cached && cached.version === ver) return cached;
             try {
-                const resp = await fetch(`/lebesgue/${fetchSid}?${params}`);
+                const resp = await proxyFetch(`/lebesgue/${fetchSid}?${params}`);
                 if (!resp.ok) return null;
                 const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
                 const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
@@ -5386,7 +5493,7 @@
             const signal = _vfieldAbort.signal;
             const params = new URLSearchParams({ dim_x, dim_y, indices: indices.join(','), t_index: vfieldT, density_offset: vfDensityLevel });
             try {
-                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal });
+                const res = await proxyFetch(`/vectorfield/${sid}?${params}`, { signal });
                 if (!res.ok || signal.aborted) return;
                 const data = await res.json();
                 if (signal.aborted) return;
@@ -5445,7 +5552,7 @@
             const ac = new AbortController();
             _mvVfieldAborts.set(viewIndex, ac);
             try {
-                const res = await fetch(fetchUrl, { signal: ac.signal });
+                const res = await proxyFetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
                 if (!res.ok || ac.signal.aborted) return;
                 const data = await res.json();
                 if (ac.signal.aborted) return;
@@ -5494,9 +5601,7 @@
                 return;
             }
             if (_wsRetryTimer) { clearTimeout(_wsRetryTimer); _wsRetryTimer = null; }
-            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-            ws.binaryType = 'arraybuffer';
+            ws = createTransport(sid, null, null, null, null);
 
             ws.onopen = () => {
                 reportParent('ws-open', { host: location.host });
@@ -5617,7 +5722,7 @@
         }
 
         async function fetchSliceFrame(params, targetSid = sid) {
-            const res = await fetch(`/slice/${targetSid}?${params.toString()}`);
+            const res = await proxyFetch(`/slice/${targetSid}?${params.toString()}`);
             if (!res.ok) {
                 throw new Error(`Render failed (${res.status})`);
             }
@@ -5812,7 +5917,7 @@
             });
             if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
             try {
-                const resp = await fetch(`/diff/${sid_a}/${sid_b}?${params}`);
+                const resp = await proxyFetch(`/diff/${sid_a}/${sid_b}?${params}`);
                 if (!resp.ok) return;
                 const hdrVmin = parseFloat(resp.headers.get('X-ArrayView-Vmin'));
                 const hdrVmax = parseFloat(resp.headers.get('X-ArrayView-Vmax'));
@@ -5839,7 +5944,7 @@
                 } else if (usedCmap) {
                     // Fetch stops from server for unknown colormaps
                     try {
-                        const cmResp = await fetch(`/colormap/${encodeURIComponent(usedCmap)}`);
+                        const cmResp = await proxyFetch(`/colormap/${encodeURIComponent(usedCmap)}`);
                         if (cmResp.ok) {
                             const cmData = await cmResp.json();
                             COLORMAP_GRADIENT_STOPS[usedCmap] = cmData.gradient_stops;
@@ -5855,7 +5960,7 @@
             if (multiViewActive) return;
             if (shape.length < 3) return;
             preloadActiveDim = current_slice_dim;
-            fetch(`/preload/${sid}`, {
+            proxyFetch(`/preload/${sid}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -5873,7 +5978,7 @@
         }
 
         function pollPreloadStatus() {
-            fetch(`/preload_status/${sid}`).then(r => r.json()).then(data => {
+            proxyFetch(`/preload_status/${sid}`).then(r => r.json()).then(data => {
                 const el = document.getElementById('preload-status');
                 if (data.skipped) {
                     el.textContent = 'Array too large for full preload (>500 MB).';
@@ -5941,14 +6046,14 @@
             if (!sid || _watchPollTimer !== null) return;
             const _doPoll = async () => {
                 try {
-                    const r = await fetch(`/data_version/${sid}`);
+                    const r = await proxyFetch(`/data_version/${sid}`);
                     if (!r.ok) return;
                     const { version } = await r.json();
                     if (_watchDataVersion === -1) { _watchDataVersion = version; return; }
                     if (version !== _watchDataVersion) {
                         _watchDataVersion = version;
                         // Clear caches and re-render
-                        await fetch(`/clearcache/${sid}`);
+                        await proxyFetch(`/clearcache/${sid}`);
                         updateView();
                         triggerPreload();
                         renderInfo();
@@ -5972,7 +6077,7 @@
 
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
             reportParent('metadata-request', { sid });
-            const res = await fetch(`/metadata/${sid}`);
+            const res = await proxyFetch(`/metadata/${sid}`);
             if (!res.ok) {
                 reportParent('metadata-http-error', { status: res.status, sid });
                 const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
@@ -6536,7 +6641,7 @@
             });
             if (logScale) params.set('log_scale', '1');
 
-            fetch('/pixel/' + opts.sid + '?' + params)
+            proxyFetch('/pixel/' + opts.sid + '?' + params)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
@@ -6679,7 +6784,7 @@
                 customGradientStops = null;
                 return;
             }
-            fetch(`/colormap/${encodeURIComponent(name)}`)
+            proxyFetch(`/colormap/${encodeURIComponent(name)}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (d) {
@@ -6888,7 +6993,7 @@
             }
             let resp;
             try {
-                resp = await fetch(`/set_rgb/${sid}`, {
+                resp = await proxyFetch(`/set_rgb/${sid}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ axis }),
@@ -6951,7 +7056,7 @@
             const form = new FormData();
             form.append('file', file);
             try {
-                const res = await fetch('/load-upload', { method: 'POST', body: form });
+                const res = await proxyFetch('/load-upload', { method: 'POST', body: form });
                 const body = await res.json();
                 if (!res.ok) throw new Error(body.detail || String(res.status));
                 if (!sid) {
@@ -7119,7 +7224,7 @@
             if (_inPyWebView) {
                 // PyWebView doesn't support <a download> — it navigates to the data URL
                 // and destroys the app. Use server-side save only.
-                fetch('/save_file', {
+                proxyFetch('/save_file', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename, data: dataUrl })
@@ -7136,7 +7241,7 @@
             link.click();
             document.body.removeChild(link);
             // Also POST to server as fallback
-            fetch('/save_file', {
+            proxyFetch('/save_file', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename, data: dataUrl })
@@ -7320,7 +7425,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         async function saveGif() {
             setStatus('Generating GIF...');
             const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${currentColormap()}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
-            const res = await fetch(url);
+            const res = await proxyFetch(url);
             if (!res.ok) {
                 // Phase 4: guardrail error (e.g. array too large)
                 try {
@@ -7534,7 +7639,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     tolerance: String(_floodFillTolerance),
                     complex_mode: String(complexMode),
                 });
-                const resp = await fetch(`/roi_floodfill/${sid}?${params}`);
+                const resp = await proxyFetch(`/roi_floodfill/${sid}?${params}`);
                 if (!resp.ok) { showStatus('flood fill: failed'); return; }
                 const data = await resp.json();
                 if (data.error) { showStatus(`flood fill: ${data.error}`); return; }
@@ -7839,7 +7944,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (r < 2) { _drawAllRois(); return; }
                     _rois.push({type:'circle', cx:Math.round(cx), cy:Math.round(cy), r:Math.round(r), stats:null});
                     _drawAllRois();
-                    fetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&cx=${Math.round(cx)}&cy=${Math.round(cy)}&r=${Math.round(r)}&complex_mode=${complexMode}`)
+                    proxyFetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&cx=${Math.round(cx)}&cy=${Math.round(cy)}&r=${Math.round(r)}&complex_mode=${complexMode}`)
                         .then(res => res.json()).then(d => {
                             if (d.error) return;
                             _rois[roiIdx].stats = d;
@@ -7851,7 +7956,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (pts.length < 5) { _drawAllRois(); return; }
                     _rois.push({type:'freehand', points:pts, stats:null});
                     _drawAllRois();
-                    fetch(`/roi_freehand/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&complex_mode=${complexMode}`, {
+                    proxyFetch(`/roi_freehand/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&complex_mode=${complexMode}`, {
                         method: 'POST',
                         headers: {'Content-Type':'application/json'},
                         body: JSON.stringify({points: pts.map(p => [Math.round(p[0]), Math.round(p[1])])})
@@ -7871,7 +7976,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const y1 = Math.round(Math.max(roiStart.y, roiEnd.y));
                     _rois.push({type:'rect', x0, y0, x1, y1, stats:null});
                     _drawAllRois();
-                    fetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&complex_mode=${complexMode}`)
+                    proxyFetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&complex_mode=${complexMode}`)
                         .then(res => res.json()).then(d => {
                             if (d.error) return;
                             _rois[roiIdx].stats = d;
@@ -7987,7 +8092,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
         async function _copyPixelValue(cvSid, cvDimX, cvDimY, cvIndices, px, py) {
             try {
-                const resp = await fetch(`/pixel/${cvSid}?dim_x=${cvDimX}&dim_y=${cvDimY}&indices=${cvIndices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`);
+                const resp = await proxyFetch(`/pixel/${cvSid}?dim_x=${cvDimX}&dim_y=${cvDimY}&indices=${cvIndices.join(',')}&px=${px}&py=${py}&complex_mode=${complexMode}`);
                 const d = await resp.json();
                 if (d.value === undefined || d.value === null || !isFinite(d.value)) return;
                 const txt = _fmtPixelForCopy(d.value);
@@ -8827,7 +8932,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     complex_mode: complexMode,
                 });
                 if (_inPyWebView) {
-                    fetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
+                    proxyFetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
                         .then(r => r.ok ? setStatus('slice saved to Downloads (.npy)') : setStatus('slice export failed'))
                         .catch(() => setStatus('slice export failed'));
                 } else {
@@ -8912,7 +9017,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 customColormap = null; customGradientStops = null;
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 refreshAxesColor();
                 // When histogram is open, skip the previewer — just update the colorbar display
                 const _histOpen = _cbExpanded || (_diffLeftCb && _diffLeftCb.expanded);
@@ -8935,14 +9040,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (rgbMode) return;
                 const name = window.prompt('Matplotlib colormap name:', '');
                 if (!name) return;
-                fetch(`/colormap/${encodeURIComponent(name.trim())}`)
+                proxyFetch(`/colormap/${encodeURIComponent(name.trim())}`)
                     .then(r => r.ok ? r.json() : null)
                     .then(d => {
                         if (!d) { showStatus('Unknown colormap'); return; }
                         customColormap = name.trim();
                         customGradientStops = d.gradient_stops;
                         colormap_idx = -1;
-                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor();
                         showStatus(`colormap: ${customColormap}`);
                         saveState();
@@ -8984,7 +9089,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (hv.drIdx === null) hv.drIdx = dr_idx;
                     hv.drIdx = (hv.drIdx + 1) % DR_LABELS.length;
                     _cbExpanded = false;
-                    fetch(`/clearcache/${sid}`).then(() => {
+                    proxyFetch(`/clearcache/${sid}`).then(() => {
                         hv.rendering = false; hv.pending = false;
                         qvRender(hv);
                         if (!rgbMode) {
@@ -9069,7 +9174,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         manualVmax = qHi;
                     }
                     cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                    fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                    proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                     if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                     showStatus(`range: ${preset.label}`);
                 } else {
@@ -9142,7 +9247,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             manualVmin = qLo; manualVmax = qHi;
                         }
                         cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                        fetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                        proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                         if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
                         showStatus(`range: ${preset.label}`);
                         // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
@@ -9179,7 +9284,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
                 cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                 mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
-                fetch(`/clearcache/${sid}`).then(() => {
+                proxyFetch(`/clearcache/${sid}`).then(() => {
                     mvViews.forEach(v => { v.rendering = false; v.pending = false; });
                     updateView();
                 });
@@ -9250,7 +9355,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else if (_cmapStripMode === 'diff-side') {
                         colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
                         customColormap = null; customGradientStops = null;
-                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor();
                         const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
                         const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
@@ -9259,7 +9364,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else {
                         colormap_idx = (colormap_idx <= 0 ? COLORMAPS.length - 1 : colormap_idx - 1);
                         customColormap = null; customGradientStops = null;
-                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor(); showColormapStrip(); saveState();
                     }
                     return;
@@ -9297,7 +9402,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else if (_cmapStripMode === 'diff-side') {
                         customColormap = null; customGradientStops = null;
                         colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor();
                         const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
                         const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
@@ -9306,7 +9411,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else {
                         customColormap = null; customGradientStops = null;
                         colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                        fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor(); showColormapStrip(); saveState();
                     }
                     return;
@@ -9331,12 +9436,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             } else if (e.key === 'w') {
                 await toggleRgbMode();
+            } else if (e.key === 'M') {
+                alphaLevel = alphaLevel ? 0 : 1;
+                _eggsVisible = true;
+                proxyFetch(`/alpha/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ level: alphaLevel }),
+                }).then(r => r.json()).then(d => {
+                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
+                    updateView(); triggerPreload();
+                    renderEggs();
+                });
             } else if (e.key === 'L') {
                 if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
                 logScale = !logScale;
                 manualVmin = manualVmax = null;
                 _eggsVisible = true;
-                fetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 renderInfo();
                 renderEggs();
                 saveState();
@@ -9367,7 +9484,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (overlay.classList.contains('visible')) {
                     overlay.classList.remove('visible');
                 } else {
-                    fetch(`/info/${sid}`).then(r => r.json()).then(d => {
+                    proxyFetch(`/info/${sid}`).then(r => r.json()).then(d => {
                         const rows = [
                             ['Shape', `[${d.shape.join(', ')}]`],
                             ['Dtype', d.dtype],
@@ -9389,7 +9506,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
                     showFftSpinner();
-                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             _fftActive = false;
@@ -9403,7 +9521,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
                     showFftSpinner();
-                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
+                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             if (d.error) { showStatus('FFT error: ' + d.error); return; }
@@ -9603,8 +9721,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             try {
                 const [baseRes, cmpRes] = await Promise.all([
-                    fetch(`/metadata/${sid}`),
-                    fetch(`/metadata/${targetSid}`),
+                    proxyFetch(`/metadata/${sid}`),
+                    proxyFetch(`/metadata/${targetSid}`),
                 ]);
                 if (!baseRes.ok || !cmpRes.ok) {
                     showStatus('compare: could not load session metadata');
@@ -9699,9 +9817,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         async function _fetchPickerData() {
             let sessions = [], fileEntries = [];
-            try { const r = await fetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
+            try { const r = await proxyFetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
             try {
-                const r = await fetch('/listfiles');
+                const r = await proxyFetch('/listfiles');
                 if (r.ok) {
                     const all = await r.json();
                     const loaded = new Set(sessions.map(s => s.filepath).filter(Boolean));
@@ -9893,7 +10011,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     // Open directly
                                     item.classList.add('cp-item-loading');
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    fetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    proxyFetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ filepath: f.path, name: f.name }),
                                     }).then(r => r.json()).then(async data => {
                                         if (data.error === 'insufficient_memory') {
@@ -9947,7 +10065,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     for (const [key, item] of items) {
                         if (item.sid) continue;
                         try {
-                            const r = await fetch('/load', {
+                            const r = await proxyFetch('/load', {
                                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ filepath: item.filepath, name: item.name }),
                             });
@@ -10152,7 +10270,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         async function getCompareCandidates() {
-            const res = await fetch('/sessions');
+            const res = await proxyFetch('/sessions');
             if (!res.ok) { showStatus('compare: could not query sessions'); return []; }
             const sessions = await res.json();
             const candidates = sessions.filter(s => s.sid && s.sid !== sid);
@@ -10175,9 +10293,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         async function _fetchPickerData() {
             let sessions = [], fileEntries = [];
-            try { const r = await fetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
+            try { const r = await proxyFetch('/sessions'); if (r.ok) sessions = await r.json(); } catch (_) {}
             try {
-                const r = await fetch('/listfiles');
+                const r = await proxyFetch('/listfiles');
                 if (r.ok) {
                     const all = await r.json();
                     const loaded = new Set(sessions.map(s => s.filepath).filter(Boolean));
@@ -10498,13 +10616,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvViews.forEach(v => mvRender(v));
             } else {
                 mvViews.forEach(v => {
-                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    v.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-                    v.ws.binaryType = 'arraybuffer';
-                    v.ws.onopen = () => mvRender(v);
-                    v.ws.onmessage = (event) => mvOnMessage(v, event);
-                    v.ws.onclose = () => { v.rendering = false; };
-                    v.ws.onerror = () => { v.rendering = false; if (v.ws) v.ws.close(); };
+                    v.ws = createTransport(sid,
+                        (event) => mvOnMessage(v, event),
+                        () => mvRender(v),
+                        () => { v.rendering = false; },
+                        () => { v.rendering = false; if (v.ws) v.ws.close(); }
+                    );
                 });
             }
             document.getElementById('mv-orientation').style.display = 'block';
@@ -10644,7 +10761,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             qIndices[qmriDim] = view.qmriIdx;
                             const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
                             if (logScale) params.set('log_scale', '1');
-                            const resp = await fetch('/histogram/' + sid + '?' + params);
+                            const resp = await proxyFetch('/histogram/' + sid + '?' + params);
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { qvRender(view); },
@@ -10694,7 +10811,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                         complex_mode: complexMode,
                                     });
                                     if (logScale) params.set('log_scale', '1');
-                                    fetch('/pixel/' + sid + '?' + params)
+                                    proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
                                             if (!rd) return;
                                             const fmt = val => {
@@ -10713,13 +10830,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                     });
                     if (!httpTransport) {
-                        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                        view.ws = new WebSocket(`${proto}//${location.host}/ws/${sid}`);
-                        view.ws.binaryType = 'arraybuffer';
-                        view.ws.onopen = () => qvRender(view);
-                        view.ws.onmessage = (event) => qvOnMessage(view, event);
-                        view.ws.onclose = () => { view.rendering = false; };
-                        view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                        view.ws = createTransport(sid,
+                            (event) => qvOnMessage(view, event),
+                            () => qvRender(view),
+                            () => { view.rendering = false; },
+                            () => { view.rendering = false; if (view.ws) view.ws.close(); }
+                        );
                     }
                     qmriViews.push(view);
                 }
@@ -10866,7 +10982,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             qIndices[compareQmriDim] = view.qmriIdx;
                             const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
                             if (logScale) params.set('log_scale', '1');
-                            const resp = await fetch('/histogram/' + view.sid + '?' + params);
+                            const resp = await proxyFetch('/histogram/' + view.sid + '?' + params);
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { compareQmriRender(view); },
@@ -10897,7 +11013,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const _mx = e.clientX, _my = e.clientY;
                         const qIndices = [...indices];
                         qIndices[compareQmriDim] = view.qmriIdx;
-                        fetch(`/pixel/${view.sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                        proxyFetch(`/pixel/${view.sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
                             .then(r => r.json()).then(d => {
                                 if (d.value !== undefined && isFinite(d.value)) {
                                     const av = Math.abs(d.value);
@@ -10912,13 +11028,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                     });
                     if (!httpTransport) {
-                        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                        view.ws = new WebSocket(`${proto}//${location.host}/ws/${sidVal}`);
-                        view.ws.binaryType = 'arraybuffer';
-                        view.ws.onopen = () => compareQmriRender(view);
-                        view.ws.onmessage = (event) => compareQmriOnMessage(view, event);
-                        view.ws.onclose = () => { view.rendering = false; };
-                        view.ws.onerror = () => { view.rendering = false; if (view.ws) view.ws.close(); };
+                        view.ws = createTransport(sidVal,
+                            (event) => compareQmriOnMessage(view, event),
+                            () => compareQmriRender(view),
+                            () => { view.rendering = false; },
+                            () => { view.rendering = false; if (view.ws) view.ws.close(); }
+                        );
                     }
                     compareQmriViews.push(view);
                 }
@@ -11271,13 +11386,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _copyPixelValue(view.sid, view.dimX, view.dimY, indices, ipx, ipy);
                     });
                     if (!httpTransport) {
-                        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                        view.ws = new WebSocket(`${proto}//${location.host}/ws/${sidVal}`);
-                        view.ws.binaryType = 'arraybuffer';
-                        view.ws.onopen = () => compareMvRender(view);
-                        view.ws.onmessage = (event) => compareMvOnMessage(view, event);
-                        view.ws.onclose = () => { view.rendering = false; };
-                        view.ws.onerror = () => { view.rendering = false; if (v.ws) view.ws.close(); };
+                        view.ws = createTransport(sidVal,
+                            (event) => compareMvOnMessage(view, event),
+                            () => compareMvRender(view),
+                            () => { view.rendering = false; },
+                            () => { view.rendering = false; if (view.ws) view.ws.close(); }
+                        );
                     }
                     // Show crosshair lines only for the 3 panes of the hovered array
                     pane.addEventListener('mouseenter', () => { _cmvSetCrosshairTarget(1, sidVal); });
@@ -11684,7 +11798,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             qIndices[qmriDim] = v.qmriIdx;
                             const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
                             if (logScale) params.set('log_scale', '1');
-                            const resp = await fetch('/histogram/' + sid + '?' + params);
+                            const resp = await proxyFetch('/histogram/' + sid + '?' + params);
                             return resp.ok ? resp.json() : null;
                         },
                         onWindowChange: () => { qvRender(v); },
@@ -12015,7 +12129,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('vmax_override', String(v.lockedVmax));
                 }
                 params.set('quality', (obliqueDrag || mvDraggingView) ? 'draft' : 'full');
-                const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
+                const resp = await proxyFetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`oblique ${resp.status}`);
                 const blob = await resp.blob();
                 const decoded = await decodeBlobToImageData(blob);
@@ -12802,7 +12916,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
                 const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
                 const _mx = e.clientX, _my = e.clientY;
-                fetch(`/pixel/${cvSid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
+                proxyFetch(`/pixel/${cvSid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
                     .then(r => r.json()).then(d => {
                         if (d.value !== undefined && isFinite(d.value)) {
                             const av = Math.abs(d.value);
@@ -13757,7 +13871,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 complex_mode: String(complexMode),
                 log_scale: String(logScale),
             });
-            fetch(`/line_profile/${sid}?${params}`)
+            proxyFetch(`/line_profile/${sid}?${params}`)
                 .then(r => r.json())
                 .then(data => {
                     if (!data.values || !data.values.length) return;

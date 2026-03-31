@@ -57,7 +57,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.20"  # must match vscode-extension/package.json
+_VSCODE_EXT_VERSION = "0.10.0"  # must match vscode-extension/package.json
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -494,6 +494,27 @@ def _open_via_signal_file(
     return _write_vscode_signal(payload, delay=delay)
 
 
+def _open_direct_via_signal_file(
+    filepath: str, title: str | None = None
+) -> bool:
+    """Write a direct-mode signal file for the VS Code extension.
+
+    Instead of opening a URL in an iframe, the extension spawns a Python
+    subprocess (``python -m arrayview --mode stdio <filepath>``) and hosts
+    the viewer HTML directly in a webview panel with postMessage transport.
+    No ports, no WebSocket, no authentication — just IPC.
+    """
+    payload: dict = {
+        "action": "open-preview",
+        "mode": "direct",
+        "filepath": os.path.abspath(filepath),
+        "maxAgeMs": _VSCODE_SIGNAL_MAX_AGE_MS,
+    }
+    if title:
+        payload["title"] = title
+    return _write_vscode_signal(payload)
+
+
 def _schedule_remote_open_retries(
     url: str, interval: float = 15.0, count: int = 2
 ) -> None:
@@ -709,6 +730,7 @@ def _open_browser(
     blocking: bool = False,
     force_vscode: bool = False,
     title: str | None = None,
+    filepath: str | None = None,
 ) -> None:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
 
@@ -740,32 +762,32 @@ def _open_browser(
 
         if is_remote:
             # Remote/tunnel: install extension + write signal file.
-            # The workspace extension resolves the devtunnel URL via asExternalUri
-            # and opens Simple Browser with ?sid= preserved.
-            # Port visibility must be Public (user sets it manually in Ports tab,
-            # or it was pre-configured by `arrayview --serve`).
-            # NOTE: Do NOT call _configure_vscode_port_preview() here — writing
-            # settings files at open-time can disrupt active port forwarding.
-            # The --serve path and CLI new-server path handle it at setup time.
-            global _remote_message_shown
-            if not _remote_message_shown:
-                _remote_message_shown = True
-                print(
-                    f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
-                    f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.\n"
-                    f"  If the Simple Browser tab shows an auth page, make the port Public then reload the tab.",
-                    flush=True,
-                )
             ext_ok = _ensure_vscode_extension()
             if ext_ok and _VSCODE_EXT_FRESH_INSTALL:
                 time.sleep(1.5)
-            # Always write the signal file: the extension may already be
-            # installed from a prior session even if _ensure failed (e.g.
-            # `code` CLI not in PATH, Julia stripped env, etc.).
-            # createWebviewPanel is idempotent (reuses panel by URL), so retries
-            # are safe. Schedule 2 retries to survive any extension-host reload gap.
-            _open_via_signal_file(url, title=title)
-            _schedule_remote_open_retries(url, interval=10.0, count=2)
+
+            if filepath:
+                # Direct webview mode: no ports, no WebSocket, no auth needed.
+                # The extension spawns a Python subprocess and bridges via
+                # postMessage — completely bypasses the port-forwarding issue.
+                _open_direct_via_signal_file(filepath, title=title)
+                _vprint(
+                    "[ArrayView] Remote tunnel → direct webview mode (no port needed)",
+                    flush=True,
+                )
+            else:
+                # Fallback to URL-based mode (e.g. --serve, or relay)
+                global _remote_message_shown
+                if not _remote_message_shown:
+                    _remote_message_shown = True
+                    print(
+                        f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
+                        f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.\n"
+                        f"  If the Simple Browser tab shows an auth page, make the port Public then reload the tab.",
+                        flush=True,
+                    )
+                _open_via_signal_file(url, title=title)
+                _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:
                 _vprint(
                     "[ArrayView] extension install could not be verified — signal file written anyway",
