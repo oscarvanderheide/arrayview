@@ -1426,7 +1426,7 @@
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
                   <div class="help-row"><span class="key">G</span><span class="desc">cycle compare layout: horizontal → vertical → grid (3–4 panes)</span></div>
                   <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
-                <div class="help-row"><span class="key">drag</span><span class="desc">move dimbar / colorbar in immersive mode (resets on exit)</span></div>
+                <div class="help-row"><span class="key">shift+drag</span><span class="desc">move dimbar / colorbar in immersive mode (resets on exit)</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM</span></div>
@@ -13948,7 +13948,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             let dragging = false, offX = 0, offY = 0;
             el.addEventListener('mousedown', e => {
                 if (!document.body.classList.contains('fullscreen-mode')) return;
-                if (e.button !== 0) return;
+                if (e.button !== 0 || !e.shiftKey) return;
                 dragging = true;
                 const rect = el.getBoundingClientRect();
                 offX = e.clientX - rect.left;
