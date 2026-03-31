@@ -10372,7 +10372,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 cv.className = 'mv-canvas';
                 // Tight container so axes indicator is positioned relative to canvas
                 const cvBox = document.createElement('div');
-                cvBox.style.cssText = 'position:relative;display:inline-flex;';
+                cvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
                 cvBox.appendChild(cv);
                 const _axLetters = ['x', 'y', 'z'];
                 const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
@@ -11171,7 +11171,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cv.className = 'qv-canvas';
                     // Tight box: canvas + axes-indicator positioned relative to canvas
                     const cvBox = document.createElement('div');
-                    cvBox.style.cssText = 'position:relative;display:inline-flex;';
+                    cvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
                     cvBox.appendChild(cv);
                     // Axes indicator (same style as regular 3-plane view)
                     const _axLetters = ['x', 'y', 'z'];
@@ -11426,30 +11426,39 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyMvFlips(v, v.lastImageData, v.lastW, v.lastH), 0, 0);
-            // Draw colored crosshair lines (same colors as regular 3-plane view)
-            // Only show when hovering over panes belonging to this view's array (SID)
+            // Draw colored crosshair lines on overlay at CSS resolution
             const _cmvAlpha = (_cmvCrosshairSid === v.sid) ? _cmvCrosshairAlpha : 0;
-            v.ctx.save();
-            if (_cmvAlpha > 0.005) {
+            const _chOv = _getMvCrosshairOverlay(v);
+            if (_chOv) {
             const __cssW = parseFloat(v.canvas.style.width) || v.lastW;
             const __cssH = parseFloat(v.canvas.style.height) || v.lastH;
-            let _scaleX = __cssW / v.lastW, _scaleY = __cssH / v.lastH;
-            v.ctx.globalAlpha = _cmvAlpha;
+            const _scaleX = __cssW / v.lastW, _scaleY = __cssH / v.lastH;
+            const dpr = window.devicePixelRatio || 1;
+            const ovW = Math.round(__cssW * dpr), ovH = Math.round(__cssH * dpr);
+            if (_chOv.width !== ovW || _chOv.height !== ovH) {
+                _chOv.width = ovW; _chOv.height = ovH;
+                _chOv.style.width = __cssW + 'px';
+                _chOv.style.height = __cssH + 'px';
+            }
+            const _chCtx = _chOv.getContext('2d');
+            _chCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            _chCtx.clearRect(0, 0, __cssW, __cssH);
+            if (_cmvAlpha > 0.005) {
+            _chCtx.globalAlpha = _cmvAlpha;
             const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
             const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
-            // Color: plane whose sliceDir === v.dimX (vertical line)
+            const cssCx = cx * _scaleX, cssCy = cy * _scaleY;
             const firstRow = compareMvViews.slice(0, 3);
             const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
             const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
-            v.ctx.lineWidth = 1 / _scaleX;
-            v.ctx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
-            v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
-            v.ctx.lineWidth = 1 / _scaleY;
-            v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
-            v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            _chCtx.lineWidth = 1.5;
+            _chCtx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
+            _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, __cssH); _chCtx.stroke();
+            _chCtx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
+            _chCtx.beginPath(); _chCtx.moveTo(0, cssCy); _chCtx.lineTo(__cssW, cssCy); _chCtx.stroke();
             }
-            v.ctx.restore();
+            }
             drawMvOrientation();
         }
 
@@ -12316,6 +12325,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_cmvCrosshairAnim) _cmvCrosshairAnim = requestAnimationFrame(_cmvAnimateCrosshairs);
         }
 
+        function _getMvCrosshairOverlay(v) {
+            if (v._chOverlay) return v._chOverlay;
+            const parent = v.canvas.parentElement;
+            if (!parent) return null;
+            const ov = document.createElement('canvas');
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;';
+            parent.appendChild(ov);
+            v._chOverlay = ov;
+            return ov;
+        }
+
         function mvDrawFrame(v) {
             if (!v.lastW || !v.lastH || !v.lastImageData) return;
             if (v.canvas.width !== v.lastW || v.canvas.height !== v.lastH) {
@@ -12328,61 +12348,69 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 obliqueVecs ? v.lastImageData : applyMvFlips(v, v.lastImageData, v.lastW, v.lastH),
                 0, 0
             );
-            v.ctx.save();
+            // Draw crosshair lines on an overlay canvas at CSS resolution so
+            // line thickness is independent of the data-to-CSS scale factor.
             const _cssW = parseFloat(v.canvas.style.width) || v.lastW;
             const _cssH = parseFloat(v.canvas.style.height) || v.lastH;
             const scaleX = _cssW / v.lastW;
             const scaleY = _cssH / v.lastH;
-            // Crosshair lines fade in/out on hover
             const _chAlpha = _mvCrosshairAlpha;
-            if (_chAlpha > 0.005) {
-            v.ctx.globalAlpha = _chAlpha;
-            const i = mvViews.indexOf(v);
-            if (obliqueVecs && i >= 0) {
-                const vi = obliqueVecs[i];
-                // Project indices offset from volume center onto this view's canvas.
-                // The render is centered at volume center, so a displacement of
-                // (indices[d] - center[d]) maps directly to canvas pixels via bh/bv.
-                const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
-                const chx = v.lastW / 2 + dot3(diff, vi.bh);
-                const chy = v.lastH / 2 + dot3(diff, vi.bv);
-                mvViews.forEach((_, j) => {
-                    if (j === i) return;
-                    const L = cross3(vi.n, obliqueVecs[j].n);
-                    const lh = dot3(L, vi.bh), lv = dot3(L, vi.bv);
-                    const len = Math.sqrt(lh*lh + lv*lv);
-                    if (len < 1e-10) return;
-                    const ext = Math.max(v.lastW, v.lastH) * 2;
-                    const dh = lh / len * ext, dv = lv / len * ext;
-                    // Compensate for asymmetric CSS scaling (e.g. squareStretch):
-                    // the perpendicular of the line is (-dv, dh)/ext; after CSS
-                    // scaling its magnitude is sqrt(dv²·scaleX² + dh²·scaleY²)/ext.
-                    // Set lineWidth so apparent width is 1.5 CSS pixels.
-                    const perpMag = Math.sqrt(dv*dv*scaleX*scaleX + dh*dh*scaleY*scaleY) / ext;
-                    v.ctx.lineWidth = 1.5 / (perpMag || 1);
-                    v.ctx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
-                    v.ctx.beginPath();
-                    v.ctx.moveTo(chx - dh, chy - dv);
-                    v.ctx.lineTo(chx + dh, chy + dv);
-                    v.ctx.stroke();
-                });
-            } else {
-                const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
-                const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
-                const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
-                // Vertical line: color of the view whose sliceDir is v.dimX
-                const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
-                v.ctx.lineWidth = 1.5 / scaleX;
-                v.ctx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
-                v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
-                // Horizontal line: color of the view whose sliceDir is v.dimY
-                const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
-                v.ctx.lineWidth = 1.5 / scaleY;
-                v.ctx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
-                v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
+            const _chOv = _getMvCrosshairOverlay(v);
+            if (_chOv) {
+                const dpr = window.devicePixelRatio || 1;
+                const ovW = Math.round(_cssW * dpr);
+                const ovH = Math.round(_cssH * dpr);
+                if (_chOv.width !== ovW || _chOv.height !== ovH) {
+                    _chOv.width = ovW; _chOv.height = ovH;
+                    _chOv.style.width = _cssW + 'px';
+                    _chOv.style.height = _cssH + 'px';
+                }
+                const _chCtx = _chOv.getContext('2d');
+                _chCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                _chCtx.clearRect(0, 0, _cssW, _cssH);
+                if (_chAlpha > 0.005) {
+                _chCtx.globalAlpha = _chAlpha;
+                const i = mvViews.indexOf(v);
+                if (obliqueVecs && i >= 0) {
+                    const vi = obliqueVecs[i];
+                    const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
+                    // Crosshair center in CSS coords
+                    const chx = (v.lastW / 2 + dot3(diff, vi.bh)) * scaleX;
+                    const chy = (v.lastH / 2 + dot3(diff, vi.bv)) * scaleY;
+                    mvViews.forEach((_, j) => {
+                        if (j === i) return;
+                        const L = cross3(vi.n, obliqueVecs[j].n);
+                        const lh = dot3(L, vi.bh), lv = dot3(L, vi.bv);
+                        const len = Math.sqrt(lh*lh + lv*lv);
+                        if (len < 1e-10) return;
+                        // Direction in CSS coords
+                        const dh = lh / len * scaleX, dv = lv / len * scaleY;
+                        const cssLen = Math.sqrt(dh*dh + dv*dv);
+                        const ext = Math.max(_cssW, _cssH) * 2;
+                        const ndh = dh / cssLen * ext, ndv = dv / cssLen * ext;
+                        _chCtx.lineWidth = 1.5;
+                        _chCtx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
+                        _chCtx.beginPath();
+                        _chCtx.moveTo(chx - ndh, chy - ndv);
+                        _chCtx.lineTo(chx + ndh, chy + ndv);
+                        _chCtx.stroke();
+                    });
+                } else {
+                    const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
+                    const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
+                    const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
+                    // Convert to CSS coords
+                    const cssCx = cx * scaleX, cssCy = cy * scaleY;
+                    const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
+                    _chCtx.lineWidth = 1.5;
+                    _chCtx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
+                    _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, _cssH); _chCtx.stroke();
+                    const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
+                    _chCtx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
+                    _chCtx.beginPath(); _chCtx.moveTo(0, cssCy); _chCtx.lineTo(_cssW, cssCy); _chCtx.stroke();
+                }
+                } // end if (_chAlpha > 0.005)
             }
-            } // end if (_chAlpha > 0.005)
-            v.ctx.restore();
             drawMvOrientation();
         }
 
