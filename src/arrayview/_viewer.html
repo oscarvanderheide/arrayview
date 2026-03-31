@@ -110,13 +110,13 @@
         .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
-            text-align: center; padding: 7px 16px; position: fixed; z-index: 2;
+            text-align: center; padding: 5px 16px; position: fixed; z-index: 2;
             transition: opacity 0.3s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
-            border-radius: 14px;
+            border-radius: 18px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            display: flex; align-items: flex-end; gap: 8px;
+            display: flex; align-items: center; gap: 8px;
             box-sizing: border-box;
         }
         :root.light #slim-cb-wrap {
@@ -3637,9 +3637,9 @@
         }
 
         // ── Histogram-in-colorbar (morph) ────────────────────────────────────
-        const CB_COLLAPSED_H = 13;  // flat colorbar height in CSS px
-        const CB_LABEL_H     = 14;  // top zone for value labels when expanded
-        let _cbExpandedH  = 62;  // dynamically computed; default = label zone (14) + distribution (48)
+        const CB_COLLAPSED_H = 18;  // flat colorbar height in CSS px
+        const CB_LABEL_H     = 0;   // no label zone — dmin/dmax shown as DOM elements
+        let _cbExpandedH  = 18;  // same as collapsed — histogram fits within colorbar height
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
@@ -3649,12 +3649,11 @@
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
-        // Compute expanded height so the histogram island fills the space
-        // previously occupied by colorbar island + gap + eggs
-        let _cbExpandedHLocked = false; // once computed, lock the height
+        // Expanded height matches collapsed — histogram fits within colorbar
+        let _cbExpandedHLocked = false;
         function _computeCbExpandedH() {
-            if (_cbExpandedHLocked) return; // already locked — don't recompute
-            _cbExpandedH = CB_DEFAULT_EXPANDED_H;
+            if (_cbExpandedHLocked) return;
+            _cbExpandedH = CB_COLLAPSED_H;
             _cbExpandedHLocked = true;
         }
 
@@ -3697,7 +3696,7 @@
         }
 
         // ── ColorBar class ────────────────────────────────────────────────────
-        const CB_DEFAULT_EXPANDED_H = 62;
+        const CB_DEFAULT_EXPANDED_H = CB_COLLAPSED_H;  // histogram fits within colorbar height
         const CB_KDE_NPTS = 300;
         const CB_HIT_RADIUS = 7;
 
