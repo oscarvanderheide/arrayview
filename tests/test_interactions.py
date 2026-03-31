@@ -6,7 +6,7 @@ Covers:
 - All mode guards: blocked keys show a status and do NOT proceed
 - Navigation: scroll, zoom, dim-cycle, axis-swap, rotate
 - Compare mode: state sync, per-pane overrides cleared by d/D
-- ROI mode: entry/exit, Space guard, a/x/y guards
+- ROI mode: entry/exit, Space guard, R/x/y guards
 - qMRI mode: guards for c/C/D/f/x/y
 - Multiview mode: guards for x/y/g/N
 - Export: g/N blocked in multi-canvas modes
@@ -860,7 +860,7 @@ class TestModeGuards:
     def test_space_blocked_in_roi_mode(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")  # enter ROI mode
+        page.keyboard.press("R")  # enter ROI mode
         page.wait_for_timeout(200)
         page.keyboard.press("Space")
         page.wait_for_timeout(200)
@@ -871,18 +871,18 @@ class TestModeGuards:
 
     def test_space_not_blocked_after_roi_exit(self, loaded_viewer, sid_3d):
         """ROI cycle: off→rect→circle→freehand→off.
-        First A press → rect. Need 3 MORE A presses to reach off state."""
+        First R press → rect. Need 3 MORE R presses to reach off state."""
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("A")  # → rect (ROI active)
+        page.keyboard.press("R")  # → rect (ROI active)
         page.wait_for_timeout(150)
         # Cycle to off: rect→circle (1), circle→freehand (2), freehand→off (3)
         for _ in range(3):
-            page.keyboard.press("A")
+            page.keyboard.press("R")
             page.wait_for_timeout(100)
         s_off = _get_status(page)
         assert "off" in s_off.lower(), (
-            f"ROI should be off after 4 total A presses, got: '{s_off}'"
+            f"ROI should be off after 4 total R presses, got: '{s_off}'"
         )
         # Now Space (animation) should NOT be blocked
         page.keyboard.press("Space")
@@ -903,7 +903,7 @@ class TestROIMode:
     def test_A_enters_roi_mode(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")
+        page.keyboard.press("R")
         page.wait_for_timeout(200)
         status = _get_status(page)
         assert "roi" in status.lower(), f"Expected ROI mode status, got: '{status}'"
@@ -914,7 +914,7 @@ class TestROIMode:
         page.keyboard.press("v")  # enter multiview
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         _focus_kb(page)
-        page.keyboard.press("A")
+        page.keyboard.press("R")
         page.wait_for_timeout(300)
         status = _get_status(page)
         assert "not available" in status.lower() or "roi" in status.lower(), (
@@ -927,7 +927,7 @@ class TestROIMode:
         page.keyboard.press("q")
         page.wait_for_selector("#qmri-view-wrap canvas", timeout=5_000)
         _focus_kb(page)
-        page.keyboard.press("A")
+        page.keyboard.press("R")
         page.wait_for_timeout(300)
         status = _get_status(page)
         assert "not available" in status.lower() or "roi" in status.lower(), (
@@ -935,24 +935,24 @@ class TestROIMode:
         )
 
     def test_A_cycles_shape_then_exits(self, loaded_viewer, sid_2d):
-        """ROI cycle: off→rect→circle→freehand→off. Total 4 A presses to complete cycle."""
+        """ROI cycle: off→rect→circle→freehand→off. Total 4 R presses to complete cycle."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")  # → rect
+        page.keyboard.press("R")  # → rect
         page.wait_for_timeout(150)
         s1 = _get_status(page)
         assert "rect" in s1.lower(), f"Expected rect status, got: '{s1}'"
-        page.keyboard.press("A")  # → circle
+        page.keyboard.press("R")  # → circle
         page.wait_for_timeout(150)
         s2 = _get_status(page)
         assert "circle" in s2.lower(), f"Expected circle status, got: '{s2}'"
         # 2 more presses to reach off: freehand → off
         for _ in range(2):
-            page.keyboard.press("A")
+            page.keyboard.press("R")
             page.wait_for_timeout(100)
         s_off = _get_status(page)
         assert "off" in s_off.lower(), (
-            f"Expected ROI off status after 4 A presses, got: '{s_off}'"
+            f"Expected ROI off status after 4 R presses, got: '{s_off}'"
         )
 
     def test_escape_does_not_break_roi_mode(self, loaded_viewer, sid_2d):
@@ -960,7 +960,7 @@ class TestROIMode:
         ROI mode should still be active after pressing Escape."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")  # enter ROI mode
+        page.keyboard.press("R")  # enter ROI mode
         page.wait_for_timeout(200)
         status_roi = _get_status(page)
         assert "roi" in status_roi.lower(), (
@@ -981,7 +981,7 @@ class TestROIMode:
         #roi-panel has CSS default display:none; it's shown by JS after fetch."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")  # enter rect ROI mode
+        page.keyboard.press("R")  # enter rect ROI mode
         page.wait_for_timeout(200)
         # Draw an ROI by dragging on the canvas
         canvas = page.locator("canvas#viewer")
@@ -1007,7 +1007,7 @@ class TestROIMode:
     def test_roi_stats_have_numeric_values(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("A")
+        page.keyboard.press("R")
         page.wait_for_timeout(200)
         canvas = page.locator("canvas#viewer")
         bbox = canvas.bounding_box()

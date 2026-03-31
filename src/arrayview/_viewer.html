@@ -1382,7 +1382,7 @@
                 <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index; reverse direction on spatial dims</span></div>
                 <div class="help-row"><span class="key">0–9 + Enter</span><span class="desc">jump to slice index (type number, press Enter)</span></div>
                 <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis (x or y dim); rotate 90° CW when slice dim active; in multiview: swap axes globally across all panes</span></div>
-                <div class="help-row"><span class="key">R</span><span class="desc">toggle RGB mode on active dim (size 3 or 4)</span></div>
+                <div class="help-row"><span class="key">R</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
                 <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
                 <div class="help-row"><span class="key">= / +</span><span class="desc">immersive mode (first press), then zoom in</span></div>
                 <div class="help-row"><span class="key">-</span><span class="desc">zoom out (exits immersive at fit level)</span></div>
@@ -1407,7 +1407,7 @@
                 <div class="help-panel-title">Display</div>
                 <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
                 <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
-                 <div class="help-row"><span class="key">A</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
+                 <div class="help-row"><span class="key">A</span><span class="desc">toggle alpha (transparent below vmin)</span></div>
                  <div class="help-row"><span class="key">S</span><span class="desc">nnInteractive segmentation: cycle click → circle → scribble → lasso → off · shift = exclude · r reset · enter accept</span></div>
                 <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
                 <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
@@ -1430,7 +1430,7 @@
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
                 <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM</span></div>
-                <div class="help-row"><span class="key">M</span><span class="desc">toggle alpha (transparent below vmin)</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">toggle RGB mode on active dim (size 3 or 4)</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
@@ -1582,7 +1582,7 @@
         const cmpManualVmax = Array(6).fill(null);
         let _cmpCbDragPane = null, _cmpCbDragX = null;
         let roiDragging = false, roiStart = null, roiEnd = null;
-        let rectRoiMode = false; // A key toggles rectangle ROI selection mode
+        let rectRoiMode = false; // R key toggles rectangle ROI selection mode
         let _segMode = false;  // S key toggles nnInteractive segmentation mode
         let _segOverlaySid = null; // overlay session ID for segmentation mask
         let _segActivating = false; // true while connecting/launching server
@@ -6117,7 +6117,7 @@
             if (rectRoiMode) {
                 _roiShape = shape;
                 const modeHint = shape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
-                showStatus(`ROI mode: ${shape} · A to cycle · ${modeHint}`);
+                showStatus(`ROI mode: ${shape} · R to cycle · ${modeHint}`);
             } else if (_segMode) {
                 _segMethod = shape;
                 _segShowMethodStatus();
@@ -8444,7 +8444,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _setCompareCenterMode(nextMode);
                 return;
             } else if (e.key === 'R') {
-                await toggleRgbMode();
+                // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
+                if (compareActive || multiViewActive || qmriActive) {
+                    showStatus('ROI mode: not available in this mode'); return;
+                }
+                // Deactivate SEG if active — modes are mutually exclusive
+                if (_segMode) {
+                    _segDeactivate();
+                    _islandMorph();
+                }
+                if (!rectRoiMode) {
+                    rectRoiMode = true; _roiShape = 'rect';
+                } else if (_roiShape === 'rect') {
+                    _roiShape = 'circle';
+                } else if (_roiShape === 'circle') {
+                    _roiShape = 'freehand';
+                } else if (_roiShape === 'freehand') {
+                    _roiShape = 'floodfill';
+                } else {
+                    rectRoiMode = false; _roiShape = 'rect';
+                    _rois = []; _roiFreehandPts = [];
+                    _floodFillTolerance = 0.1;
+                    _clearRoiOverlay();
+                }
+                canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
+                const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
+                showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · R to cycle · ${modeHint}` : 'ROI mode: off');
+                renderEggs();
             } else if (e.key === 'n') {
                 if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
                 cycleCompareTarget(1);
@@ -8694,33 +8720,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 ModeRegistry.scaleAll();
                 showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
             } else if (e.key === 'A') {
-                // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
-                if (compareActive || multiViewActive || qmriActive) {
-                    showStatus('ROI mode: not available in this mode'); return;
-                }
-                // Deactivate SEG if active — modes are mutually exclusive
-                if (_segMode) {
-                    _segDeactivate();
-                    _islandMorph();
-                }
-                if (!rectRoiMode) {
-                    rectRoiMode = true; _roiShape = 'rect';
-                } else if (_roiShape === 'rect') {
-                    _roiShape = 'circle';
-                } else if (_roiShape === 'circle') {
-                    _roiShape = 'freehand';
-                } else if (_roiShape === 'freehand') {
-                    _roiShape = 'floodfill';
-                } else {
-                    rectRoiMode = false; _roiShape = 'rect';
-                    _rois = []; _roiFreehandPts = [];
-                    _floodFillTolerance = 0.1;
-                    _clearRoiOverlay();
-                }
-                canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
-                const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
-                showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · A to cycle · ${modeHint}` : 'ROI mode: off');
-                renderEggs();
+                // Toggle alpha (transparent below vmin)
+                alphaLevel = alphaLevel ? 0 : 1;
+                _eggsVisible = true;
+                fetch(`/alpha/${sid}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ level: alphaLevel }),
+                }).then(r => r.json()).then(d => {
+                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
+                    updateView(); triggerPreload();
+                    renderEggs();
+                });
             } else if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'S') {
@@ -9259,18 +9270,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     flashAxesIndicators();
                     renderInfo();
                 }
-            } else if (e.key === 'M') {
-                alphaLevel = alphaLevel ? 0 : 1;
-                _eggsVisible = true;
-                fetch(`/alpha/${sid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ level: alphaLevel }),
-                }).then(r => r.json()).then(d => {
-                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
-                    updateView(); triggerPreload();
-                    renderEggs();
-                });
+            } else if (e.key === 'w') {
+                await toggleRgbMode();
             } else if (e.key === 'L') {
                 if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
                 logScale = !logScale;
