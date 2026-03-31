@@ -11442,10 +11442,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const firstRow = compareMvViews.slice(0, 3);
             const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
             const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
-            v.ctx.lineWidth = Math.max(0.5, 1 / _scaleX);
+            v.ctx.lineWidth = 1 / _scaleX;
             v.ctx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
             v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
-            v.ctx.lineWidth = Math.max(0.5, 1 / _scaleY);
+            v.ctx.lineWidth = 1 / _scaleY;
             v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
@@ -12359,7 +12359,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // scaling its magnitude is sqrt(dv²·scaleX² + dh²·scaleY²)/ext.
                     // Set lineWidth so apparent width is 1.5 CSS pixels.
                     const perpMag = Math.sqrt(dv*dv*scaleX*scaleX + dh*dh*scaleY*scaleY) / ext;
-                    v.ctx.lineWidth = Math.max(0.5, 1.5 / (perpMag || 1));
+                    v.ctx.lineWidth = 1.5 / (perpMag || 1);
                     v.ctx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
                     v.ctx.beginPath();
                     v.ctx.moveTo(chx - dh, chy - dv);
@@ -12372,12 +12372,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                 // Vertical line: color of the view whose sliceDir is v.dimX
                 const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
-                v.ctx.lineWidth = Math.max(0.5, 1.5 / scaleX);
+                v.ctx.lineWidth = 1.5 / scaleX;
                 v.ctx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
                 // Horizontal line: color of the view whose sliceDir is v.dimY
                 const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
-                v.ctx.lineWidth = Math.max(0.5, 1.5 / scaleY);
+                v.ctx.lineWidth = 1.5 / scaleY;
                 v.ctx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
