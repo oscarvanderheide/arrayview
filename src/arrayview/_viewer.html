@@ -898,36 +898,47 @@
             white-space: nowrap;
         }
 
-        /* ── Non-immersive: strip island styling, show bare chrome ─ */
+        /* ── Non-immersive: subtle island styling ──────────────── */
         body:not(.fullscreen-mode) #info {
-            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-            border: none; border-radius: 0; padding: 5px 0;
+            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
         body:not(.fullscreen-mode) #slim-cb-wrap {
-            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-            border: none; border-radius: 0; padding: 0;
-        }
-        body:not(.fullscreen-mode) #slim-cb-wrap .cb-canvas,
-        body:not(.fullscreen-mode) #slim-cb {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
+            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap {
-            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-            border: none; border-radius: 0; padding: 5px 14px;
-        }
-        body:not(.fullscreen-mode) #mv-cb-wrap .cb-canvas {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
+            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
         body:not(.fullscreen-mode) .cb-island {
-            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-            border: none; border-radius: 0; padding: 5px 10px;
-        }
-        body:not(.fullscreen-mode) .cb-island .cb-canvas {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
+            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
         body:not(.fullscreen-mode) #dynamic-island {
-            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-            border: none; border-radius: 0; padding: 5px 0;
+            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+        }
+        :root.light body:not(.fullscreen-mode) #info,
+        :root.light body:not(.fullscreen-mode) #slim-cb-wrap,
+        :root.light body:not(.fullscreen-mode) #mv-cb-wrap,
+        :root.light body:not(.fullscreen-mode) .cb-island,
+        :root.light body:not(.fullscreen-mode) #dynamic-island {
+            background: rgba(240,240,240,0.6); border-color: rgba(0,0,0,0.06);
+        }
+        :root.solarized body:not(.fullscreen-mode) #info,
+        :root.solarized body:not(.fullscreen-mode) #slim-cb-wrap,
+        :root.solarized body:not(.fullscreen-mode) #mv-cb-wrap,
+        :root.solarized body:not(.fullscreen-mode) .cb-island,
+        :root.solarized body:not(.fullscreen-mode) #dynamic-island {
+            background: rgba(238,232,213,0.6); border-color: rgba(0,0,0,0.06);
+        }
+        :root.nord body:not(.fullscreen-mode) #info,
+        :root.nord body:not(.fullscreen-mode) #slim-cb-wrap,
+        :root.nord body:not(.fullscreen-mode) #mv-cb-wrap,
+        :root.nord body:not(.fullscreen-mode) .cb-island,
+        :root.nord body:not(.fullscreen-mode) #dynamic-island {
+            background: rgba(36,41,56,0.6); border-color: rgba(216,222,233,0.05);
         }
         /* Hide rectangular outline when histogram is expanded — KDE stroke replaces it */
         body:not(.fullscreen-mode) .cb-island.cb-expanded .cb-canvas,
