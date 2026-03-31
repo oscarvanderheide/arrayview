@@ -856,14 +856,26 @@ def view(
             _time.sleep(0.2)
         return None
 
-    # VS Code tunnel/remote + Jupyter: use inline IFrame mode.
-    # VS Code tunnel auto-forwards ports listened on by the remote, so the
-    # IFrame URL (http://localhost:<port>/?sid=...) works for the tunnel owner
-    # without auth.  Configure the port as silent so no notification popup.
-    # Let execution fall through to the normal server startup + inline return.
+    # VS Code tunnel/remote + Jupyter: open in a VS Code webview tab via
+    # direct mode (SHM).  Inline IFrames don't work in VS Code tunnel notebooks
+    # because the notebook webview can't reach localhost through the tunnel.
+    # The kernel stays alive, so SHM won't be cleaned up prematurely.
     if _is_vscode_remote() and _in_jupyter():
-        inline = True
-        _configure_vscode_port_preview(port)
+        _ensure_vscode_extension()
+        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}")
+        try:
+            from IPython.display import HTML, display as _ipy_display
+
+            _ipy_display(
+                HTML(
+                    f"<div style='padding:8px;color:#888;font-family:monospace;font-size:13px'>"
+                    f"[ArrayView] Opened <b>{name}</b> in VS Code tab"
+                    f" (inline not available in tunnel sessions)</div>"
+                )
+            )
+        except Exception:
+            pass
+        return None
 
     # VS Code tunnel/remote with an existing --serve server: register the array
     # via /load and open the viewer through the signal-file mechanism.
