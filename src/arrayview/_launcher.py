@@ -2385,7 +2385,7 @@ def arrayview():
                 _vprint("[ArrayView] Falling back to browser", flush=True)
                 url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
-                _open_browser(url, blocking=True, title=f"ArrayView: {name}")
+                _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file)
         else:
             url = f"http://localhost:{args.port}/{qs}"
             if getattr(args, "watch", False):
@@ -2395,6 +2395,7 @@ def arrayview():
                 blocking=True,
                 force_vscode=(window_mode == "vscode"),
                 title=f"ArrayView: {name}",
+                filepath=base_file,
             )
         return
 
