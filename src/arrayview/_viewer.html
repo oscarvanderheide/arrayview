@@ -11976,6 +11976,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
                 }
+                params.set('quality', obliqueDrag ? 'draft' : 'full');
                 const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`oblique ${resp.status}`);
                 const blob = await resp.blob();
