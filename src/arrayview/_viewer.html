@@ -181,19 +181,15 @@
         }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
-        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
-        #slim-cb-tri-zone.expanded { height: 10px; }
+        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; }
         .slim-cb-tri {
-            position: absolute; bottom: 0; width: 0; height: 0;
-            border-left: 5px solid transparent; border-right: 5px solid transparent;
-            border-bottom: 6px solid var(--muted);
-            transform: translateX(-5px);
+            position: absolute; bottom: 0; width: 6px; height: 6px;
+            border-radius: 50%; background: var(--muted);
+            transform: translate(-3px, 50%);
             cursor: ew-resize; pointer-events: auto;
             transition: opacity 0.3s ease;
             opacity: 0;
         }
-        :root.light .slim-cb-tri { border-bottom-color: var(--muted); }
-        :root.solarized .slim-cb-tri { border-bottom-color: var(--muted); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
