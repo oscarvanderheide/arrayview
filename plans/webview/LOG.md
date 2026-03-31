@@ -109,6 +109,17 @@ In tunnel/remote mode, the original code skips hookTag matching (`if ipc_hook an
 
 **Result**: Fix confirmed working — each window now correctly targets its own webview tab.
 
+## Fix: av.view() in tunnel using ports instead of direct webview (2026-03-31, session 3)
+
+**Symptom**: `av.view(x)` from a Python script in a VS Code tunnel terminal shows "Remote tunnel session on port 8123" message and uses port-based approach instead of direct webview.
+
+**Root cause**: A stale server running on port 8123 (from a previous CLI session) caused `_server_alive(port)` at line 836 to return True, taking the URL-based path before reaching the direct webview path at line 928.
+
+**Fix**:
+1. Moved the non-Jupyter tunnel direct webview check ABOVE the `_server_alive` check. Tunnel sessions now always use direct webview regardless of stale servers.
+2. Changed the `_server_alive` path to only activate for non-remote sessions (`not _is_vscode_remote()`).
+3. Jupyter in tunnel: changed from "webview tab + message" to inline IFrame mode. VS Code tunnel auto-forwards ports, so IFrames work for the tunnel owner. Added `_configure_vscode_port_preview(port)` to set the port as silent.
+
 ## Changes made so far
 - `_vscode.py`: `_open_direct_via_signal_file()` now includes `pythonPath: sys.executable`
 - `_vscode.py`: New `_open_direct_via_shm()` for passing arrays via shared memory
