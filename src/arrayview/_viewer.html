@@ -1400,7 +1400,7 @@
                 <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2); in compare mode: rows × 3-planes grid</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims); in compare mode: same as v</span></div>
-                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices and crosshair to center (3-plane view)</span></div>
+                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices / crosshair (3-plane); reset dragged UI (immersive)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact / full view; also works in compare mode (rows × maps grid)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
@@ -9389,6 +9389,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
                 });
             } else if (e.key === 'o' || e.key === 'O') {
+                if (_fullscreenActive && !multiViewActive) {
+                    _infoDragPos = null;
+                    _cbDragPos = null;
+                    _islandDragPos = null;
+                    _positionFullscreenChrome();
+                    const island = document.getElementById('dynamic-island');
+                    if (island) { island.style.left = ''; island.style.top = ''; island.style.transform = ''; }
+                    showStatus('UI positions reset');
+                    return;
+                }
                 if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
                 // Reset crosshair to volume center and clear any oblique rotation
                 mvDims.forEach(d => { indices[d] = Math.floor((shape[d] - 1) / 2); });
