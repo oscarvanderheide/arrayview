@@ -716,21 +716,27 @@
         }
         #fft-spinner-overlay.visible { display: flex; }
         .fft-spinner-ring {
-            width: 56px; height: 56px; border-radius: 50%;
-            background: rgba(0,0,0,0.55);
+            width: 72px; height: 72px; border-radius: 14px;
+            background: rgba(0,0,0,0.6);
             display: flex; align-items: center; justify-content: center;
         }
-        .fft-spinner-grid {
-            display: grid; grid-template-columns: 10px 10px; gap: 4px;
-            animation: fft-spin 0.9s linear infinite;
+        .fft-sinc-wave {
+            width: 52px; height: 32px;
         }
-        .fft-spinner-grid span {
-            width: 10px; height: 10px; border-radius: 2px;
-            background: #f5c542;
+        .fft-sinc-wave path {
+            fill: none; stroke: #f5c542; stroke-width: 1.8;
+            stroke-linecap: round; stroke-linejoin: round;
         }
-        @keyframes fft-spin {
-            0%   { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .fft-sinc-wave .sinc-wave-line {
+            animation: sinc-pulse 1.6s ease-in-out infinite;
+        }
+        .fft-sinc-wave .sinc-wave-base {
+            stroke: #f5c542; stroke-width: 0.5; opacity: 0.3;
+        }
+        @keyframes sinc-pulse {
+            0%   { transform: scaleY(0.4); opacity: 0.5; }
+            50%  { transform: scaleY(1.0); opacity: 1.0; }
+            100% { transform: scaleY(0.4); opacity: 0.5; }
         }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
@@ -1342,7 +1348,7 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
-        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><div class="fft-spinner-grid"><span></span><span></span><span></span><span></span></div></div></div>
+        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="fft-sinc-wave" viewBox="0 0 120 60" preserveAspectRatio="xMidYMid meet"><line class="sinc-wave-base" x1="10" y1="30" x2="110" y2="30"/><path class="sinc-wave-line" style="transform-origin: 60px 30px" d="M10.0,30.0 L11.0,30.4 L12.0,30.9 L13.0,31.3 L14.0,31.6 L15.0,31.9 L16.0,32.0 L17.0,32.0 L18.0,31.9 L19.0,31.6 L20.0,31.3 L21.0,30.8 L22.0,30.3 L23.0,29.7 L24.0,29.1 L25.0,28.5 L26.0,28.0 L27.0,27.6 L28.0,27.3 L29.0,27.2 L30.0,27.2 L31.0,27.5 L32.0,27.9 L33.0,28.4 L34.0,29.2 L35.0,30.0 L36.0,30.9 L37.0,31.8 L38.0,32.7 L39.0,33.5 L40.0,34.2 L41.0,34.6 L42.0,34.8 L43.0,34.7 L44.0,34.2 L45.0,33.4 L46.0,32.3 L47.0,30.8 L48.0,29.1 L49.0,27.1 L50.0,24.9 L51.0,22.5 L52.0,20.1 L53.0,17.7 L54.0,15.4 L55.0,13.3 L56.0,11.5 L57.0,10.0 L58.0,8.9 L59.0,8.2 L60.0,8.0 L61.0,8.2 L62.0,8.9 L63.0,10.0 L64.0,11.5 L65.0,13.3 L66.0,15.4 L67.0,17.7 L68.0,20.1 L69.0,22.5 L70.0,24.9 L71.0,27.1 L72.0,29.1 L73.0,30.8 L74.0,32.3 L75.0,33.4 L76.0,34.2 L77.0,34.7 L78.0,34.8 L79.0,34.6 L80.0,34.2 L81.0,33.5 L82.0,32.7 L83.0,31.8 L84.0,30.9 L85.0,30.0 L86.0,29.2 L87.0,28.4 L88.0,27.9 L89.0,27.5 L90.0,27.2 L91.0,27.2 L92.0,27.3 L93.0,27.6 L94.0,28.0 L95.0,28.5 L96.0,29.1 L97.0,29.7 L98.0,30.3 L99.0,30.8 L100.0,31.3 L101.0,31.6 L102.0,31.9 L103.0,32.0 L104.0,32.0 L105.0,31.9 L106.0,31.6 L107.0,31.3 L108.0,30.9 L109.0,30.4 L110.0,30.0"/></svg></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -1698,6 +1704,7 @@
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
+        let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = false; // toggled by 'b' key
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
@@ -11433,9 +11440,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const _cmvAlpha = (_cmvCrosshairSid === v.sid) ? _cmvCrosshairAlpha : 0;
             v.ctx.save();
             if (_cmvAlpha > 0.005) {
-            let _scale = 1;
-            try { const rw = v.canvas.getBoundingClientRect().width; _scale = rw && v.lastW ? rw / v.lastW : 1; } catch (_) {}
-            v.ctx.lineWidth = Math.max(0.5, 1 / _scale);
+            let _scaleX = 1, _scaleY = 1;
+            try { const _r = v.canvas.getBoundingClientRect(); _scaleX = _r.width && v.lastW ? _r.width / v.lastW : 1; _scaleY = _r.height && v.lastH ? _r.height / v.lastH : 1; } catch (_) {}
             v.ctx.globalAlpha = _cmvAlpha;
             const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
@@ -11444,8 +11450,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const firstRow = compareMvViews.slice(0, 3);
             const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
             const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
+            v.ctx.lineWidth = Math.max(0.5, 1 / _scaleX);
             v.ctx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
             v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
+            v.ctx.lineWidth = Math.max(0.5, 1 / _scaleY);
             v.ctx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
             v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
@@ -11955,9 +11963,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
                 }
                 renderInfo();
-                // During drag: only redraw crosshairs (no network request).
-                // Re-renders happen on mouseup so views that changed depth update.
                 mvViews.forEach(v => mvDrawFrame(v));
+                // Throttled draft-quality renders during drag
+                if (!_mvNavRenderTimer) {
+                    _mvNavRenderTimer = setTimeout(() => {
+                        _mvNavRenderTimer = null;
+                        mvViews.forEach(v => mvRender(v));
+                    }, 60);
+                }
             } else {
                 const fx = flipDims[view.dimX] || false;
                 const fy = flipDims[view.dimY] || false;
@@ -12000,7 +12013,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
                 }
-                params.set('quality', obliqueDrag ? 'draft' : 'full');
+                params.set('quality', (obliqueDrag || mvDraggingView) ? 'draft' : 'full');
                 const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`oblique ${resp.status}`);
                 const blob = await resp.blob();
@@ -12324,12 +12337,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 0, 0
             );
             v.ctx.save();
-            let scale = 1;
+            let scaleX = 1, scaleY = 1;
             try {
-                const rectW = v.canvas.getBoundingClientRect().width;
-                scale = rectW && v.lastW ? rectW / v.lastW : 1;
+                const rect = v.canvas.getBoundingClientRect();
+                scaleX = rect.width && v.lastW ? rect.width / v.lastW : 1;
+                scaleY = rect.height && v.lastH ? rect.height / v.lastH : 1;
             } catch (e) {}
-            v.ctx.lineWidth = Math.max(0.5, 1.5 / scale);
             // Crosshair lines fade in/out on hover
             const _chAlpha = _mvCrosshairAlpha;
             if (_chAlpha > 0.005) {
@@ -12351,6 +12364,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (len < 1e-10) return;
                     const ext = Math.max(v.lastW, v.lastH) * 2;
                     const dh = lh / len * ext, dv = lv / len * ext;
+                    // Compensate for asymmetric CSS scaling (e.g. squareStretch):
+                    // the perpendicular of the line is (-dv, dh)/ext; after CSS
+                    // scaling its magnitude is sqrt(dv²·scaleX² + dh²·scaleY²)/ext.
+                    // Set lineWidth so apparent width is 1.5 CSS pixels.
+                    const perpMag = Math.sqrt(dv*dv*scaleX*scaleX + dh*dh*scaleY*scaleY) / ext;
+                    v.ctx.lineWidth = Math.max(0.5, 1.5 / (perpMag || 1));
                     v.ctx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
                     v.ctx.beginPath();
                     v.ctx.moveTo(chx - dh, chy - dv);
@@ -12363,10 +12382,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                 // Vertical line: color of the view whose sliceDir is v.dimX
                 const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
+                v.ctx.lineWidth = Math.max(0.5, 1.5 / scaleX);
                 v.ctx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(cx, 0); v.ctx.lineTo(cx, v.lastH); v.ctx.stroke();
                 // Horizontal line: color of the view whose sliceDir is v.dimY
                 const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
+                v.ctx.lineWidth = Math.max(0.5, 1.5 / scaleY);
                 v.ctx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
                 v.ctx.beginPath(); v.ctx.moveTo(0, cy); v.ctx.lineTo(v.lastW, cy); v.ctx.stroke();
             }
@@ -12535,7 +12556,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvViews.forEach(v => mvRender(v));
             }
             if (mvDraggingView && obliqueVecs) {
-                // After oblique navigation, re-render views whose depth may have changed.
+                // Clear throttle timer and do final full-quality render.
+                if (_mvNavRenderTimer) {
+                    clearTimeout(_mvNavRenderTimer);
+                    _mvNavRenderTimer = null;
+                }
                 mvViews.forEach(v => mvRender(v));
             }
             mvNavDragPrev = null;
