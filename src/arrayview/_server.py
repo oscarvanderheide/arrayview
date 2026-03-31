@@ -1294,7 +1294,12 @@ async def seg_activate(sid: str, dim_x: int = 0, dim_y: int = 1, scroll_dim: int
 
     # Connect or launch
     if not seg.is_connected():
-        if not seg.try_connect():
+        from arrayview._config import get_nninteractive_url
+        configured_url = get_nninteractive_url()
+        if configured_url:
+            if not seg.try_connect(url=configured_url):
+                return {"status": "error", "message": f"cannot reach nnInteractive at {configured_url}"}
+        elif not seg.try_connect():
             err = await asyncio.to_thread(seg.try_launch)
             if err:
                 return {"status": "error", "message": err}
