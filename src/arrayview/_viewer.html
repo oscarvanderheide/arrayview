@@ -716,13 +716,19 @@
         }
         #fft-spinner-overlay.visible { display: flex; }
         .fft-spinner-ring {
-            width: 140px; height: 80px; border-radius: 16px;
+            width: 72px; height: 72px; border-radius: 14px;
             background: rgba(0,0,0,0.6);
             display: flex; align-items: center; justify-content: center;
         }
-        .fft-spinner-ring canvas {
-            width: 124px; height: 64px;
-        }
+        .fft-spinner-ring svg { width: 40px; height: 40px; }
+        .fft-spinner-ring #fft-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
             align-items: center; justify-content: center; pointer-events: none;
@@ -1333,7 +1339,7 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
-        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><canvas id="fft-cascade-canvas" width="248" height="128"></canvas></div></div>
+        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -6550,63 +6556,15 @@
 
         let _statusTimer = null;
         let _fftSpinnerTimer = null;
-        let _fftAnimId = null;
-        let _fftAnimStart = null;
-        function _fftAnimFrame(ts) {
-            if (!_fftAnimStart) _fftAnimStart = ts;
-            const t = (ts - _fftAnimStart) / 1000;
-            const c = document.getElementById('fft-cascade-canvas');
-            if (!c) return;
-            const ctx = c.getContext('2d');
-            const w = c.width, h = c.height;
-            ctx.clearRect(0, 0, w, h);
-            const pad = 12, usable = h - 2 * pad;
-            const valMax = 1.0, valMin = -0.22, valRange = valMax - valMin;
-            const scale = usable / valRange;
-            const yForVal = (v) => pad + (valMax - v) * scale;
-            const y0 = yForVal(0);
-            ctx.strokeStyle = 'rgba(245,197,66,0.15)';
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(pad, y0); ctx.lineTo(w - pad, y0); ctx.stroke();
-            const N = 140, range = 5, maxComp = 11;
-            const halfCycle = 1.6, fullCycle = halfCycle * 2;
-            const tMod = t % fullCycle;
-            let lin = tMod < halfCycle ? tMod / halfCycle : 1 - (tMod - halfCycle) / halfCycle;
-            const progress = lin * lin * (3 - 2 * lin);
-            ctx.beginPath();
-            ctx.strokeStyle = '#f5c542';
-            ctx.lineWidth = 2.5;
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
-            for (let i = 0; i <= N; i++) {
-                const frac = i / N;
-                const x = pad + frac * (w - 2 * pad);
-                const sx = (frac - 0.5) * 2 * range;
-                let val = 0;
-                for (let k = 0; k < maxComp; k++) {
-                    const kN = k / maxComp;
-                    const alpha = Math.max(0, Math.min(1, (progress - kN) * maxComp * 0.45));
-                    const freq = (k + 0.5) / maxComp;
-                    val += alpha * Math.cos(2 * Math.PI * freq * sx) / maxComp;
-                }
-                const y = yForVal(val);
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            _fftAnimId = requestAnimationFrame(_fftAnimFrame);
-        }
         function showFftSpinner() {
             clearTimeout(_fftSpinnerTimer);
             _fftSpinnerTimer = setTimeout(() => {
                 document.getElementById('fft-spinner-overlay').classList.add('visible');
-                _fftAnimStart = null;
-                _fftAnimId = requestAnimationFrame(_fftAnimFrame);
             }, 150);
         }
         function hideFftSpinner() {
             clearTimeout(_fftSpinnerTimer);
             _fftSpinnerTimer = null;
-            if (_fftAnimId) { cancelAnimationFrame(_fftAnimId); _fftAnimId = null; }
             document.getElementById('fft-spinner-overlay').classList.remove('visible');
         }
 
