@@ -41,6 +41,7 @@ from arrayview._vscode import (
     _configure_vscode_port_preview,
     _ensure_vscode_extension,
     _open_direct_via_signal_file,
+    _open_direct_via_shm,
     _print_viewer_location,
     _open_browser,
 )
@@ -830,9 +831,55 @@ def view(
             window,
         )
 
+    # VS Code tunnel/remote (non-Jupyter): direct webview mode (no port needed).
+    # Pass array via shared memory.  We must keep the process alive until the
+    # extension subprocess has read the SHM, otherwise atexit unlinks it.
+    # This must be checked BEFORE _server_alive() to avoid falling into the
+    # port-based path when a stale server happens to be running.
+    if not inline and _is_vscode_remote() and not _in_jupyter():
+        _ensure_vscode_extension()
+        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}")
+        print(
+            f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
+            flush=True,
+        )
+        # Block until the subprocess has read and unlinked the SHM.
+        # On Linux, shm_unlink removes /dev/shm/<name> — poll for that.
+        # Timeout after 30s to avoid hanging forever.
+        import time as _time
+        from arrayview._vscode import _ACTIVE_SHM
+        shm_paths = [f"/dev/shm/{shm.name}" for shm in _ACTIVE_SHM]
+        _deadline = _time.monotonic() + 30.0
+        while _time.monotonic() < _deadline:
+            if not any(os.path.exists(p) for p in shm_paths):
+                break
+            _time.sleep(0.2)
+        return None
+
+    # VS Code tunnel/remote + Jupyter: open in a VS Code webview tab via
+    # direct mode (SHM).  Inline IFrames don't work in VS Code tunnel notebooks
+    # because the notebook webview can't reach localhost through the tunnel.
+    # The kernel stays alive, so SHM won't be cleaned up prematurely.
+    if _is_vscode_remote() and _in_jupyter():
+        _ensure_vscode_extension()
+        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}")
+        try:
+            from IPython.display import HTML, display as _ipy_display
+
+            _ipy_display(
+                HTML(
+                    f"<div style='padding:8px;color:#888;font-family:monospace;font-size:13px'>"
+                    f"[ArrayView] Opened <b>{name}</b> in VS Code tab"
+                    f" (inline not available in tunnel sessions)</div>"
+                )
+            )
+        except Exception:
+            pass
+        return None
+
     # VS Code tunnel/remote with an existing --serve server: register the array
     # via /load and open the viewer through the signal-file mechanism.
-    if _is_vscode_remote() and _server_alive(port):
+    if not _is_vscode_remote() and _server_alive(port):
         try:
             import tempfile as _tf
 
@@ -889,7 +936,6 @@ def view(
                 url_viewer += f"&compare_sid={_compare_sids[0]}"
                 url_viewer += f"&compare_sids={','.join(_compare_sids)}"
 
-            # On a tunnel, inline IFrames don't work — always open via Simple Browser.
             _open_browser(
                 url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}"
             )
@@ -902,23 +948,6 @@ def view(
                 f"[ArrayView] Failed to register with --serve server: {e}", flush=True
             )
             # Fall through to subprocess/in-process paths.
-
-    # VS Code tunnel/remote: subprocess path (single-array only for now)
-    if not inline and _is_vscode_remote() and not _in_jupyter():
-        if n_arrays > 1:
-            raise NotImplementedError(
-                "Multi-array view() is not yet supported in subprocess mode"
-            )
-        return _view_subprocess(
-            np.array(data) if not isinstance(data, np.ndarray) else data,
-            name,
-            port,
-            window,
-            inline,
-            height,
-            rgb=rgb_primary,
-            force_vscode=True,
-        )
 
     from arrayview._render import _setup_rgb
 
@@ -1847,6 +1876,27 @@ def arrayview():
         default="server",
         help="Run mode: server (default HTTP/WS) or stdio (VS Code extension subprocess)",
     )
+    parser.add_argument(
+        "--shm-name",
+        default=None,
+        help="Shared memory block name (stdio mode: read array from shared memory instead of file)",
+    )
+    parser.add_argument(
+        "--shm-shape",
+        default=None,
+        help="Array shape as comma-separated ints (required with --shm-name)",
+    )
+    parser.add_argument(
+        "--shm-dtype",
+        default=None,
+        help="Array dtype string (required with --shm-name)",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        dest="array_name",
+        help="Display name for the array (stdio mode)",
+    )
     args = parser.parse_args()
     _session_mod._verbose = args.verbose
     vfield_components_dim = None
@@ -1858,7 +1908,38 @@ def arrayview():
         from arrayview._render import _setup_rgb
         from arrayview._stdio_server import run_stdio_server
 
-        if args.files:
+        if args.shm_name:
+            # Read array from shared memory (passed by view() via signal file)
+            from multiprocessing.shared_memory import SharedMemory
+
+            import numpy as np
+            from arrayview._session import SESSIONS, Session
+
+            shm = SharedMemory(name=args.shm_name)
+            shape = tuple(int(x) for x in args.shm_shape.split(","))
+            dtype = np.dtype(args.shm_dtype)
+            data = np.ndarray(shape, dtype=dtype, buffer=shm.buf).copy()
+            shm.close()
+            try:
+                shm.unlink()
+            except FileNotFoundError:
+                pass
+            session = Session(
+                data=data,
+                name=args.array_name or "array",
+            )
+            if getattr(args, "rgb", False):
+                _setup_rgb(session)
+            SESSIONS[session.sid] = session
+            info = json.dumps(
+                {
+                    "sid": session.sid,
+                    "name": session.name,
+                    "shape": [int(s) for s in session.shape],
+                }
+            )
+            print(f"SESSION:{info}", file=sys.stderr)
+        elif args.files:
             from arrayview._io import load_data
             from arrayview._session import SESSIONS, Session
 
@@ -2408,22 +2489,6 @@ def arrayview():
     if is_remote and not args.overlay and not compare_files and not getattr(args, 'vectorfield', None):
         _ensure_vscode_extension()
         _open_direct_via_signal_file(base_file, title=f"ArrayView: {name}")
-        _vprint(
-            "[ArrayView] Remote tunnel → direct webview mode (no server needed)",
-            flush=True,
-        )
-        # Block so the CLI doesn't exit immediately (the extension handles
-        # everything, but the user expects the command to "stay alive").
-        print(
-            f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n"
-            f"  Press Ctrl+C to exit.\n",
-            flush=True,
-        )
-        try:
-            import signal
-            signal.pause()
-        except (KeyboardInterrupt, AttributeError):
-            pass
         return
 
     sid = uuid.uuid4().hex
