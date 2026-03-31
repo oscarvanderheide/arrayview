@@ -870,19 +870,19 @@ class TestModeGuards:
         )
 
     def test_space_not_blocked_after_roi_exit(self, loaded_viewer, sid_3d):
-        """ROI cycle: off→rect→circle→freehand→off.
-        First R press → rect. Need 3 MORE R presses to reach off state."""
+        """ROI cycle: off→rect→circle→freehand→floodfill→off.
+        First R press → rect. Need 4 MORE R presses to reach off state."""
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("R")  # → rect (ROI active)
         page.wait_for_timeout(150)
-        # Cycle to off: rect→circle (1), circle→freehand (2), freehand→off (3)
-        for _ in range(3):
+        # Cycle to off: rect→circle (1), circle→freehand (2), freehand→floodfill (3), floodfill→off (4)
+        for _ in range(4):
             page.keyboard.press("R")
             page.wait_for_timeout(100)
         s_off = _get_status(page)
         assert "off" in s_off.lower(), (
-            f"ROI should be off after 4 total R presses, got: '{s_off}'"
+            f"ROI should be off after 5 total R presses, got: '{s_off}'"
         )
         # Now Space (animation) should NOT be blocked
         page.keyboard.press("Space")
@@ -934,8 +934,8 @@ class TestROIMode:
             f"Expected A-blocked in qMRI, got: '{status}'"
         )
 
-    def test_A_cycles_shape_then_exits(self, loaded_viewer, sid_2d):
-        """ROI cycle: off→rect→circle→freehand→off. Total 4 R presses to complete cycle."""
+    def test_R_cycles_shape_then_exits(self, loaded_viewer, sid_2d):
+        """ROI cycle: off→rect→circle→freehand→floodfill→off. Total 5 R presses."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("R")  # → rect
@@ -946,13 +946,13 @@ class TestROIMode:
         page.wait_for_timeout(150)
         s2 = _get_status(page)
         assert "circle" in s2.lower(), f"Expected circle status, got: '{s2}'"
-        # 2 more presses to reach off: freehand → off
-        for _ in range(2):
+        # 3 more presses to reach off: freehand → floodfill → off
+        for _ in range(3):
             page.keyboard.press("R")
             page.wait_for_timeout(100)
         s_off = _get_status(page)
         assert "off" in s_off.lower(), (
-            f"Expected ROI off status after 4 R presses, got: '{s_off}'"
+            f"Expected ROI off status after 5 R presses, got: '{s_off}'"
         )
 
     def test_escape_does_not_break_roi_mode(self, loaded_viewer, sid_2d):
