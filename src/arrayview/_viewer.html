@@ -3496,10 +3496,17 @@
                 slimCbLabels.style.display = 'none';
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) _cvmin.style.display = _cbExpanded ? 'none' : '';
-                if (_cvmax) _cvmax.style.display = _cbExpanded ? 'none' : '';
-                if (_cvmin && !_cbExpanded) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                if (_cvmax && !_cbExpanded) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                if (_cvmin) { _cvmin.style.display = ''; _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin); }
+                if (_cvmax) { _cvmax.style.display = ''; _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax); }
+                // Show dmin/dmax above vmin/vmax when expanded
+                const _fsDmin = document.getElementById('slim-cb-dmin');
+                const _fsDmax = document.getElementById('slim-cb-dmax');
+                if (_fsDmin && _fsDmax && _histData) {
+                    _fsDmin.textContent = _cbFmt(_histData.vmin);
+                    _fsDmax.textContent = _cbFmt(_histData.vmax);
+                    _fsDmin.style.display = _cbExpanded ? '' : 'none';
+                    _fsDmax.style.display = _cbExpanded ? '' : 'none';
+                }
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
                 _cbMorphDraw();
@@ -3528,11 +3535,10 @@
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
-            // but keep them hidden when histogram is expanded
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
-            if (_nvmin) _nvmin.style.display = _cbExpanded ? 'none' : '';
-            if (_nvmax) _nvmax.style.display = _cbExpanded ? 'none' : '';
+            if (_nvmin) _nvmin.style.display = '';
+            if (_nvmax) _nvmax.style.display = '';
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
@@ -13521,9 +13527,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const vmaxEl = document.getElementById('slim-cb-vmax');
             if (cv) cv.style.display = '';
             if (triZone) triZone.style.display = '';
-            // Only show flanking values if histogram is collapsed
-            if (vminEl) vminEl.style.display = _cbExpanded ? 'none' : '';
-            if (vmaxEl) vmaxEl.style.display = _cbExpanded ? 'none' : '';
+            if (vminEl) vminEl.style.display = '';
+            if (vmaxEl) vmaxEl.style.display = '';
             // Redraw to restore correct state
             _cbMorphDraw();
         }
