@@ -2351,6 +2351,7 @@ def get_oblique(
     log_scale: bool = False,
     vmin_override: float | None = None,
     vmax_override: float | None = None,
+    quality: str = "full",
 ):
     """Render an oblique (arbitrarily-oriented) slice through a 3-D volume."""
     session = SESSIONS.get(sid)
@@ -2364,14 +2365,18 @@ def get_oblique(
     bv = [float(x) for x in basis_v.split(",")]
     dims = [int(x) for x in mv_dims.split(",")]
 
+    draft = quality == "draft"
+    grid_w = size_w // 2 if draft else size_w
+    grid_h = size_h // 2 if draft else size_h
+
     ndim = len(session.shape)
     hw, hh = size_w / 2.0, size_h / 2.0
-    s_arr = np.arange(size_w, dtype=np.float64) - hw
-    t_arr = np.arange(size_h, dtype=np.float64) - hh
-    ss, tt = np.meshgrid(s_arr, t_arr)  # (size_h, size_w)
+    s_arr = np.linspace(-hw, hw, grid_w, dtype=np.float64)
+    t_arr = np.linspace(-hh, hh, grid_h, dtype=np.float64)
+    ss, tt = np.meshgrid(s_arr, t_arr)  # (grid_h, grid_w)
 
     # Build full N-dim coordinate grids; non-spatial dims use fixed center value
-    coords = np.empty((ndim, size_h, size_w), dtype=np.float64)
+    coords = np.empty((ndim, grid_h, grid_w), dtype=np.float64)
     for ai in range(ndim):
         if ai in dims:
             ji = dims.index(ai)
@@ -2393,7 +2398,7 @@ def get_oblique(
         data_f = np.nan_to_num(np.asarray(data, dtype=np.float32))
 
     sampled = map_coordinates(
-        data_f, coords, order=1, mode="constant", cval=0.0
+        data_f, coords, order=0 if draft else 1, mode="constant", cval=0.0
     ).astype(np.float32)
 
     if log_scale:
@@ -2413,6 +2418,8 @@ def get_oblique(
     rgba = lut[(normalized * 255).astype(np.uint8)]
 
     img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    if draft and (grid_w != size_w or grid_h != size_h):
+        img = img.resize((size_w, size_h), _pil_image().NEAREST)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
     return Response(
