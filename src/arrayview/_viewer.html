@@ -709,6 +709,29 @@
             margin-top: 14px; font-size: 11px; color: var(--muted);
             letter-spacing: 0.1em; text-transform: uppercase;
         }
+        #fft-spinner-overlay {
+            display: none; position: fixed; inset: 0; z-index: 50;
+            align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.35);
+        }
+        #fft-spinner-overlay.visible { display: flex; }
+        .fft-spinner-ring {
+            width: 56px; height: 56px; border-radius: 50%;
+            background: rgba(0,0,0,0.55);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .fft-spinner-grid {
+            display: grid; grid-template-columns: 10px 10px; gap: 4px;
+            animation: fft-spin 0.9s linear infinite;
+        }
+        .fft-spinner-grid span {
+            width: 10px; height: 10px; border-radius: 2px;
+            background: #f5c542;
+        }
+        @keyframes fft-spin {
+            0%   { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
             align-items: center; justify-content: center; pointer-events: none;
@@ -1319,6 +1342,7 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
+        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><div class="fft-spinner-grid"><span></span><span></span><span></span><span></span></div></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -6509,6 +6533,19 @@
         }
 
         let _statusTimer = null;
+        let _fftSpinnerTimer = null;
+        function showFftSpinner() {
+            clearTimeout(_fftSpinnerTimer);
+            _fftSpinnerTimer = setTimeout(() => {
+                document.getElementById('fft-spinner-overlay').classList.add('visible');
+            }, 150);
+        }
+        function hideFftSpinner() {
+            clearTimeout(_fftSpinnerTimer);
+            _fftSpinnerTimer = null;
+            document.getElementById('fft-spinner-overlay').classList.remove('visible');
+        }
+
         function showStatus(msg, duration) {
             const el = document.getElementById('status');
             if (el) {
@@ -9329,20 +9366,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'f') {
                 if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
+                    showFftSpinner();
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
                         .then(r => r.json()).then(d => {
+                            hideFftSpinner();
                             _fftActive = false;
                             isComplex = d.is_complex || false;
                             if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
                             manualVmin = manualVmax = null;
                             updateView(); triggerPreload();
                             renderEggs();
-                        });
+                        }).catch(() => hideFftSpinner());
                 } else {
                     const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
+                    showFftSpinner();
                     fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
+                            hideFftSpinner();
                             if (d.error) { showStatus('FFT error: ' + d.error); return; }
                             _fftActive = true;
                             _eggsVisible = true;
@@ -9351,7 +9392,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             manualVmin = manualVmax = null;
                             updateView(); triggerPreload();
                             renderEggs();
-                        });
+                        }).catch(() => hideFftSpinner());
                 }
             } else if (e.key === 'x') {
                 if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
