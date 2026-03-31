@@ -39,6 +39,8 @@ import arrayview._platform as _platform_mod  # for mutable globals
 
 from arrayview._vscode import (
     _configure_vscode_port_preview,
+    _ensure_vscode_extension,
+    _open_direct_via_signal_file,
     _print_viewer_location,
     _open_browser,
 )
@@ -2397,6 +2399,31 @@ def arrayview():
                 title=f"ArrayView: {name}",
                 filepath=base_file,
             )
+        return
+
+    # Direct webview mode for VS Code tunnel sessions: skip starting the
+    # WebSocket server entirely.  The extension spawns a Python subprocess
+    # with --mode stdio and bridges via postMessage — no ports needed.
+    is_remote = _is_vscode_remote()
+    if is_remote and not args.overlay and not compare_files and not getattr(args, 'vectorfield', None):
+        _ensure_vscode_extension()
+        _open_direct_via_signal_file(base_file, title=f"ArrayView: {name}")
+        _vprint(
+            "[ArrayView] Remote tunnel → direct webview mode (no server needed)",
+            flush=True,
+        )
+        # Block so the CLI doesn't exit immediately (the extension handles
+        # everything, but the user expects the command to "stay alive").
+        print(
+            f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n"
+            f"  Press Ctrl+C to exit.\n",
+            flush=True,
+        )
+        try:
+            import signal
+            signal.pause()
+        except (KeyboardInterrupt, AttributeError):
+            pass
         return
 
     sid = uuid.uuid4().hex
