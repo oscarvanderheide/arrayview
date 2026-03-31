@@ -716,27 +716,12 @@
         }
         #fft-spinner-overlay.visible { display: flex; }
         .fft-spinner-ring {
-            width: 72px; height: 72px; border-radius: 14px;
+            width: 140px; height: 80px; border-radius: 16px;
             background: rgba(0,0,0,0.6);
             display: flex; align-items: center; justify-content: center;
         }
-        .fft-sinc-wave {
-            width: 52px; height: 32px;
-        }
-        .fft-sinc-wave path {
-            fill: none; stroke: #f5c542; stroke-width: 1.8;
-            stroke-linecap: round; stroke-linejoin: round;
-        }
-        .fft-sinc-wave .sinc-wave-line {
-            animation: sinc-pulse 1.6s ease-in-out infinite;
-        }
-        .fft-sinc-wave .sinc-wave-base {
-            stroke: #f5c542; stroke-width: 0.5; opacity: 0.3;
-        }
-        @keyframes sinc-pulse {
-            0%   { transform: scaleY(0.4); opacity: 0.5; }
-            50%  { transform: scaleY(1.0); opacity: 1.0; }
-            100% { transform: scaleY(0.4); opacity: 0.5; }
+        .fft-spinner-ring canvas {
+            width: 124px; height: 64px;
         }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
@@ -1348,7 +1333,7 @@
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
-        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="fft-sinc-wave" viewBox="0 0 120 60" preserveAspectRatio="xMidYMid meet"><line class="sinc-wave-base" x1="10" y1="30" x2="110" y2="30"/><path class="sinc-wave-line" style="transform-origin: 60px 30px" d="M10.0,30.0 L11.0,30.4 L12.0,30.9 L13.0,31.3 L14.0,31.6 L15.0,31.9 L16.0,32.0 L17.0,32.0 L18.0,31.9 L19.0,31.6 L20.0,31.3 L21.0,30.8 L22.0,30.3 L23.0,29.7 L24.0,29.1 L25.0,28.5 L26.0,28.0 L27.0,27.6 L28.0,27.3 L29.0,27.2 L30.0,27.2 L31.0,27.5 L32.0,27.9 L33.0,28.4 L34.0,29.2 L35.0,30.0 L36.0,30.9 L37.0,31.8 L38.0,32.7 L39.0,33.5 L40.0,34.2 L41.0,34.6 L42.0,34.8 L43.0,34.7 L44.0,34.2 L45.0,33.4 L46.0,32.3 L47.0,30.8 L48.0,29.1 L49.0,27.1 L50.0,24.9 L51.0,22.5 L52.0,20.1 L53.0,17.7 L54.0,15.4 L55.0,13.3 L56.0,11.5 L57.0,10.0 L58.0,8.9 L59.0,8.2 L60.0,8.0 L61.0,8.2 L62.0,8.9 L63.0,10.0 L64.0,11.5 L65.0,13.3 L66.0,15.4 L67.0,17.7 L68.0,20.1 L69.0,22.5 L70.0,24.9 L71.0,27.1 L72.0,29.1 L73.0,30.8 L74.0,32.3 L75.0,33.4 L76.0,34.2 L77.0,34.7 L78.0,34.8 L79.0,34.6 L80.0,34.2 L81.0,33.5 L82.0,32.7 L83.0,31.8 L84.0,30.9 L85.0,30.0 L86.0,29.2 L87.0,28.4 L88.0,27.9 L89.0,27.5 L90.0,27.2 L91.0,27.2 L92.0,27.3 L93.0,27.6 L94.0,28.0 L95.0,28.5 L96.0,29.1 L97.0,29.7 L98.0,30.3 L99.0,30.8 L100.0,31.3 L101.0,31.6 L102.0,31.9 L103.0,32.0 L104.0,32.0 L105.0,31.9 L106.0,31.6 L107.0,31.3 L108.0,30.9 L109.0,30.4 L110.0,30.0"/></svg></div></div>
+        <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><canvas id="fft-cascade-canvas" width="248" height="128"></canvas></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
                 <div><kbd id="open-shortcut-hint">{cmd,ctrl,shift}+o</kbd> &nbsp;·&nbsp; drop to open array</div>
@@ -6565,15 +6550,63 @@
 
         let _statusTimer = null;
         let _fftSpinnerTimer = null;
+        let _fftAnimId = null;
+        let _fftAnimStart = null;
+        function _fftAnimFrame(ts) {
+            if (!_fftAnimStart) _fftAnimStart = ts;
+            const t = (ts - _fftAnimStart) / 1000;
+            const c = document.getElementById('fft-cascade-canvas');
+            if (!c) return;
+            const ctx = c.getContext('2d');
+            const w = c.width, h = c.height;
+            ctx.clearRect(0, 0, w, h);
+            const pad = 12, usable = h - 2 * pad;
+            const valMax = 1.0, valMin = -0.22, valRange = valMax - valMin;
+            const scale = usable / valRange;
+            const yForVal = (v) => pad + (valMax - v) * scale;
+            const y0 = yForVal(0);
+            ctx.strokeStyle = 'rgba(245,197,66,0.15)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, y0); ctx.lineTo(w - pad, y0); ctx.stroke();
+            const N = 140, range = 5, maxComp = 11;
+            const halfCycle = 1.6, fullCycle = halfCycle * 2;
+            const tMod = t % fullCycle;
+            let lin = tMod < halfCycle ? tMod / halfCycle : 1 - (tMod - halfCycle) / halfCycle;
+            const progress = lin * lin * (3 - 2 * lin);
+            ctx.beginPath();
+            ctx.strokeStyle = '#f5c542';
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            for (let i = 0; i <= N; i++) {
+                const frac = i / N;
+                const x = pad + frac * (w - 2 * pad);
+                const sx = (frac - 0.5) * 2 * range;
+                let val = 0;
+                for (let k = 0; k < maxComp; k++) {
+                    const kN = k / maxComp;
+                    const alpha = Math.max(0, Math.min(1, (progress - kN) * maxComp * 0.45));
+                    const freq = (k + 0.5) / maxComp;
+                    val += alpha * Math.cos(2 * Math.PI * freq * sx) / maxComp;
+                }
+                const y = yForVal(val);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            _fftAnimId = requestAnimationFrame(_fftAnimFrame);
+        }
         function showFftSpinner() {
             clearTimeout(_fftSpinnerTimer);
             _fftSpinnerTimer = setTimeout(() => {
                 document.getElementById('fft-spinner-overlay').classList.add('visible');
+                _fftAnimStart = null;
+                _fftAnimId = requestAnimationFrame(_fftAnimFrame);
             }, 150);
         }
         function hideFftSpinner() {
             clearTimeout(_fftSpinnerTimer);
             _fftSpinnerTimer = null;
+            if (_fftAnimId) { cancelAnimationFrame(_fftAnimId); _fftAnimId = null; }
             document.getElementById('fft-spinner-overlay').classList.remove('visible');
         }
 
@@ -11440,8 +11473,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const _cmvAlpha = (_cmvCrosshairSid === v.sid) ? _cmvCrosshairAlpha : 0;
             v.ctx.save();
             if (_cmvAlpha > 0.005) {
-            let _scaleX = 1, _scaleY = 1;
-            try { const _r = v.canvas.getBoundingClientRect(); _scaleX = _r.width && v.lastW ? _r.width / v.lastW : 1; _scaleY = _r.height && v.lastH ? _r.height / v.lastH : 1; } catch (_) {}
+            const __cssW = parseFloat(v.canvas.style.width) || v.lastW;
+            const __cssH = parseFloat(v.canvas.style.height) || v.lastH;
+            let _scaleX = __cssW / v.lastW, _scaleY = __cssH / v.lastH;
             v.ctx.globalAlpha = _cmvAlpha;
             const fx = flipDims[v.dimX] || false, fy = flipDims[v.dimY] || false;
             const cx = fx ? (v.lastW - indices[v.dimX] - 0.5) : (indices[v.dimX] + 0.5);
@@ -12337,12 +12371,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 0, 0
             );
             v.ctx.save();
-            let scaleX = 1, scaleY = 1;
-            try {
-                const rect = v.canvas.getBoundingClientRect();
-                scaleX = rect.width && v.lastW ? rect.width / v.lastW : 1;
-                scaleY = rect.height && v.lastH ? rect.height / v.lastH : 1;
-            } catch (e) {}
+            const _cssW = parseFloat(v.canvas.style.width) || v.lastW;
+            const _cssH = parseFloat(v.canvas.style.height) || v.lastH;
+            const scaleX = _cssW / v.lastW;
+            const scaleY = _cssH / v.lastH;
             // Crosshair lines fade in/out on hover
             const _chAlpha = _mvCrosshairAlpha;
             if (_chAlpha > 0.005) {
