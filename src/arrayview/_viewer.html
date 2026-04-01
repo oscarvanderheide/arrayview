@@ -3425,6 +3425,12 @@
 
         function drawSlimColorbar(markerFrac) {
             const wrap = document.getElementById('slim-cb-wrap');
+            // Match colorbar island height to dimbar island
+            const _infoForH = document.getElementById('info');
+            if (wrap && _infoForH) {
+                const _iH = _infoForH.offsetHeight;
+                if (_iH > 0) wrap.style.minHeight = _iH + 'px';
+            }
             if (compareActive) {
                 // Draw per-pane colorbars only in diff mode; otherwise hide them
                 drawAllComparePaneCbs();
