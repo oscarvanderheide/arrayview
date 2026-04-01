@@ -222,6 +222,13 @@ These rules are codified as DOM assertions in `tests/ui_audit.py`. When a new in
 | R26 | Shared colorbar width capped in compare mode | `#slim-cb-wrap` width ≤ 500px in compare mode |
 | R27 | Mode eggs hidden during loading | `#mode-eggs` empty/hidden until at least one frame has been received |
 | R28 | Compare+multiview crosshair fade works | Crosshair lines in compare+multiview fade in/out on hover, scoped to the hovered array's panes |
+| R29 | Dimbar/colorbar height sync | `#info` and `#slim-cb-wrap` offsetHeight within 4px when both visible. Enforced by `_validateUIState()` (runtime) and `run_invariant_assertions()` (Playwright) |
+| R30 | Drag positions cleared on immersive exit | `_infoDragPos`, `_cbDragPos`, `_islandDragPos` all null when `!_fullscreenActive`. Enforced by `_validateUIState()` and `run_immersive_exit_assertions()` |
+| R31 | No .fs-overlay outside immersive | Zero `.fs-overlay` elements when `!_fullscreenActive && !_immersiveAnimating`. Enforced by `_validateUIState()` and `run_immersive_exit_assertions()` |
+| R32 | Per-pane cbs only in immersive+center | `.compare-pane-cb-island.fs-overlay` count > 0 only when `_fullscreenActive && centerMode`. Enforced by `_validateUIState()` |
+| R33 | Colorbar flex-direction always row | All visible `.cb-island` computed `flex-direction === 'row'`. Enforced by CSS (`!important`) and `_validateUIState()` and `run_invariant_assertions()` |
+| R34 | Shared colorbar visible in compare non-center | `#slim-cb-wrap` not `display:none` when `compareActive && !centerMode`. Enforced by `_validateUIState()` |
+| R35 | Islands fully inside or outside pane | Dynamic islands must be fully inside pane bounds (immersive) or fully outside in normal flow (non-immersive) — never partially overlapping |
 
 ---
 
@@ -237,6 +244,31 @@ All colorbars across ALL modes follow the same structure: `[vmin span] [gradient
 **Colorbar-to-canvas gap**: The gap between canvas and colorbar must be visually consistent across modes. Both single and compare mode use the shared `#slim-cb-wrap` colorbar positioned via `chromeGap` (measured from `#info` bottom to canvas top). Per-pane colorbars (`.compare-pane-cb-island`) are only visible in diff mode.
 
 **Compare mode colorbar**: A single shared `#slim-cb-wrap` replaces per-pane colorbars. All arrays share colormap and dynamic range (union of all vmins/vmaxes). Histogram aggregates bins from all sessions. Per-pane colorbars only appear in diff mode (3 colorbars: left, center, right).
+
+---
+
+## Section 5d: Enforcement Layers
+
+Rules are enforced through multiple layers. When adding new rules, add enforcement at the appropriate layer(s):
+
+| Layer | Mechanism | Where | When it runs |
+|-------|-----------|-------|--------------|
+| **CSS** | `!important` structural constraints | `_viewer.html` CSS (line ~156) | Always — structurally impossible to violate |
+| **Runtime JS** | `_validateUIState()` | `_viewer.html` JS (after `_positionFullscreenChrome`) | After every layout change, gated behind `?debug_ui=1` |
+| **Playwright** | `run_invariant_assertions()` + `run_immersive_exit_assertions()` | `tests/ui_audit.py` | During `ui_audit.py` runs (all tiers) |
+| **Skill** | This document (Section 5b) | `.claude/skills/ui-consistency-audit/SKILL.md` | When AI agent invokes the skill |
+
+**Cross-reference:**
+
+| Rule | CSS | Runtime JS | Playwright | Notes |
+|------|-----|-----------|------------|-------|
+| R29 (height sync) | — | ✓ | ✓ | |
+| R30 (drag cleanup) | — | ✓ | ✓ | Only after immersive exit |
+| R31 (fs-overlay cleanup) | — | ✓ | ✓ | Only after immersive exit |
+| R32 (per-pane cb visibility) | — | ✓ | — | |
+| R33 (flex-direction row) | ✓ | ✓ | ✓ | CSS makes violation impossible |
+| R34 (shared cb in compare) | — | ✓ | — | |
+| R35 (island containment) | — | — | — | Design principle, enforced by code review |
 
 ---
 
