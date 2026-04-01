@@ -859,7 +859,7 @@
             border-radius: 14px !important; z-index: 2;
             box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
             /* Match single-view immersive island layout */
-            align-items: flex-end !important; gap: 8px !important;
+            align-items: center !important; gap: 8px !important;
             pointer-events: none !important;
         }
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay > * { pointer-events: auto; }
@@ -1531,6 +1531,7 @@
         const postMessageTransport = transport === 'postMessage';
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
+        const _DEBUG_UI = urlParams.get('debug_ui') === '1';
 
         /* ── VS Code postMessage transport plumbing ── */
         let _vscodeApi = null;
