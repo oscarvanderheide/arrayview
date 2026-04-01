@@ -3422,39 +3422,15 @@
         };
 
         function drawSlimColorbar(markerFrac) {
+            // Per-pane colorbars must update even when shared cb is hidden
+            if (compareActive) drawAllComparePaneCbs();
+            if (!_sharedCbVisible) return;
             const wrap = document.getElementById('slim-cb-wrap');
             // Match colorbar island height to dimbar island
             const _infoForH = document.getElementById('info');
             if (wrap && _infoForH) {
                 const _iH = _infoForH.offsetHeight;
                 if (_iH > 0) wrap.style.minHeight = _iH + 'px';
-            }
-            if (compareActive) {
-                // Draw per-pane colorbars only in diff mode; otherwise hide them
-                drawAllComparePaneCbs();
-                // In diff/center-pane modes, per-pane colorbars replace the shared colorbar
-                if (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive) {
-                    slimCbCanvas.style.display = 'none';
-                    slimCbLabels.style.display = 'none';
-                    if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
-                    return;
-                }
-            }
-            if ((multiViewActive && !compareActive) || compareMvActive) {
-                // Multiview / compare-multiview draw their own per-pane colorbars
-                if (wrap) wrap.style.display = 'none';
-                return;
-            }
-            if (qmriActive || compareQmriActive) {
-                // qMRI mode draws its own per-pane colorbars
-                if (wrap) wrap.style.display = 'none';
-                return;
-            }
-            if (!colorbarVisible()) {
-                slimCbCanvas.style.display = 'none';
-                slimCbLabels.style.display = 'none';
-                if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
-                return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
@@ -3466,12 +3442,6 @@
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
-                // In immersive diff/center mode, per-pane colorbars handle display — hide shared
-                const _fsCenterMode = compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (_fsCenterMode) {
-                    if (wrap) wrap.style.display = 'none';
-                    return;
-                }
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
                 const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
