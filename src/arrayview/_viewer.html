@@ -13542,6 +13542,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
 
+            // Rule 26 — Reconciler invariant: qMRI fs-overlay only when fullscreen
+            if (!_fullscreenActive && !_immersiveAnimating) {
+                const _vQmriFs = document.querySelectorAll('#qmri-view-wrap .qv-cb-island.fs-overlay');
+                if (_vQmriFs.length > 0) {
+                    w.push(`Rule 26: ${_vQmriFs.length} qv-cb-island.fs-overlay elements exist outside fullscreen`);
+                }
+            }
+
             if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
         }
 
