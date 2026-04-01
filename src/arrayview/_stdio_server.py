@@ -13,6 +13,8 @@ slice requests, and is length-prefixed JSON for metadata/register/sessions.
 """
 
 import json
+import os
+import select
 import struct
 import sys
 import traceback
@@ -27,6 +29,7 @@ from arrayview._render import (
     _init_luts,
     _overlay_is_label_map,
     _prepare_display,
+    apply_complex_mode,
     extract_projection,
     extract_slice,
     render_mosaic,
@@ -213,6 +216,15 @@ def _write_error(msg: str) -> None:
     _write_json({"error": msg})
 
 
+def _write_skip_response(msg: dict) -> None:
+    """Write a minimal 1×1 skip frame for an evicted slice request."""
+    seq = int(msg.get("seq", 0))
+    header = np.array([seq, 1, 1], dtype=np.uint32).tobytes()
+    vminmax = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    pixel = b"\x00\x00\x00\x00"  # transparent RGBA
+    _write_response(header + vminmax + pixel)
+
+
 # ---------------------------------------------------------------------------
 # Request handlers
 # ---------------------------------------------------------------------------
@@ -307,10 +319,91 @@ def _handle_clearcache(msg: dict) -> None:
     _write_json({"status": "ok"})
 
 
+def _parse_query(endpoint: str) -> dict[str, str]:
+    """Extract query parameters from an endpoint URL."""
+    from urllib.parse import unquote
+    if "?" not in endpoint:
+        return {}
+    qs = endpoint.split("?", 1)[1]
+    params: dict[str, str] = {}
+    for part in qs.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            params[unquote(k)] = unquote(v)
+    return params
+
+
+def _handle_histogram(sid: str, params: dict[str, str]) -> None:
+    """Compute histogram of the current slice and write JSON response."""
+    session = SESSIONS.get(sid)
+    if not session:
+        _write_error("session not found")
+        return
+    dim_x = int(params.get("dim_x", "0"))
+    dim_y = int(params.get("dim_y", "1"))
+    indices_str = params.get("indices", "")
+    idx_tuple = tuple(int(v) for v in indices_str.split(",") if v)
+    complex_mode = int(params.get("complex_mode", "0"))
+    bins = max(8, min(int(params.get("bins", "128")), 512))
+
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    flat = data.ravel()
+    finite = flat[np.isfinite(flat)]
+    if finite.size == 0:
+        _write_json({"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0})
+        return
+    vmin = float(finite.min())
+    vmax = float(finite.max())
+    if vmin == vmax:
+        _write_json({
+            "counts": [int(finite.size)],
+            "edges": [vmin, vmax + 1e-9],
+            "vmin": vmin,
+            "vmax": vmax,
+        })
+        return
+    counts, edges = np.histogram(finite, bins=bins)
+    _write_json({
+        "counts": counts.tolist(),
+        "edges": [float(e) for e in edges],
+        "vmin": vmin,
+        "vmax": vmax,
+    })
+
+
+def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
+    """Return raw slice as JSON-wrapped base64 float32 for Lebesgue mode."""
+    session = SESSIONS.get(sid)
+    if not session:
+        _write_error("session not found")
+        return
+    dim_x = int(params.get("dim_x", "0"))
+    dim_y = int(params.get("dim_y", "1"))
+    indices_str = params.get("indices", "")
+    idx_tuple = tuple(int(v) for v in indices_str.split(",") if v)
+    complex_mode = int(params.get("complex_mode", "0"))
+    log_scale = params.get("log_scale", "false").lower() == "true"
+
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode).astype(np.float32)
+    if log_scale:
+        data = np.log10(np.abs(data) + 1).astype(np.float32)
+    import base64
+    _write_json({
+        "_binary": True,
+        "data": base64.b64encode(data.tobytes()).decode(),
+        "headers": {
+            "X-ArrayView-Width": str(data.shape[1]),
+            "X-ArrayView-Height": str(data.shape[0]),
+        },
+    })
+
+
 def _handle_fetch_proxy(msg: dict) -> None:
     """Handle proxied fetch requests from the viewer."""
     endpoint = msg.get("endpoint", "")
-    parts = endpoint.strip("/").split("/")
+    parts = endpoint.split("?")[0].strip("/").split("/")
 
     if not parts:
         _write_error("missing endpoint")
@@ -318,6 +411,7 @@ def _handle_fetch_proxy(msg: dict) -> None:
 
     route = parts[0]
     sid = parts[1] if len(parts) > 1 else None
+    params = _parse_query(endpoint)
 
     if route == "metadata" and sid:
         _handle_metadata({"sid": sid})
@@ -325,6 +419,16 @@ def _handle_fetch_proxy(msg: dict) -> None:
         _handle_clearcache({"sid": sid})
     elif route == "sessions":
         _handle_sessions()
+    elif route == "histogram" and sid:
+        _handle_histogram(sid, params)
+    elif route == "lebesgue" and sid:
+        _handle_lebesgue(sid, params)
+    elif route == "preload" and sid:
+        # Stub: preloading is a background optimisation not yet supported
+        # in stdio mode.  Return success so the viewer doesn't error.
+        _write_json({"status": "started"})
+    elif route == "preload_status" and sid:
+        _write_json({"done": 0, "total": 0, "skipped": True})
     else:
         _write_error(f"unsupported endpoint: {endpoint}")
 
@@ -476,38 +580,126 @@ def _handle_get_viewer_html(msg: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _dispatch(msg_type: str, msg: dict) -> None:
+    """Dispatch a non-slice request to the appropriate handler."""
+    if msg_type == "register":
+        _handle_register(msg)
+    elif msg_type == "metadata":
+        _handle_metadata(msg)
+    elif msg_type == "sessions":
+        _handle_sessions()
+    elif msg_type == "clearcache":
+        _handle_clearcache(msg)
+    elif msg_type == "fetch-proxy":
+        _handle_fetch_proxy(msg)
+    elif msg_type == "get-viewer-html":
+        _handle_get_viewer_html(msg)
+    else:
+        _write_error(f"unknown type: {msg_type}")
+
+
 def run_stdio_server() -> None:
-    """Read JSON from stdin, dispatch handlers, write to stdout."""
+    """Read JSON from stdin, dispatch handlers, write to stdout.
+
+    Uses raw fd reads + select to coalesce rapid-fire slice requests: before
+    processing a slice, we non-blocking peek for newer messages and skip stale
+    intermediate frames with a minimal 1×1 response.  No threads — zero
+    overhead when the queue is empty.
+    """
     _init_luts()
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
+    # Bypass Python's buffered IO so select() accurately reflects available
+    # data.  We manage our own read buffer on the raw fd.
+    _fd = sys.stdin.fileno()
+    _buf = b""
+
+    def _read_line() -> str | None:
+        """Block until a complete line is available, return it (or None on EOF)."""
+        nonlocal _buf
+        while b"\n" not in _buf:
+            select.select([_fd], [], [])
+            chunk = os.read(_fd, 65536)
+            if not chunk:
+                return None
+            _buf += chunk
+        line, _, _buf = _buf.partition(b"\n")
+        return line.decode()
+
+    def _try_read_line() -> str | None:
+        """Return next line if data is immediately available, else None."""
+        nonlocal _buf
+        if b"\n" in _buf:
+            line, _, _buf = _buf.partition(b"\n")
+            return line.decode()
+        readable, _, _ = select.select([_fd], [], [], 0)
+        if not readable:
+            return None
+        chunk = os.read(_fd, 65536)
+        if not chunk:
+            return None
+        _buf += chunk
+        if b"\n" in _buf:
+            line, _, _buf = _buf.partition(b"\n")
+            return line.decode()
+        return None
+
+    def _parse_line(raw: str) -> dict | None:
+        """Parse a stripped line as JSON; write error response on failure."""
+        raw = raw.strip()
+        if not raw:
+            return None
         try:
-            msg = json.loads(line)
+            return json.loads(raw)
         except json.JSONDecodeError:
-            _write_error(f"invalid JSON: {line[:200]}")
+            _write_error(f"invalid JSON: {raw[:200]}")
+            return None
+
+    while True:
+        raw = _read_line()
+        if raw is None:
+            break
+        msg = _parse_line(raw)
+        if msg is None:
             continue
 
         msg_type = msg.get("type", "slice")
-        try:
-            if msg_type == "register":
-                _handle_register(msg)
-            elif msg_type == "metadata":
-                _handle_metadata(msg)
-            elif msg_type == "sessions":
-                _handle_sessions()
-            elif msg_type == "clearcache":
-                _handle_clearcache(msg)
-            elif msg_type == "fetch-proxy":
-                _handle_fetch_proxy(msg)
-            elif msg_type == "slice":
-                _handle_slice(msg)
-            elif msg_type == "get-viewer-html":
-                _handle_get_viewer_html(msg)
-            else:
-                _write_error(f"unknown type: {msg_type}")
-        except Exception as e:
-            traceback.print_exc(file=sys.stderr)
-            _write_error(str(e))
+
+        if msg_type == "slice":
+            # Coalesce: peek for newer messages without blocking.  Stale
+            # slices get a minimal skip frame.  Non-slice requests are
+            # queued and processed AFTER the slice to preserve FIFO order
+            # (the extension matches responses to callbacks by position).
+            latest_slice = msg
+            deferred = []  # non-slice requests to process after the slice
+            while True:
+                next_raw = _try_read_line()
+                if next_raw is None:
+                    break
+                next_msg = _parse_line(next_raw)
+                if next_msg is None:
+                    continue
+                next_type = next_msg.get("type", "slice")
+                if next_type == "slice":
+                    _write_skip_response(latest_slice)
+                    latest_slice = next_msg
+                else:
+                    deferred.append((next_type, next_msg))
+
+            try:
+                _handle_slice(latest_slice)
+            except Exception as e:
+                traceback.print_exc(file=sys.stderr)
+                _write_error(str(e))
+
+            for def_type, def_msg in deferred:
+                try:
+                    _dispatch(def_type, def_msg)
+                except Exception as e:
+                    traceback.print_exc(file=sys.stderr)
+                    _write_error(str(e))
+        else:
+            try:
+                _dispatch(msg_type, msg)
+            except Exception as e:
+                traceback.print_exc(file=sys.stderr)
+                _write_error(str(e))
