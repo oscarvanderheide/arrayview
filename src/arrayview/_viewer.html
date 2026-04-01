@@ -13544,32 +13544,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
 
+            // Shared flag for Rules 12 & 13
+            const _vCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+
             // Rule 12 — Per-pane cb visibility: .compare-pane-cb-island.fs-overlay only in fullscreen + center mode
             const _vPaneCbs = document.querySelectorAll('.compare-pane-cb-island.fs-overlay');
             if (_vPaneCbs.length > 0) {
-                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (!_fullscreenActive || !hasCenterMode) {
-                    w.push(`Rule 12: ${_vPaneCbs.length} .compare-pane-cb-island.fs-overlay elements exist but fullscreenActive=${_fullscreenActive}, centerMode=${hasCenterMode}`);
+                if (!_fullscreenActive || !_vCenterMode) {
+                    w.push(`Rule 12: ${_vPaneCbs.length} .compare-pane-cb-island.fs-overlay elements exist but fullscreenActive=${_fullscreenActive}, centerMode=${_vCenterMode}`);
                 }
             }
 
             // Rule 13 — Shared cb visibility in compare (no center mode)
             if (compareActive) {
-                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (!hasCenterMode && _vCbWrap && _vCbWrap.style.display === 'none') {
+                if (!_vCenterMode && _vCbWrap && _vCbWrap.style.display === 'none') {
                     w.push('Rule 13: compareActive with no center mode but #slim-cb-wrap is hidden');
                 }
             }
 
             // Rule 16 — Drag positions cleared when not fullscreen
-            if (!_fullscreenActive) {
+            if (!_fullscreenActive && !_immersiveAnimating) {
                 if (_infoDragPos !== null) w.push('Rule 16: _infoDragPos is not null outside fullscreen');
                 if (_cbDragPos !== null) w.push('Rule 16: _cbDragPos is not null outside fullscreen');
                 if (_islandDragPos !== null) w.push('Rule 16: _islandDragPos is not null outside fullscreen');
             }
 
             // Rule 17 — fs-overlay cleanup when not fullscreen
-            if (!_fullscreenActive && !document.body.classList.contains('fullscreen-mode')) {
+            if (!_fullscreenActive && !_immersiveAnimating && !document.body.classList.contains('fullscreen-mode')) {
                 const _vFsOverlays = document.querySelectorAll('.fs-overlay');
                 if (_vFsOverlays.length > 0) {
                     w.push(`Rule 17: ${_vFsOverlays.length} .fs-overlay elements exist outside fullscreen`);
