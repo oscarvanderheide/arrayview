@@ -3656,6 +3656,8 @@
                 this._expanded = false;
                 this._animT = 0;
                 this._animTarget = 0;
+                this._animFrom = 0;
+                this._animStart = 0;
                 this._animating = false;
                 this._expandedH = CB_DEFAULT_EXPANDED_H;
 
@@ -4145,24 +4147,25 @@
 
             /** Initiate expand (true) or collapse (false) animation. */
             startAnim(expand) {
+                this._animFrom = this._animT;
                 this._animTarget = expand ? 1 : 0;
+                this._animStart = performance.now();
                 if (!this._animating) {
                     this._animating = true;
                     this._animStep();
                 }
             }
 
-            /** Single animation frame — lerps _animT toward _animTarget. */
+            /** Single animation frame — time-based ease-out cubic, matching global morph. */
             _animStep() {
-                const diff = this._animTarget - this._animT;
-                if (Math.abs(diff) < 0.003) {
-                    this._animT = this._animTarget;
-                } else {
-                    this._animT += diff * 0.15;
-                }
+                const elapsed = performance.now() - this._animStart;
+                const rawT = Math.min(1, elapsed / _cbAnimDuration);
+                // Ease-out (fast start, gentle finish) for both expand and collapse
+                const easedT = 1 - Math.pow(1 - rawT, 3);
+                this._animT = this._animFrom + (this._animTarget - this._animFrom) * easedT;
                 this.draw();
                 if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
-                const morphDone = Math.abs(this._animTarget - this._animT) < 0.003;
+                const morphDone = rawT >= 1;
                 const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
                              && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
                 if (morphDone && winDone) {
