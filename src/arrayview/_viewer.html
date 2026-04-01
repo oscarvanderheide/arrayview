@@ -1773,6 +1773,8 @@
         let pendingRequest = false;
         let wsSlowTimer = null;   // show loading overlay only after threshold
         const WS_SLOW_THRESHOLD_MS = 80; // ms before spinner appears
+        let wsWatchdogTimer = null;  // postMessage mode: reset isRendering if no response
+        const WS_WATCHDOG_MS = 5000;
 
         let preloadPolling = null;
         let preloadActiveDim = -1;
@@ -5598,6 +5600,7 @@
                 const height = headerU32[2];
                 // Phase 3: cancel delayed spinner — frame arrived in time
                 if (wsSlowTimer) { clearTimeout(wsSlowTimer); wsSlowTimer = null; }
+                if (wsWatchdogTimer) { clearTimeout(wsWatchdogTimer); wsWatchdogTimer = null; }
                 if (compareActive) {
                     isRendering = false;
                     if (pendingRequest) {
@@ -7139,6 +7142,19 @@
                     document.getElementById('loading-overlay').style.display = '';
                 }
             }, WS_SLOW_THRESHOLD_MS);
+            // Watchdog: in postMessage mode, if no response arrives within
+            // WS_WATCHDOG_MS, assume the message was lost and reset state.
+            if (postMessageTransport) {
+                if (wsWatchdogTimer) clearTimeout(wsWatchdogTimer);
+                wsWatchdogTimer = setTimeout(() => {
+                    wsWatchdogTimer = null;
+                    if (isRendering) {
+                        console.warn('[arrayview] watchdog: no response in ' + WS_WATCHDOG_MS + 'ms, resetting');
+                        isRendering = false;
+                        if (pendingRequest) { pendingRequest = false; updateView(); }
+                    }
+                }, WS_WATCHDOG_MS);
+            }
         }
 
         let playLastFrameTime = 0;
