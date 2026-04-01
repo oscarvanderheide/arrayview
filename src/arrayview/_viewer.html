@@ -4130,16 +4130,16 @@
                 this.canvas = null;
             }
 
-            /** Update vmin/vmax flanking labels from opts.getRange(). Hides when expanded. */
+            /** Update vmin/vmax flanking labels from opts.getRange(). */
             updateLabels() {
                 const range = this.opts.getRange();
                 if (this.vminLabel) {
                     this.vminLabel.textContent = _cbFmt(range.vmin);
-                    this.vminLabel.style.display = this._expanded ? 'none' : '';
+                    this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
                     this.vmaxLabel.textContent = _cbFmt(range.vmax);
-                    this.vmaxLabel.style.display = this._expanded ? 'none' : '';
+                    this.vmaxLabel.style.display = '';
                 }
             }
 
