@@ -9,26 +9,42 @@ Interactive viewer for multi-dimensional arrays and medical/scientific volumes. 
 | Where you are | Default display |
 |---|---|
 | Jupyter kernel | inline iframe |
-| VS Code terminal (local or tunnel) | VS Code Simple Browser tab |
+| VS Code terminal (local) | VS Code Simple Browser tab (network mode) |
+| VS Code terminal (tunnel) | VS Code direct webview tab (stdio mode) |
 | Julia | system browser |
 | otherwise (CLI, Python script) | native pywebview window |
 
-VS Code Simple Browser requires the bundled `arrayview-opener.vsix` extension. VS Code provides no public API for auto-opening Simple Browser tabs — the extension uses signal-file IPC. This is fragile; load the `vscode-simplebrowser` skill before touching it.
+VS Code Simple Browser requires the bundled `arrayview-opener.vsix` extension. VS Code
+provides no public API for auto-opening Simple Browser tabs — the extension uses signal-file
+IPC. This is fragile; load the `vscode-simplebrowser` skill before touching it.
+
+When debugging CSS/layout issues, identify the root cause before applying fixes. Common pitfalls: canvas buffer vs CSS resolution mismatches, CSS selectors targeting wrong wrapper elements, av-loading class interactions, global declaration ordering.
+
+Key modes: normal, immersive, compare, diff, multiview (3-pane oblique). Key UI elements: dynamic islands (dimbar, colorbar, ROI, segment), colorbars, histograms, minimap. Interaction modes: ROI, SEGMENT. Always check all code paths including tunnel/remote mode and direct webview mode.
+
+For visual/animation features, propose 2-3 options with brief descriptions BEFORE implementing. User has strong aesthetic preferences and has reverted entire sessions of work that didn't match their taste.
 
 ## Architecture
 
 ```
 CLI / Python API
    |
-   +- view()        Python entry  (_launcher.py)
-   +- arrayview()   CLI entry     (_launcher.py)
+   +- view()          Python entry  (_launcher.py)
+   +- arrayview()     CLI entry     (_launcher.py)
+   +- python -m arrayview           (__main__.py)
       |
-      +- FastAPI server  (_server.py)
-         +- /           viewer HTML
-         +- /shell      pywebview shell HTML
-         +- /ws/{sid}   WebSocket render updates
-         +- /load       register arrays
-         +- /ping       health check
+      +- FastAPI server  (_server.py)        ← network mode (default)
+      |  +- /           viewer HTML
+      |  +- /shell      pywebview shell HTML
+      |  +- /ws/{sid}   WebSocket render updates
+      |  +- /load       register arrays
+      |  +- /seg/*      segmentation endpoints
+      |  +- /ping       health check
+      |
+      +- Stdio server   (_stdio_server.py)   ← direct webview mode (--mode stdio)
+         +- stdin/stdout JSON+binary protocol
+         +- No network, no WebSocket — VS Code extension spawns subprocess
+         +- PythonBridge in extension.js bridges postMessage ↔ stdin/stdout
 ```
 
 ## Core Files
@@ -41,10 +57,14 @@ CLI / Python API
 | `_server.py` | FastAPI app, REST routes, WebSocket handlers, HTML templates |
 | `_session.py` | Sessions, global state, caches, render thread, constants |
 | `_render.py` | Rendering: colormaps, LUTs, slice extraction, RGBA/mosaic/RGB |
-| `_vscode.py` | Extension management, signal-file IPC, browser opening |
+| `_stdio_server.py` | Stdio server for direct webview mode — mirrors `_server.py` render logic over stdin/stdout |
+| `_vscode.py` | Extension management, signal-file IPC, direct webview IPC, browser opening |
+| `_segmentation.py` | nnInteractive segmentation client — HTTP client, auto-launch, label management |
+| `_config.py` | Persistent user preferences via `~/.arrayview/config.toml` |
 | `_platform.py` | Platform/environment detection |
 | `_io.py` | Array I/O, format detection |
 | `_torch.py` | PyTorch DL integration: `view_batch()`, `TrainingMonitor` |
+| `__main__.py` | `python -m arrayview` entry point |
 | `_app.py` | **Compat shim only** — re-exports; add no logic here |
 
 ### Frontend
@@ -58,7 +78,7 @@ CLI / Python API
 
 | File | Responsibility |
 |------|---------------|
-| `vscode-extension/extension.js` | Polls signal file, opens `createWebviewPanel` |
+| `vscode-extension/extension.js` | Polls signal file, opens `createWebviewPanel`, PythonBridge for direct webview mode |
 | `vscode-extension/package.json` | Extension metadata and version |
 | `arrayview-opener.vsix` | Packaged extension (auto-installed by Python) |
 
@@ -92,7 +112,10 @@ Eggs are small pill-shaped badges below the canvas showing active visualization 
 
 Stacking makes sense: "LOG of MAGNITUDE of FFT of data" is a meaningful composition.
 
-**ROI and SEGMENT do not belong in this model.** They are **interaction modes** — they take over canvas input (clicks, drags) rather than transforming displayed data. They are also mutually incompatible (both consume the overlay canvas and pointer events). Treat them as a separate UI concept from eggs.
+**ROI and SEGMENT do not belong in this model.** They are **interaction modes** — they take over canvas input (clicks, drags) rather than transforming displayed data. They are mutually incompatible (both consume the overlay canvas and pointer events). Each gets its own dynamic island for controls. Treat them as a separate UI concept from eggs.
+
+- `R` key → ROI mode (shape tools: rectangle, circle, freehand, polygon, floodfill)
+- `S` key → SEGMENT mode (nnInteractive: click, bbox, scribble, lasso, freehand; label management)
 
 ## Non-Negotiables
 
@@ -128,9 +151,15 @@ uv run python tests/visual_smoke.py      # screenshots → tests/smoke_output/
 
 All key functions live in `_vscode.py`:
 - `_ensure_vscode_extension()` — installs VSIX only if version not already on disk
-- `_open_via_signal_file()` — writes signal; extension polls and opens panel
+- `_open_via_signal_file()` — writes signal; extension polls and opens panel (network mode)
+- `_open_direct_via_signal_file()` — writes signal for direct webview mode (stdio, no network)
+- `_open_direct_via_shm()` — shared memory IPC for zero-copy numpy arrays
 - `_schedule_remote_open_retries()` — retry writes for tunnel/first-install latency
 - `_configure_vscode_port_preview()` — port forwarding settings
+
+**Two transport modes:**
+- **Network mode** (default): FastAPI server + WebSocket, extension opens Simple Browser tab
+- **Direct webview mode** (`--mode stdio`): extension spawns subprocess, PythonBridge bridges postMessage ↔ stdin/stdout — no network, used automatically in tunnel sessions
 
 `_VSCODE_EXT_VERSION` in `_vscode.py` must match `vscode-extension/package.json`.
 Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-opener.vsix`
@@ -141,6 +170,10 @@ Rebuild: `cd vscode-extension && vsce package -o ../src/arrayview/arrayview-open
 - IPC hook recovery when env vars are stripped by `uv run` or subprocess wrappers
 - tmux: `VSCODE_IPC_HOOK_CLI` not inherited through tmux-server; must walk client PIDs
 - Signal routing: local → per-window targeted file; remote/tunnel → shared fallback
+- Direct webview IPC: stdin/stdout binary protocol, subprocess lifecycle, PythonBridge error handling
+- Segmentation server lifecycle: auto-launch vs external server, cleanup on disconnect
+- Shared memory IPC: POSIX SHM with resource tracker cleanup (`_open_direct_via_shm`)
+- Dynamic islands in all modes: must verify appearance consistency across normal/immersive/multiview
 - Julia: always subprocess (GIL); never run server in-process
 - Port forwarding in tunnel environments; shutdown lifecycle and orphan process prevention
 
