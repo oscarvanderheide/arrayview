@@ -189,6 +189,7 @@
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
         #slim-cb-tri-zone.expanded { /* no height change — triangles overlay on canvas */ }
         .slim-cb-tri {
+            display: none; /* replaced by solid handle lines on canvas */
             position: absolute; bottom: 0; width: 0; height: 0;
             border-left: 5px solid transparent; border-right: 5px solid transparent;
             border-bottom: 6px solid rgba(255,255,100,0.9);
@@ -4560,8 +4561,17 @@
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchHistogram(),
-            onWindowChange: () => { updateView(); triggerPreload(); },
+            onWindowChange: () => {
+                if (!_cbWindowChangeRafId) {
+                    _cbWindowChangeRafId = requestAnimationFrame(() => {
+                        _cbWindowChangeRafId = null;
+                        updateView();
+                        triggerPreload();
+                    });
+                }
+            },
         });
+        let _cbWindowChangeRafId = null;
         window._primaryCb = primaryCb;
 
         function _cbStartAnim(expand) {
@@ -5127,7 +5137,7 @@
             if (!slimCbWrap || !slimCbCanvas || !cbTooltip) return;
 
             let _dragTarget = null; // 'vmin' | 'vmax' | null
-            let _renderTimer = null;
+            let _renderRafId = null;
             let _lastLebesgueBin = -1; // tracks which bin is currently highlighted
 
             function _xToValue(x, cssW) {
@@ -5145,8 +5155,12 @@
             }
 
             function _scheduleRender() {
-                clearTimeout(_renderTimer);
-                _renderTimer = setTimeout(() => { updateView(); triggerPreload(); }, 80);
+                if (_renderRafId) return; // already scheduled
+                _renderRafId = requestAnimationFrame(() => {
+                    _renderRafId = null;
+                    updateView();
+                    triggerPreload();
+                });
             }
 
             async function _expandColorbar() {
@@ -5331,7 +5345,7 @@
                     _dragTarget = null;
                     _cbDragActive = false;
                     slimCbCanvas.style.cursor = 'default';
-                    clearTimeout(_renderTimer);
+                    if (_renderRafId) { cancelAnimationFrame(_renderRafId); _renderRafId = null; }
                     updateView(); triggerPreload();
                 }
             });
