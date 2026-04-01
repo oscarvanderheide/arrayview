@@ -13387,19 +13387,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
                 }
             }
-            // Position center-mode island below dimbar
+            // Position center-mode island below dimbar (visibility managed by reconciler)
             const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland && compareActive) {
-                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (hasCenterMode && infoEl) {
-                    centerIsland.style.display = 'block';
-                    const infoRect = infoEl.getBoundingClientRect();
-                    centerIsland.style.top = (infoRect.bottom + 6) + 'px';
-                } else {
-                    centerIsland.style.display = 'none';
-                }
-            } else if (centerIsland) {
-                centerIsland.style.display = 'none';
+            if (centerIsland && centerIsland.style.display !== 'none' && compareActive && infoEl) {
+                const infoRect = infoEl.getBoundingClientRect();
+                centerIsland.style.top = (infoRect.bottom + 6) + 'px';
             }
             // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
