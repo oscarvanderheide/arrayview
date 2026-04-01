@@ -13508,37 +13508,56 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
 
-            // Rule 27 (shadow) — layout reconciler: canvas-wrap display matches expected
+            // Rule 27 — layout reconciler: canvas-wrap display matches expected
             const _vCanvasWrap = document.getElementById('canvas-wrap');
             if (_vCanvasWrap && !document.body.classList.contains('av-loading')) {
                 const _vExpCanvasVisible = !compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive;
                 const _vActCanvasVisible = _vCanvasWrap.style.display !== 'none';
                 if (_vActCanvasVisible !== _vExpCanvasVisible) {
-                    w.push(`Rule 27 (shadow): canvas-wrap display=${_vCanvasWrap.style.display} but expected visible=${_vExpCanvasVisible}`);
+                    w.push(`Rule 27: canvas-wrap display=${_vCanvasWrap.style.display} but expected visible=${_vExpCanvasVisible}`);
                 }
             }
 
-            // Rule 28 (shadow) — layout reconciler: compareWrap.active matches expected
+            // Rule 28 — layout reconciler: compareWrap.active matches expected
             const _vCmpActive = compareWrap.classList.contains('active');
             const _vExpCmpActive = compareActive && !compareQmriActive && !compareMvActive;
             if (_vCmpActive !== _vExpCmpActive) {
-                w.push(`Rule 28 (shadow): compareWrap.active=${_vCmpActive} but expected=${_vExpCmpActive}`);
+                w.push(`Rule 28: compareWrap.active=${_vCmpActive} but expected=${_vExpCmpActive}`);
             }
 
-            // Rule 29 (shadow) — layout reconciler: array-name display
+            // Rule 29 — layout reconciler: array-name display
             const _vNameEl = document.getElementById('array-name');
             if (_vNameEl) {
                 const _vNameVisible = _vNameEl.style.display !== 'none';
                 if (compareActive && _vNameVisible) {
-                    w.push('Rule 29 (shadow): array-name visible but compareActive=true');
+                    w.push('Rule 29: array-name visible but compareActive=true');
                 }
             }
 
-            // Rule 30 (shadow) — compare state: wipe-mode class
+            // Rule 30 — compare state: wipe-mode class
             const _vHasWipeClass = compareWrap.classList.contains('wipe-mode');
             const _vExpectedWipe = compareActive && (_wipeActive || _flickerActive || _checkerActive);
             if (_vHasWipeClass !== _vExpectedWipe) {
-                w.push(`Rule 30 (shadow): compareWrap.wipe-mode=${_vHasWipeClass} but expected=${_vExpectedWipe}`);
+                w.push(`Rule 30: compareWrap.wipe-mode=${_vHasWipeClass} but expected=${_vExpectedWipe}`);
+            }
+
+            // Rule 31 — Compare state: diff pane visibility
+            const _vDiffPane = document.getElementById('compare-diff-pane');
+            if (_vDiffPane && !_immersiveAnimating) {
+                const _vExpDiff = compareActive && (diffMode > 0 || registrationMode);
+                const _vActDiff = _vDiffPane.style.display !== 'none';
+                if (_vActDiff !== _vExpDiff) {
+                    w.push(`Rule 31: compare-diff-pane display=${_vDiffPane.style.display} but expected visible=${_vExpDiff}`);
+                }
+            }
+
+            // Rule 32 — Compare state: focus classes consistency
+            if (!_immersiveAnimating) {
+                const _vHasFocusDiff = compareWrap.classList.contains('focus-diff');
+                const _vExpFocusDiff = compareActive && compareFocusMode && diffMode > 0;
+                if (_vHasFocusDiff !== _vExpFocusDiff) {
+                    w.push(`Rule 32: focus-diff=${_vHasFocusDiff} but expected=${_vExpFocusDiff}`);
+                }
             }
 
             if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
