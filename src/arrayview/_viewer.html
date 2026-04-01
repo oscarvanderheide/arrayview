@@ -12036,14 +12036,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sCtx.fillRect(0, 0, cssW, stripH);
             sCtx.restore();
             {
-                const fmt = val => {
-                    const av = Math.abs(val);
-                    if (av === 0) return '0';
-                    if (av >= 1e4 || (av < 0.01 && av > 0)) return val.toExponential(1);
-                    return parseFloat(val.toPrecision(3)).toString();
-                };
-                if (v.cbVmin) v.cbVmin.textContent = fmt(v.vmin);
-                if (v.cbVmax) v.cbVmax.textContent = fmt(v.vmax);
+                if (v.cbVmin) v.cbVmin.innerHTML = _cbFmt(v.vmin);
+                if (v.cbVmax) v.cbVmax.innerHTML = _cbFmt(v.vmax);
             }
         }
 
