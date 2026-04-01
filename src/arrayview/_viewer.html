@@ -1913,6 +1913,7 @@
                 if (scaler) return scaler();
                 if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
+                _reconcileCbVisibility();
             },
             scaleAllAutoFit() {
                 const scaler = this.getScaler();
@@ -3065,6 +3066,7 @@
                     centerIsland.style.display = 'none';
                 }
             }
+            _reconcileCbVisibility();
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
@@ -10647,6 +10649,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
+            _reconcileCbVisibility();
             showStatus('3-plane view — press v to exit', 3000);
         }
 
@@ -10870,6 +10873,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qmriViews.forEach(v => qvRender(v));
             }
             renderInfo();
+            _reconcileCbVisibility();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
@@ -11067,6 +11071,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareQmriViews.forEach(v => compareQmriRender(v));
             }
             renderInfo();
+            _reconcileCbVisibility();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
@@ -11430,6 +11435,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.getElementById('mv-orientation').style.display = 'block';
             flashAxesIndicators();
             renderInfo();
+            _reconcileCbVisibility();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
         }
 
