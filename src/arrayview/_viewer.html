@@ -5518,7 +5518,7 @@
             const ac = new AbortController();
             _mvVfieldAborts.set(viewIndex, ac);
             try {
-                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
+                const res = await proxyFetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
                 if (!res.ok || ac.signal.aborted) return;
                 const data = await res.json();
                 if (ac.signal.aborted) return;
@@ -6259,7 +6259,7 @@
 
         async function _islandDeleteSeg(label) {
             try {
-                const r = await fetch(`/seg/delete_label/${sid}?label=${label}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/delete_label/${sid}?label=${label}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
@@ -6275,10 +6275,13 @@
             if (rectRoiMode) {
                 _exportRoisCsv();
             } else if (_segMode) {
-                const a = document.createElement('a');
-                a.href = `/seg/export/${sid}`;
-                a.download = '';
-                a.click();
+                proxyFetch(`/seg/export/${sid}`).then(r => r.blob()).then(blob => {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'segmentation.npy';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                }).catch(err => showToast(`segmentation export: ${err.message}`));
             }
         }
         window._islandExport = _islandExport;
@@ -7798,7 +7801,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             x1: String(bx1), y1: String(by1),
                             complex_mode: String(complexMode),
                         });
-                        const resp = await fetch(`/roi_multi/${sid}?${params}`);
+                        const resp = await proxyFetch(`/roi_multi/${sid}?${params}`);
                         const data = await resp.json();
                         if (data.rows) {
                             for (const row of data.rows) {
@@ -8118,7 +8121,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     scroll_dim: String(scrollDim >= 0 ? scrollDim : -1),
                     indices: indices.join(','),
                 });
-                const r = await fetch(`/seg/activate/${sid}?${params}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/activate/${sid}?${params}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') {
                     showToast(`segmentation: ${d.message}`);
@@ -8162,7 +8165,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     indices: indices.join(','), px: String(px), py: String(py),
                     positive: positive ? 'true' : 'false',
                 });
-                const r = await fetch(`/seg/click/${sid}?${params}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/click/${sid}?${params}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
@@ -8175,7 +8178,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         async function _segAccept() {
             try {
-                const r = await fetch(`/seg/accept/${sid}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/accept/${sid}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
@@ -8189,7 +8192,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         async function _segReset() {
             try {
-                const r = await fetch(`/seg/reset/${sid}`, { method: 'POST' });
+                const r = await proxyFetch(`/seg/reset/${sid}`, { method: 'POST' });
                 const d = await r.json();
                 if (d.status === 'error') { showToast(`segmentation: ${d.message}`); return; }
                 _segOverlaySid = d.overlay_sid;
@@ -8314,7 +8317,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const x1 = Math.max(s.px, e.px), y1 = Math.max(s.py, e.py);
                 showStatus('segmentation: predicting...');
                 try {
-                    const r = await fetch(`/seg/bbox/${sid}`, {
+                    const r = await proxyFetch(`/seg/bbox/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -8329,7 +8332,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (_segMethod === 'scribble' && _segDrawPoints.length >= 1) {
                 showStatus('segmentation: predicting...');
                 try {
-                    const r = await fetch(`/seg/scribble/${sid}`, {
+                    const r = await proxyFetch(`/seg/scribble/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -8345,7 +8348,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (_segMethod === 'lasso' && _segDrawPoints.length >= 3) {
                 showStatus('segmentation: predicting...');
                 try {
-                    const r = await fetch(`/seg/lasso/${sid}`, {
+                    const r = await proxyFetch(`/seg/lasso/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -8861,7 +8864,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Toggle alpha (transparent below vmin)
                 alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
-                fetch(`/alpha/${sid}`, {
+                proxyFetch(`/alpha/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ level: alphaLevel }),
@@ -9411,7 +9414,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'M') {
                 alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
-                fetch(`/alpha/${sid}`, {
+                proxyFetch(`/alpha/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ level: alphaLevel }),
@@ -9477,7 +9480,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'f') {
                 if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
-                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             _fftActive = false;
@@ -9490,7 +9493,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 } else {
                     const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
-                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
+                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             if (d.error) { showStatus('FFT error: ' + d.error); return; }
@@ -12058,7 +12061,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
                 }
-                const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
+                const resp = await proxyFetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`oblique ${resp.status}`);
                 const blob = await resp.blob();
                 const decoded = await decodeBlobToImageData(blob);
