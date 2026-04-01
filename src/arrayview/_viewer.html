@@ -153,6 +153,12 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
+        /* ── Hard UI invariants (structural enforcement) ──────── */
+        .cb-island,
+        .compare-pane-cb-island,
+        .qv-cb-island {
+            flex-direction: row !important; /* Rule 23: colorbar layout must be horizontal */
+        }
         /* ── Generic ColorBar class styles ──────────────────────────── */
         .cb-wrap {
             text-align: center; padding: 7px 16px; z-index: 2;
