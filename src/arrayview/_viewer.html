@@ -1569,14 +1569,20 @@
                     const pending = _pendingFetches.get(msg.id);
                     if (pending) {
                         _pendingFetches.delete(msg.id);
+                        const _d = msg.data;
+                        // Binary responses arrive as Uint8Array via structured clone.
+                        const _isBinary = _d && (_d instanceof ArrayBuffer || (_d.buffer instanceof ArrayBuffer && _d.byteLength !== undefined));
+                        const _ab = _isBinary
+                            ? (_d instanceof ArrayBuffer ? _d : _d.buffer.slice(_d.byteOffset, _d.byteOffset + _d.byteLength))
+                            : null;
                         pending.resolve({
                             ok: msg.ok,
                             status: msg.status,
                             headers: { get: (key) => (msg.headers || {})[key] || null },
-                            json: () => Promise.resolve(msg.data),
-                            text: () => Promise.resolve(typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)),
-                            blob: () => Promise.resolve(new Blob([msg.data])),
-                            arrayBuffer: () => Promise.resolve(msg.data instanceof ArrayBuffer ? msg.data : new TextEncoder().encode(JSON.stringify(msg.data)).buffer),
+                            json: () => Promise.resolve(_isBinary ? {} : _d),
+                            text: () => Promise.resolve(_isBinary ? '' : (typeof _d === 'string' ? _d : JSON.stringify(_d))),
+                            blob: () => Promise.resolve(new Blob([_isBinary ? _ab : JSON.stringify(_d)])),
+                            arrayBuffer: () => Promise.resolve(_ab || new TextEncoder().encode(JSON.stringify(_d)).buffer),
                         });
                     }
                 }
@@ -1774,7 +1780,7 @@
         let wsSlowTimer = null;   // show loading overlay only after threshold
         const WS_SLOW_THRESHOLD_MS = 80; // ms before spinner appears
         let wsWatchdogTimer = null;  // postMessage mode: reset isRendering if no response
-        const WS_WATCHDOG_MS = 5000;
+        const WS_WATCHDOG_MS = 2000;
 
         let preloadPolling = null;
         let preloadActiveDim = -1;
@@ -5610,54 +5616,58 @@
                     return;
                 }
 
-                if (seq === wsSentSeq) {
-                    const headerF32 = new Float32Array(buf, 12, 2);
-                    const serverVmin = headerF32[0];
-                    const serverVmax = headerF32[1];
-                    if (manualVmin === null) {
-                        manualVmin = serverVmin;
-                        manualVmax = serverVmax;
-                        currentVmin = serverVmin;
-                        currentVmax = serverVmax;
-                    }
+                try {
+                    if (seq === wsSentSeq) {
+                        const headerF32 = new Float32Array(buf, 12, 2);
+                        const serverVmin = headerF32[0];
+                        const serverVmax = headerF32[1];
+                        if (manualVmin === null) {
+                            manualVmin = serverVmin;
+                            manualVmax = serverVmax;
+                            currentVmin = serverVmin;
+                            currentVmax = serverVmax;
+                        }
 
-                    const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
-                    const newImageData = new ImageData(rgba, width, height);
-                    crossFadeIn(newImageData, width, height);
-                    // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
-                    // sees the real childrenH and computes the correct paddingTop.
-                    if (document.getElementById('loading-overlay').style.display !== 'none') {
-                        // Show canvas-wrap immediately (still invisible due to av-loading opacity:0)
-                        document.getElementById('canvas-wrap').style.display = '';
-                        if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
-                        // Fade out overlay, fade in wrapper contents
-                        const ol = document.getElementById('loading-overlay');
-                        ol.style.opacity = '0';
-                        document.body.classList.remove('av-loading');
-                        ol.addEventListener('transitionend', () => { ol.style.display = 'none'; }, { once: true });
-                    }
-                    scaleCanvas(width, height);
-                    if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
-                        const vfTrailer = _unpackVfieldTrailer(buf, width, height);
-                        if (vfTrailer) {
-                            const cacheKey = `${sid},${dim_x},${dim_y},${indices.join(',')},${vfieldT},${vfDensityLevel}`;
-                            _vfieldCache = { key: cacheKey, data: vfTrailer };
-                            _vfieldRender(vfTrailer);
+                        const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
+                        const newImageData = new ImageData(rgba, width, height);
+                        crossFadeIn(newImageData, width, height);
+                        // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
+                        // sees the real childrenH and computes the correct paddingTop.
+                        if (document.getElementById('loading-overlay').style.display !== 'none') {
+                            // Show canvas-wrap immediately (still invisible due to av-loading opacity:0)
+                            document.getElementById('canvas-wrap').style.display = '';
+                            if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
+                            // Fade out overlay, fade in wrapper contents
+                            const ol = document.getElementById('loading-overlay');
+                            ol.style.opacity = '0';
+                            document.body.classList.remove('av-loading');
+                            ol.addEventListener('transitionend', () => { ol.style.display = 'none'; }, { once: true });
+                        }
+                        scaleCanvas(width, height);
+                        if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
+                            const vfTrailer = _unpackVfieldTrailer(buf, width, height);
+                            if (vfTrailer) {
+                                const cacheKey = `${sid},${dim_x},${dim_y},${indices.join(',')},${vfieldT},${vfDensityLevel}`;
+                                _vfieldCache = { key: cacheKey, data: vfTrailer };
+                                _vfieldRender(vfTrailer);
+                            } else {
+                                drawVectorOverlay();
+                            }
                         } else {
                             drawVectorOverlay();
                         }
-                    } else {
-                        drawVectorOverlay();
+                        updateMiniMap();
+                        if (!_reportedFirstFrame) {
+                            _reportedFirstFrame = true;
+                            reportParent('frame-rendered', {
+                                mode: 'ws',
+                                width,
+                                height,
+                            });
+                        }
                     }
-                    updateMiniMap();
-                    if (!_reportedFirstFrame) {
-                        _reportedFirstFrame = true;
-                        reportParent('frame-rendered', {
-                            mode: 'ws',
-                            width,
-                            height,
-                        });
-                    }
+                } catch (e) {
+                    console.error('[arrayview] onmessage error:', e);
                 }
 
                 isRendering = false;
@@ -7152,6 +7162,7 @@
                         console.warn('[arrayview] watchdog: no response in ' + WS_WATCHDOG_MS + 'ms, resetting');
                         isRendering = false;
                         if (pendingRequest) { pendingRequest = false; updateView(); }
+                        else if (isPlaying) { playNext(); }
                     }
                 }, WS_WATCHDOG_MS);
             }

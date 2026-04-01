@@ -174,14 +174,19 @@ class PythonBridge {
             this._buffer = this._buffer.slice(4 + len);
 
             const cb = this._pendingCallbacks.shift();
-            if (cb) cb(payload);
+            if (cb) {
+                cb(payload);
+            } else {
+                log(`WARNING: response (${payload.length} bytes) with no pending callback — FIFO misaligned`);
+            }
         }
     }
 
     sendRequest(msg) {
         return new Promise((resolve) => {
             this._pendingCallbacks.push(resolve);
-            this.process.stdin.write(JSON.stringify(msg) + '\n');
+            const ok = this.process.stdin.write(JSON.stringify(msg) + '\n');
+            if (!ok) log(`WARNING: stdin.write returned false (backpressure) for ${msg.type}, pending=${this._pendingCallbacks.length}`);
         });
     }
 
@@ -245,52 +250,72 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
     // Bridge messages between webview and Python subprocess
     panel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === 'ws-send') {
-            // Slice request from viewer -> forward to Python
-            const request = {
-                type: 'slice',
-                sid: msg.sid || bridge.sid,
-                ...msg.data,
-            };
-            const payload = await bridge.sendRequest(request);
+            // Slice request from viewer -> forward to Python.
+            // The entire block is wrapped in try/catch so that any unexpected
+            // error still sends a synthetic frame — preventing the viewer's
+            // isRendering flag from getting stuck forever.
+            try {
+                const _seq = msg.data.seq || 0;
+                const request = {
+                    type: 'slice',
+                    sid: msg.sid || bridge.sid,
+                    ...msg.data,
+                };
+                log(`SLICE seq=${_seq} -> Python (pending=${bridge._pendingCallbacks.length})`);
+                const payload = await bridge.sendRequest(request);
+                log(`SLICE seq=${_seq} <- Python (${payload.length} bytes, pending=${bridge._pendingCallbacks.length})`);
 
-            // Check if this is a binary slice response or a JSON error
-            // JSON responses start with '{' (0x7b)
-            if (payload[0] === 0x7b) {
-                let errorMsg = 'Unknown slice error';
-                try {
-                    const err = JSON.parse(payload.toString());
-                    errorMsg = err.error || errorMsg;
-                    log(`SLICE ERROR: ${errorMsg}`);
-                } catch (_) {}
-                // Synthesize a minimal 1×1 transparent frame so the viewer
-                // resets isRendering.  Header: seq(u32)+width(u32)+height(u32)
-                // +vmin(f32)+vmax(f32) = 20 bytes, then 4 bytes RGBA.
-                const frame = Buffer.alloc(24);
-                frame.writeUInt32LE(msg.data.seq || 0, 0);
-                frame.writeUInt32LE(1, 4);   // width
-                frame.writeUInt32LE(1, 8);   // height
-                // vmin, vmax, RGBA all zeros (transparent)
-                const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+                // Check if this is a binary slice response or a JSON error
+                // JSON responses start with '{' (0x7b)
+                if (payload[0] === 0x7b) {
+                    let errorMsg = 'Unknown slice error';
+                    try {
+                        const err = JSON.parse(payload.toString());
+                        errorMsg = err.error || errorMsg;
+                        log(`SLICE ERROR: ${errorMsg}`);
+                    } catch (_) {}
+                    // Synthesize a minimal 1×1 transparent frame so the viewer
+                    // resets isRendering.  Header: seq(u32)+width(u32)+height(u32)
+                    // +vmin(f32)+vmax(f32) = 20 bytes, then 4 bytes RGBA.
+                    const frame = Buffer.alloc(24);
+                    frame.writeUInt32LE(msg.data.seq || 0, 0);
+                    frame.writeUInt32LE(1, 4);   // width
+                    frame.writeUInt32LE(1, 8);   // height
+                    // vmin, vmax, RGBA all zeros (transparent)
+                    const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+                    const delivered = await panel.webview.postMessage({
+                        type: 'slice-data',
+                        channelId: msg.channelId,
+                        buffer: bytes,
+                    });
+                    if (!delivered) log(`WARNING: error-frame postMessage not delivered for ${msg.channelId}`);
+                    return;
+                }
+
+                // VS Code postMessage uses structured clone which handles
+                // Uint8Array but NOT raw ArrayBuffer reliably across the IPC bridge.
+                // Send as Uint8Array — the viewer side reconstructs the ArrayBuffer.
+                const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
+
                 const delivered = await panel.webview.postMessage({
                     type: 'slice-data',
                     channelId: msg.channelId,
                     buffer: bytes,
                 });
-                if (!delivered) log(`WARNING: error-frame postMessage not delivered for ${msg.channelId}`);
-                return;
+                if (!delivered) log(`WARNING: slice-data seq=${_seq} postMessage not delivered for ${msg.channelId}`);
+                else log(`SLICE seq=${_seq} -> webview OK`);
+            } catch (e) {
+                log(`SLICE RELAY ERROR: ${e.message}`);
+                // Synthesize a 1×1 frame so the viewer can recover
+                try {
+                    const frame = Buffer.alloc(24);
+                    frame.writeUInt32LE(msg.data.seq || 0, 0);
+                    frame.writeUInt32LE(1, 4);
+                    frame.writeUInt32LE(1, 8);
+                    const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+                    await panel.webview.postMessage({ type: 'slice-data', channelId: msg.channelId, buffer: bytes });
+                } catch (_) {}
             }
-
-            // VS Code postMessage uses structured clone which handles
-            // Uint8Array but NOT raw ArrayBuffer reliably across the IPC bridge.
-            // Send as Uint8Array — the viewer side reconstructs the ArrayBuffer.
-            const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
-
-            const delivered = await panel.webview.postMessage({
-                type: 'slice-data',
-                channelId: msg.channelId,
-                buffer: bytes,
-            });
-            if (!delivered) log(`WARNING: slice-data postMessage not delivered for ${msg.channelId}`);
         } else if (msg.type === 'fetch-proxy') {
             // Proxied fetch from viewer -> forward to Python
             const url = msg.url;
@@ -313,13 +338,29 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
                 const payload = await bridge.sendRequest(request);
                 const data = JSON.parse(payload.toString());
 
+                // Binary responses (e.g. lebesgue) are base64-encoded by the
+                // stdio server with a _binary flag and custom headers.
+                if (data._binary && data.data) {
+                    const buf = Buffer.from(data.data, 'base64');
+                    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+                    panel.webview.postMessage({
+                        type: 'fetch-response',
+                        id: msg.id,
+                        ok: true,
+                        status: 200,
+                        data: bytes,
+                        headers: data.headers || {},
+                    });
+                    return;
+                }
+
                 panel.webview.postMessage({
                     type: 'fetch-response',
                     id: msg.id,
                     ok: !data.error,
                     status: data.error ? 500 : 200,
                     data,
-                    headers: {},
+                    headers: data.headers || {},
                 });
             } catch (e) {
                 panel.webview.postMessage({
