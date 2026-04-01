@@ -1697,6 +1697,7 @@
         let customColormap = null, customGradientStops = null;
 
         let cbVisible = true;
+        let _sharedCbVisible = true;
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
         let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
         let _histFetching = false; // prevents concurrent fetches
@@ -1911,6 +1912,7 @@
                 if (scaler) return scaler();
                 if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
                 if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
+                _reconcileCbVisibility();
             },
             scaleAllAutoFit() {
                 const scaler = this.getScaler();
@@ -3046,23 +3048,12 @@
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
             }
-            // In immersive mode, toggle per-pane colorbars as overlaid islands
-            if (_fullscreenActive) {
-                const showPaneCbs = newMode > 0;
-                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.classList.toggle('fs-overlay', showPaneCbs);
-                });
+            // Update center-mode island content (reconciler handles visibility)
+            if (newMode > 0 && _fullscreenActive) {
+                const centerIsland = document.getElementById('compare-center-island');
+                if (centerIsland) centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
             }
-            // Update center-mode island content and re-position chrome
-            const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland) {
-                if (newMode > 0 && _fullscreenActive) {
-                    centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
-                    centerIsland.style.display = 'block';
-                } else {
-                    centerIsland.style.display = 'none';
-                }
-            }
+            _reconcileCbVisibility();
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
@@ -3418,39 +3409,15 @@
         };
 
         function drawSlimColorbar(markerFrac) {
+            // Per-pane colorbars must update even when shared cb is hidden
+            if (compareActive) drawAllComparePaneCbs();
+            if (!_sharedCbVisible) return;
             const wrap = document.getElementById('slim-cb-wrap');
             // Match colorbar island height to dimbar island
             const _infoForH = document.getElementById('info');
             if (wrap && _infoForH) {
                 const _iH = _infoForH.offsetHeight;
                 if (_iH > 0) wrap.style.minHeight = _iH + 'px';
-            }
-            if (compareActive) {
-                // Draw per-pane colorbars only in diff mode; otherwise hide them
-                drawAllComparePaneCbs();
-                // In diff/center-pane modes, per-pane colorbars replace the shared colorbar
-                if (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive) {
-                    slimCbCanvas.style.display = 'none';
-                    slimCbLabels.style.display = 'none';
-                    if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
-                    return;
-                }
-            }
-            if ((multiViewActive && !compareActive) || compareMvActive) {
-                // Multiview / compare-multiview draw their own per-pane colorbars
-                if (wrap) wrap.style.display = 'none';
-                return;
-            }
-            if (qmriActive || compareQmriActive) {
-                // qMRI mode draws its own per-pane colorbars
-                if (wrap) wrap.style.display = 'none';
-                return;
-            }
-            if (!colorbarVisible()) {
-                slimCbCanvas.style.display = 'none';
-                slimCbLabels.style.display = 'none';
-                if (wrap) { wrap.style.display = 'none'; wrap.classList.remove('compact-vertical'); }
-                return;
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
@@ -3462,12 +3429,6 @@
 
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
-                // In immersive diff/center mode, per-pane colorbars handle display — hide shared
-                const _fsCenterMode = compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (_fsCenterMode) {
-                    if (wrap) wrap.style.display = 'none';
-                    return;
-                }
                 // Fullscreen: use morph draw, then position anchored to bottom
                 if (_cmapInIsland) return;
                 const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
@@ -8537,18 +8498,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const _zMvCb = document.getElementById('mv-cb-wrap');
                         if (_zMvCb) { _zMvCb.style.transition = ''; _zMvCb.style.opacity = ''; }
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.classList.remove('fs-overlay');
                             el.style.transition = ''; el.style.opacity = '';
                         });
+                        _reconcileCbVisibility();
                     }
                     if (isDoubleTap) {
                         // Double-tap 0: exit immersive + full reset
                         if (_fullscreenActive) setFullscreenMode(false);
                         // Clean up mode-specific immersive artifacts
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.classList.remove('fs-overlay');
                             el.style.transition = ''; el.style.opacity = '';
                         });
+                        _reconcileCbVisibility();
                         const _dtMvCb = document.getElementById('mv-cb-wrap');
                         if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
                         userZoom = 1.0;
@@ -10435,9 +10396,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (compareActive) exitCompareMode();
             multiViewActive = true;
             document.getElementById('mini-map').classList.remove('visible');
-            // Hide shared colorbar — multiview draws its own via drawMvCbs()
-            const slimWrap = document.getElementById('slim-cb-wrap');
-            if (slimWrap) slimWrap.style.display = 'none';
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
             squareStretch = true;
@@ -10643,6 +10601,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
+            _reconcileCbVisibility();
             showStatus('3-plane view — press v to exit', 3000);
         }
 
@@ -10710,9 +10669,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const nMaps = cmaps.length;
 
             document.getElementById('canvas-wrap').style.display = 'none';
-            // Hide shared colorbar — qMRI has its own per-pane colorbars
-            const _slimWrap = document.getElementById('slim-cb-wrap');
-            if (_slimWrap) _slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${nMaps}`;
@@ -10866,6 +10822,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qmriViews.forEach(v => qvRender(v));
             }
             renderInfo();
+            _reconcileCbVisibility();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
@@ -10906,9 +10863,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
 
-            // Hide shared colorbar — qMRI draws per-pane colorbars
-            const _slimWrap = document.getElementById('slim-cb-wrap');
-            if (_slimWrap) _slimWrap.style.display = 'none';
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
@@ -11063,6 +11017,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareQmriViews.forEach(v => compareQmriRender(v));
             }
             renderInfo();
+            _reconcileCbVisibility();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
@@ -11264,11 +11219,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmvPrevSquareStretch = squareStretch;
             squareStretch = true;
 
-            // Hide compare panes + shared colorbar, show qmri-view-wrap (shared container)
+            // Hide compare panes, show qmri-view-wrap (shared container)
             compareWrap.classList.remove('active');
             document.getElementById('canvas-wrap').style.display = 'none';
-            const slimWrap = document.getElementById('slim-cb-wrap');
-            if (slimWrap) slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
@@ -11426,6 +11379,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.getElementById('mv-orientation').style.display = 'block';
             flashAxesIndicators();
             renderInfo();
+            _reconcileCbVisibility();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
         }
 
@@ -13203,12 +13157,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Reset wrapper padding
                 const wrapper = document.getElementById('wrapper');
                 if (wrapper) { wrapper.style.paddingTop = ''; }
-                const centerIsland = document.getElementById('compare-center-island');
-                if (centerIsland) centerIsland.style.display = 'none';
-                // Remove overlaid colorbar class
-                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.classList.remove('fs-overlay');
-                });
+                _reconcileCbVisibility();
             }
         }
 
@@ -13243,26 +13192,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _fullscreenActive = true;
                 document.body.classList.add('fullscreen-mode');
 
-                // If center mode (diff/overlay/wipe) is already active, show per-pane colorbars as islands
-                // and populate the center-mode indicator island
+                // Reconcile CB visibility for enter-immersive Phase 2
+                // (also populates center island content if in center mode)
                 if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                    document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                        el.classList.add('fs-overlay');
-                    });
                     const centerIsland = document.getElementById('compare-center-island');
                     if (centerIsland) {
                         const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
                         centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
-                        centerIsland.style.display = 'block';
                     }
                 }
-
-                // qMRI: mark per-map colorbars as floating overlays
-                if (qmriActive) {
-                    document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                        el.classList.add('fs-overlay');
-                    });
-                }
+                _reconcileCbVisibility({ animPhase: 'enter-2' });
 
                 // Render canvas at fromZoom in immersive layout (no auto-fit flash)
                 _autoFitPending = false;
@@ -13313,7 +13252,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const _mvCb = document.getElementById('mv-cb-wrap');
                 if (_mvCb) { _mvCb.style.transition = ''; _mvCb.style.opacity = ''; }
                 document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                    el.classList.remove('fs-overlay');
                     el.style.transition = ''; el.style.opacity = '';
                 });
                 if (_fullscreenActive) {
@@ -13394,11 +13332,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _autoFitPending = false;
                     ModeRegistry.scaleAll(); // settles layout at toZoom in normal mode
 
+                    _reconcileCbVisibility({ animPhase: 'exit-3' });
                     const cmpEls = Array.from(document.querySelectorAll('.compare-title, .compare-pane-cb-island'));
                     const mvCb = document.getElementById('mv-cb-wrap');
                     const qmriCbs = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island'));
-                    // Remove qMRI overlay class
-                    qmriCbs.forEach(el => el.classList.remove('fs-overlay'));
                     _animOpacity([infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs].filter(Boolean), 0, 1, FADE_IN, () => {
                         _immersiveAnimating = false;
                         for (const el of [infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs]) {
@@ -13446,19 +13383,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
                 }
             }
-            // Position center-mode island below dimbar
+            // Position center-mode island below dimbar (visibility managed by reconciler)
             const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland && compareActive) {
-                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-                if (hasCenterMode && infoEl) {
-                    centerIsland.style.display = 'block';
-                    const infoRect = infoEl.getBoundingClientRect();
-                    centerIsland.style.top = (infoRect.bottom + 6) + 'px';
-                } else {
-                    centerIsland.style.display = 'none';
-                }
-            } else if (centerIsland) {
-                centerIsland.style.display = 'none';
+            if (centerIsland && centerIsland.style.display !== 'none' && compareActive && infoEl) {
+                const infoRect = infoEl.getBoundingClientRect();
+                centerIsland.style.top = (infoRect.bottom + 6) + 'px';
             }
             // Position colorbar overlaid near canvas bottom (10px margin from canvas bottom edge)
             const cbWrap = document.getElementById('slim-cb-wrap');
@@ -13591,7 +13520,74 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             });
 
+            // Rule 24 — Reconciler invariant: _sharedCbVisible flag matches DOM
+            if (_vCbWrap) {
+                const actuallyVisible = _vCbWrap.style.display !== 'none';
+                if (actuallyVisible !== _sharedCbVisible) {
+                    w.push(`Rule 24: _sharedCbVisible=${_sharedCbVisible} but #slim-cb-wrap display=${_vCbWrap.style.display}`);
+                }
+            }
+
+            // Rule 25 — Reconciler invariant: center island visibility matches expected
+            const _vCenterIsland = document.getElementById('compare-center-island');
+            if (_vCenterIsland && !_immersiveAnimating) {
+                const _vIsCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
+                const expectedVisible = compareActive && _vIsCenter && _fullscreenActive;
+                const actuallyVisible = _vCenterIsland.style.display !== 'none';
+                if (actuallyVisible !== expectedVisible) {
+                    w.push(`Rule 25: compare-center-island display=${_vCenterIsland.style.display} but expected visible=${expectedVisible}`);
+                }
+            }
+
+            // Rule 26 — Reconciler invariant: qMRI fs-overlay only when fullscreen
+            if (!_fullscreenActive && !_immersiveAnimating) {
+                const _vQmriFs = document.querySelectorAll('#qmri-view-wrap .qv-cb-island.fs-overlay');
+                if (_vQmriFs.length > 0) {
+                    w.push(`Rule 26: ${_vQmriFs.length} qv-cb-island.fs-overlay elements exist outside fullscreen`);
+                }
+            }
+
             if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
+        }
+
+        // ── Centralized CB / island visibility reconciler ────────────
+        // Single source of truth for: shared colorbar, per-pane compare
+        // colorbars (.fs-overlay), qMRI colorbars (.fs-overlay), and
+        // the center-mode indicator island.
+        function _reconcileCbVisibility(opts) {
+            const animPhase = opts && opts.animPhase;
+            const isCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
+
+            // 1. Shared colorbar
+            _sharedCbVisible = colorbarVisible() && !isCenter
+                && !multiViewActive && !compareMvActive
+                && !qmriActive && !compareQmriActive;
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) cbWrap.style.display = _sharedCbVisible ? '' : 'none';
+
+            // 2. Per-pane compare cbs (.fs-overlay)
+            let showPaneFsOverlay = animPhase === 'enter-2' ? isCenter
+                : animPhase === 'exit-3' ? false
+                : isCenter && _fullscreenActive;
+            document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
+                el.classList.toggle('fs-overlay', showPaneFsOverlay);
+            });
+
+            // 3. qMRI per-map cbs (.fs-overlay)
+            let showQmriFsOverlay = animPhase === 'enter-2' ? true
+                : animPhase === 'exit-3' ? false
+                : _fullscreenActive;
+            if (qmriActive) {
+                document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                    el.classList.toggle('fs-overlay', showQmriFsOverlay);
+                });
+            }
+
+            // 4. Center island (display only — positioning stays in _positionFullscreenChrome)
+            const centerIsland = document.getElementById('compare-center-island');
+            if (centerIsland && !animPhase) {
+                centerIsland.style.display = (compareActive && isCenter && _fullscreenActive) ? 'block' : 'none';
+            }
         }
 
 
