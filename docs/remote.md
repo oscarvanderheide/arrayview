@@ -16,19 +16,40 @@ Auto-detects VS Code terminals and opens in Simple Browser. Works automatically.
 
 ## VS Code tunnel
 
-For remote development through a VS Code tunnel, start the server on the remote machine:
+The VS Code extension uses a **direct webview** transport: the viewer runs
+inside a VS Code webview panel and communicates with a Python subprocess via
+the extension host.  No port forwarding or public ports are needed — everything
+stays inside the tunnel.
 
 ```bash
-# on the remote machine
+arrayview volume.nii.gz     # opens in a webview tab automatically
+```
+
+### How it works
+
+```
+Viewer (webview) ←postMessage→ Extension Host ←stdin/stdout→ Python
+```
+
+Instead of a WebSocket connection to a running server, the extension spawns a
+dedicated Python process per array.  Slice requests travel through VS Code's
+`postMessage` IPC and the extension relays them to Python's stdin as JSON.
+Binary RGBA responses flow back through stdout with a length prefix.
+
+This avoids the main limitation of the WebSocket approach: VS Code tunnels
+don't expose arbitrary ports, so the old method required manually setting
+port 8000 to "Public" in the Ports tab.
+
+### Fallback: WebSocket mode
+
+If you prefer the traditional WebSocket server (e.g. for multi-hop setups or
+when sharing the viewer URL), you can still use it:
+
+```bash
 arrayview --serve
 ```
 
-Set port 8000 to Public in the VS Code Ports tab. Load arrays normally — each opens in Simple Browser:
-
-```bash
-arrayview volume.nii.gz
-```
-
+Set port 8000 to Public in the VS Code Ports tab, then load arrays normally.
 The server persists across invocations. Kill it with `arrayview --kill`.
 
 ## Multi-hop

@@ -255,15 +255,12 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
             // error still sends a synthetic frame — preventing the viewer's
             // isRendering flag from getting stuck forever.
             try {
-                const _seq = msg.data.seq || 0;
                 const request = {
                     type: 'slice',
                     sid: msg.sid || bridge.sid,
                     ...msg.data,
                 };
-                log(`SLICE seq=${_seq} -> Python (pending=${bridge._pendingCallbacks.length})`);
                 const payload = await bridge.sendRequest(request);
-                log(`SLICE seq=${_seq} <- Python (${payload.length} bytes, pending=${bridge._pendingCallbacks.length})`);
 
                 // Check if this is a binary slice response or a JSON error
                 // JSON responses start with '{' (0x7b)
@@ -302,8 +299,7 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
                     channelId: msg.channelId,
                     buffer: bytes,
                 });
-                if (!delivered) log(`WARNING: slice-data seq=${_seq} postMessage not delivered for ${msg.channelId}`);
-                else log(`SLICE seq=${_seq} -> webview OK`);
+                if (!delivered) log(`WARNING: slice-data postMessage not delivered for ${msg.channelId}`);
             } catch (e) {
                 log(`SLICE RELAY ERROR: ${e.message}`);
                 // Synthesize a 1×1 frame so the viewer can recover
