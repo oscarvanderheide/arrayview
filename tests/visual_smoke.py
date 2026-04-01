@@ -36,7 +36,7 @@ DISPLAY
   b               toggle border             ✓ 16
   c               cycle colormap            ✓ 02-03
   C               custom colormap (dialog)  ✗ (requires dialog input)
-  d               cycle dynamic range       ✓ 17
+  d               cycle dynamic range       ✓ 17, 74 (height regression)
   D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
    P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed; enabled in native shell iframe)
@@ -1810,6 +1810,31 @@ def run_smoke(page, base, client, tmp):
     assert mv_vf_back, "FAIL: U should show vectorfield overlays again in 3-view"
     _press(page, "v", wait=400)  # exit 3-view
     print("  OK: vectorfield arrows work in 3-view mode")
+
+    # ── 74: histogram height regression (d key must not expand colorbar) ─────
+    _goto(page, base, sid2d)
+    _focus(page)
+    # Ensure collapsed state first — press d four times to cycle back
+    for _ in range(4):
+        _press(page, "d", wait=200)
+    h_before = page.evaluate(
+        "() => { const el = document.getElementById('slim-cb-wrap'); return el ? el.offsetHeight : -1; }"
+    )
+    _shot(page, "74a_histogram_before_d")
+    _press(page, "d", wait=600)  # toggle histogram on
+    h_after = page.evaluate(
+        "() => { const el = document.getElementById('slim-cb-wrap'); return el ? el.offsetHeight : -1; }"
+    )
+    _shot(page, "74b_histogram_after_d")
+    delta = abs(h_after - h_before)
+    assert delta <= 4, (
+        f"FAIL: colorbar island height changed by {delta}px after pressing d "
+        f"(before={h_before}, after={h_after}) — histogram must fit within colorbar"
+    )
+    _press(page, "d", wait=200)
+    _press(page, "d", wait=200)
+    _press(page, "d", wait=200)  # cycle back to 0-100
+    print(f"  OK: histogram height stable (delta={delta}px)")
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 
