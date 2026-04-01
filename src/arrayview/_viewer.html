@@ -3365,6 +3365,7 @@
         window.addEventListener('resize', () => {
             ModeRegistry.scaleAll();
             positionEggs();
+            _validateUIState();
         });
 
         // ── Mode crossfade utility ──────────────────────────────
@@ -6257,6 +6258,7 @@
             el.style.bottom    = '';
             el.style.left      = '50%';
             el.style.transform = 'translateX(-50%)';
+            _validateUIState();
         }
 
         function _positionIsland() {
@@ -13332,6 +13334,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mainPan.reset();
                 _autoFitPending = false;
                 ModeRegistry.scaleAll();
+                _validateUIState();
                 return;
             }
 
@@ -13398,6 +13401,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         for (const el of [infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs]) {
                             if (el) { el.style.transition = ''; el.style.opacity = ''; }
                         }
+                        _validateUIState();
                     });
                 }, true); // true = easeIn: slow start → fast end (natural for shrinking)
             });
@@ -13507,6 +13511,83 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 _miniMap.style.right = 'auto';
             }
+            _validateUIState();
+        }
+
+        function _validateUIState() {
+            if (!_DEBUG_UI) return;
+            const w = [];
+
+            // Rule 4 — Height sync: #info and #slim-cb-wrap heights within 4px
+            const _vInfo = document.getElementById('info');
+            const _vCbWrap = document.getElementById('slim-cb-wrap');
+            if (_vInfo && _vCbWrap &&
+                _vInfo.style.display !== 'none' && _vCbWrap.style.display !== 'none' &&
+                _vInfo.offsetWidth > 0 && _vCbWrap.offsetWidth > 0) {
+                const hDiff = Math.abs(_vInfo.offsetHeight - _vCbWrap.offsetHeight);
+                if (hDiff > 4) {
+                    w.push(`Rule 4: #info height (${_vInfo.offsetHeight}) and #slim-cb-wrap height (${_vCbWrap.offsetHeight}) differ by ${hDiff}px (max 4)`);
+                }
+            }
+
+            // Rule 10 — Eggs don't overlap colorbar
+            const _vEggs = document.getElementById('mode-eggs');
+            if (_vEggs && _vCbWrap &&
+                _vEggs.style.display !== 'none' && _vCbWrap.style.display !== 'none' &&
+                _vEggs.offsetWidth > 0 && _vCbWrap.offsetWidth > 0) {
+                const eR = _vEggs.getBoundingClientRect();
+                const cR = _vCbWrap.getBoundingClientRect();
+                const overlaps = !(eR.right < cR.left || eR.left > cR.right ||
+                                   eR.bottom < cR.top || eR.top > cR.bottom);
+                if (overlaps) {
+                    w.push('Rule 10: #mode-eggs overlaps #slim-cb-wrap');
+                }
+            }
+
+            // Rule 12 — Per-pane cb visibility: .compare-pane-cb-island.fs-overlay only in fullscreen + center mode
+            const _vPaneCbs = document.querySelectorAll('.compare-pane-cb-island.fs-overlay');
+            if (_vPaneCbs.length > 0) {
+                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+                if (!_fullscreenActive || !hasCenterMode) {
+                    w.push(`Rule 12: ${_vPaneCbs.length} .compare-pane-cb-island.fs-overlay elements exist but fullscreenActive=${_fullscreenActive}, centerMode=${hasCenterMode}`);
+                }
+            }
+
+            // Rule 13 — Shared cb visibility in compare (no center mode)
+            if (compareActive) {
+                const hasCenterMode = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+                if (!hasCenterMode && _vCbWrap && _vCbWrap.style.display === 'none') {
+                    w.push('Rule 13: compareActive with no center mode but #slim-cb-wrap is hidden');
+                }
+            }
+
+            // Rule 16 — Drag positions cleared when not fullscreen
+            if (!_fullscreenActive) {
+                if (_infoDragPos !== null) w.push('Rule 16: _infoDragPos is not null outside fullscreen');
+                if (_cbDragPos !== null) w.push('Rule 16: _cbDragPos is not null outside fullscreen');
+                if (_islandDragPos !== null) w.push('Rule 16: _islandDragPos is not null outside fullscreen');
+            }
+
+            // Rule 17 — fs-overlay cleanup when not fullscreen
+            if (!_fullscreenActive && !document.body.classList.contains('fullscreen-mode')) {
+                const _vFsOverlays = document.querySelectorAll('.fs-overlay');
+                if (_vFsOverlays.length > 0) {
+                    w.push(`Rule 17: ${_vFsOverlays.length} .fs-overlay elements exist outside fullscreen`);
+                }
+            }
+
+            // Rule 23 — Flex direction: all visible .cb-island must be flex-direction: row
+            const _vCbIslands = document.querySelectorAll('.cb-island');
+            _vCbIslands.forEach(el => {
+                if (el.offsetWidth > 0 && el.style.display !== 'none') {
+                    const fd = getComputedStyle(el).flexDirection;
+                    if (fd !== 'row') {
+                        w.push(`Rule 23: .cb-island has flex-direction: ${fd} (expected row) — ${el.id || el.className}`);
+                    }
+                }
+            });
+
+            if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
         }
 
 
