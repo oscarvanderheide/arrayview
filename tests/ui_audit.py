@@ -207,6 +207,41 @@ _JS_VIEWPORT = """
 () => ({w: window.innerWidth, h: window.innerHeight})
 """
 
+_JS_HEIGHT_SYNC = """
+() => {
+    const info = document.querySelector('#info');
+    const cb = document.querySelector('#slim-cb-wrap');
+    if (!info || !cb) return null;
+    const iS = getComputedStyle(info);
+    const cS = getComputedStyle(cb);
+    if (iS.display === 'none' || cS.display === 'none') return null;
+    return {infoH: info.offsetHeight, cbH: cb.offsetHeight};
+}
+"""
+
+_JS_IMMERSIVE_STATE = """
+() => ({
+    fullscreen: typeof _fullscreenActive !== 'undefined' ? _fullscreenActive : false,
+    animating: typeof _immersiveAnimating !== 'undefined' ? _immersiveAnimating : false,
+    infoDrag: typeof _infoDragPos !== 'undefined' ? _infoDragPos : null,
+    cbDrag: typeof _cbDragPos !== 'undefined' ? _cbDragPos : null,
+    islandDrag: typeof _islandDragPos !== 'undefined' ? _islandDragPos : null,
+    fsOverlayCount: document.querySelectorAll('.fs-overlay').length,
+    hasFullscreenClass: document.body.classList.contains('fullscreen-mode'),
+})
+"""
+
+_JS_CB_FLEX_DIRS = """
+() => {
+    return Array.from(document.querySelectorAll('.cb-island'))
+        .filter(el => el.offsetWidth > 0 && getComputedStyle(el).display !== 'none')
+        .map(el => ({
+            id: el.id || el.className,
+            dir: getComputedStyle(el).flexDirection,
+        }));
+}
+"""
+
 
 def _boxes_overlap(a: dict, b: dict) -> bool:
     """Check if two bounding boxes {x, y, w, h} overlap."""
@@ -387,6 +422,77 @@ def run_diff_assertions(page: Page) -> list[AssertionResult]:
     return results
 
 
+def run_invariant_assertions(page: Page) -> list[AssertionResult]:
+    """Run hard UI invariant assertions (apply to every scenario)."""
+    results = []
+
+    # R29: Height sync — dimbar and colorbar height within 4px
+    hs = page.evaluate(_JS_HEIGHT_SYNC)
+    if hs is not None:
+        diff = abs(hs["infoH"] - hs["cbH"])
+        ok = diff <= 4
+        results.append(AssertionResult(
+            rule="R29 (height sync: dimbar ↔ colorbar)",
+            passed=ok,
+            detail="" if ok else f"infoH={hs['infoH']} cbH={hs['cbH']} diff={diff}",
+        ))
+
+    # R33: Flex direction — all visible .cb-island must be row
+    dirs = page.evaluate(_JS_CB_FLEX_DIRS)
+    for d in dirs:
+        ok = d["dir"] == "row"
+        results.append(AssertionResult(
+            rule=f"R33 (flex-direction: {d['id']})",
+            passed=ok,
+            detail="" if ok else f"got {d['dir']}",
+        ))
+
+    return results
+
+
+def run_immersive_exit_assertions(page: Page) -> list[AssertionResult]:
+    """Run assertions after immersive exit to verify clean state."""
+    results = []
+    state = page.evaluate(_JS_IMMERSIVE_STATE)
+
+    # Should not be in fullscreen after exit
+    if state["fullscreen"]:
+        results.append(AssertionResult(
+            rule="R30 (not in fullscreen after exit)",
+            passed=False,
+            detail=f"fullscreen={state['fullscreen']}",
+        ))
+        return results  # other checks meaningless if still in fullscreen
+
+    # R30: Drag positions cleared
+    for name in ("infoDrag", "cbDrag", "islandDrag"):
+        val = state[name]
+        ok = val is None
+        results.append(AssertionResult(
+            rule=f"R30 ({name} cleared after immersive exit)",
+            passed=ok,
+            detail="" if ok else f"{name}={val}",
+        ))
+
+    # R31: No .fs-overlay elements
+    ok = state["fsOverlayCount"] == 0
+    results.append(AssertionResult(
+        rule="R31 (no .fs-overlay after immersive exit)",
+        passed=ok,
+        detail="" if ok else f"count={state['fsOverlayCount']}",
+    ))
+
+    # R31b: No fullscreen-mode class on body
+    ok = not state["hasFullscreenClass"]
+    results.append(AssertionResult(
+        rule="R31b (no fullscreen-mode class after exit)",
+        passed=ok,
+        detail="" if ok else "body still has fullscreen-mode",
+    ))
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Scenario definitions — declarative
 # ---------------------------------------------------------------------------
@@ -522,6 +628,15 @@ TIER1 = [
     Scenario("t1_compact_roi", 1, ["roi", "compact"],
              description="Single 3D, compact + ROI",
              keys=list(K_IMMERSIVE) + list(K_ROI)),
+    Scenario("t1_immersive_roundtrip", 1, ["zoom", "compact"],
+             description="Enter immersive → exit → verify clean state",
+             keys=list(K_IMMERSIVE) + [("0", 400), ("0", 800)],
+             extra_assertions=["immersive_exit"]),
+    Scenario("t1_compare_immersive_roundtrip", 1, ["compare", "zoom", "compact"],
+             description="Compare → immersive → exit → verify clean state",
+             compare_keys=["3d", "3d_b"],
+             keys=list(K_IMMERSIVE) + [("0", 400), ("0", 800)],
+             extra_assertions=["immersive_exit"]),
 ]
 
 
@@ -1032,12 +1147,15 @@ def run_scenarios(
 
             # 7. Run assertions
             assertion_results = run_assertions(page, name, zoomed=scenario.zoom > 0)
+            assertion_results.extend(run_invariant_assertions(page))
 
             # 8. Extra assertions
             if "diff" in scenario.extra_assertions:
                 assertion_results.extend(run_diff_assertions(page))
             if "lebesgue" in scenario.extra_assertions:
                 assertion_results.extend(run_lebesgue_assertions(page))
+            if "immersive_exit" in scenario.extra_assertions:
+                assertion_results.extend(run_immersive_exit_assertions(page))
 
             # 9. Process results
             failed_assertions = [a for a in assertion_results if not a.passed]
