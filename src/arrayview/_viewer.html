@@ -4625,9 +4625,8 @@
         function _cbAnimStep() {
             const elapsed = performance.now() - _cbAnimStart;
             const rawT = Math.min(1, elapsed / _cbAnimDuration);
-            // Expanding: ease-out (fast start, slow end). Collapsing: ease-in (time-reverse of expand).
-            const expanding = _cbAnimTarget > _cbAnimFrom;
-            const easedT = expanding ? (1 - Math.pow(1 - rawT, 3)) : Math.pow(rawT, 3);
+            // Ease-out (fast start, gentle finish) for both expand and collapse
+            const easedT = 1 - Math.pow(1 - rawT, 3);
             _cbAnimT = _cbAnimFrom + (_cbAnimTarget - _cbAnimFrom) * easedT;
             // Toggle cb-expanded class for non-immersive outline removal
             const _wrapEl = document.getElementById(
