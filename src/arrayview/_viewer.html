@@ -3049,22 +3049,10 @@
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
             }
-            // In immersive mode, toggle per-pane colorbars as overlaid islands
-            if (_fullscreenActive) {
-                const showPaneCbs = newMode > 0;
-                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.classList.toggle('fs-overlay', showPaneCbs);
-                });
-            }
-            // Update center-mode island content and re-position chrome
-            const centerIsland = document.getElementById('compare-center-island');
-            if (centerIsland) {
-                if (newMode > 0 && _fullscreenActive) {
-                    centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
-                    centerIsland.style.display = 'block';
-                } else {
-                    centerIsland.style.display = 'none';
-                }
+            // Update center-mode island content (reconciler handles visibility)
+            if (newMode > 0 && _fullscreenActive) {
+                const centerIsland = document.getElementById('compare-center-island');
+                if (centerIsland) centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
             }
             _reconcileCbVisibility();
             if (_fullscreenActive) _positionFullscreenChrome();
