@@ -13574,7 +13574,109 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
 
+            // Rule 27 (shadow) — layout reconciler: canvas-wrap display matches expected
+            const _vCanvasWrap = document.getElementById('canvas-wrap');
+            if (_vCanvasWrap && !document.body.classList.contains('av-loading')) {
+                const _vExpCanvasVisible = !compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive;
+                const _vActCanvasVisible = _vCanvasWrap.style.display !== 'none';
+                if (_vActCanvasVisible !== _vExpCanvasVisible) {
+                    w.push(`Rule 27 (shadow): canvas-wrap display=${_vCanvasWrap.style.display} but expected visible=${_vExpCanvasVisible}`);
+                }
+            }
+
+            // Rule 28 (shadow) — layout reconciler: compareWrap.active matches expected
+            const _vCmpActive = compareWrap.classList.contains('active');
+            const _vExpCmpActive = compareActive && !compareQmriActive && !compareMvActive;
+            if (_vCmpActive !== _vExpCmpActive) {
+                w.push(`Rule 28 (shadow): compareWrap.active=${_vCmpActive} but expected=${_vExpCmpActive}`);
+            }
+
+            // Rule 29 (shadow) — layout reconciler: array-name display
+            const _vNameEl = document.getElementById('array-name');
+            if (_vNameEl) {
+                const _vNameVisible = _vNameEl.style.display !== 'none';
+                if (compareActive && _vNameVisible) {
+                    w.push('Rule 29 (shadow): array-name visible but compareActive=true');
+                }
+            }
+
+            // Rule 30 (shadow) — compare state: wipe-mode class
+            const _vHasWipeClass = compareWrap.classList.contains('wipe-mode');
+            const _vExpectedWipe = compareActive && (_wipeActive || _flickerActive || _checkerActive);
+            if (_vHasWipeClass !== _vExpectedWipe) {
+                w.push(`Rule 30 (shadow): compareWrap.wipe-mode=${_vHasWipeClass} but expected=${_vExpectedWipe}`);
+            }
+
             if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
+        }
+
+        // ── Unified UI reconciler ────────────────────────────────────
+        // Single entry point that reconciles all UI state from current flags.
+        // Call after any mode state change.
+        function _reconcileUI() {
+            _reconcileLayout();
+            _reconcileCompareState();
+            _reconcileCbVisibility();
+        }
+
+        // ── Layout container visibility reconciler ───────────────────
+        // Derives which top-level containers are visible from mode flags.
+        function _reconcileLayout() {
+            // 1. Canvas wrap — visible only in single-view (no special mode)
+            const canvasWrap = document.getElementById('canvas-wrap');
+            if (canvasWrap && !document.body.classList.contains('av-loading')) {
+                canvasWrap.style.display = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) ? '' : 'none';
+            }
+
+            // 2. Compare wrap active class — shown for base compare (not sub-modes using other containers)
+            compareWrap.classList.toggle('active', compareActive && !compareQmriActive && !compareMvActive);
+
+            // 3. Array name — hidden in compare mode
+            const nameEl = document.getElementById('array-name');
+            if (nameEl) nameEl.style.display = compareActive ? 'none' : '';
+
+            // 4. Multiview orientation indicator
+            const mvOrientation = document.getElementById('mv-orientation');
+            if (mvOrientation) mvOrientation.style.display = (multiViewActive || compareMvActive) ? 'block' : 'none';
+
+            // 5. Canvas borders — apply to all relevant containers based on user preference
+            const vp = document.getElementById('canvas-viewport');
+            if (vp) vp.classList.toggle('canvas-bordered', canvasBorders);
+            document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-view').forEach(el => {
+                el.classList.toggle('canvas-bordered', canvasBorders);
+            });
+        }
+
+        // ── Compare sub-mode state reconciler ────────────────────────
+        // Derives compare sub-mode UI from center mode flags.
+        // When !compareActive, cleans up all compare-specific classes.
+        function _reconcileCompareState() {
+            const isCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
+            const showWipePane = _wipeActive || _flickerActive || _checkerActive;
+
+            // 1. Diff pane visibility and overlay class
+            const diffPane = document.getElementById('compare-diff-pane');
+            if (diffPane) {
+                diffPane.style.display = (compareActive && (diffMode > 0 || registrationMode)) ? 'flex' : 'none';
+                diffPane.classList.toggle('overlay-center', compareActive && registrationMode);
+            }
+
+            // 2. Wipe pane visibility
+            const wipePaneEl = document.getElementById('compare-wipe-pane');
+            if (wipePaneEl) wipePaneEl.style.display = (compareActive && showWipePane) ? 'flex' : 'none';
+
+            // 3. Wipe mode class
+            compareWrap.classList.toggle('wipe-mode', compareActive && showWipePane);
+
+            // 4. Focus classes
+            compareWrap.classList.toggle('focus-diff', compareActive && compareFocusMode && diffMode > 0);
+            compareWrap.classList.toggle('focus-reg', compareActive && compareFocusMode && registrationMode);
+
+            // 5. Flex-wrap for 3-column layout
+            const panesEl = document.getElementById('compare-panes');
+            if (panesEl) {
+                panesEl.style.flexWrap = (compareActive && isCenter && compareDisplaySids.length === 2) ? 'nowrap' : '';
+            }
         }
 
         // ── Centralized CB / island visibility reconciler ────────────
