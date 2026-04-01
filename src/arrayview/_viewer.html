@@ -4026,19 +4026,47 @@
                     ctx.restore();
                 }
 
-                // Dashed guide lines + value labels in the label zone
+                // Solid handle lines + value labels in the label zone
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
 
+                    // Solid handle lines at vmin/vmax
                     if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                        ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
-                        const stripeOn = 4, stripeOff = 3;
                         [effVmin, effVmax].forEach(f => {
                             if (f <= 0.003 || f >= 0.997) return;
                             const x = Math.round(f * cssW);
-                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+
+                            // Height matches KDE curve at this position
+                            const t = f;
+                            let lineH;
+                            if (hasKDE) {
+                                const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
+                                lineH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                            } else {
+                                lineH = cssH - labelH;
                             }
+                            const lineTop = cssH - lineH;
+
+                            // Sample colormap at this position to determine line visibility
+                            const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
+                            const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
+                            const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
+
+                            // Yellow line color: check if background is too close to yellow
+                            const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
+
+                            // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
+                            const coreColor = isYellowish
+                                ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
+                                : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
+                            const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+
+                            // Outline (3px wide)
+                            ctx.fillStyle = outlineColor;
+                            ctx.fillRect(x - 1.5, lineTop, 3, lineH);
+                            // Core line (1px wide)
+                            ctx.fillStyle = coreColor;
+                            ctx.fillRect(x - 0.5, lineTop, 1, lineH);
                         });
                     }
 
@@ -4053,17 +4081,6 @@
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
-                        // Draw striped lines at literal left/right histogram edges
-                        {
-                            const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
-                            ctx.fillStyle = edgeStripeColor;
-                            const stripeOn = 4, stripeOff = 3;
-                            for (const x of [1, cssW - 2]) {
-                                for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                                    ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
-                                }
-                            }
-                        }
                         const labels = [];
                         labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
                         labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
@@ -4738,19 +4755,46 @@
                 ctx.restore();
             }
 
-            // Striped guide lines + all value labels in the label zone
+            // Solid handle lines + all value labels in the label zone
             if (aT > 0.1) {
                 ctx.globalAlpha = aT;
-                // Striped guide lines for vmin/vmax window
+                // Solid handle lines at vmin/vmax
                 if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                    ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
-                    const stripeOn = 4, stripeOff = 3;
                     [effVmin, effVmax].forEach(f => {
                         if (f <= 0.003 || f >= 0.997) return;
                         const x = Math.round(f * cssW);
-                        for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                            ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+
+                        // Height matches KDE curve at this position
+                        const t = f;
+                        let lineH;
+                        if (hasKDE) {
+                            const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
+                            lineH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
+                        } else {
+                            lineH = cssH - labelH;
                         }
+                        const lineTop = cssH - lineH;
+
+                        // Sample colormap at this position to determine line visibility
+                        const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
+                        const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
+                        const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
+
+                        // Yellow line color: check if background is too close to yellow
+                        const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
+
+                        // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
+                        const coreColor = isYellowish
+                            ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
+                            : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
+                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+
+                        // Outline (3px wide)
+                        ctx.fillStyle = outlineColor;
+                        ctx.fillRect(x - 1.5, lineTop, 3, lineH);
+                        // Core line (1px wide)
+                        ctx.fillStyle = coreColor;
+                        ctx.fillRect(x - 0.5, lineTop, 1, lineH);
                     });
                 }
                 // Value labels in the label zone
@@ -4766,17 +4810,6 @@
                     // Measure char width for overlap detection
                     const charW = ctx.measureText('0').width;
                     const labelY = labelH - 3;
-                    // Draw striped lines at literal left/right histogram edges
-                    {
-                        const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
-                        ctx.fillStyle = edgeStripeColor;
-                        const stripeOn = 4, stripeOff = 3;
-                        for (const x of [1, cssW - 2]) {
-                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
-                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
-                            }
-                        }
-                    }
                     // Build label list: [{x, text, color, priority}]
                     // Higher priority labels suppress lower when overlapping
                     const labels = [];
