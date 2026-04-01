@@ -167,18 +167,17 @@
         }
         .cb-col {
             flex: 1; min-width: 60px; position: relative;
-            height: 13px; overflow: visible;
+            height: 18px; overflow: visible;
         }
         .cb-canvas {
             display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
             position: absolute; bottom: 0; left: 0; background: transparent;
         }
         .cb-tri-zone {
-            position: absolute; bottom: -10px; left: 0; width: 100%;
-            height: 0; overflow: visible;
-            transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            height: 0; overflow: visible; pointer-events: none; z-index: 1;
         }
-        .cb-tri-zone.expanded { height: 10px; }
+        .cb-tri-zone.expanded { /* triangles overlay on canvas — no height change */ }
         .cb-tooltip {
             position: absolute; top: 0; left: 0; font-size: 10px;
             color: var(--fg); background: var(--bg);
@@ -186,9 +185,9 @@
             pointer-events: none; white-space: nowrap; z-index: 3;
         }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; background: transparent; }
-        #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
-        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
-        #slim-cb-tri-zone.expanded { height: 10px; }
+        #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
+        #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
+        #slim-cb-tri-zone.expanded { /* no height change — triangles overlay on canvas */ }
         .slim-cb-tri {
             position: absolute; bottom: 0; width: 0; height: 0;
             border-left: 5px solid transparent; border-right: 5px solid transparent;
@@ -3493,10 +3492,8 @@
                 slimCbLabels.style.display = 'none';
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) _cvmin.style.display = _cbExpanded ? 'none' : '';
-                if (_cvmax) _cvmax.style.display = _cbExpanded ? 'none' : '';
-                if (_cvmin && !_cbExpanded) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                if (_cvmax && !_cbExpanded) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                if (_cvmin) { _cvmin.style.display = ''; _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin); }
+                if (_cvmax) { _cvmax.style.display = ''; _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax); }
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
                 _cbMorphDraw();
@@ -3525,11 +3522,10 @@
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
-            // but keep them hidden when histogram is expanded
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
-            if (_nvmin) _nvmin.style.display = _cbExpanded ? 'none' : '';
-            if (_nvmax) _nvmax.style.display = _cbExpanded ? 'none' : '';
+            if (_nvmin) _nvmin.style.display = '';
+            if (_nvmax) _nvmax.style.display = '';
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
@@ -3606,9 +3602,6 @@
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax && !_cmapInIsland) {
-                // Hide flanking values when expanded — dmin/dmax drawn on canvas instead
-                slimVmin.style.display = _cbExpanded ? 'none' : '';
-                slimVmax.style.display = _cbExpanded ? 'none' : '';
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
