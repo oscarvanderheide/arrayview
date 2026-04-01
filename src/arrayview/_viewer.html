@@ -5877,7 +5877,6 @@
                 applyCompareLayout();
                 drawCompareFramesFromCache();
                 hideLoadingOverlay();
-                document.getElementById('canvas-wrap').style.display = 'none';
                 if (diffMode > 0) fetchAndDrawDiff();
             } catch (e) {
                 setStatus(`Compare render failed: ${e.message || e}`);
@@ -9754,9 +9753,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
-                document.getElementById('canvas-wrap').style.display = 'none';
-                document.getElementById('array-name').style.display = 'none';
-                compareWrap.classList.add('active');
                 applyCompareLayout();
                 _reconcileUI();
                 renderInfo();
@@ -9795,9 +9791,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRendering = false;
                 comparePending = false;
                 compareActive = true;
-                document.getElementById('canvas-wrap').style.display = 'none';
-                document.getElementById('array-name').style.display = 'none';
-                compareWrap.classList.add('active');
                 applyCompareLayout();
                 _reconcileUI();
                 renderInfo();
@@ -10393,14 +10386,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const _wp = document.getElementById('compare-wipe-pane');
             if (_wp) _wp.style.display = 'none';
             compareWrap.classList.remove('wipe-mode');
-            compareWrap.classList.remove('active');
             compareFocusMode = false;
             compareWrap.classList.remove('focus-diff', 'focus-reg');
             _reconcileUI();
-            if (!multiViewActive && !qmriActive) {
-                document.getElementById('canvas-wrap').style.display = '';
-            }
-            document.getElementById('array-name').style.display = '';
             drawSlimColorbar(cbMarkerFrac);
             renderEggs();
             _updateHeaderNameForCompare();
@@ -10436,7 +10424,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             flipDims[dim_x] = flip_x;
             flipDims[dim_y] = flip_y;
             hideLoadingOverlay();
-            document.getElementById('canvas-wrap').style.display = 'none';
             const wrap = document.getElementById('multi-view-wrap');
             wrap.innerHTML = '';
             wrap.classList.add('active');
@@ -10626,7 +10613,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     );
                 });
             }
-            document.getElementById('mv-orientation').style.display = 'block';
             // Set activeDim to the first non-spatial (non-mvDims) dimension
             const _firstNonSpatial = shape.findIndex((_, i) => !dims.includes(i));
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
@@ -10657,8 +10643,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mvCrosshairAlpha = 0; _mvCrosshairTarget = 0;
             if (_mvCrosshairAnim) { cancelAnimationFrame(_mvCrosshairAnim); _mvCrosshairAnim = null; }
             obliqueVecs = null; obliqueDrag = null;
-            document.getElementById('mv-orientation').style.display = 'none';
-            document.getElementById('canvas-wrap').style.display = '';
             if (window._mvColorBar) {
                 window._mvColorBar.destroy();
                 window._mvColorBar = null;
@@ -10700,7 +10684,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
 
-            document.getElementById('canvas-wrap').style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${nMaps}`;
@@ -10869,7 +10852,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; } });
             qmriViews = [];
             _hoveredQmriView = null;
-            document.getElementById('canvas-wrap').style.display = '';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
@@ -10905,9 +10887,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
 
-            // Hide compare panes, show qmri wrap
-            compareWrap.classList.remove('active');
-            document.getElementById('canvas-wrap').style.display = 'none';
+            // Layout reconciled by _reconcileUI() — set up qmri-view-wrap container
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
@@ -11067,11 +11047,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             wrap.className = '';
             // Restore compare mode visuals
             if (compareActive) {
-                compareWrap.classList.add('active');
                 applyCompareLayout();
                 compareRender();
             } else {
-                document.getElementById('canvas-wrap').style.display = '';
                 updateView();
             }
             _reconcileUI();
@@ -11253,9 +11231,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmvPrevSquareStretch = squareStretch;
             squareStretch = true;
 
-            // Hide compare panes, show qmri-view-wrap (shared container)
-            compareWrap.classList.remove('active');
-            document.getElementById('canvas-wrap').style.display = 'none';
+            // Layout reconciled by _reconcileUI() — set up qmri-view-wrap container
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
@@ -11410,7 +11386,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (httpTransport) {
                 compareMvViews.forEach(v => compareMvRender(v));
             }
-            document.getElementById('mv-orientation').style.display = 'block';
             flashAxesIndicators();
             renderInfo();
             _reconcileUI();
@@ -11441,17 +11416,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_cmvCrosshairAnim) { cancelAnimationFrame(_cmvCrosshairAnim); _cmvCrosshairAnim = null; }
             compareMvSids = [];
             compareMvDims = [];
-            document.getElementById('mv-orientation').style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
             // Restore compare mode visuals
             if (compareActive) {
-                compareWrap.classList.add('active');
                 applyCompareLayout();
                 compareRender();
             } else {
-                document.getElementById('canvas-wrap').style.display = '';
                 updateView();
             }
             _reconcileUI();
