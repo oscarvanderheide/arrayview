@@ -110,13 +110,13 @@
         .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
-            text-align: center; padding: 5px 16px; position: fixed; z-index: 2;
+            text-align: center; padding: 7px 16px; position: fixed; z-index: 2;
             transition: opacity 0.3s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
-            border-radius: 18px;
+            border-radius: 14px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            display: flex; align-items: center; gap: 8px;
+            display: flex; align-items: flex-end; gap: 8px;
             box-sizing: border-box;
         }
         :root.light #slim-cb-wrap {
@@ -181,20 +181,22 @@
         }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; }
-        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; }
+        #slim-cb-tri-zone { position: relative; height: 0; overflow: visible; transition: height 0.3s cubic-bezier(0.4,0,0.2,1); }
+        #slim-cb-tri-zone.expanded { height: 10px; }
         .slim-cb-tri {
-            position: absolute; bottom: 0; width: 6px; height: 6px;
-            border-radius: 50%; background: var(--muted);
-            transform: translate(-3px, 50%);
+            position: absolute; bottom: 0; width: 0; height: 0;
+            border-left: 5px solid transparent; border-right: 5px solid transparent;
+            border-bottom: 6px solid rgba(255,255,100,0.9);
+            transform: translateX(-5px);
             cursor: ew-resize; pointer-events: auto;
             transition: opacity 0.3s ease;
             opacity: 0;
         }
+        :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
+        :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-range-col { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
-        .slim-cb-dval { font-size: 9px; color: var(--muted); opacity: 0.5; font-family: monospace; white-space: nowrap; width: 5ch; text-align: center; overflow: hidden; display: none; }
         .slim-cb-val { font-size: 13px; color: var(--muted); font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 5ch; text-align: center; overflow: hidden; }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
@@ -896,7 +898,7 @@
             white-space: nowrap;
         }
 
-        /* ── Non-immersive: subtle island styling ──────────────── */
+        /* ── Non-immersive: strip island styling, show bare chrome ─ */
         body:not(.fullscreen-mode) #info {
             background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
@@ -905,38 +907,23 @@
             background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
+        body:not(.fullscreen-mode) #slim-cb-wrap .cb-canvas,
+        body:not(.fullscreen-mode) #slim-cb {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
+        }
         body:not(.fullscreen-mode) #mv-cb-wrap {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 14px;
+        }
+        body:not(.fullscreen-mode) #mv-cb-wrap .cb-canvas {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
         }
         body:not(.fullscreen-mode) .cb-island {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+            border: none; border-radius: 0; padding: 5px 10px;
         }
-        body:not(.fullscreen-mode) #dynamic-island {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
-        }
-        :root.light body:not(.fullscreen-mode) #info,
-        :root.light body:not(.fullscreen-mode) #slim-cb-wrap,
-        :root.light body:not(.fullscreen-mode) #mv-cb-wrap,
-        :root.light body:not(.fullscreen-mode) .cb-island,
-        :root.light body:not(.fullscreen-mode) #dynamic-island {
-            background: rgba(240,240,240,0.6); border-color: rgba(0,0,0,0.06);
-        }
-        :root.solarized body:not(.fullscreen-mode) #info,
-        :root.solarized body:not(.fullscreen-mode) #slim-cb-wrap,
-        :root.solarized body:not(.fullscreen-mode) #mv-cb-wrap,
-        :root.solarized body:not(.fullscreen-mode) .cb-island,
-        :root.solarized body:not(.fullscreen-mode) #dynamic-island {
-            background: rgba(238,232,213,0.6); border-color: rgba(0,0,0,0.06);
-        }
-        :root.nord body:not(.fullscreen-mode) #info,
-        :root.nord body:not(.fullscreen-mode) #slim-cb-wrap,
-        :root.nord body:not(.fullscreen-mode) #mv-cb-wrap,
-        :root.nord body:not(.fullscreen-mode) .cb-island,
-        :root.nord body:not(.fullscreen-mode) #dynamic-island {
-            background: rgba(36,41,56,0.6); border-color: rgba(216,222,233,0.05);
+        body:not(.fullscreen-mode) .cb-island .cb-canvas {
+            outline: 1px solid var(--canvas-border); border-radius: 3px;
         }
         /* Hide rectangular outline when histogram is expanded — KDE stroke replaces it */
         body:not(.fullscreen-mode) .cb-island.cb-expanded .cb-canvas,
@@ -1134,10 +1121,7 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
-            <div class="slim-cb-range-col">
-                <span class="slim-cb-dval" id="slim-cb-dmin"></span>
-                <span class="slim-cb-val" id="slim-cb-vmin"></span>
-            </div>
+            <span class="slim-cb-val" id="slim-cb-vmin"></span>
             <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
                 <canvas id="slim-cb"></canvas>
                 <div id="slim-cb-tri-zone">
@@ -1145,10 +1129,7 @@
                     <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
                 </div>
             </div>
-            <div class="slim-cb-range-col">
-                <span class="slim-cb-dval" id="slim-cb-dmax"></span>
-                <span class="slim-cb-val" id="slim-cb-vmax"></span>
-            </div>
+            <span class="slim-cb-val" id="slim-cb-vmax"></span>
             <div id="slim-cb-labels"></div>
             <div id="slim-cb-tooltip"></div>
         </div>
@@ -3498,17 +3479,10 @@
                 slimCbLabels.style.display = 'none';
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) { _cvmin.style.display = ''; _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin); }
-                if (_cvmax) { _cvmax.style.display = ''; _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax); }
-                // Show dmin/dmax above vmin/vmax when expanded
-                const _fsDmin = document.getElementById('slim-cb-dmin');
-                const _fsDmax = document.getElementById('slim-cb-dmax');
-                if (_fsDmin && _fsDmax && _histData) {
-                    _fsDmin.textContent = _cbFmt(_histData.vmin);
-                    _fsDmax.textContent = _cbFmt(_histData.vmax);
-                    _fsDmin.style.display = _cbExpanded ? '' : 'none';
-                    _fsDmax.style.display = _cbExpanded ? '' : 'none';
-                }
+                if (_cvmin) _cvmin.style.display = _cbExpanded ? 'none' : '';
+                if (_cvmax) _cvmax.style.display = _cbExpanded ? 'none' : '';
+                if (_cvmin && !_cbExpanded) _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin);
+                if (_cvmax && !_cbExpanded) _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax);
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
                 _cbMorphDraw();
@@ -3537,10 +3511,11 @@
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
+            // but keep them hidden when histogram is expanded
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
-            if (_nvmin) _nvmin.style.display = '';
-            if (_nvmax) _nvmax.style.display = '';
+            if (_nvmin) _nvmin.style.display = _cbExpanded ? 'none' : '';
+            if (_nvmax) _nvmax.style.display = _cbExpanded ? 'none' : '';
             const rawW = compareActive ? Math.round(canvasRect.width)
                 : multiViewActive ? Math.round(canvasRect.width)
                 : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
@@ -3617,6 +3592,9 @@
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax && !_cmapInIsland) {
+                // Hide flanking values when expanded — dmin/dmax drawn on canvas instead
+                slimVmin.style.display = _cbExpanded ? 'none' : '';
+                slimVmax.style.display = _cbExpanded ? 'none' : '';
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
@@ -3626,22 +3604,13 @@
                     slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
                     slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
                 }
-                // Show dmin/dmax above vmin/vmax when expanded
-                const slimDmin = document.getElementById('slim-cb-dmin');
-                const slimDmax = document.getElementById('slim-cb-dmax');
-                if (slimDmin && slimDmax && _histData) {
-                    slimDmin.textContent = _cbFmt(_histData.vmin);
-                    slimDmax.textContent = _cbFmt(_histData.vmax);
-                    slimDmin.style.display = _cbExpanded ? '' : 'none';
-                    slimDmax.style.display = _cbExpanded ? '' : 'none';
-                }
             }
         }
 
         // ── Histogram-in-colorbar (morph) ────────────────────────────────────
-        const CB_COLLAPSED_H = 18;  // flat colorbar height in CSS px
-        const CB_LABEL_H     = 0;   // no label zone — dmin/dmax shown as DOM elements
-        let _cbExpandedH  = 18;  // same as collapsed — histogram fits within colorbar height
+        const CB_COLLAPSED_H = 13;  // flat colorbar height in CSS px
+        const CB_LABEL_H     = 14;  // top zone for value labels when expanded
+        let _cbExpandedH  = 62;  // dynamically computed; default = label zone (14) + distribution (48)
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
@@ -3651,11 +3620,12 @@
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
-        // Expanded height matches collapsed — histogram fits within colorbar
-        let _cbExpandedHLocked = false;
+        // Compute expanded height so the histogram island fills the space
+        // previously occupied by colorbar island + gap + eggs
+        let _cbExpandedHLocked = false; // once computed, lock the height
         function _computeCbExpandedH() {
-            if (_cbExpandedHLocked) return;
-            _cbExpandedH = CB_COLLAPSED_H;
+            if (_cbExpandedHLocked) return; // already locked — don't recompute
+            _cbExpandedH = CB_DEFAULT_EXPANDED_H;
             _cbExpandedHLocked = true;
         }
 
@@ -3698,7 +3668,7 @@
         }
 
         // ── ColorBar class ────────────────────────────────────────────────────
-        const CB_DEFAULT_EXPANDED_H = CB_COLLAPSED_H;  // histogram fits within colorbar height
+        const CB_DEFAULT_EXPANDED_H = 62;
         const CB_KDE_NPTS = 300;
         const CB_HIT_RADIUS = 7;
 
@@ -4102,7 +4072,7 @@
                     ctx.globalAlpha = aT;
 
                     if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+                        ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
                         const stripeOn = 4, stripeOff = 3;
                         [effVmin, effVmax].forEach(f => {
                             if (f <= 0.003 || f >= 0.997) return;
@@ -4114,16 +4084,30 @@
                     }
 
                     if (labelH > 4 && this._histData) {
+                        const { vmin: dmin, vmax: dmax } = this._histData;
                         const win = this.opts.getWindow();
                         const wVmin = win.vmin;
                         const wVmax = win.vmax;
+                        const dimColor   = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                         const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
                         const hoverColor  = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
                         ctx.font = '9px monospace';
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
+                        // Draw striped lines at literal left/right histogram edges
+                        {
+                            const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
+                            ctx.fillStyle = edgeStripeColor;
+                            const stripeOn = 4, stripeOff = 3;
+                            for (const x of [1, cssW - 2]) {
+                                for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                                    ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                                }
+                            }
+                        }
                         const labels = [];
-                        // vmin/vmax at window edges
+                        labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
@@ -4132,9 +4116,7 @@
                             const vx = Math.round(effVmax * cssW);
                             labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
                         }
-                        // Hover value (highest priority)
                         if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
-                            const { vmin: dmin, vmax: dmax } = this._histData;
                             const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
                             const hx = Math.round(this._hoverFrac * cssW);
                             labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
@@ -4192,25 +4174,16 @@
                 this.canvas = null;
             }
 
-            /** Update vmin/vmax flanking labels from opts.getRange(). Show dmin/dmax when expanded. */
+            /** Update vmin/vmax flanking labels from opts.getRange(). Hides when expanded. */
             updateLabels() {
                 const range = this.opts.getRange();
                 if (this.vminLabel) {
                     this.vminLabel.textContent = _cbFmt(range.vmin);
+                    this.vminLabel.style.display = this._expanded ? 'none' : '';
                 }
                 if (this.vmaxLabel) {
                     this.vmaxLabel.textContent = _cbFmt(range.vmax);
-                }
-                // Show dmin/dmax above vmin/vmax when expanded
-                const dminEl = this.dminLabel || (this.vminLabel && this.vminLabel.parentElement.querySelector('.slim-cb-dval'));
-                const dmaxEl = this.dmaxLabel || (this.vmaxLabel && this.vmaxLabel.parentElement.querySelector('.slim-cb-dval'));
-                if (dminEl && this._histData) {
-                    dminEl.textContent = _cbFmt(this._histData.vmin);
-                    dminEl.style.display = this._expanded ? '' : 'none';
-                }
-                if (dmaxEl && this._histData) {
-                    dmaxEl.textContent = _cbFmt(this._histData.vmax);
-                    dmaxEl.style.display = this._expanded ? '' : 'none';
+                    this.vmaxLabel.style.display = this._expanded ? 'none' : '';
                 }
             }
 
@@ -4800,7 +4773,7 @@
                 ctx.globalAlpha = aT;
                 // Striped guide lines for vmin/vmax window
                 if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+                    ctx.fillStyle = isDark ? 'rgba(255,255,100,0.3)' : 'rgba(180,100,0,0.3)';
                     const stripeOn = 4, stripeOff = 3;
                     [effVmin, effVmax].forEach(f => {
                         if (f <= 0.003 || f >= 0.997) return;
@@ -4810,40 +4783,65 @@
                         }
                     });
                 }
-                // Value labels in the label zone (vmin/vmax + hover only; dmin/dmax shown as DOM labels)
+                // Value labels in the label zone
+                // Collect all labels with their x-positions, then cull overlaps
                 if (labelH > 4 && _histData) {
                     const { vmin: dmin, vmax: dmax } = _histData;
                     const wVmin = manualVmin ?? currentVmin;
                     const wVmax = manualVmax ?? currentVmax;
+                    const dimColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                     const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
                     const hoverColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
                     ctx.font = '9px monospace';
+                    // Measure char width for overlap detection
                     const charW = ctx.measureText('0').width;
                     const labelY = labelH - 3;
+                    // Draw striped lines at literal left/right histogram edges
+                    {
+                        const edgeStripeColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
+                        ctx.fillStyle = edgeStripeColor;
+                        const stripeOn = 4, stripeOff = 3;
+                        for (const x of [1, cssW - 2]) {
+                            for (let y = labelH; y < cssH; y += stripeOn + stripeOff) {
+                                ctx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, cssH - y));
+                            }
+                        }
+                    }
+                    // Build label list: [{x, text, color, priority}]
+                    // Higher priority labels suppress lower when overlapping
                     const labels = [];
+                    // dmin at left edge (start-aligned at stripe), dmax at right edge (end-aligned)
+                    labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
+                    labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                    // vmin (if different from dmin)
                     if (effVmin > 0.01 && effVmin < 0.99) {
                         const vx = Math.round(effVmin * cssW);
                         labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
                     }
+                    // vmax (if different from dmax)
                     if (effVmax > 0.01 && effVmax < 0.99) {
                         const vx = Math.round(effVmax * cssW);
                         labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
                     }
+                    // Hover value (highest priority)
                     if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1) {
                         const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
                         const hx = Math.round(_cbHoverFrac * cssW);
                         labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                     }
+                    // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
                     labels.sort((a, b) => b.prio - a.prio);
-                    const drawn = [];
+                    // Compute pixel extents and cull overlaps
+                    const drawn = []; // [{left, right}] of already drawn labels
                     for (const lbl of labels) {
                         const tw = lbl.text.length * charW;
                         let left, right;
                         if (lbl.align === 'start') { left = lbl.x; right = lbl.x + tw; }
                         else if (lbl.align === 'end') { left = lbl.x - tw; right = lbl.x; }
                         else { left = lbl.x - tw / 2; right = lbl.x + tw / 2; }
+                        // Check overlap with higher-priority already-drawn labels
                         const overlaps = drawn.some(d => left < d.right + 4 && right > d.left - 4);
-                        if (overlaps) continue;
+                        if (overlaps) continue; // skip this lower-priority label
                         ctx.fillStyle = lbl.color;
                         ctx.textAlign = lbl.align;
                         ctx.fillText(lbl.text, lbl.x, labelY);
@@ -5560,7 +5558,7 @@
             const ac = new AbortController();
             _mvVfieldAborts.set(viewIndex, ac);
             try {
-                const res = await proxyFetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
+                const res = await fetch(`/vectorfield/${sid}?${params}`, { signal: ac.signal });
                 if (!res.ok || ac.signal.aborted) return;
                 const data = await res.json();
                 if (ac.signal.aborted) return;
@@ -9442,12 +9440,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     flashAxesIndicators();
                     renderInfo();
                 }
-            } else if (e.key === 'w') {
-                await toggleRgbMode();
             } else if (e.key === 'M') {
                 alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
-                proxyFetch(`/alpha/${sid}`, {
+                fetch(`/alpha/${sid}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ level: alphaLevel }),
@@ -9513,9 +9509,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'f') {
                 if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
-                    showFftSpinner();
-                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
-
+                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             _fftActive = false;
@@ -9528,8 +9522,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 } else {
                     const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
                     if (!axesStr) return;
-                    showFftSpinner();
-                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
+                    fetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
                         .then(r => r.json()).then(d => {
                             hideFftSpinner();
                             if (d.error) { showStatus('FFT error: ' + d.error); return; }
@@ -12136,8 +12129,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('vmin_override', String(v.lockedVmin));
                     params.set('vmax_override', String(v.lockedVmax));
                 }
-                params.set('quality', (obliqueDrag || mvDraggingView) ? 'draft' : 'full');
-                const resp = await proxyFetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
+                const resp = await fetch(`/oblique/${sid}?${params}`, { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`oblique ${resp.status}`);
                 const blob = await resp.blob();
                 const decoded = await decodeBlobToImageData(blob);
@@ -13528,8 +13520,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const vmaxEl = document.getElementById('slim-cb-vmax');
             if (cv) cv.style.display = '';
             if (triZone) triZone.style.display = '';
-            if (vminEl) vminEl.style.display = '';
-            if (vmaxEl) vmaxEl.style.display = '';
+            // Only show flanking values if histogram is collapsed
+            if (vminEl) vminEl.style.display = _cbExpanded ? 'none' : '';
+            if (vmaxEl) vmaxEl.style.display = _cbExpanded ? 'none' : '';
             // Redraw to restore correct state
             _cbMorphDraw();
         }
