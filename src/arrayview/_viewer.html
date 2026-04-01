@@ -13524,15 +13524,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             });
 
-            // Rule 24 (shadow) — reconciler agreement: shared cb display matches expected
-            const _vIsCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
-            const _vExpectedCbVisible = colorbarVisible() && !_vIsCenter
-                && !multiViewActive && !compareMvActive
-                && !qmriActive && !compareQmriActive;
+            // Rule 24 — Reconciler invariant: _sharedCbVisible flag matches DOM
             if (_vCbWrap) {
                 const actuallyVisible = _vCbWrap.style.display !== 'none';
-                if (actuallyVisible !== _vExpectedCbVisible) {
-                    w.push(`Rule 24 (shadow): #slim-cb-wrap display=${_vCbWrap.style.display} but expected visible=${_vExpectedCbVisible}`);
+                if (actuallyVisible !== _sharedCbVisible) {
+                    w.push(`Rule 24: _sharedCbVisible=${_sharedCbVisible} but #slim-cb-wrap display=${_vCbWrap.style.display}`);
+                }
+            }
+
+            // Rule 25 — Reconciler invariant: center island visibility matches expected
+            const _vCenterIsland = document.getElementById('compare-center-island');
+            if (_vCenterIsland && !_immersiveAnimating) {
+                const _vIsCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
+                const expectedVisible = compareActive && _vIsCenter && _fullscreenActive;
+                const actuallyVisible = _vCenterIsland.style.display !== 'none';
+                if (actuallyVisible !== expectedVisible) {
+                    w.push(`Rule 25: compare-center-island display=${_vCenterIsland.style.display} but expected visible=${expectedVisible}`);
                 }
             }
 
