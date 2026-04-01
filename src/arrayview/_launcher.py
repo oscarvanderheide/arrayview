@@ -847,6 +847,24 @@ def view(
             raise NotImplementedError(
                 "Multi-array view() is not yet supported in Julia mode"
             )
+        # VS Code tunnel/remote: use direct webview mode (SHM + postMessage).
+        if _is_vscode_remote():
+            arr = np.array(data) if not isinstance(data, np.ndarray) else data
+            _ensure_vscode_extension()
+            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}")
+            print(
+                f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
+                flush=True,
+            )
+            import time as _time
+            from arrayview._vscode import _ACTIVE_SHM
+            shm_paths = [f"/dev/shm/{shm.name}" for shm in _ACTIVE_SHM]
+            _deadline = _time.monotonic() + 30.0
+            while _time.monotonic() < _deadline:
+                if not any(os.path.exists(p) for p in shm_paths):
+                    break
+                _time.sleep(0.2)
+            return None
         return _view_julia(
             np.array(data) if not isinstance(data, np.ndarray) else data,
             name,
