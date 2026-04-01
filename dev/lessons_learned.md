@@ -53,3 +53,17 @@ Hard-won knowledge from past development sessions. Check this before starting wo
 **Root cause:** The CSS for `.cb-tri-zone.expanded` adds `height: 10px`, but the `expanded` class was never added in multiview mode because the drawMvColorbar() function didn't sync the class.
 **Fix (batch commit):** Added `.cb-tri-zone` class CSS rule (was only `#slim-cb-tri-zone`); `drawMvColorbar()` now syncs `expanded` class.
 **Verification:** Check `document.querySelector('.cb-tri-zone').classList.contains('expanded')` 100ms after pressing 'd' — should be `true`.
+
+## UI Reconciler Pattern
+
+**Problem:** UI element visibility scattered across 15+ toggle sites per element. Mode combinatorics make it impossible to keep all sites in sync — same class of bug fixed 4+ times for colorbars alone.
+
+**Solution:** Grouped reconciler functions that derive UI state from mode flags:
+- `_reconcileLayout()` — container visibility (canvas-wrap, compareWrap, array-name, mv-orientation, canvas-bordered)
+- `_reconcileCompareState()` — compare sub-mode UI (diff/wipe panes, wipe-mode/focus classes, flex-wrap)
+- `_reconcileCbVisibility()` — colorbar/island visibility
+- `_reconcileUI()` — wrapper that calls all three
+
+**Key insight:** Mode entry/exit functions set flags, then call the reconciler. The reconciler reads flags and computes correct DOM state. No function needs to know what other functions do — the reconciler is the single source of truth.
+
+**When adding new modes or UI elements:** Add the visibility rule to the appropriate reconciler. All existing call sites automatically get the update.
