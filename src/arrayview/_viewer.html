@@ -203,7 +203,8 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 13px; color: #fff; font-family: monospace; white-space: nowrap; flex-shrink: 0; width: 5ch; text-align: center; overflow: hidden; }
+        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; width: 32px; text-align: center; overflow: hidden; line-height: 1; }
+        .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: super; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
         :root.solarized .slim-cb-val { color: #586e75; }
         :root.nord .slim-cb-val { color: #d8dee9; }
@@ -3237,8 +3238,8 @@
             const frame = compareFrames[idx];
             const labelVmin = cmpManualVmin[idx] ?? frame.vmin;
             const labelVmax = cmpManualVmax[idx] ?? frame.vmax;
-            if (cbVmin) { cbVmin.style.display = ''; cbVmin.textContent = _cbFmt(labelVmin); }
-            if (cbVmax) { cbVmax.style.display = ''; cbVmax.textContent = _cbFmt(labelVmax); }
+            if (cbVmin) { cbVmin.style.display = ''; cbVmin.innerHTML = _cbFmt(labelVmin); }
+            if (cbVmax) { cbVmax.style.display = ''; cbVmax.innerHTML = _cbFmt(labelVmax); }
         }
 
         function drawRegBlendCb() {
@@ -3330,8 +3331,8 @@
             }
             ctx2.fillStyle = grad; ctx2.fillRect(0, 0, cssW, stripH);
             ctx2.restore();
-            if (diffCbVmin) { diffCbVmin.style.display = ''; diffCbVmin.textContent = _cbFmt(vmin); }
-            if (diffCbVmax) { diffCbVmax.style.display = ''; diffCbVmax.textContent = _cbFmt(vmax); }
+            if (diffCbVmin) { diffCbVmin.style.display = ''; diffCbVmin.innerHTML = _cbFmt(vmin); }
+            if (diffCbVmax) { diffCbVmax.style.display = ''; diffCbVmax.innerHTML = _cbFmt(vmax); }
         }
 
         function drawAllComparePaneCbs() {
@@ -3381,17 +3382,44 @@
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
         const _cbFmt = v => {
-            // Target: ≤5 characters for monospace label (fits in 5ch width)
             const av = Math.abs(v);
             if (av === 0) return '0';
-            if (av >= 1e3 || (av < 0.01 && av > 0)) {
-                return v.toExponential(0); // e.g. "1e+4", "-2e-3", "6e+3"
+            // Normal range: show as-is with limited precision
+            if (av >= 0.1 && av < 10000) {
+                let s = parseFloat(v.toPrecision(3)).toString();
+                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
+                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
+                return s;
             }
-            // Fixed notation: progressively reduce precision to fit 5 chars
-            let s = parseFloat(v.toPrecision(3)).toString();
-            if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
-            if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
-            return s;
+            // Scientific notation with HTML superscript
+            const exp = Math.floor(Math.log10(av));
+            const mantissa = v / Math.pow(10, exp);
+            let m;
+            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
+                m = Math.round(mantissa).toString();
+            } else {
+                m = parseFloat(mantissa.toPrecision(2)).toString();
+            }
+            return m + '<span class="exp">e' + exp + '</span>';
+        };
+        const _cbFmtPlain = v => {
+            const av = Math.abs(v);
+            if (av === 0) return '0';
+            if (av >= 0.1 && av < 10000) {
+                let s = parseFloat(v.toPrecision(3)).toString();
+                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
+                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
+                return s;
+            }
+            const exp = Math.floor(Math.log10(av));
+            const mantissa = v / Math.pow(10, exp);
+            let m;
+            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
+                m = Math.round(mantissa).toString();
+            } else {
+                m = parseFloat(mantissa.toPrecision(2)).toString();
+            }
+            return m + 'e' + exp;
         };
 
         function drawSlimColorbar(markerFrac) {
@@ -3439,8 +3467,8 @@
                 slimCbLabels.style.display = 'none';
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) { _cvmin.style.display = ''; _cvmin.textContent = _cbFmt(manualVmin ?? currentVmin); }
-                if (_cvmax) { _cvmax.style.display = ''; _cvmax.textContent = _cbFmt(manualVmax ?? currentVmax); }
+                if (_cvmin) { _cvmin.style.display = ''; _cvmin.innerHTML = _cbFmt(manualVmin ?? currentVmin); }
+                if (_cvmax) { _cvmax.style.display = ''; _cvmax.innerHTML = _cbFmt(manualVmax ?? currentVmax); }
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
                 _cbMorphDraw();
@@ -3552,11 +3580,11 @@
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
-                    slimVmin.textContent = _cbFmt(sharedVmin);
-                    slimVmax.textContent = _cbFmt(sharedVmax);
+                    slimVmin.innerHTML = _cbFmt(sharedVmin);
+                    slimVmax.innerHTML = _cbFmt(sharedVmax);
                 } else {
-                    slimVmin.textContent = _cbFmt(manualVmin ?? currentVmin);
-                    slimVmax.textContent = _cbFmt(manualVmax ?? currentVmax);
+                    slimVmin.innerHTML = _cbFmt(manualVmin ?? currentVmin);
+                    slimVmax.innerHTML = _cbFmt(manualVmax ?? currentVmax);
                 }
             }
         }
@@ -4082,20 +4110,20 @@
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
                         const labels = [];
-                        labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                        labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                        labels.push({ x: 1, text: _cbFmtPlain(dmin), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax), align: 'end', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
-                            labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _cbFmtPlain(wVmin), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (effVmax > 0.01 && effVmax < 0.99) {
                             const vx = Math.round(effVmax * cssW);
-                            labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _cbFmtPlain(wVmax), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
                             const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
                             const hx = Math.round(this._hoverFrac * cssW);
-                            labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
+                            labels.push({ x: hx, text: _cbFmtPlain(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                         }
                         labels.sort((a, b) => b.prio - a.prio);
                         const drawn = [];
@@ -4154,11 +4182,11 @@
             updateLabels() {
                 const range = this.opts.getRange();
                 if (this.vminLabel) {
-                    this.vminLabel.textContent = _cbFmt(range.vmin);
+                    this.vminLabel.innerHTML = _cbFmt(range.vmin);
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    this.vmaxLabel.textContent = _cbFmt(range.vmax);
+                    this.vmaxLabel.innerHTML = _cbFmt(range.vmax);
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -4814,23 +4842,23 @@
                     // Higher priority labels suppress lower when overlapping
                     const labels = [];
                     // dmin at left edge (start-aligned at stripe), dmax at right edge (end-aligned)
-                    labels.push({ x: 1, text: _cbFmt(dmin), align: 'start', color: dimColor, prio: 0 });
-                    labels.push({ x: cssW - 1, text: _cbFmt(dmax), align: 'end', color: dimColor, prio: 0 });
+                    labels.push({ x: 1, text: _cbFmtPlain(dmin), align: 'start', color: dimColor, prio: 0 });
+                    labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax), align: 'end', color: dimColor, prio: 0 });
                     // vmin (if different from dmin)
                     if (effVmin > 0.01 && effVmin < 0.99) {
                         const vx = Math.round(effVmin * cssW);
-                        labels.push({ x: vx, text: _cbFmt(wVmin), align: 'center', color: brightColor, prio: 1 });
+                        labels.push({ x: vx, text: _cbFmtPlain(wVmin), align: 'center', color: brightColor, prio: 1 });
                     }
                     // vmax (if different from dmax)
                     if (effVmax > 0.01 && effVmax < 0.99) {
                         const vx = Math.round(effVmax * cssW);
-                        labels.push({ x: vx, text: _cbFmt(wVmax), align: 'center', color: brightColor, prio: 1 });
+                        labels.push({ x: vx, text: _cbFmtPlain(wVmax), align: 'center', color: brightColor, prio: 1 });
                     }
                     // Hover value (highest priority)
                     if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1) {
                         const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
                         const hx = Math.round(_cbHoverFrac * cssW);
-                        labels.push({ x: hx, text: _cbFmt(hoverVal), align: 'center', color: hoverColor, prio: 2 });
+                        labels.push({ x: hx, text: _cbFmtPlain(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                     }
                     // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
                     labels.sort((a, b) => b.prio - a.prio);
@@ -4969,7 +4997,7 @@
                 sCtx.fillStyle = labelColor;
                 sCtx.font = '9px monospace';
                 sCtx.textAlign = 'center';
-                sCtx.fillText(_cbFmt(val), x, 8);
+                sCtx.fillText(_cbFmtPlain(val), x, 8);
                 sCtx.textAlign = 'start'; // reset
                 return x;
             }
@@ -9299,9 +9327,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 saveState();
             } else if (e.key === 'D') {
                 if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; }
-                const v1 = await showInlinePrompt('vmin:', _cbFmt(currentVmin));
+                const v1 = await showInlinePrompt('vmin:', _cbFmtPlain(currentVmin));
                 if (v1 === null) return;
-                const v2 = await showInlinePrompt('vmax:', _cbFmt(currentVmax));
+                const v2 = await showInlinePrompt('vmax:', _cbFmtPlain(currentVmax));
                 if (v2 === null) return;
                 const mn = parseFloat(v1), mx = parseFloat(v2);
                 if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
@@ -9313,7 +9341,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     updateView();
                 });
                 drawSlimColorbar(cbMarkerFrac);
-                showStatus(`range locked: ${_cbFmt(mn)} – ${_cbFmt(mx)}`);
+                showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
             } else if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isPlaying && activeDim === playingDim) { stopPlay(); }
