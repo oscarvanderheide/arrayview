@@ -487,6 +487,7 @@ def run_stdio_server() -> None:
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            _write_error(f"invalid JSON: {line[:200]}")
             continue
 
         msg_type = msg.get("type", "slice")

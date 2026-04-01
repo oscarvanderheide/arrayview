@@ -256,10 +256,27 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
             // Check if this is a binary slice response or a JSON error
             // JSON responses start with '{' (0x7b)
             if (payload[0] === 0x7b) {
+                let errorMsg = 'Unknown slice error';
                 try {
                     const err = JSON.parse(payload.toString());
-                    log(`SLICE ERROR: ${err.error}`);
+                    errorMsg = err.error || errorMsg;
+                    log(`SLICE ERROR: ${errorMsg}`);
                 } catch (_) {}
+                // Synthesize a minimal 1×1 transparent frame so the viewer
+                // resets isRendering.  Header: seq(u32)+width(u32)+height(u32)
+                // +vmin(f32)+vmax(f32) = 20 bytes, then 4 bytes RGBA.
+                const frame = Buffer.alloc(24);
+                frame.writeUInt32LE(msg.data.seq || 0, 0);
+                frame.writeUInt32LE(1, 4);   // width
+                frame.writeUInt32LE(1, 8);   // height
+                // vmin, vmax, RGBA all zeros (transparent)
+                const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+                const delivered = await panel.webview.postMessage({
+                    type: 'slice-data',
+                    channelId: msg.channelId,
+                    buffer: bytes,
+                });
+                if (!delivered) log(`WARNING: error-frame postMessage not delivered for ${msg.channelId}`);
                 return;
             }
 
@@ -268,11 +285,12 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
             // Send as Uint8Array — the viewer side reconstructs the ArrayBuffer.
             const bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
 
-            panel.webview.postMessage({
+            const delivered = await panel.webview.postMessage({
                 type: 'slice-data',
                 channelId: msg.channelId,
                 buffer: bytes,
             });
+            if (!delivered) log(`WARNING: slice-data postMessage not delivered for ${msg.channelId}`);
         } else if (msg.type === 'fetch-proxy') {
             // Proxied fetch from viewer -> forward to Python
             const url = msg.url;
