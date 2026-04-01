@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import numpy as np
 
@@ -38,6 +39,91 @@ def _fix_mat_complex(arr):
     return arr
 
 
+def _select_npz_array(npz, filepath):
+    """Interactively select an array from a multi-array .npz file.
+
+    Uses curses for an arrow-key selector when available, falls back to a
+    simple numbered prompt otherwise.
+    """
+    keys = list(npz.keys())
+    filename = os.path.basename(filepath)
+
+    # Build display lines: "name  shape  dtype"
+    entries = []
+    for k in keys:
+        arr = npz[k]
+        entries.append(f"{k}  {arr.shape}  {arr.dtype}")
+
+    # --- curses UI ----------------------------------------------------------
+    try:
+        import curses
+
+        def _curses_select(stdscr):
+            curses.curs_set(0)
+            idx = 0
+            while True:
+                stdscr.clear()
+                stdscr.addstr(0, 0, f"Select array from {filename}:")
+                for i, line in enumerate(entries):
+                    y = i + 2
+                    if i == idx:
+                        stdscr.addstr(y, 2, f"> {line}", curses.A_REVERSE)
+                    else:
+                        stdscr.addstr(y, 4, line)
+                stdscr.addstr(len(entries) + 3, 0, "↑/↓ navigate  Enter select  q/Esc cancel")
+                stdscr.refresh()
+                ch = stdscr.getch()
+                if ch == curses.KEY_UP and idx > 0:
+                    idx -= 1
+                elif ch == curses.KEY_DOWN and idx < len(entries) - 1:
+                    idx += 1
+                elif ch in (curses.KEY_ENTER, 10, 13):
+                    return idx
+                elif ch in (ord("q"), 27):  # q or Escape
+                    return None
+
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            chosen = curses.wrapper(_curses_select)
+            if chosen is None:
+                raise SystemExit("Selection cancelled.")
+            return npz[keys[chosen]]
+
+    except ImportError:
+        # curses unavailable (e.g. Windows without windows-curses) — fall back
+        pass
+    except curses.error:
+        # terminal too small or not a real terminal — fall back
+        pass
+
+    # --- fallback numbered list ---------------------------------------------
+    if not sys.stdin.isatty():
+        raise ValueError(
+            f".npz contains multiple arrays: {keys}. "
+            "Load it manually and pass the array to view()."
+        )
+
+    print(f"\nSelect array from {filename}:\n")
+    for i, line in enumerate(entries):
+        print(f"  [{i + 1}] {line}")
+    print()
+
+    while True:
+        try:
+            raw = input(f"Enter number (1-{len(entries)}), or 'q' to cancel: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raise SystemExit("Selection cancelled.")
+        if raw.lower() == "q":
+            raise SystemExit("Selection cancelled.")
+        try:
+            choice = int(raw)
+        except ValueError:
+            print("  Invalid input.")
+            continue
+        if 1 <= choice <= len(entries):
+            return npz[keys[choice - 1]]
+        print(f"  Please enter a number between 1 and {len(entries)}.")
+
+
 def load_data(filepath):
     if filepath.endswith(".npy"):
         return np.load(filepath, mmap_mode="r")
@@ -46,10 +132,7 @@ def load_data(filepath):
         keys = list(npz.keys())
         if len(keys) == 1:
             return npz[keys[0]]
-        raise ValueError(
-            f".npz contains multiple arrays: {keys}. "
-            "Load it manually and pass the array to view()."
-        )
+        return _select_npz_array(npz, filepath)
     elif filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _nib().load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
