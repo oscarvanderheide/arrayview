@@ -8543,18 +8543,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const _zMvCb = document.getElementById('mv-cb-wrap');
                         if (_zMvCb) { _zMvCb.style.transition = ''; _zMvCb.style.opacity = ''; }
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.classList.remove('fs-overlay');
                             el.style.transition = ''; el.style.opacity = '';
                         });
+                        _reconcileCbVisibility();
                     }
                     if (isDoubleTap) {
                         // Double-tap 0: exit immersive + full reset
                         if (_fullscreenActive) setFullscreenMode(false);
                         // Clean up mode-specific immersive artifacts
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.classList.remove('fs-overlay');
                             el.style.transition = ''; el.style.opacity = '';
                         });
+                        _reconcileCbVisibility();
                         const _dtMvCb = document.getElementById('mv-cb-wrap');
                         if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
                         userZoom = 1.0;
@@ -13213,12 +13213,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Reset wrapper padding
                 const wrapper = document.getElementById('wrapper');
                 if (wrapper) { wrapper.style.paddingTop = ''; }
-                const centerIsland = document.getElementById('compare-center-island');
-                if (centerIsland) centerIsland.style.display = 'none';
-                // Remove overlaid colorbar class
-                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.classList.remove('fs-overlay');
-                });
+                _reconcileCbVisibility();
             }
         }
 
@@ -13253,26 +13248,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _fullscreenActive = true;
                 document.body.classList.add('fullscreen-mode');
 
-                // If center mode (diff/overlay/wipe) is already active, show per-pane colorbars as islands
-                // and populate the center-mode indicator island
+                // Reconcile CB visibility for enter-immersive Phase 2
+                // (also populates center island content if in center mode)
                 if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                    document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                        el.classList.add('fs-overlay');
-                    });
                     const centerIsland = document.getElementById('compare-center-island');
                     if (centerIsland) {
                         const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
                         centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
-                        centerIsland.style.display = 'block';
                     }
                 }
-
-                // qMRI: mark per-map colorbars as floating overlays
-                if (qmriActive) {
-                    document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                        el.classList.add('fs-overlay');
-                    });
-                }
+                _reconcileCbVisibility({ animPhase: 'enter-2' });
 
                 // Render canvas at fromZoom in immersive layout (no auto-fit flash)
                 _autoFitPending = false;
@@ -13323,9 +13308,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const _mvCb = document.getElementById('mv-cb-wrap');
                 if (_mvCb) { _mvCb.style.transition = ''; _mvCb.style.opacity = ''; }
                 document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                    el.classList.remove('fs-overlay');
                     el.style.transition = ''; el.style.opacity = '';
                 });
+                _reconcileCbVisibility();
                 if (_fullscreenActive) {
                     _fullscreenActive = false;
                     _infoDragPos = null;
@@ -13404,11 +13389,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _autoFitPending = false;
                     ModeRegistry.scaleAll(); // settles layout at toZoom in normal mode
 
+                    _reconcileCbVisibility({ animPhase: 'exit-3' });
                     const cmpEls = Array.from(document.querySelectorAll('.compare-title, .compare-pane-cb-island'));
                     const mvCb = document.getElementById('mv-cb-wrap');
                     const qmriCbs = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island'));
-                    // Remove qMRI overlay class
-                    qmriCbs.forEach(el => el.classList.remove('fs-overlay'));
                     _animOpacity([infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs].filter(Boolean), 0, 1, FADE_IN, () => {
                         _immersiveAnimating = false;
                         for (const el of [infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs]) {
