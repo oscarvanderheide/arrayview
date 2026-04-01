@@ -2995,31 +2995,7 @@
             }
 
             // Clear focus mode when center pane is turned off
-            if (newMode === 0 && compareFocusMode) {
-                compareFocusMode = false;
-                compareWrap.classList.remove('focus-diff', 'focus-reg');
-            }
-
-            // Update diff pane visibility (also used for overlay mode)
-            const diffPane = document.getElementById('compare-diff-pane');
-            if (diffPane) {
-                diffPane.style.display = (diffMode || registrationMode) ? 'flex' : 'none';
-                diffPane.classList.toggle('overlay-center', registrationMode);
-            }
-
-            // Update wipe pane visibility (reused for flicker and checker)
-            const wipePaneEl = document.getElementById('compare-wipe-pane');
-            const showWipePane = _wipeActive || _flickerActive || _checkerActive;
-            if (wipePaneEl) wipePaneEl.style.display = showWipePane ? 'flex' : 'none';
-            compareWrap.classList.toggle('wipe-mode', showWipePane);
-
-            // Wipe range slider is always hidden — mouse controls wipe position
-
-            // Prevent flex-wrap from pushing the third column to a new row
-            // when a center pane (diff/overlay/wipe) creates a 3-column layout.
-            const panesEl = document.getElementById('compare-panes');
-            const _hasCenterNow = (diffMode > 0 || registrationMode || showWipePane);
-            if (panesEl) panesEl.style.flexWrap = (_hasCenterNow && compareDisplaySids.length === 2) ? 'nowrap' : '';
+            if (newMode === 0) compareFocusMode = false;
 
             // Update titles
             updateCompareTitles();
@@ -8741,8 +8717,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     return;
                 }
                 compareFocusMode = !compareFocusMode;
-                compareWrap.classList.toggle('focus-diff', compareFocusMode && diffMode > 0);
-                compareWrap.classList.toggle('focus-reg', compareFocusMode && registrationMode && diffMode === 0);
+                _reconcileCompareState();
                 compareScaleCanvases();
                 positionEggs();
                 showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
@@ -10336,10 +10311,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const movingPct = Math.round(registrationAlpha * 100);
             if (registrationMode) showStatus(`registration: on (moving ${movingPct}%)`);
             else {
-                if (compareFocusMode) {
-                    compareFocusMode = false;
-                    compareWrap.classList.remove('focus-diff', 'focus-reg');
-                }
+                compareFocusMode = false;
                 showStatus('registration: off');
             }
             saveState();
@@ -10381,13 +10353,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
             _diffDrIdx = null;
-            document.getElementById('compare-diff-pane').style.display = 'none';
-            document.getElementById('compare-diff-pane').classList.remove('overlay-center');
-            const _wp = document.getElementById('compare-wipe-pane');
-            if (_wp) _wp.style.display = 'none';
-            compareWrap.classList.remove('wipe-mode');
             compareFocusMode = false;
-            compareWrap.classList.remove('focus-diff', 'focus-reg');
             _reconcileUI();
             drawSlimColorbar(cbMarkerFrac);
             renderEggs();
@@ -13912,10 +13878,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const nPanes = (_compareExplicitSids || compareDisplaySids).length;
             if (nPanes < 2) { showToast('wipe: needs at least 2 panes'); return; }
             _wipeActive = !_wipeActive;
-            compareWrap.classList.toggle('wipe-mode', _wipeActive);
-            _reconcileUI();
-            const wipePaneEl = document.getElementById('compare-wipe-pane');
-            if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
+            _reconcileCompareState();
+            _reconcileCbVisibility();
             if (_wipeActive) {
                 compareScaleCanvases();
                 _drawWipe();
