@@ -3621,6 +3621,9 @@
         let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
         let _cbAnimating = false;
         let _cbAnimTarget = 0;
+        let _cbAnimFrom = 0;        // value of _cbAnimT when animation started
+        let _cbAnimStart = 0;       // performance.now() timestamp of animation start
+        const _cbAnimDuration = 350; // animation duration in ms
         let _cbWinVminF = 0;        // animated window vmin fraction (lerped toward target)
         let _cbWinVmaxF = 1;        // animated window vmax fraction (lerped toward target)
         let _cbHoverFrac = -1;      // cursor x-fraction on canvas (-1 = not hovering)
@@ -4614,16 +4617,18 @@
 
         function _cbStartAnim(expand) {
             _cbAnimTarget = expand ? 1 : 0;
+            _cbAnimFrom = _cbAnimT;
+            _cbAnimStart = performance.now();
             if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
         }
 
         function _cbAnimStep() {
-            const diff = _cbAnimTarget - _cbAnimT;
-            if (Math.abs(diff) < 0.003) {
-                _cbAnimT = _cbAnimTarget;
-            } else {
-                _cbAnimT += diff * 0.15;
-            }
+            const elapsed = performance.now() - _cbAnimStart;
+            const rawT = Math.min(1, elapsed / _cbAnimDuration);
+            // Expanding: ease-out (fast start, slow end). Collapsing: ease-in (time-reverse of expand).
+            const expanding = _cbAnimTarget > _cbAnimFrom;
+            const easedT = expanding ? (1 - Math.pow(1 - rawT, 3)) : Math.pow(rawT, 3);
+            _cbAnimT = _cbAnimFrom + (_cbAnimTarget - _cbAnimFrom) * easedT;
             // Toggle cb-expanded class for non-immersive outline removal
             const _wrapEl = document.getElementById(
                 (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap');
@@ -4641,7 +4646,7 @@
                 drawSlimColorbar(cbMarkerFrac);
             }
             // Check if both expand/collapse AND window fractions have converged
-            const morphDone = Math.abs(_cbAnimTarget - _cbAnimT) < 0.003;
+            const morphDone = rawT >= 1;
             const winDone = Math.abs(_cbWinVminF - _cbWinVminTarget) < 0.002
                          && Math.abs(_cbWinVmaxF - _cbWinVmaxTarget) < 0.002;
             if (morphDone && winDone) {
