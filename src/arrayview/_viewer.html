@@ -3061,6 +3061,7 @@
                 const centerIsland = document.getElementById('compare-center-island');
                 if (centerIsland) centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
             }
+            _reconcileCompareState();
             _reconcileCbVisibility();
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
@@ -8527,7 +8528,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
                             el.style.transition = ''; el.style.opacity = '';
                         });
-                        _reconcileCbVisibility();
+                        _reconcileUI();
                     }
                     if (isDoubleTap) {
                         // Double-tap 0: exit immersive + full reset
@@ -8536,7 +8537,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
                             el.style.transition = ''; el.style.opacity = '';
                         });
-                        _reconcileCbVisibility();
+                        _reconcileUI();
                         const _dtMvCb = document.getElementById('mv-cb-wrap');
                         if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
                         userZoom = 1.0;
@@ -9757,6 +9758,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('array-name').style.display = 'none';
                 compareWrap.classList.add('active');
                 applyCompareLayout();
+                _reconcileUI();
                 renderInfo();
                 updateView();
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
@@ -9797,6 +9799,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('array-name').style.display = 'none';
                 compareWrap.classList.add('active');
                 applyCompareLayout();
+                _reconcileUI();
                 renderInfo();
                 updateView();
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
@@ -10393,6 +10396,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareWrap.classList.remove('active');
             compareFocusMode = false;
             compareWrap.classList.remove('focus-diff', 'focus-reg');
+            _reconcileUI();
             if (!multiViewActive && !qmriActive) {
                 document.getElementById('canvas-wrap').style.display = '';
             }
@@ -10628,7 +10632,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
-            _reconcileCbVisibility();
+            _reconcileUI();
             showStatus('3-plane view — press v to exit', 3000);
         }
 
@@ -10668,6 +10672,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             });
             // Re-apply border state to the normal canvas (multi-view panes are gone)
             document.getElementById('canvas-viewport').classList.toggle('canvas-bordered', canvasBorders);
+            _reconcileUI();
             updateView();
             showStatus('3-plane view: off');
         }
@@ -10849,7 +10854,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qmriViews.forEach(v => qvRender(v));
             }
             renderInfo();
-            _reconcileCbVisibility();
+            _reconcileUI();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
@@ -10869,6 +10874,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             wrap.innerHTML = '';
             wrap.className = '';
             updateView();
+            _reconcileUI();
             renderInfo();
             showStatus('qMRI mode: off');
         }
@@ -11044,7 +11050,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareQmriViews.forEach(v => compareQmriRender(v));
             }
             renderInfo();
-            _reconcileCbVisibility();
+            _reconcileUI();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
@@ -11068,6 +11074,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('canvas-wrap').style.display = '';
                 updateView();
             }
+            _reconcileUI();
             renderInfo();
             showStatus('compare qMRI: off');
         }
@@ -11406,7 +11413,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.getElementById('mv-orientation').style.display = 'block';
             flashAxesIndicators();
             renderInfo();
-            _reconcileCbVisibility();
+            _reconcileUI();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
         }
 
@@ -11447,6 +11454,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('canvas-wrap').style.display = '';
                 updateView();
             }
+            _reconcileUI();
             renderInfo();
             showStatus('compare 3-plane: off');
         }
@@ -13184,7 +13192,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Reset wrapper padding
                 const wrapper = document.getElementById('wrapper');
                 if (wrapper) { wrapper.style.paddingTop = ''; }
-                _reconcileCbVisibility();
+                _reconcileUI();
             }
         }
 
@@ -13302,6 +13310,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mainPan.reset();
                 _autoFitPending = false;
                 ModeRegistry.scaleAll();
+                _reconcileUI();
                 _validateUIState();
                 return;
             }
@@ -13932,6 +13941,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (nPanes < 2) { showToast('wipe: needs at least 2 panes'); return; }
             _wipeActive = !_wipeActive;
             compareWrap.classList.toggle('wipe-mode', _wipeActive);
+            _reconcileUI();
             const wipePaneEl = document.getElementById('compare-wipe-pane');
             if (wipePaneEl) wipePaneEl.style.display = _wipeActive ? 'flex' : 'none';
             if (_wipeActive) {
