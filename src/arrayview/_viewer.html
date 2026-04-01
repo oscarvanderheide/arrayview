@@ -10411,9 +10411,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (compareActive) exitCompareMode();
             multiViewActive = true;
             document.getElementById('mini-map').classList.remove('visible');
-            // Hide shared colorbar — multiview draws its own via drawMvCbs()
-            const slimWrap = document.getElementById('slim-cb-wrap');
-            if (slimWrap) slimWrap.style.display = 'none';
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
             squareStretch = true;
@@ -10687,9 +10684,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const nMaps = cmaps.length;
 
             document.getElementById('canvas-wrap').style.display = 'none';
-            // Hide shared colorbar — qMRI has its own per-pane colorbars
-            const _slimWrap = document.getElementById('slim-cb-wrap');
-            if (_slimWrap) _slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = `active qmri-${nMaps}`;
@@ -10884,9 +10878,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
 
-            // Hide shared colorbar — qMRI draws per-pane colorbars
-            const _slimWrap = document.getElementById('slim-cb-wrap');
-            if (_slimWrap) _slimWrap.style.display = 'none';
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
@@ -11243,11 +11234,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmvPrevSquareStretch = squareStretch;
             squareStretch = true;
 
-            // Hide compare panes + shared colorbar, show qmri-view-wrap (shared container)
+            // Hide compare panes, show qmri-view-wrap (shared container)
             compareWrap.classList.remove('active');
             document.getElementById('canvas-wrap').style.display = 'none';
-            const slimWrap = document.getElementById('slim-cb-wrap');
-            if (slimWrap) slimWrap.style.display = 'none';
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
