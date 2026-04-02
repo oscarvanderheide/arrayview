@@ -3541,18 +3541,12 @@
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
             // Auto-refresh histogram when expanded but data is stale
-            const _histSliceDimX = multiViewActive && mvViews.length ? mvViews[0].dimX : dim_x;
-            const _histSliceDimY = multiViewActive && mvViews.length ? mvViews[0].dimY : dim_y;
-            const _expectedHistVer = compareActive
-                ? (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY + ':compare')
-                : (indices.join(',') + ':' + _histSliceDimX + ':' + _histSliceDimY);
-            if (_cbExpanded && _histDataVersion !== _expectedHistVer) {
-                if (!_histFetching) {
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                    fetcher().then(() => {
-                        if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
-                    });
-                }
+            if (_cbExpanded && !_histData && !_histFetching) {
+                const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
+                fetcher().then((d) => {
+                    if (d && !compareActive) _histData = d;
+                    if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
+                });
             }
             // Build KDE if we have histogram data but no smoothed curve yet
             if (_histData && !_kdeSmooth) _buildKDE();
@@ -5243,11 +5237,12 @@
                 const curVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
                 const cmpVersion = curVersion + ':compare';
                 if (compareActive) {
-                    if (!_histData || _histDataVersion !== cmpVersion) {
+                    if (!_histData) {
                         await _fetchHistogramCompare();
                     }
-                } else if (!_histData || _histDataVersion !== curVersion) {
-                    await _fetchHistogram();
+                } else if (!_histData) {
+                    const volData = await _fetchVolumeHistogram();
+                    if (volData) _histData = volData;
                 }
                 // Also fetch raw slice for Lebesgue mode
                 if (lebesgueMode) {
@@ -12605,16 +12600,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb.draw();
             cb.updateLabels();
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded) {
-                const hDimX = mvViews.length ? mvViews[0].dimX : dim_x;
-                const hDimY = mvViews.length ? mvViews[0].dimY : dim_y;
-                if (_histDataVersion !== (indices.join(',') + ':' + hDimX + ':' + hDimY)) {
-                    if (!_histFetching) {
-                        _fetchHistogram().then(() => {
-                            if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
-                        });
-                    }
-                }
+            if (_cbExpanded && !_histData && !_histFetching) {
+                _fetchVolumeHistogram().then((d) => {
+                    if (d) _histData = d;
+                    if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
+                });
             }
             positionEggs();
         }
