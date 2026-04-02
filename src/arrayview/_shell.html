@@ -8,6 +8,7 @@
             margin: 0; padding: 0; background: #0c0c0c; color: #d8d8d8;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+            box-sizing: border-box;
         }
         #tab-bar {
             height: 36px; background: #0e0e0e; display: none; align-items: flex-end;
@@ -134,6 +135,18 @@
         // Mark this window as the native shell so embedded viewer iframes
         // can distinguish themselves from Jupyter embeds and enable the picker.
         window.__arrayviewShell = true;
+
+        // macOS pywebview fullSizeContentView: content extends behind the title bar.
+        // Detect by checking outerHeight ≈ innerHeight (title bar not subtracted)
+        // and compensate with top padding so iframes get the correct visible height.
+        function _updateTitleBarPad() {
+            const isMac = /Mac/.test(navigator.platform);
+            const fullSizeContent = isMac && Math.abs(window.outerHeight - window.innerHeight) < 2;
+            document.body.style.paddingTop = fullSizeContent ? '28px' : '0';
+        }
+        _updateTitleBarPad();
+        window.addEventListener('resize', _updateTitleBarPad);
+
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
             if (msg.action === 'new_tab') {

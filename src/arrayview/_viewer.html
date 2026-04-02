@@ -203,11 +203,15 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; width: 32px; text-align: center; overflow: hidden; line-height: 1; }
+        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; width: 32px; text-align: center; overflow: hidden; line-height: 1; cursor: default; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
         :root.solarized .slim-cb-val { color: #586e75; }
         :root.nord .slim-cb-val { color: #d8dee9; }
+        .slim-cb-val-input { font-size: 12px; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; width: 52px; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 1px 2px; outline: none; line-height: 1; }
+        :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
+        :root.solarized .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #586e75; border-color: rgba(0,0,0,0.15); }
+        :root.nord .slim-cb-val-input { background: rgba(216,222,233,0.1); color: #d8dee9; border-color: rgba(216,222,233,0.2); }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -920,30 +924,13 @@
             background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
-        body:not(.fullscreen-mode) #slim-cb-wrap .cb-canvas,
-        body:not(.fullscreen-mode) #slim-cb {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
-        }
         body:not(.fullscreen-mode) #mv-cb-wrap {
             background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
-        body:not(.fullscreen-mode) #mv-cb-wrap .cb-canvas {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
-        }
         body:not(.fullscreen-mode) .cb-island {
             background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
-        }
-        body:not(.fullscreen-mode) .cb-island .cb-canvas {
-            outline: 1px solid var(--canvas-border); border-radius: 3px;
-        }
-        /* Hide rectangular outline when histogram is expanded — KDE stroke replaces it */
-        body:not(.fullscreen-mode) .cb-island.cb-expanded .cb-canvas,
-        body:not(.fullscreen-mode) #slim-cb-wrap.cb-expanded .cb-canvas,
-        body:not(.fullscreen-mode) #slim-cb-wrap.cb-expanded #slim-cb,
-        body:not(.fullscreen-mode) #mv-cb-wrap.cb-expanded .cb-canvas {
-            outline: none;
         }
 
         /* ── Colormap preview strip ──────────────────────────────── */
@@ -4354,6 +4341,53 @@
                     this._syncInteraction('reset', {});
                 });
 
+                // Dblclick on vmin/vmax labels for inline editing
+                const _editLabel = (labelEl, which) => {
+                    const win = this.opts.getWindow();
+                    const curVal = which === 'vmin' ? win.vmin : win.vmax;
+                    if (curVal == null) return;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'slim-cb-val-input';
+                    input.value = parseFloat(curVal.toPrecision(6));
+                    const origHTML = labelEl.innerHTML;
+                    labelEl.innerHTML = '';
+                    labelEl.appendChild(input);
+                    input.focus();
+                    input.select();
+                    const commit = () => {
+                        const v = parseFloat(input.value);
+                        if (!isNaN(v)) {
+                            const w = this.opts.getWindow();
+                            if (which === 'vmin') this.opts.setWindow(v, w.vmax);
+                            else this.opts.setWindow(w.vmin, v);
+                            this.draw();
+                            if (this.opts.onWindowChange) this.opts.onWindowChange();
+                        } else {
+                            labelEl.innerHTML = origHTML;
+                        }
+                    };
+                    const cancel = () => { labelEl.innerHTML = origHTML; };
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                        e.stopPropagation();
+                    });
+                    input.addEventListener('blur', commit);
+                };
+                if (this.vminLabel) {
+                    this.vminLabel.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        _editLabel(this.vminLabel, 'vmin');
+                    });
+                }
+                if (this.vmaxLabel) {
+                    this.vmaxLabel.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        _editLabel(this.vmaxLabel, 'vmax');
+                    });
+                }
+
                 // Mousedown on tri handles
                 if (this.triVmin) {
                     this.triVmin.addEventListener('mousedown', (e) => {
@@ -5360,8 +5394,57 @@
                 _cbHoverTimer = setTimeout(_collapseColorbar, 200);
             });
 
-            // Double-click on colorbar island toggles histogram (Lebesgue) mode
-            slimCbWrap.addEventListener('dblclick', () => { _toggleLebesgueMode(); });
+            // Double-click on colorbar canvas toggles histogram (Lebesgue) mode
+            // Double-click on vmin/vmax labels opens inline editor
+            function _startCbValEdit(labelEl, which) {
+                const curVal = which === 'vmin'
+                    ? (manualVmin ?? currentVmin)
+                    : (manualVmax ?? currentVmax);
+                if (curVal == null) return;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'slim-cb-val-input';
+                input.value = parseFloat(curVal.toPrecision(6));
+                const origHTML = labelEl.innerHTML;
+                labelEl.innerHTML = '';
+                labelEl.appendChild(input);
+                input.focus();
+                input.select();
+                function _commit() {
+                    const v = parseFloat(input.value);
+                    if (!isNaN(v)) {
+                        if (which === 'vmin') {
+                            if (manualVmin === null) manualVmax = manualVmax ?? currentVmax;
+                            manualVmin = v;
+                        } else {
+                            if (manualVmax === null) manualVmin = manualVmin ?? currentVmin;
+                            manualVmax = v;
+                        }
+                        updateView();
+                        _redrawActiveColorbar();
+                        saveState();
+                    } else {
+                        labelEl.innerHTML = origHTML;
+                    }
+                }
+                function _cancel() { labelEl.innerHTML = origHTML; }
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); _commit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
+                    e.stopPropagation();
+                });
+                input.addEventListener('blur', _commit);
+            }
+            slimCbWrap.addEventListener('dblclick', (e) => {
+                const label = e.target.closest('.slim-cb-val');
+                if (label) {
+                    e.stopPropagation();
+                    const which = label.id === 'slim-cb-vmin' ? 'vmin' : 'vmax';
+                    _startCbValEdit(label, which);
+                    return;
+                }
+                _toggleLebesgueMode();
+            });
 
             slimCbCanvas.addEventListener('mousedown', (e) => {
                 if (!_cbExpanded || !_histData) return;
