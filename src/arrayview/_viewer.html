@@ -4209,6 +4209,7 @@
                 // Ease-out (fast start, gentle finish) for both expand and collapse
                 const easedT = 1 - Math.pow(1 - rawT, 3);
                 this._animT = this._animFrom + (this._animTarget - this._animFrom) * easedT;
+                if (this.wrap) this.wrap.classList.toggle('cb-expanded', this._animT > 0.05);
                 this.draw();
                 if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
                 const morphDone = rawT >= 1;
@@ -4225,7 +4226,6 @@
             async expand() {
                 if (this._expanded) return;
                 this._expanded = true;
-                if (this.wrap) this.wrap.classList.add('cb-expanded');
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
                 if (this.opts.fetchHistogram) {
@@ -4246,7 +4246,6 @@
             collapse() {
                 if (!this._expanded || this._dragActive) return;
                 this._expanded = false;
-                if (this.wrap) this.wrap.classList.remove('cb-expanded');
                 this._hitVminX = null;
                 this._hitVmaxX = null;
                 if (this.triZone) this.triZone.classList.remove('expanded');
@@ -4635,7 +4634,7 @@
             // Toggle cb-expanded class for non-immersive outline removal
             const _wrapEl = document.getElementById(
                 (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap');
-            if (_wrapEl) _wrapEl.classList.toggle('cb-expanded', _cbExpanded);
+            if (_wrapEl) _wrapEl.classList.toggle('cb-expanded', _cbAnimT > 0.05);
             // Redraw colorbar AND reposition island each frame so bottom stays anchored
             if (multiViewActive || compareMvActive) {
                 drawMvColorbar();
@@ -12580,7 +12579,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb._animT = _cbAnimT;
             cb._expanded = _cbExpanded;
             if (cb.triZone) cb.triZone.classList.toggle('expanded', _cbExpanded);
-            if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbExpanded);
+            if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbAnimT > 0.05);
             cb._winVminF = _cbWinVminF;
             cb._winVmaxF = _cbWinVmaxF;
             cb._hoverFrac = _cbHoverFrac;
