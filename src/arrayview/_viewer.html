@@ -110,7 +110,7 @@
         .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
-            text-align: center; padding: 5px 16px; position: fixed; z-index: 2;
+            text-align: center; padding: 5px 20px; position: fixed; z-index: 2;
             transition: opacity 0.3s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             border-radius: 18px;
             background: rgba(30, 30, 30, 0.8);
@@ -184,7 +184,7 @@
             padding: 1px 4px; border-radius: 2px;
             pointer-events: none; white-space: nowrap; z-index: 3;
         }
-        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: ew-resize; user-select: none; background: transparent; }
+        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
         #slim-cb-tri-zone.expanded { /* no height change — triangles overlay on canvas */ }
@@ -4771,8 +4771,8 @@
                 // Solid handle lines at vmin/vmax
                 if (vminFrac > 0.005 || vmaxFrac < 0.995) {
                     [effVmin, effVmax].forEach(f => {
-                        if (f <= 0.003 || f >= 0.997) return;
-                        const x = Math.round(f * cssW);
+                        if (f < 0 || f > 1) return;
+                        const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
 
                         const lineH = cssH - labelH;
                         const lineTop = labelH;
@@ -4869,8 +4869,8 @@
             }
 
             // Update hit-test positions for drag interaction
-            _histVminX = Math.round(effVmin * cssW);
-            _histVmaxX = Math.round(effVmax * cssW);
+            _histVminX = Math.max(2, Math.min(cssW - 2, Math.round(effVmin * cssW)));
+            _histVmaxX = Math.max(2, Math.min(cssW - 2, Math.round(effVmax * cssW)));
         }
 
         async function _fetchHistogram() {
@@ -5346,7 +5346,7 @@
                 _cbDragActive = true;
                 if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
                 if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
-                slimCbCanvas.style.cursor = 'ew-resize';
+                slimCbCanvas.style.cursor = 'grabbing';
                 e.preventDefault();
                 e.stopPropagation();
             }
@@ -5387,7 +5387,7 @@
                     cbTooltip.style.display = 'none';
                     _cbMorphDraw();
                     // Update cursor near clim lines
-                    slimCbCanvas.style.cursor = _hitLine(x) ? 'ew-resize' : (lebesgueMode ? 'crosshair' : 'default');
+                    slimCbCanvas.style.cursor = _hitLine(x) ? 'grab' : (lebesgueMode ? 'crosshair' : 'default');
                     // Lebesgue integral: highlight matching pixels
                     const { edges, counts } = _histData;
                     if (lebesgueMode && _lebesgueSlice && edges && counts && counts.length) {
