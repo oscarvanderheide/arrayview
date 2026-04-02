@@ -212,33 +212,16 @@
         :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
         :root.solarized .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #586e75; border-color: rgba(0,0,0,0.15); }
         :root.nord .slim-cb-val-input { background: rgba(216,222,233,0.1); color: #d8dee9; border-color: rgba(216,222,233,0.2); }
-        .cb-val-popup { position: fixed; z-index: 10; padding: 6px 8px; border-radius: 8px; background: rgba(30,30,30,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: auto; }
-        .cb-val-popup::before, .cb-val-popup::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; }
-        .cb-val-popup::after { border-left-width: 6px; border-right-width: 6px; }
-        .cb-val-popup.arrow-below::before { bottom: -8px; border-top: 8px solid rgba(255,255,255,0.1); }
-        .cb-val-popup.arrow-below::after { bottom: -6px; border-top: 6px solid rgba(30,30,30,0.92); }
-        .cb-val-popup.arrow-above::before { top: -8px; border-bottom: 8px solid rgba(255,255,255,0.1); }
-        .cb-val-popup.arrow-above::after { top: -6px; border-bottom: 6px solid rgba(30,30,30,0.92); }
+        .cb-val-popup-wrap { position: fixed; z-index: 10; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4)); pointer-events: auto; }
+        .cb-val-popup { padding: 6px 8px; background: rgba(30,30,30,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: flex; align-items: center; gap: 6px; }
         .cb-val-popup .cb-val-label { font-size: 10px; color: rgba(255,255,255,0.45); font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
         .cb-val-popup .slim-cb-val-input { width: 68px; font-size: 13px; padding: 3px 4px; }
-        :root.light .cb-val-popup { background: rgba(245,245,245,0.92); border-color: rgba(0,0,0,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        :root.light .cb-val-popup { background: rgba(245,245,245,0.92); }
         :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
-        :root.light .cb-val-popup.arrow-below::before { border-top-color: rgba(0,0,0,0.1); }
-        :root.light .cb-val-popup.arrow-below::after { border-top-color: rgba(245,245,245,0.92); }
-        :root.light .cb-val-popup.arrow-above::before { border-bottom-color: rgba(0,0,0,0.1); }
-        :root.light .cb-val-popup.arrow-above::after { border-bottom-color: rgba(245,245,245,0.92); }
-        :root.solarized .cb-val-popup { background: rgba(238,232,213,0.92); border-color: rgba(0,0,0,0.1); }
+        :root.solarized .cb-val-popup { background: rgba(238,232,213,0.92); }
         :root.solarized .cb-val-popup .cb-val-label { color: rgba(88,110,117,0.5); }
-        :root.solarized .cb-val-popup.arrow-below::before { border-top-color: rgba(0,0,0,0.1); }
-        :root.solarized .cb-val-popup.arrow-below::after { border-top-color: rgba(238,232,213,0.92); }
-        :root.solarized .cb-val-popup.arrow-above::before { border-bottom-color: rgba(0,0,0,0.1); }
-        :root.solarized .cb-val-popup.arrow-above::after { border-bottom-color: rgba(238,232,213,0.92); }
-        :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); border-color: rgba(216,222,233,0.1); }
+        :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); }
         :root.nord .cb-val-popup .cb-val-label { color: rgba(216,222,233,0.4); }
-        :root.nord .cb-val-popup.arrow-below::before { border-top-color: rgba(216,222,233,0.1); }
-        :root.nord .cb-val-popup.arrow-below::after { border-top-color: rgba(36,41,56,0.92); }
-        :root.nord .cb-val-popup.arrow-above::before { border-bottom-color: rgba(216,222,233,0.1); }
-        :root.nord .cb-val-popup.arrow-above::after { border-bottom-color: rgba(36,41,56,0.92); }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -5371,9 +5354,12 @@
                 const curVal = getValue();
                 if (curVal == null) return;
                 // Remove any existing popup
-                const existing = document.querySelector('.cb-val-popup');
+                const existing = document.querySelector('.cb-val-popup-wrap');
                 if (existing) existing.remove();
-                // Build popup
+                // Build popup inside a wrapper (wrapper carries drop-shadow,
+                // inner div carries background + clip-path for balloon shape)
+                const wrap = document.createElement('div');
+                wrap.className = 'cb-val-popup-wrap';
                 const popup = document.createElement('div');
                 popup.className = 'cb-val-popup';
                 const label = document.createElement('span');
@@ -5385,29 +5371,45 @@
                 input.value = parseFloat(curVal.toPrecision(6));
                 popup.appendChild(label);
                 popup.appendChild(input);
-                document.body.appendChild(popup);
-                // Position relative to the colorbar island (parent .cb-island or #slim-cb-wrap)
+                wrap.appendChild(popup);
+                document.body.appendChild(wrap);
+                // Measure natural size, then apply balloon clip-path
+                const popW = popup.offsetWidth;
+                const popH = popup.offsetHeight;
+                const r = 10; // border-radius
+                const notchW = 8, notchH = 7; // notch (arrow) size
+                // Balloon shape: rounded rect body + center notch at bottom
+                // Total element height = popH + notchH
+                const totalH = popH + notchH;
+                popup.style.paddingBottom = (6 + notchH) + 'px'; // extra room for notch
+                const cx = popW / 2; // notch center x
+                // SVG path for clip-path: rounded rect + notch pointing down
+                const path = `M ${r} 0`
+                    + ` H ${popW - r} Q ${popW} 0 ${popW} ${r}`
+                    + ` V ${popH - r} Q ${popW} ${popH} ${popW - r} ${popH}`
+                    + ` H ${cx + notchW}`
+                    + ` L ${cx} ${totalH}`
+                    + ` L ${cx - notchW} ${popH}`
+                    + ` H ${r} Q 0 ${popH} 0 ${popH - r}`
+                    + ` V ${r} Q 0 0 ${r} 0 Z`;
+                popup.style.clipPath = `path('${path}')`;
+                popup.style.webkitClipPath = `path('${path}')`;
+                // Position: above the colorbar island, notch points down at value
                 const island = anchorEl.closest('.cb-island') || anchorEl.closest('#slim-cb-wrap');
                 const islandRect = island ? island.getBoundingClientRect() : anchorEl.getBoundingClientRect();
                 const labelRect = anchorEl.getBoundingClientRect();
-                const popW = popup.offsetWidth;
-                const popH = popup.offsetHeight;
-                // Center horizontally on the label
                 let left = labelRect.left + labelRect.width / 2 - popW / 2;
-                // Always place above the island; arrow points down toward the value
-                let top = Math.max(4, islandRect.top - popH - 8);
-                popup.classList.add('arrow-below');
-                // Clamp horizontal
+                let top = Math.max(4, islandRect.top - totalH - 2);
                 left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
-                popup.style.left = left + 'px';
-                popup.style.top = top + 'px';
+                wrap.style.left = left + 'px';
+                wrap.style.top = top + 'px';
                 input.focus();
                 input.select();
                 let _done = false;
                 function _cleanup() {
                     if (_done) return;
                     _done = true;
-                    popup.remove();
+                    wrap.remove();
                 }
                 function _commit() {
                     const v = parseFloat(input.value);
