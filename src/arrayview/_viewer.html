@@ -4064,16 +4064,8 @@
                             if (f <= 0.003 || f >= 0.997) return;
                             const x = Math.round(f * cssW);
 
-                            // Height matches KDE curve at this position
-                            const t = f;
-                            let lineH;
-                            if (hasKDE) {
-                                const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
-                                lineH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
-                            } else {
-                                lineH = cssH - labelH;
-                            }
-                            const lineTop = cssH - lineH;
+                            const lineH = cssH - labelH;
+                            const lineTop = labelH;
 
                             // Sample colormap at this position to determine line visibility
                             const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
@@ -4089,12 +4081,12 @@
                                 : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
                             const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
 
-                            // Outline (3px wide)
+                            // Outline (4px wide)
                             ctx.fillStyle = outlineColor;
-                            ctx.fillRect(x - 1.5, lineTop, 3, lineH);
-                            // Core line (1px wide)
+                            ctx.fillRect(x - 2, lineTop, 4, lineH);
+                            // Core line (2px wide)
                             ctx.fillStyle = coreColor;
-                            ctx.fillRect(x - 0.5, lineTop, 1, lineH);
+                            ctx.fillRect(x - 1, lineTop, 2, lineH);
                         });
                     }
 
@@ -4791,16 +4783,8 @@
                         if (f <= 0.003 || f >= 0.997) return;
                         const x = Math.round(f * cssW);
 
-                        // Height matches KDE curve at this position
-                        const t = f;
-                        let lineH;
-                        if (hasKDE) {
-                            const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
-                            lineH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
-                        } else {
-                            lineH = cssH - labelH;
-                        }
-                        const lineTop = cssH - lineH;
+                        const lineH = cssH - labelH;
+                        const lineTop = labelH;
 
                         // Sample colormap at this position to determine line visibility
                         const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
@@ -4816,12 +4800,12 @@
                             : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
                         const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
 
-                        // Outline (3px wide)
+                        // Outline (4px wide)
                         ctx.fillStyle = outlineColor;
-                        ctx.fillRect(x - 1.5, lineTop, 3, lineH);
-                        // Core line (1px wide)
+                        ctx.fillRect(x - 2, lineTop, 4, lineH);
+                        // Core line (2px wide)
                         ctx.fillStyle = coreColor;
-                        ctx.fillRect(x - 0.5, lineTop, 1, lineH);
+                        ctx.fillRect(x - 1, lineTop, 2, lineH);
                     });
                 }
                 // Value labels in the label zone
