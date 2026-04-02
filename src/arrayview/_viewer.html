@@ -3541,12 +3541,15 @@
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded && !_histData && !_histFetching) {
-                const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
-                fetcher().then((d) => {
-                    if (d && !compareActive) _histData = d;
-                    if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
-                });
+            if (_cbExpanded && !_histFetching) {
+                const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
+                if (stale) {
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
+                    fetcher().then((d) => {
+                        if (d && !compareActive) _histData = d;
+                        if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
+                    });
+                }
             }
             // Build KDE if we have histogram data but no smoothed curve yet
             if (_histData && !_kdeSmooth) _buildKDE();
@@ -4902,10 +4905,22 @@
             const fetchDimY = opts.dimY ?? dim_y;
             const scrollDim = opts.scrollDim ?? current_slice_dim;
             const cMode = opts.complexMode ?? complexMode;
-            const fixedIndices = opts.fixedIndices ?? '';
+            // Auto-build fixedIndices for non-display, non-scroll dims using current indices
+            let fixedIndices = opts.fixedIndices;
+            if (fixedIndices == null) {
+                const parts = [];
+                for (let i = 0; i < shape.length; i++) {
+                    if (i === fetchDimX || i === fetchDimY || i === scrollDim) continue;
+                    parts.push(`${i}:${indices[i]}`);
+                }
+                fixedIndices = parts.join(',');
+            }
             const cacheKey = `${fetchDimX}:${fetchDimY}:${scrollDim}:${fixedIndices}:${cMode}`;
 
-            if (_volHistCache[cacheKey]) return _volHistCache[cacheKey];
+            if (_volHistCache[cacheKey]) {
+                _histDataVersion = cacheKey;
+                return _volHistCache[cacheKey];
+            }
 
             const params = new URLSearchParams({
                 dim_x: fetchDimX,
@@ -4920,6 +4935,7 @@
                 if (!resp.ok) return null;
                 const data = await resp.json();
                 _volHistCache[cacheKey] = data;
+                _histDataVersion = cacheKey;
                 return data;
             } catch (_) { return null; }
         }
@@ -4928,6 +4944,18 @@
             _volHistCache = {};
             _histData = null;
             _kdeSmooth = null;
+            _histDataVersion = null;
+        }
+
+        /** Compute expected histogram version key for current dim/index config. */
+        function _expectedHistKey() {
+            const sd = current_slice_dim;
+            const parts = [];
+            for (let i = 0; i < shape.length; i++) {
+                if (i === dim_x || i === dim_y || i === sd) continue;
+                parts.push(`${i}:${indices[i]}`);
+            }
+            return `${dim_x}:${dim_y}:${sd}:${parts.join(',')}:${complexMode}`;
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
@@ -12602,11 +12630,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb.draw();
             cb.updateLabels();
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded && !_histData && !_histFetching) {
-                _fetchVolumeHistogram().then((d) => {
-                    if (d) _histData = d;
-                    if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
-                });
+            if (_cbExpanded && !_histFetching) {
+                const stale = !_histData || _histDataVersion !== _expectedHistKey();
+                if (stale) {
+                    _fetchVolumeHistogram().then((d) => {
+                        if (d) _histData = d;
+                        if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
+                    });
+                }
             }
             positionEggs();
         }
