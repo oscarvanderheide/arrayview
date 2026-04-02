@@ -33,7 +33,6 @@ from arrayview._session import (  # noqa: F401
     Session,
     SESSIONS,
     COLORMAPS,
-    DR_PERCENTILES,
     DR_LABELS,
     ZARR_LARGE_XY_TILE,
     ZARR_T_DEPTH,

@@ -38,7 +38,6 @@ from arrayview._session import (
     Session,
     SESSIONS,
     COLORMAPS,
-    DR_PERCENTILES,
     DR_LABELS,
     HEAVY_OP_LIMIT_BYTES,
     _estimate_array_bytes,
@@ -598,7 +597,6 @@ async def reload_session(sid: str):
     session.rgba_cache.clear()
     session.mosaic_cache.clear()
     session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
-    await asyncio.to_thread(session.compute_global_stats)
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -631,7 +629,6 @@ async def update_session(sid: str, request: Request):
     session.rgba_cache.clear()
     session.mosaic_cache.clear()
     session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
-    await asyncio.to_thread(session.compute_global_stats)
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -2037,9 +2034,7 @@ def get_info(sid: str):
         info["size_mb"] = None
     # Colormap reason for the info overlay (feature: info-overlay-enhanced)
     try:
-        reason = _session_mod._recommend_colormap_reason(
-            session.data, session.global_stats
-        )
+        reason = _session_mod._recommend_colormap_reason(session.data)
         info["recommended_colormap"] = reason.split(" ")[0]
         info["recommended_colormap_reason"] = reason
     except Exception:
@@ -2068,7 +2063,6 @@ async def toggle_fft(sid: str, request: Request):
         session.rgba_cache.clear()
         session.mosaic_cache.clear()
         session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
-        session.compute_global_stats()
         return {"status": "restored", "is_complex": bool(np.iscomplexobj(session.data))}
 
     try:
@@ -2101,7 +2095,6 @@ async def toggle_fft(sid: str, request: Request):
     session.rgba_cache.clear()
     session.mosaic_cache.clear()
     session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
-    session.compute_global_stats()
     return {
         "status": "fft_applied",
         "axes": list(axes),
@@ -2223,10 +2216,9 @@ def get_slice(
         frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
         if log_scale:
             frames = [np.log1p(np.abs(frame)).astype(np.float32) for frame in frames]
-            pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
             all_data = np.stack(frames)
-            vmin = float(np.percentile(all_data, pct_lo))
-            vmax = float(np.percentile(all_data, pct_hi))
+            vmin = float(np.percentile(all_data, 1))
+            vmax = float(np.percentile(all_data, 99))
         else:
             vmin, vmax = _compute_vmin_vmax(session, np.stack(frames), dr, complex_mode)
     else:
@@ -2311,9 +2303,8 @@ def _render_normalized_mosaic(
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
     all_data = np.stack(frames)
     if log_scale:
-        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-        vmin = float(np.percentile(all_data, pct_lo))
-        vmax = float(np.percentile(all_data, pct_hi))
+        vmin = float(np.percentile(all_data, 1))
+        vmax = float(np.percentile(all_data, 99))
     else:
         vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
     rows, cols = mosaic_shape(n)
@@ -2706,12 +2697,8 @@ def get_grid(
         frames.append(extract_slice(session, dim_x, dim_y, idx_list))
 
     all_data = np.stack(frames)
-    if dr in session.global_stats:
-        vmin, vmax = session.global_stats[dr]
-    else:
-        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-        vmin = float(np.percentile(all_data, pct_lo))
-        vmax = float(np.percentile(all_data, pct_hi))
+    vmin = float(np.percentile(all_data, 1))
+    vmax = float(np.percentile(all_data, 99))
 
     rows, cols = mosaic_shape(n)
     H, W = frames[0].shape
@@ -2788,12 +2775,8 @@ def get_gif(
         frames.append(extract_slice(session, dim_x, dim_y, idx_list))
 
     all_data = np.stack(frames)
-    if dr in session.global_stats:
-        vmin, vmax = session.global_stats[dr]
-    else:
-        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-        vmin = float(np.percentile(all_data, pct_lo))
-        vmax = float(np.percentile(all_data, pct_hi))
+    vmin = float(np.percentile(all_data, 1))
+    vmax = float(np.percentile(all_data, 99))
 
     _init_luts()
     lut = LUTS.get(colormap if colormap in LUTS else "gray", LUTS["gray"])

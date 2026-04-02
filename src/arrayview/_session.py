@@ -131,31 +131,6 @@ async def _render(loop: asyncio.AbstractEventLoop, func) -> object:
     return await fut
 
 
-def _percentile_pair(
-    sample: "np.ndarray", orig_dtype: "np.dtype", lo: float, hi: float
-) -> "tuple[float, float]":
-    """Return (pct_lo, pct_hi) of *sample*, using a fast bincount path for
-    integer source dtypes whose value range fits in <=65536 bins.
-
-    For integer arrays (int8/uint8/int16/uint16) the full-range histogram is
-    O(N) with a very small constant, avoiding the O(N log N) sort that
-    np.percentile performs.
-    """
-    if orig_dtype.kind in ("i", "u") and orig_dtype.itemsize <= 2:
-        imin = int(np.iinfo(orig_dtype).min)
-        imax = int(np.iinfo(orig_dtype).max)
-        int_sample = np.clip(sample, imin, imax).astype(np.int32) - imin
-        counts = np.bincount(int_sample, minlength=imax - imin + 1)
-        total = int(counts.sum())
-        cumsum = np.cumsum(counts)
-        lo_idx = int(np.searchsorted(cumsum, lo / 100.0 * total))
-        hi_idx = int(np.searchsorted(cumsum, hi / 100.0 * total))
-        return float(imin + lo_idx), float(imin + hi_idx)
-    # General path: use numpy sort-based percentile
-    f32 = sample.astype(np.float32)
-    return float(np.percentile(f32, lo)), float(np.percentile(f32, hi))
-
-
 class Session:
     def __init__(self, data, filepath=None, name=None):
         self.sid = uuid.uuid4().hex
@@ -165,7 +140,6 @@ class Session:
         self.name = name or (
             os.path.basename(filepath) if filepath else f"Array {data.shape}"
         )
-        self.global_stats = {}
         self.fft_original_data = None
         self.fft_axes = None
         self.data_version = 0  # incremented by /reload when file is reloaded
@@ -198,72 +172,26 @@ class Session:
         self.vfield_time_dim = None  # optional time axis in the raw vfield array
         self.vfield_spatial_axes = None  # image spatial dim -> vfield axis mapping
 
-        self.compute_global_stats()
-
     def _estimate_memory(self):
         """Estimate memory footprint in bytes (array data + cache budgets)."""
         itemsize = np.dtype(getattr(self.data, "dtype", np.float32)).itemsize
         data_bytes = int(np.prod(self.shape)) * itemsize
         return data_bytes
 
-    def compute_global_stats(self):
-        try:
-            total = int(np.prod(self.shape))
-            max_samples = 200_000
-            ndim = len(self.shape)
-            orig_dtype = np.dtype(getattr(self.data, "dtype", np.float32))
-            if total <= max_samples:
-                sample = np.array(self.data).ravel()
-            elif ndim >= 4:
-                # For high-dimensional arrays (e.g. T×Z×Y×X×C), sampling full
-                # outer-axis slices loads hundreds of MB each. Instead, sample
-                # 20 random 2-D slices (last two dims) by fixing all outer axes
-                # to random indices. Each 2-D slice is at most ~1 MB.
-                rng = np.random.default_rng(0)
-                outer_shape = self.shape[:-2]  # all dims except last two
-                n_slices = 20
-                chunks = []
-                per_chunk = max(1000, max_samples // n_slices)
-                for _ in range(n_slices):
-                    idx = tuple(int(rng.integers(0, s)) for s in outer_shape)
-                    chunk = np.array(self.data[idx]).ravel()
-                    if chunk.size > per_chunk:
-                        chunk = chunk[:: max(1, chunk.size // per_chunk)]
-                    chunks.append(chunk)
-                sample = np.concatenate(chunks)
-            else:
-                n_take = min(10, self.shape[0])
-                step = max(1, self.shape[0] // n_take)
-                per_chunk = max(1000, max_samples // n_take)
-                chunks = []
-                for i in range(0, self.shape[0], step):
-                    chunk = np.array(self.data[i]).ravel()
-                    if chunk.size > per_chunk:
-                        chunk = chunk[:: max(1, chunk.size // per_chunk)]
-                    chunks.append(chunk)
-                sample = np.concatenate(chunks)
-            if np.iscomplexobj(sample):
-                sample = np.abs(sample)
-            sample = np.nan_to_num(sample)
-
-            self.global_stats = {
-                i: _percentile_pair(sample, orig_dtype, lo, hi)
-                for i, (lo, hi) in enumerate(DR_PERCENTILES)
-            }
-        except Exception:
-            self.global_stats = {}
-
-
-def _recommend_colormap_reason(data, global_stats: dict) -> str:
+def _recommend_colormap_reason(data) -> str:
     """Return a human-readable reason for the recommended colormap choice."""
     dtype = np.dtype(getattr(data, "dtype", np.float32))
     if dtype.kind == "b":
         return "gray (bool dtype — binary data)"
     if np.iscomplexobj(data):
         return "gray (complex dtype — showing magnitude)"
-    vmin, _ = global_stats.get(1, global_stats.get(0, (0.0, 1.0)))
-    if dtype.kind in ("i", "f") and vmin < 0:
-        return "RdBu_r (signed data — vmin < 0)"
+    if dtype.kind == "i":
+        return "RdBu_r (signed integer dtype)"
+    if dtype.kind == "f":
+        sample = np.array(data).ravel()[:10000]
+        sample = np.nan_to_num(sample)
+        if sample.size > 0 and float(sample.min()) < 0:
+            return "RdBu_r (signed data — vmin < 0)"
     return "gray (default — unsigned/positive data)"
 
 
@@ -278,7 +206,6 @@ COLORMAPS = [
     "RdBu_r",
     "twilight_shifted",
 ]
-DR_PERCENTILES = [(0, 100), (1, 99), (5, 95), (10, 90)]
 DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 
 # ---------------------------------------------------------------------------
@@ -399,7 +326,6 @@ __all__ = [
     "SESSIONS",
     # Constants
     "COLORMAPS",
-    "DR_PERCENTILES",
     "DR_LABELS",
     "ZARR_LARGE_XY_TILE",
     "ZARR_T_DEPTH",

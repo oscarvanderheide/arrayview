@@ -6,7 +6,6 @@ import numpy as np
 
 from arrayview._session import (
     COLORMAPS,
-    DR_PERCENTILES,
     SESSIONS,
 )
 
@@ -105,15 +104,10 @@ def mosaic_shape(batch):
 # ---------------------------------------------------------------------------
 
 
-def _compute_vmin_vmax(session, data, dr, complex_mode=0):
+def _compute_vmin_vmax(session, data, dr=0, complex_mode=0):
     if complex_mode == 1 and np.iscomplexobj(session.data):
         return (-float(np.pi), float(np.pi))
-    if complex_mode == 0 and len(session.shape) <= 3 and dr in session.global_stats:
-        vmin, vmax = session.global_stats[dr]
-        if vmin != vmax:
-            return vmin, vmax
-    pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-    return float(np.percentile(data, pct_lo)), float(np.percentile(data, pct_hi))
+    return float(np.percentile(data, 1)), float(np.percentile(data, 99))
 
 
 def extract_slice(session, dim_x, dim_y, idx_list):
@@ -237,18 +231,8 @@ def _prepare_display(
         return data, vmin_override, vmax_override
     if log_scale:
         data = np.log1p(np.abs(data)).astype(np.float32)
-        if complex_mode == 0 and len(session.shape) <= 3 and dr in session.global_stats:
-            raw_vmin, raw_vmax = session.global_stats[dr]
-            vmin = float(np.log1p(abs(raw_vmin)))
-            vmax = float(np.log1p(abs(raw_vmax)))
-            if vmin == vmax:
-                pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-                vmin = float(np.percentile(data, pct_lo))
-                vmax = float(np.percentile(data, pct_hi))
-        else:
-            pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-            vmin = float(np.percentile(data, pct_lo))
-            vmax = float(np.percentile(data, pct_hi))
+        vmin = float(np.percentile(data, 1))
+        vmax = float(np.percentile(data, 99))
     else:
         vmin, vmax = _compute_vmin_vmax(session, data, dr, complex_mode)
     return data, vmin, vmax
@@ -698,12 +682,11 @@ def render_mosaic(
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
     all_data = np.stack(frames)
 
-    if log_scale:
-        pct_lo, pct_hi = DR_PERCENTILES[dr % len(DR_PERCENTILES)]
-        vmin = float(np.percentile(all_data, pct_lo))
-        vmax = float(np.percentile(all_data, pct_hi))
+    if complex_mode == 1 and np.iscomplexobj(session.data):
+        vmin, vmax = -float(np.pi), float(np.pi)
     else:
-        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
+        vmin = float(np.percentile(all_data, 1))
+        vmax = float(np.percentile(all_data, 99))
 
     if mosaic_cols is not None:
         cols = mosaic_cols
