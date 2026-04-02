@@ -961,7 +961,14 @@ def _open_browser(
             except Exception:
                 port_hint = parsed_port
             print(
-                f"[ArrayView] SSH session — to view this array remotely:\n"
+                f"[ArrayView] SSH session — automatic relay to VS Code failed.\n"
+                f"\n"
+                f"  If the VS Code arrayview extension is running on the machine you\n"
+                f"  SSHed from, the array normally opens automatically. If it didn't,\n"
+                f"  the extension may not be installed or the network may block the\n"
+                f"  relay port (default 17789).\n"
+                f"\n"
+                f"  Manual alternatives:\n"
                 f"\n"
                 f"  Option A — simple port-forward (direct SSH access):\n"
                 f"    ssh -L {port_hint}:localhost:{port_hint} <user>@<this-host>\n"
