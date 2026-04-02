@@ -3544,6 +3544,7 @@
             if (_cbExpanded && !_histFetching) {
                 const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
                 if (stale) {
+                    _histData = null; _kdeSmooth = null; // clear immediately to prevent stale use
                     const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
@@ -5308,8 +5309,9 @@
                 if (lebesgueMode) {
                     _computeCbExpandedH();
                     _cbExpanded = true;
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                    fetcher().then(() => {
+                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
+                    fetcher().then((d) => {
+                        if (d && !compareActive) _histData = d;
                         _buildKDE();
                         _cbStartAnim(true);
                         _fetchLebesgueSlice();
@@ -9226,6 +9228,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (rgbMode) return;
 
                 if (lebesgueMode && _histData) {
+                    // Re-fetch if histogram data is stale for current dim config
+                    if (_histDataVersion !== _expectedHistKey()) {
+                        const volData = await _fetchVolumeHistogram();
+                        if (volData) { _histData = volData; _buildKDE(); }
+                    }
                     // Histogram mode open: cycle quantile presets with smooth indicator updates
                     const _QUANTILE_PRESETS = [
                         { label: 'full range', lo: 0, hi: 1 },
@@ -9304,6 +9311,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }, 3000);
                     } else {
                         // Subsequent presses: cycle quantile presets
+                        // Re-fetch if histogram data is stale for current dim config
+                        if (!_histData || _histDataVersion !== _expectedHistKey()) {
+                            const volData = await _fetchVolumeHistogram();
+                            if (volData) { _histData = volData; _buildKDE(); }
+                        }
                         const _QUANTILE_PRESETS = [
                             { label: 'full range', lo: 0, hi: 1 },
                             { label: '1\u201399%', lo: 0.01, hi: 0.99 },
@@ -12633,6 +12645,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_cbExpanded && !_histFetching) {
                 const stale = !_histData || _histDataVersion !== _expectedHistKey();
                 if (stale) {
+                    _histData = null; _kdeSmooth = null;
                     _fetchVolumeHistogram().then((d) => {
                         if (d) _histData = d;
                         if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
