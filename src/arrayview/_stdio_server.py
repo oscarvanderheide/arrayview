@@ -639,7 +639,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
 
     from arrayview._config import get_viewer_colormaps
     from arrayview._render import COLORMAP_GRADIENT_STOPS, COMPLEX_MODES, REAL_MODES
-    from arrayview._session import COLORMAPS, DR_LABELS
+    from arrayview._session import COLORMAPS
 
     template = _pkg_files("arrayview").joinpath("_viewer.html").read_text(encoding="utf-8")
 
@@ -652,7 +652,6 @@ def _handle_get_viewer_html(msg: dict) -> None:
 
     html = (
         template.replace("__COLORMAPS__", str(_active_colormaps))
-        .replace("__DR_LABELS__", str(DR_LABELS))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))

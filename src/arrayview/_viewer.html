@@ -1501,7 +1501,7 @@
 </div>
     <script>
         const COLORMAPS = __COLORMAPS__;
-        const DR_LABELS = __DR_LABELS__;
+
         const COLORMAP_GRADIENT_STOPS = __COLORMAP_GRADIENT_STOPS__;
         const COMPLEX_MODES = __COMPLEX_MODES__;
         const REAL_MODES = __REAL_MODES__;
@@ -1683,7 +1683,7 @@
         let activeDim = 2;
         let indices = [];
         let _sessionName = ''; // set from metadata; restored when leaving compare mode
-        let colormap_idx = 0, dr_idx = 1;
+        let colormap_idx = 0;
         let isPlaying = false, playInterval = null, playingVfieldT = false;
         let playingDim = -1;  // -1 = not playing; set to dim index during playback
         let dim_z = -1;
@@ -1846,7 +1846,6 @@
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
-        let _diffDrIdx = null; // override dynamic range for diff pane; null = use global dr_idx
         const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
         const ABS_DIFF_COLORMAPS = ['afmhot', 'hot', 'inferno', 'magma', 'plasma', 'viridis', 'gray', 'cividis'];
         let _mouseOverCenterPane = false; // true when mouse hovers diff or wipe pane
@@ -2977,7 +2976,6 @@
             // Derive legacy state variables from unified mode
             const prevDiffMode = diffMode;
             diffMode       = (newMode >= 1 && newMode <= 3) ? newMode : 0;
-            if (prevDiffMode > 0 && diffMode === 0) _diffDrIdx = null; // reset diff DR on exit
             registrationMode = (newMode === 4);
             _wipeActive    = (newMode === 5);
             _flickerActive = (newMode === 6);
@@ -4568,7 +4566,6 @@
         }
         ColorBar.QUANTILE_PRESETS = [
             { label: 'full range', lo: 0, hi: 1 },
-            { label: '0.1\u201399.9%', lo: 0.001, hi: 0.999 },
             { label: '1\u201399%', lo: 0.01, hi: 0.99 },
             { label: '5\u201395%', lo: 0.05, hi: 0.95 },
             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
@@ -4596,7 +4593,7 @@
             getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
-            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchHistogram(),
+            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(),
             onWindowChange: () => {
                 if (!_cbWindowChangeRafId) {
                     _cbWindowChangeRafId = requestAnimationFrame(() => {
@@ -4902,6 +4899,39 @@
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY;
             } catch (_) { _histData = null; }
             _histFetching = false;
+        }
+
+        let _volHistCache = {};
+
+        async function _fetchVolumeHistogram(opts = {}) {
+            const fetchDimX = opts.dimX ?? dim_x;
+            const fetchDimY = opts.dimY ?? dim_y;
+            const scrollDim = opts.scrollDim ?? current_slice_dim;
+            const cMode = opts.complexMode ?? complexMode;
+            const fixedIndices = opts.fixedIndices ?? '';
+            const cacheKey = `${fetchDimX}:${fetchDimY}:${scrollDim}:${fixedIndices}:${cMode}`;
+
+            if (_volHistCache[cacheKey]) return _volHistCache[cacheKey];
+
+            const params = new URLSearchParams({
+                dim_x: fetchDimX,
+                dim_y: fetchDimY,
+                scroll_dim: scrollDim,
+                complex_mode: cMode,
+                bins: 64,
+            });
+            if (fixedIndices) params.set('fixed_indices', fixedIndices);
+            try {
+                const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                _volHistCache[cacheKey] = data;
+                return data;
+            } catch (_) { return null; }
+        }
+
+        function _invalidateVolHistCache() {
+            _volHistCache = {};
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
@@ -5787,7 +5817,7 @@
                     dim_z: String(dim_z),
                     indices: indices.join(','),
                     colormap: currentColormap(),
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
@@ -5863,7 +5893,7 @@
                     dim_z: String(dim_z),
                     indices: indices.join(','),
                     colormap: currentColormap(),
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale),
                     slice_dim: String(current_slice_dim),
@@ -5938,7 +5968,7 @@
                 dim_y: String(dim_y),
                 dim_z: String(dim_z),
                 indices: indices.join(','),
-                dr: String(_diffDrIdx !== null ? _diffDrIdx : dr_idx),
+                dr: '0',
                 complex_mode: String(complexMode),
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
@@ -5995,7 +6025,7 @@
                     dim_x, dim_y, dim_z,
                     indices: [...indices],
                     colormap: currentColormap(),
-                    dr: dr_idx,
+                    dr: 0,
                     complex_mode: complexMode,
                     log_scale: logScale,
                     slice_dim: current_slice_dim,
@@ -6775,7 +6805,6 @@
         function collectStateSnapshot() {
             return {
                 colormap_idx,
-                dr_idx,
                 indices: [...indices],
                 logScale,
                 projectionMode,
@@ -6833,7 +6862,6 @@
         function applyStateSnapshot(s) {
             if (!s || typeof s !== 'object') return false;
             colormap_idx = s.colormap_idx ?? colormap_idx;
-            dr_idx = s.dr_idx ?? dr_idx;
             if (Array.isArray(s.indices) && s.indices.length === shape.length) {
                 indices = s.indices.map((v, i) => {
                     const n = Number(v);
@@ -7166,7 +7194,7 @@
                 dim_x, dim_y, dim_z,
                 indices: [...indices],
                 colormap: currentColormap(),
-                dr: dr_idx,
+                dr: 0,
                 complex_mode: complexMode,
                 log_scale: logScale,
                 slice_dim: current_slice_dim,
@@ -7470,7 +7498,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         async function saveGif() {
             setStatus('Generating GIF...');
-            const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${currentColormap()}&dr=${dr_idx}&slice_dim=${current_slice_dim}`;
+            const url = `/gif/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&colormap=${currentColormap()}&dr=0&slice_dim=${current_slice_dim}`;
             const res = await proxyFetch(url);
             if (!res.ok) {
                 // Phase 4: guardrail error (e.g. array too large)
@@ -9011,6 +9039,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                 complexMode = (complexMode + 1) % modeCount;
                 complexModeEverUsed = true;
+                _invalidateVolHistCache();
                 manualVmin = manualVmax = null;
                 _eggsVisible = true;
                 _complexEggVisible = true;
@@ -9088,14 +9117,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         saveState();
                     });
             } else if (e.key === 'd') {
-                // In diff mode, hovering center pane cycles diff DR only
-                if (_mouseOverCenterPane && compareActive && diffMode > 0) {
-                    if (_diffDrIdx === null) _diffDrIdx = dr_idx;
-                    _diffDrIdx = (_diffDrIdx + 1) % DR_LABELS.length;
-                    await fetchAndDrawDiff();
-                    showStatus(`Diff dynamic range: ${DR_LABELS[_diffDrIdx]}`);
-                    return;
-                }
                 // In diff mode (not hovering center), expand/cycle diff ColorBars
                 if (compareActive && diffMode > 0 && _diffLeftCb) {
                     const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
@@ -9118,26 +9139,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus('histogram');
                     return;
                 }
-                // In qMRI mode, hovering a specific pane cycles only that pane's DR
+                // In qMRI mode, hovering a specific pane: expand + cycle quantile
                 if (qmriActive && _hoveredQmriView) {
                     const hv = _hoveredQmriView;
-                    if (hv.drIdx === null) hv.drIdx = dr_idx;
-                    hv.drIdx = (hv.drIdx + 1) % DR_LABELS.length;
-                    _cbExpanded = false;
-                    proxyFetch(`/clearcache/${sid}`).then(() => {
-                        hv.rendering = false; hv.pending = false;
-                        qvRender(hv);
-                        if (!rgbMode) {
-                            hv._histData = null;
-                            if (qmriMosaicActive && hv._mosaicColorBar) {
-                                hv._mosaicColorBar.expand();
-                            } else if (hv._colorBar) {
-                                hv._colorBar.expand();
-                            }
+                    const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
+                    if (!cb) return;
+                    if (!cb._expanded) {
+                        await cb.expand();
+                        cb.startAutoDismiss();
+                        showStatus('histogram');
+                    } else {
+                        const q = cb.cycleQuantile();
+                        if (q) {
+                            hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
+                            hv.seq++; hv.rendering = false; hv.pending = false;
+                            qvRender(hv);
+                            const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
+                            showStatus(`${paneLabel}: ${q.label}`);
                         }
-                    });
-                    const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
-                    showStatus(`${paneLabel} dynamic range: ${DR_LABELS[hv.drIdx]}`);
+                        cb.startAutoDismiss();
+                    }
                     return;
                 }
                 // In qMRI mode without hovered pane: show histograms for all panes; cycle quantile on repeat
@@ -9182,7 +9203,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // Histogram mode open: cycle quantile presets with smooth indicator updates
                     const _QUANTILE_PRESETS = [
                         { label: 'full range', lo: 0, hi: 1 },
-                        { label: '0.1–99.9%', lo: 0.001, hi: 0.999 },
                         { label: '1–99%', lo: 0.01, hi: 0.99 },
                         { label: '5–95%', lo: 0.05, hi: 0.95 },
                         { label: '10–90%', lo: 0.10, hi: 0.90 },
@@ -9220,8 +9240,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _cbExpanded = true;
                         const triZone = document.getElementById('slim-cb-tri-zone');
                         if (triZone) triZone.classList.add('expanded');
-                        const fn = compareActive ? _fetchHistogramCompare : _fetchHistogram;
-                        await fn();
+                        if (compareActive) {
+                            await _fetchHistogramCompare();
+                        } else {
+                            const volData = await _fetchVolumeHistogram();
+                            if (volData) _histData = volData;
+                        }
                         _buildKDE();
                         lebesgueMode = true;
                         _fetchLebesgueSlice();
@@ -9256,7 +9280,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         // Subsequent presses: cycle quantile presets
                         const _QUANTILE_PRESETS = [
                             { label: 'full range', lo: 0, hi: 1 },
-                            { label: '0.1\u201399.9%', lo: 0.001, hi: 0.999 },
                             { label: '1\u201399%', lo: 0.01, hi: 0.99 },
                             { label: '5\u201395%', lo: 0.05, hi: 0.95 },
                             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
@@ -10405,7 +10428,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_flickerTimer) { clearInterval(_flickerTimer); _flickerTimer = null; }
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
-            _diffDrIdx = null;
             compareFocusMode = false;
             _reconcileUI();
             drawSlimColorbar(cbMarkerFrac);
@@ -10463,7 +10485,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     },
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
                     setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
-                    fetchHistogram: () => _fetchHistogram(),
+                    fetchHistogram: () => _fetchVolumeHistogram(),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); },
                     onBinHover: (binIdx, frac) => {
                         if (!lebesgueMode) return;
@@ -10653,7 +10675,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             flip_x = flipDims[dim_x] ?? flip_x;
             flip_y = flipDims[dim_y] ?? flip_y;
             // Collapse histogram if it was expanded in multiview
-            _cbExpanded = false; _histData = null;
+            _cbExpanded = false; _histData = null; _invalidateVolHistCache();
             userZoom = _mvPrevZoom;
             squareStretch = _mvPrevSquareStretch;
             mvDims = [];
@@ -10745,7 +10767,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
                         _mosaicVcb: null, _mosaicColorBar: null,
                         _histData: null, _histFetching: false,
-                        drIdx: null, _colorBar: null,
+                        _colorBar: null,
                     };
                     // Create ColorBar instance for this qMRI view
                     const _qvCb = new ColorBar({
@@ -10758,12 +10780,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
                         setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
                         fetchHistogram: async () => {
-                            const qIndices = [...indices];
-                            qIndices[qmriDim] = view.qmriIdx;
-                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
-                            if (logScale) params.set('log_scale', '1');
-                            const resp = await proxyFetch('/histogram/' + sid + '?' + params);
-                            return resp.ok ? resp.json() : null;
+                            const fixedPairs = [];
+                            fixedPairs.push(qmriDim + ':' + view.qmriIdx);
+                            const fixedIndices = fixedPairs.join(',');
+                            return _fetchVolumeHistogram({
+                                dimX: dim_x, dimY: dim_y,
+                                scrollDim: current_slice_dim,
+                                complexMode: complexMode,
+                                fixedIndices,
+                            });
                         },
                         onWindowChange: () => { qvRender(view); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
@@ -10975,12 +11000,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
                         setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
                         fetchHistogram: async () => {
-                            const qIndices = [...indices];
-                            qIndices[compareQmriDim] = view.qmriIdx;
-                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
-                            if (logScale) params.set('log_scale', '1');
-                            const resp = await proxyFetch('/histogram/' + view.sid + '?' + params);
-                            return resp.ok ? resp.json() : null;
+                            const fixedPairs = [];
+                            fixedPairs.push(compareQmriDim + ':' + view.qmriIdx);
+                            const fixedIndices = fixedPairs.join(',');
+                            return _fetchVolumeHistogram({
+                                dimX: dim_x, dimY: dim_y,
+                                scrollDim: current_slice_dim,
+                                complexMode: complexMode,
+                                fixedIndices,
+                            });
                         },
                         onWindowChange: () => { compareQmriRender(view); },
                         onAnimFrame: () => { compareQmriScaleAllCanvases(); },
@@ -11090,7 +11118,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
-                dr: dr_idx, complex_mode: complexMode,
+                dr: 0, complex_mode: complexMode,
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid: _getVisibleOverlaySids() || null,
@@ -11115,7 +11143,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     dim_z: '-1',
                     indices: qIndices.join(','),
                     colormap: v.colormap,
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale && v.qmriIdx < 2),
                     slice_dim: String(current_slice_dim),
@@ -11462,7 +11490,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
                 indices: [...indices], colormap: currentColormap(),
-                dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
+                dr: 0, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
@@ -11486,7 +11514,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     dim_z: '-1',
                     indices: indices.join(','),
                     colormap: currentColormap(),
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale),
                     slice_dim: String(v.sliceDir),
@@ -11666,7 +11694,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const _qmMsg = {
                 seq: v.seq, dim_x, dim_y, dim_z: qmriMosaicActive ? _qmriMosaicZDim : -1,
                 indices: qIndices, colormap: v.colormap,
-                dr: v.drIdx !== null ? v.drIdx : dr_idx, complex_mode: complexMode,
+                dr: 0, complex_mode: complexMode,
                 // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
@@ -11694,7 +11722,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     dim_z: String(qmriMosaicActive ? _qmriMosaicZDim : -1),
                     indices: qIndices.join(','),
                     colormap: v.colormap,
-                    dr: String(v.drIdx !== null ? v.drIdx : dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                     log_scale: String(logScale && v.qmriIdx < 2),
@@ -11785,12 +11813,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         getWindow: () => ({ vmin: v.lockedVmin ?? v.vmin, vmax: v.lockedVmax ?? v.vmax }),
                         setWindow: (lo, hi) => { v.lockedVmin = lo; v.lockedVmax = hi; },
                         fetchHistogram: async () => {
-                            const qIndices = [...indices];
-                            qIndices[qmriDim] = v.qmriIdx;
-                            const params = new URLSearchParams({ dim_x: String(dim_x), dim_y: String(dim_y), indices: qIndices.join(','), complex_mode: complexMode, bins: '64' });
-                            if (logScale) params.set('log_scale', '1');
-                            const resp = await proxyFetch('/histogram/' + sid + '?' + params);
-                            return resp.ok ? resp.json() : null;
+                            const fixedPairs = [];
+                            fixedPairs.push(qmriDim + ':' + v.qmriIdx);
+                            const fixedIndices = fixedPairs.join(',');
+                            return _fetchVolumeHistogram({
+                                dimX: dim_x, dimY: dim_y,
+                                scrollDim: current_slice_dim,
+                                complexMode: complexMode,
+                                fixedIndices,
+                            });
                         },
                         onWindowChange: () => { qvRender(v); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
@@ -12105,7 +12136,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     size_w: String(shape[v.dimX]),
                     size_h: String(shape[v.dimY]),
                     colormap: currentColormap(),
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale),
                 });
@@ -12150,7 +12181,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x: v.dimX, dim_y: v.dimY, dim_z: -1,
                 indices: [...indices], colormap: currentColormap(),
-                dr: dr_idx, complex_mode: complexMode, log_scale: logScale,
+                dr: 0, complex_mode: complexMode, log_scale: logScale,
                 slice_dim: v.sliceDir, direction: 1,
                 vmin_override: v.lockedVmin ?? null,
                 vmax_override: v.lockedVmax ?? null,
@@ -12176,7 +12207,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     dim_z: '-1',
                     indices: indices.join(','),
                     colormap: currentColormap(),
-                    dr: String(dr_idx),
+                    dr: '0',
                     complex_mode: String(complexMode),
                     log_scale: String(logScale),
                     slice_dim: String(v.sliceDir),

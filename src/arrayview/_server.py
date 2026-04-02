@@ -38,7 +38,7 @@ from arrayview._session import (
     Session,
     SESSIONS,
     COLORMAPS,
-    DR_LABELS,
+
     HEAVY_OP_LIMIT_BYTES,
     _estimate_array_bytes,
 )
@@ -3163,7 +3163,6 @@ def get_ui(sid: str = None):
     _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
-        .replace("__DR_LABELS__", str(DR_LABELS))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))

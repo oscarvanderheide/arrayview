@@ -206,7 +206,6 @@ COLORMAPS = [
     "RdBu_r",
     "twilight_shifted",
 ]
-DR_LABELS = ["0-100%", "1-99%", "5-95%", "10-90%"]
 
 # ---------------------------------------------------------------------------
 # Zarr chunk presets (Phase 1)
@@ -326,7 +325,7 @@ __all__ = [
     "SESSIONS",
     # Constants
     "COLORMAPS",
-    "DR_LABELS",
+
     "ZARR_LARGE_XY_TILE",
     "ZARR_T_DEPTH",
     "PREFETCH_NEIGHBORS",
