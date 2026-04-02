@@ -212,6 +212,15 @@
         :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
         :root.solarized .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #586e75; border-color: rgba(0,0,0,0.15); }
         :root.nord .slim-cb-val-input { background: rgba(216,222,233,0.1); color: #d8dee9; border-color: rgba(216,222,233,0.2); }
+        .cb-val-popup { position: fixed; z-index: 10; padding: 6px 8px; border-radius: 8px; background: rgba(30,30,30,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: auto; }
+        .cb-val-popup .cb-val-label { font-size: 10px; color: rgba(255,255,255,0.45); font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+        .cb-val-popup .slim-cb-val-input { width: 68px; font-size: 13px; padding: 3px 4px; }
+        :root.light .cb-val-popup { background: rgba(245,245,245,0.92); border-color: rgba(0,0,0,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
+        :root.solarized .cb-val-popup { background: rgba(238,232,213,0.92); border-color: rgba(0,0,0,0.1); }
+        :root.solarized .cb-val-popup .cb-val-label { color: rgba(88,110,117,0.5); }
+        :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); border-color: rgba(216,222,233,0.1); }
+        :root.nord .cb-val-popup .cb-val-label { color: rgba(216,222,233,0.4); }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -4322,37 +4331,16 @@
 
                 // Dblclick on vmin/vmax labels for inline editing
                 const _editLabel = (labelEl, which) => {
-                    const win = this.opts.getWindow();
-                    const curVal = which === 'vmin' ? win.vmin : win.vmax;
-                    if (curVal == null) return;
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.className = 'slim-cb-val-input';
-                    input.value = parseFloat(curVal.toPrecision(6));
-                    const origHTML = labelEl.innerHTML;
-                    labelEl.innerHTML = '';
-                    labelEl.appendChild(input);
-                    input.focus();
-                    input.select();
-                    const commit = () => {
-                        const v = parseFloat(input.value);
-                        if (!isNaN(v)) {
+                    _showCbValPopup(labelEl, which,
+                        () => { const w = this.opts.getWindow(); return which === 'vmin' ? w.vmin : w.vmax; },
+                        (v) => {
                             const w = this.opts.getWindow();
                             if (which === 'vmin') this.opts.setWindow(v, w.vmax);
                             else this.opts.setWindow(w.vmin, v);
                             this.draw();
                             if (this.opts.onWindowChange) this.opts.onWindowChange();
-                        } else {
-                            labelEl.innerHTML = origHTML;
                         }
-                    };
-                    const cancel = () => { labelEl.innerHTML = origHTML; };
-                    input.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-                        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-                        e.stopPropagation();
-                    });
-                    input.addEventListener('blur', commit);
+                    );
                 };
                 if (this.vminLabel) {
                     this.vminLabel.addEventListener('dblclick', (e) => {
@@ -5353,24 +5341,73 @@
             });
 
             // Double-click on colorbar canvas toggles histogram (Lebesgue) mode
-            // Double-click on vmin/vmax labels opens inline editor
-            function _startCbValEdit(labelEl, which) {
-                const curVal = which === 'vmin'
-                    ? (manualVmin ?? currentVmin)
-                    : (manualVmax ?? currentVmax);
+            // Double-click on vmin/vmax labels opens popup editor
+
+            /** Shared popup editor for vmin/vmax labels across all colorbar types.
+             *  @param {Element} anchorEl — the label element to anchor the popup to
+             *  @param {string} which — 'vmin' or 'vmax'
+             *  @param {function} getValue — () => current value
+             *  @param {function} onCommit — (newValue) => apply the value
+             */
+            function _showCbValPopup(anchorEl, which, getValue, onCommit) {
+                const curVal = getValue();
                 if (curVal == null) return;
+                // Remove any existing popup
+                const existing = document.querySelector('.cb-val-popup');
+                if (existing) existing.remove();
+                // Build popup
+                const popup = document.createElement('div');
+                popup.className = 'cb-val-popup';
+                const label = document.createElement('span');
+                label.className = 'cb-val-label';
+                label.textContent = which;
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'slim-cb-val-input';
                 input.value = parseFloat(curVal.toPrecision(6));
-                const origHTML = labelEl.innerHTML;
-                labelEl.innerHTML = '';
-                labelEl.appendChild(input);
+                popup.appendChild(label);
+                popup.appendChild(input);
+                document.body.appendChild(popup);
+                // Position relative to anchor
+                const anchorRect = anchorEl.getBoundingClientRect();
+                const popW = popup.offsetWidth;
+                const popH = popup.offsetHeight;
+                const above = _fullscreenActive; // immersive → above, normal → below
+                let left = anchorRect.left + anchorRect.width / 2 - popW / 2;
+                let top = above
+                    ? anchorRect.top - popH - 6
+                    : anchorRect.bottom + 6;
+                // Clamp to viewport
+                left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
+                top = Math.max(4, Math.min(top, window.innerHeight - popH - 4));
+                popup.style.left = left + 'px';
+                popup.style.top = top + 'px';
                 input.focus();
                 input.select();
+                let _done = false;
+                function _cleanup() {
+                    if (_done) return;
+                    _done = true;
+                    popup.remove();
+                }
                 function _commit() {
                     const v = parseFloat(input.value);
-                    if (!isNaN(v)) {
+                    if (!isNaN(v)) onCommit(v);
+                    _cleanup();
+                }
+                function _cancel() { _cleanup(); }
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); _commit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
+                    e.stopPropagation();
+                });
+                input.addEventListener('blur', _commit);
+            }
+
+            function _startCbValEdit(labelEl, which) {
+                _showCbValPopup(labelEl, which,
+                    () => which === 'vmin' ? (manualVmin ?? currentVmin) : (manualVmax ?? currentVmax),
+                    (v) => {
                         if (which === 'vmin') {
                             if (manualVmin === null) manualVmax = manualVmax ?? currentVmax;
                             manualVmin = v;
@@ -5381,17 +5418,8 @@
                         updateView();
                         _redrawActiveColorbar();
                         saveState();
-                    } else {
-                        labelEl.innerHTML = origHTML;
                     }
-                }
-                function _cancel() { labelEl.innerHTML = origHTML; }
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); _commit(); }
-                    else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
-                    e.stopPropagation();
-                });
-                input.addEventListener('blur', _commit);
+                );
             }
             slimCbWrap.addEventListener('dblclick', (e) => {
                 const label = e.target.closest('.slim-cb-val');
