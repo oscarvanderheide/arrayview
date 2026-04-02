@@ -8855,6 +8855,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     while (current_slice_dim === dim_x || current_slice_dim === dim_y || current_slice_dim === dim_z);
                 }
                 activeDim = current_slice_dim;
+                _invalidateVolHistCache();
                 updateView(); triggerPreload();
             } else if (isSpaceKey) {
                 e.preventDefault();
@@ -9440,7 +9441,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         activeDim = (activeDim - 1 + shape.length) % shape.length;
                     }
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
-                        current_slice_dim = activeDim; triggerPreload();
+                        current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                     }
                     flashAxesIndicators();
                     renderInfo();
@@ -9487,7 +9488,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         activeDim = (activeDim + 1) % shape.length;
                     }
                     if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
-                        current_slice_dim = activeDim; triggerPreload();
+                        current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
                     }
                     flashAxesIndicators();
                     renderInfo();
@@ -12744,7 +12745,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
-                current_slice_dim = d; triggerPreload();
+                current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
             renderInfo();
             sink.focus();
