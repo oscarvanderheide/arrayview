@@ -5368,18 +5368,20 @@
                 popup.appendChild(label);
                 popup.appendChild(input);
                 document.body.appendChild(popup);
-                // Position relative to anchor
-                const anchorRect = anchorEl.getBoundingClientRect();
+                // Position relative to the colorbar island (parent .cb-island or #slim-cb-wrap)
+                const island = anchorEl.closest('.cb-island') || anchorEl.closest('#slim-cb-wrap');
+                const islandRect = island ? island.getBoundingClientRect() : anchorEl.getBoundingClientRect();
+                const labelRect = anchorEl.getBoundingClientRect();
                 const popW = popup.offsetWidth;
                 const popH = popup.offsetHeight;
-                const above = _fullscreenActive; // immersive → above, normal → below
-                let left = anchorRect.left + anchorRect.width / 2 - popW / 2;
-                let top = above
-                    ? anchorRect.top - popH - 6
-                    : anchorRect.bottom + 6;
-                // Clamp to viewport
+                // Center horizontally on the label
+                let left = labelRect.left + labelRect.width / 2 - popW / 2;
+                // Immersive: above the island. Normal: below, clamped to viewport bottom.
+                let top = _fullscreenActive
+                    ? Math.max(4, islandRect.top - popH - 6)
+                    : Math.min(islandRect.bottom + 6, window.innerHeight - popH - 4);
+                // Clamp horizontal
                 left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
-                top = Math.max(4, Math.min(top, window.innerHeight - popH - 4));
                 popup.style.left = left + 'px';
                 popup.style.top = top + 'px';
                 input.focus();
