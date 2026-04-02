@@ -23,6 +23,7 @@ from arrayview._platform import (
 
 # Whether the "set port to Public" message has been printed this session.
 _remote_message_shown = False
+_ssh_message_shown = False
 
 
 # ---------------------------------------------------------------------------
@@ -956,34 +957,35 @@ def _open_browser(
             and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
         )
         if is_plain_ssh:
-            try:
-                port_hint = int(url.split(":")[2].split("/")[0].split("?")[0])
-            except Exception:
-                port_hint = parsed_port
-            print(
-                f"[ArrayView] SSH session — automatic relay to VS Code failed.\n"
-                f"\n"
-                f"  If the VS Code arrayview extension is running on the machine you\n"
-                f"  SSHed from, the array normally opens automatically. If it didn't,\n"
-                f"  the extension may not be installed or the network may block the\n"
-                f"  relay port (default 17789).\n"
-                f"\n"
-                f"  Manual alternatives:\n"
-                f"\n"
-                f"  Option A — simple port-forward (direct SSH access):\n"
-                f"    ssh -L {port_hint}:localhost:{port_hint} <user>@<this-host>\n"
-                f"    Then open: http://localhost:{port_hint}/\n"
-                f"\n"
-                f"  Option B — relay through an existing public ArrayView server\n"
-                f"  (best for multi-hop: local → tunnel-remote → this host):\n"
-                f"    1. Re-connect with a reverse tunnel (pick any free local port, e.g. 8765):\n"
-                f"       ssh -R 8765:localhost:8000 <user>@<this-host>\n"
-                f"    2. Then run:\n"
-                f"       arrayview <file> --relay 8765\n"
-                f"    The array is sent to the relay server on port 8000 of the\n"
-                f"    intermediate host and opens in Simple Browser automatically.\n",
-                flush=True,
-            )
+            global _ssh_message_shown
+            if not _ssh_message_shown:
+                _ssh_message_shown = True
+                try:
+                    port_hint = int(url.split(":")[2].split("/")[0].split("?")[0])
+                except Exception:
+                    port_hint = parsed_port
+                hostname = os.uname().nodename or "<this-host>"
+                print(
+                    f"[ArrayView] Plain SSH session detected.\n"
+                    f"\n"
+                    f"  For the best experience, use VS Code Remote-SSH — arrays open\n"
+                    f"  automatically in a VS Code tab with zero setup.\n"
+                    f"\n"
+                    f"  From a plain terminal, forward port {port_hint} when connecting:\n"
+                    f"\n"
+                    f"    ssh -L {port_hint}:localhost:{port_hint} <user>@{hostname}\n"
+                    f"\n"
+                    f"  Then open in your local browser:\n"
+                    f"\n"
+                    f"    http://localhost:{port_hint}/\n"
+                    f"\n"
+                    f"  Tip: to avoid typing -L every time, add this to ~/.ssh/config\n"
+                    f"  on the machine you SSH from:\n"
+                    f"\n"
+                    f"    Host {hostname}\n"
+                    f"        LocalForward {port_hint} localhost:{port_hint}\n",
+                    flush=True,
+                )
 
         if not opened and not is_remote and not force_vscode and not is_plain_ssh:
             # Local fallback: open in system browser
