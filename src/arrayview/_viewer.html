@@ -203,7 +203,7 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; width: 32px; text-align: center; overflow: hidden; line-height: 1; cursor: default; }
+        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; width: 32px; text-align: center; overflow: visible; line-height: 1; cursor: default; position: relative; z-index: 2; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
         :root.solarized .slim-cb-val { color: #586e75; }
@@ -4015,27 +4015,6 @@
                     ctx.fillRect(px, y, 1, colH);
                 }
 
-                // KDE curve stroke outline in non-immersive mode
-                if (hasKDE && aT > 0.05 && !document.body.classList.contains('fullscreen-mode')) {
-                    ctx.save();
-                    ctx.globalAlpha = aT * 0.6;
-                    ctx.beginPath();
-                    ctx.moveTo(0, cssH);
-                    for (let px = 0; px <= cssW; px++) {
-                        const t = px / cssW;
-                        const kdeH = Math.max(2, this._kdeAt(t) * (this._expandedH - CB_LABEL_H));
-                        const colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
-                        ctx.lineTo(px, cssH - colH);
-                    }
-                    ctx.lineTo(cssW, cssH);
-                    ctx.closePath();
-                    const isDarkTheme = document.documentElement.classList.contains('light') ||
-                                        document.documentElement.classList.contains('solarized');
-                    ctx.strokeStyle = isDarkTheme ? 'rgba(0,0,0,0.5)' : 'rgba(180,180,180,0.5)';
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-                    ctx.restore();
-                }
 
                 // Solid handle lines + value labels in the label zone
                 if (aT > 0.1) {
@@ -4781,27 +4760,6 @@
                 ctx.fillRect(px, y, 1, colH);
             }
 
-            // KDE curve stroke outline in non-immersive mode
-            if (hasKDE && aT > 0.05 && !document.body.classList.contains('fullscreen-mode')) {
-                ctx.save();
-                ctx.globalAlpha = aT * 0.6;
-                ctx.beginPath();
-                ctx.moveTo(0, cssH);
-                for (let px = 0; px <= cssW; px++) {
-                    const t = px / cssW;
-                    const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
-                    const colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
-                    ctx.lineTo(px, cssH - colH);
-                }
-                ctx.lineTo(cssW, cssH);
-                ctx.closePath();
-                const _isDarkTheme = document.documentElement.classList.contains('light') ||
-                                     document.documentElement.classList.contains('solarized');
-                ctx.strokeStyle = _isDarkTheme ? 'rgba(0,0,0,0.5)' : 'rgba(180,180,180,0.5)';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-                ctx.restore();
-            }
 
             // Solid handle lines + all value labels in the label zone
             if (aT > 0.1) {
