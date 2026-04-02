@@ -213,14 +213,23 @@
         :root.solarized .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #586e75; border-color: rgba(0,0,0,0.15); }
         :root.nord .slim-cb-val-input { background: rgba(216,222,233,0.1); color: #d8dee9; border-color: rgba(216,222,233,0.2); }
         .cb-val-popup { position: fixed; z-index: 10; padding: 6px 8px; border-radius: 8px; background: rgba(30,30,30,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: auto; }
+        .cb-val-popup::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; }
+        .cb-val-popup.arrow-below::after { bottom: -6px; border-top: 6px solid rgba(30,30,30,0.92); }
+        .cb-val-popup.arrow-above::after { top: -6px; border-bottom: 6px solid rgba(30,30,30,0.92); }
         .cb-val-popup .cb-val-label { font-size: 10px; color: rgba(255,255,255,0.45); font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
         .cb-val-popup .slim-cb-val-input { width: 68px; font-size: 13px; padding: 3px 4px; }
         :root.light .cb-val-popup { background: rgba(245,245,245,0.92); border-color: rgba(0,0,0,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
+        :root.light .cb-val-popup.arrow-below::after { border-top-color: rgba(245,245,245,0.92); }
+        :root.light .cb-val-popup.arrow-above::after { border-bottom-color: rgba(245,245,245,0.92); }
         :root.solarized .cb-val-popup { background: rgba(238,232,213,0.92); border-color: rgba(0,0,0,0.1); }
         :root.solarized .cb-val-popup .cb-val-label { color: rgba(88,110,117,0.5); }
+        :root.solarized .cb-val-popup.arrow-below::after { border-top-color: rgba(238,232,213,0.92); }
+        :root.solarized .cb-val-popup.arrow-above::after { border-bottom-color: rgba(238,232,213,0.92); }
         :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); border-color: rgba(216,222,233,0.1); }
         :root.nord .cb-val-popup .cb-val-label { color: rgba(216,222,233,0.4); }
+        :root.nord .cb-val-popup.arrow-below::after { border-top-color: rgba(36,41,56,0.92); }
+        :root.nord .cb-val-popup.arrow-above::after { border-bottom-color: rgba(36,41,56,0.92); }
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
@@ -2394,7 +2403,7 @@
             // bottom space so the fixed colorbar/eggs won't overlap the canvas.
             const pt = _fullscreenActive
                 ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
-                : Math.max(14, Math.floor((window.innerHeight - childrenH) / 2));
+                : Math.max(14, Math.floor((window.innerHeight - 80 - childrenH) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
@@ -5376,10 +5385,9 @@
                 const popH = popup.offsetHeight;
                 // Center horizontally on the label
                 let left = labelRect.left + labelRect.width / 2 - popW / 2;
-                // Immersive: above the island. Normal: below, clamped to viewport bottom.
-                let top = _fullscreenActive
-                    ? Math.max(4, islandRect.top - popH - 6)
-                    : Math.min(islandRect.bottom + 6, window.innerHeight - popH - 4);
+                // Always place above the island; arrow points down toward the value
+                let top = Math.max(4, islandRect.top - popH - 8);
+                popup.classList.add('arrow-below');
                 // Clamp horizontal
                 left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
                 popup.style.left = left + 'px';
