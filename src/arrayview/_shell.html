@@ -34,7 +34,7 @@
 
         #content { flex: 1; position: relative; background: #0c0c0c; overflow: hidden; }
         iframe {
-            width: 100%; border: none; position: absolute;
+            width: 100%; height: 100%; border: none; position: absolute;
             top: 0; left: 0; visibility: hidden; background: #0c0c0c;
         }
         iframe.active { visibility: visible; }
@@ -55,8 +55,6 @@
         function updateTabBarVisibility() {
             const count = Object.keys(tabs).length;
             tabBar.classList.toggle('visible', count > 1);
-            // Recompute iframe heights since tab bar visibility affects available space
-            if (typeof _updateTitleBarPad === 'function') _updateTitleBarPad();
         }
 
         function addTab(sid, name, url) {
@@ -138,27 +136,10 @@
         // can distinguish themselves from Jupyter embeds and enable the picker.
         window.__arrayviewShell = true;
 
-        // macOS pywebview fullSizeContentView: content extends behind the title bar.
-        // Detect by checking outerHeight ≈ innerHeight (title bar not subtracted)
-        // and compensate with top padding so iframes get the correct visible height.
-        // We also explicitly size the iframe height to the available content area,
-        // because absolute-positioned iframes with height:100% can overshoot when
-        // the body padding hides part of the viewport behind the native title bar.
-        function _updateTitleBarPad() {
-            const isMac = /Mac/.test(navigator.platform);
-            const fullSizeContent = isMac && Math.abs(window.outerHeight - window.innerHeight) < 2;
-            const pad = fullSizeContent ? 28 : 0;
-            document.body.style.paddingTop = pad + 'px';
-            // Compute the tab bar height (0 when hidden)
-            const tabBarH = tabBar.classList.contains('visible') ? tabBar.offsetHeight : 0;
-            const iframeH = window.innerHeight - pad - tabBarH;
-            content.style.height = iframeH + 'px';
-            for (const k in tabs) {
-                tabs[k].iframe.style.height = iframeH + 'px';
-            }
-        }
-        _updateTitleBarPad();
-        window.addEventListener('resize', _updateTitleBarPad);
+        // Note: pywebview 6.x only enables NSFullSizeContentViewWindowMask for
+        // frameless windows.  ArrayView uses a titled (non-frameless) window, so
+        // the web content area already starts below the native title bar and
+        // window.innerHeight reflects the usable height.  No padding needed.
 
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
