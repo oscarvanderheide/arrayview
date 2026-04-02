@@ -372,6 +372,91 @@ def _handle_histogram(sid: str, params: dict[str, str]) -> None:
     })
 
 
+def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
+    """Compute histogram sampled across scroll dimension and write JSON."""
+    session = SESSIONS.get(sid)
+    if not session:
+        _write_error("session not found")
+        return
+    dim_x = int(params.get("dim_x", "0"))
+    dim_y = int(params.get("dim_y", "1"))
+    scroll_dim = int(params.get("scroll_dim", "0"))
+    fixed_indices_str = params.get("fixed_indices", "")
+    complex_mode = int(params.get("complex_mode", "0"))
+    bins = max(8, min(int(params.get("bins", "64")), 512))
+
+    # Parse fixed indices (dim:idx pairs)
+    fixed: dict[int, int] = {}
+    if fixed_indices_str:
+        for pair in fixed_indices_str.split(","):
+            if ":" in pair:
+                d, v = pair.split(":", 1)
+                fixed[int(d)] = int(v)
+
+    # Check cache
+    cache_key = (dim_x, dim_y, scroll_dim, tuple(sorted(fixed.items())), complex_mode)
+    if not hasattr(session, "_volume_hist_cache"):
+        session._volume_hist_cache = {}
+    cached = session._volume_hist_cache.get(cache_key)
+    if cached is not None and cached.get("_data_version") == session.data_version:
+        _write_json(cached["result"])
+        return
+
+    # Subsample up to 16 evenly-spaced slices along scroll_dim
+    n = session.shape[scroll_dim]
+    max_samples = 16
+    if n <= max_samples:
+        sample_indices = list(range(n))
+    else:
+        step = n / max_samples
+        sample_indices = [int(i * step) for i in range(max_samples)]
+
+    pixels = []
+    for si in sample_indices:
+        idx_list = [s // 2 for s in session.shape]
+        idx_list[scroll_dim] = si
+        for d, v in fixed.items():
+            idx_list[d] = v
+        raw = extract_slice(session, dim_x, dim_y, idx_list)
+        data = apply_complex_mode(raw, complex_mode)
+        flat = data.ravel()
+        finite = flat[np.isfinite(flat)]
+        if finite.size > 0:
+            pixels.append(finite)
+
+    if not pixels:
+        result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
+        session._volume_hist_cache[cache_key] = {
+            "_data_version": session.data_version, "result": result,
+        }
+        _write_json(result)
+        return
+
+    merged = np.concatenate(pixels)
+    vmin = float(merged.min())
+    vmax = float(merged.max())
+    if vmin == vmax:
+        result = {
+            "counts": [int(merged.size)],
+            "edges": [vmin, vmax + 1e-9],
+            "vmin": vmin,
+            "vmax": vmax,
+        }
+    else:
+        counts, edges = np.histogram(merged, bins=bins)
+        result = {
+            "counts": counts.tolist(),
+            "edges": [float(e) for e in edges],
+            "vmin": vmin,
+            "vmax": vmax,
+        }
+
+    session._volume_hist_cache[cache_key] = {
+        "_data_version": session.data_version, "result": result,
+    }
+    _write_json(result)
+
+
 def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
     """Return raw slice as JSON-wrapped base64 float32 for Lebesgue mode."""
     session = SESSIONS.get(sid)
@@ -421,6 +506,8 @@ def _handle_fetch_proxy(msg: dict) -> None:
         _handle_sessions()
     elif route == "histogram" and sid:
         _handle_histogram(sid, params)
+    elif route == "volume-histogram" and sid:
+        _handle_volume_histogram(sid, params)
     elif route == "lebesgue" and sid:
         _handle_lebesgue(sid, params)
     elif route == "preload" and sid:
