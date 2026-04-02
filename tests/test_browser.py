@@ -524,13 +524,18 @@ class TestKeyboard:
         )
 
     def test_d_cycles_dynamic_range_shows_status(self, loaded_viewer, sid_2d):
-        # d cycles dynamic range; result appears in #status
+        # First d press expands histogram; second cycles quantile range
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
         status = page.inner_text("#status").strip()
-        assert "range" in status.lower(), f"Expected DR status, got: '{status}'"
+        assert "histogram" in status.lower(), f"Expected histogram status, got: '{status}'"
+        # Second press cycles quantile — shows range label
+        page.keyboard.press("d")
+        page.wait_for_timeout(400)
+        status = page.inner_text("#status").strip()
+        assert "range" in status.lower(), f"Expected range status, got: '{status}'"
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
