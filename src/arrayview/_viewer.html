@@ -4926,6 +4926,8 @@
 
         function _invalidateVolHistCache() {
             _volHistCache = {};
+            _histData = null;
+            _kdeSmooth = null;
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
