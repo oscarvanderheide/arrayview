@@ -798,6 +798,65 @@ class TestHistogram:
 
 
 # ---------------------------------------------------------------------------
+# Volume histogram (scroll-dim subsampled)
+# ---------------------------------------------------------------------------
+
+
+class TestVolumeHistogram:
+    """Tests for /volume-histogram/{sid} endpoint."""
+
+    def test_volume_histogram_returns_counts_and_edges(self, client, sid_3d):
+        """3D array: sample along dim 2 (scroll), display dims 0,1."""
+        resp = client.get(f"/volume-histogram/{sid_3d}", params={
+            "dim_x": 0, "dim_y": 1, "scroll_dim": 2, "bins": 32,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "counts" in data and "edges" in data
+        assert len(data["counts"]) == 32
+        assert len(data["edges"]) == 33
+        assert "vmin" in data and "vmax" in data
+        assert data["vmin"] < data["vmax"]
+
+    def test_volume_histogram_with_fixed_indices(self, client, sid_4d):
+        """4D array: fix dim 0 (parameter map), scroll along dim 1, display dims 2,3."""
+        resp = client.get(f"/volume-histogram/{sid_4d}", params={
+            "dim_x": 2, "dim_y": 3, "scroll_dim": 1,
+            "fixed_indices": "0:0", "bins": 32,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["counts"]) == 32
+
+    def test_volume_histogram_different_fixed_indices_differ(self, client, sid_4d):
+        """Different fixed indices should give different histograms (different parameter maps)."""
+        resp_a = client.get(f"/volume-histogram/{sid_4d}", params={
+            "dim_x": 2, "dim_y": 3, "scroll_dim": 1,
+            "fixed_indices": "0:0", "bins": 32,
+        })
+        resp_b = client.get(f"/volume-histogram/{sid_4d}", params={
+            "dim_x": 2, "dim_y": 3, "scroll_dim": 1,
+            "fixed_indices": "0:2", "bins": 32,
+        })
+        a = resp_a.json()
+        b = resp_b.json()
+        assert a["counts"] != b["counts"] or a["vmin"] != b["vmin"]
+
+    def test_volume_histogram_unknown_sid_is_404(self, client):
+        resp = client.get("/volume-histogram/nonexistent", params={
+            "dim_x": 0, "dim_y": 1, "scroll_dim": 2,
+        })
+        assert resp.status_code == 404
+
+    def test_volume_histogram_caches_result(self, client, sid_3d):
+        """Two identical requests should return identical results (cache hit)."""
+        params = {"dim_x": 0, "dim_y": 1, "scroll_dim": 2, "bins": 32}
+        resp1 = client.get(f"/volume-histogram/{sid_3d}", params=params)
+        resp2 = client.get(f"/volume-histogram/{sid_3d}", params=params)
+        assert resp1.json() == resp2.json()
+
+
+# ---------------------------------------------------------------------------
 # Memory-aware cache (byte limits)
 # ---------------------------------------------------------------------------
 

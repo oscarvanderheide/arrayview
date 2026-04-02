@@ -1818,6 +1818,101 @@ def get_histogram(
     }
 
 
+@app.get("/volume-histogram/{sid}")
+def get_volume_histogram(
+    sid: str,
+    dim_x: int,
+    dim_y: int,
+    scroll_dim: int,
+    fixed_indices: str = "",
+    complex_mode: int = 0,
+    bins: int = 64,
+):
+    """Return a histogram sampled across the scroll dimension.
+
+    Subsamples up to 16 evenly-spaced slices along *scroll_dim*, merges
+    their pixel data, and returns a single histogram.  The result is
+    cached on the session so repeated requests are instant.
+
+    *fixed_indices* is a comma-separated list of ``dim:idx`` pairs that
+    pin non-display, non-scroll dimensions (e.g. ``"3:0"`` to select the
+    first parameter map in qMRI mode).
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    # Parse fixed indices
+    fixed = {}
+    if fixed_indices:
+        for pair in fixed_indices.split(","):
+            if ":" in pair:
+                d, v = pair.split(":", 1)
+                fixed[int(d)] = int(v)
+
+    # Check cache
+    cache_key = (dim_x, dim_y, scroll_dim, tuple(sorted(fixed.items())), complex_mode)
+    if not hasattr(session, "_volume_hist_cache"):
+        session._volume_hist_cache = {}
+    cached = session._volume_hist_cache.get(cache_key)
+    if cached is not None and cached.get("_data_version") == session.data_version:
+        return cached["result"]
+
+    # Sample slices along scroll_dim
+    n = session.shape[scroll_dim]
+    max_samples = 16
+    if n <= max_samples:
+        sample_indices = list(range(n))
+    else:
+        step = n / max_samples
+        sample_indices = [int(i * step) for i in range(max_samples)]
+
+    pixels = []
+    for si in sample_indices:
+        idx_list = [s // 2 for s in session.shape]
+        idx_list[scroll_dim] = si
+        for d, v in fixed.items():
+            idx_list[d] = v
+        raw = extract_slice(session, dim_x, dim_y, idx_list)
+        data = apply_complex_mode(raw, complex_mode)
+        flat = data.ravel()
+        finite = flat[np.isfinite(flat)]
+        if finite.size > 0:
+            pixels.append(finite)
+
+    if not pixels:
+        result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
+        session._volume_hist_cache[cache_key] = {
+            "_data_version": session.data_version, "result": result,
+        }
+        return result
+
+    merged = np.concatenate(pixels)
+    vmin = float(merged.min())
+    vmax = float(merged.max())
+    if vmin == vmax:
+        result = {
+            "counts": [int(merged.size)],
+            "edges": [vmin, vmax + 1e-9],
+            "vmin": vmin,
+            "vmax": vmax,
+        }
+    else:
+        bins = max(8, min(bins, 512))
+        counts, edges = np.histogram(merged, bins=bins)
+        result = {
+            "counts": counts.tolist(),
+            "edges": [float(e) for e in edges],
+            "vmin": vmin,
+            "vmax": vmax,
+        }
+
+    session._volume_hist_cache[cache_key] = {
+        "_data_version": session.data_version, "result": result,
+    }
+    return result
+
+
 @app.get("/lebesgue/{sid}")
 def get_lebesgue_slice(
     sid: str,
