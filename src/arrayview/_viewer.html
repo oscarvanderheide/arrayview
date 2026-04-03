@@ -1725,11 +1725,11 @@
         let _histData = null;  // cached histogram data {counts, edges, vmin, vmax}
         let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
         let _histFetching = false; // prevents concurrent fetches
-        let _cbDragActive = false; // true while user is dragging a vmin/vmax handle
+        // primaryCb._dragActive removed (Task 3) — use primaryCb._dragActive instead
         let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
         let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
-        let _cbMouseOver = false; // true while mouse is hovering over the colorbar area
+        // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
         let _histAutoDismissPending = false; // true when auto-dismiss fired but mouse was over histogram
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
         let _histVminX = null, _histVmaxX = null; // last-drawn clim line X in CSS px (for drag hit-testing)
@@ -1737,6 +1737,7 @@
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
         let _lebesgueVersion = null;    // version key for cached _lebesgueSlice
         let _lebesgueFetching = false;  // prevents concurrent fetches
+        let _lastLebesgueBin = -1;      // tracks which histogram bin is currently highlighted
         let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
         let compareFocusMode = false;
@@ -2258,26 +2259,10 @@
             updateView();
             saveState();
         }
-        slimCbCanvas.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            if (compareActive || qmriActive) return;
-            if (manualVmin === null) return;
-            const win = manualVmax - manualVmin;
-            if (win <= 0) return;
-            const factor = e.deltaY > 0 ? 1.1 : (1 / 1.1);
-            const center = (manualVmin + manualVmax) / 2;
-            const newHalf = (win * factor) / 2;
-            manualVmin = center - newHalf;
-            manualVmax = center + newHalf;
-            drawSlimColorbar(cbMarkerFrac);
-            _cbApplyAndRender();
-        }, { passive: false });
-        slimCbCanvas.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
-            if (_cbExpanded) return; // expanded mode handles its own drag
-            _cbDragX = e.clientX;
-            e.preventDefault();
-        });
+        // Legacy slimCbCanvas wheel/mousedown/dblclick handlers REMOVED (Task 3).
+        // The ColorBar class (interactive: true) now handles wheel zoom, pan drag,
+        // and dblclick expand/collapse. onWindowChange callback handles updateView.
+
         window.addEventListener('mousemove', (e) => {
             // Right-click scrub drag
             if (_scrubDrag !== null && !compareActive && !multiViewActive && !qmriActive) {
@@ -2313,32 +2298,13 @@
                 }
                 return;
             }
-            if (_cbDragX === null) return;
-            if (compareActive || qmriActive) return;
-            if (manualVmin === null) return;
-            const dx = e.clientX - _cbDragX;
-            _cbDragX = e.clientX;
-            const cbW = parseInt(slimCbCanvas.style.width) || slimCbCanvas.offsetWidth || 200;
-            const win = manualVmax - manualVmin;
-            const shift = -(dx / cbW) * win;
-            manualVmin += shift;
-            manualVmax += shift;
-            drawSlimColorbar(cbMarkerFrac);
-            _cbApplyAndRender();
         });
         window.addEventListener('mouseup', (e) => {
             if (mainPan.endDrag()) {
                 canvas.style.cursor = mainPan.overflows ? 'grab' : '';
             }
             if (e.button === 2) { _scrubDrag = null; }
-            _cbDragX = null; _cmpCbDragPane = null; _cmpCbDragX = null;
-        });
-        slimCbCanvas.addEventListener('dblclick', () => {
-            if (compareActive || qmriActive) return;
-            manualVmin = null; manualVmax = null;
-            updateView();
-            showStatus('window/level: reset to auto');
-            saveState();
+            _cmpCbDragPane = null; _cmpCbDragX = null;
         });
 
         const sink = document.getElementById('keyboard-sink');
@@ -3449,12 +3415,11 @@
 
         function _syncPrimaryCb() {
             // _cbAnimT is NO LONGER synced here — primaryCb owns it, and onAnimFrame syncs it back
+            // _hoverFrac, _dragActive are NO LONGER synced — primaryCb owns interaction state (Task 3)
             primaryCb._expanded = _cbExpanded;
             primaryCb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
-            primaryCb._hoverFrac = _cbHoverFrac;
             primaryCb._histData = _histData;
             primaryCb._kdeSmooth = _kdeSmooth;
-            primaryCb._dragActive = _cbDragActive;
         }
 
         function drawSlimColorbar(markerFrac) {
@@ -3651,7 +3616,7 @@
         let _cbWinTransDur = 200;   // transition duration in ms
         let _cbWinVminFrom = 0;     // start value for vmin transition
         let _cbWinVmaxFrom = 1;     // start value for vmax transition
-        let _cbHoverFrac = -1;      // cursor x-fraction on canvas (-1 = not hovering)
+        // primaryCb._hoverFrac removed (Task 3) — use primaryCb._hoverFrac instead
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
@@ -4275,6 +4240,7 @@
                 }
                 this._buildKDE();
                 this.startAnim(true);
+                if (this.opts.onExpand) this.opts.onExpand();
                 if (this._syncWith && !this._syncing) {
                     this._syncWith._syncing = true;
                     await this._syncWith.expand();
@@ -4292,6 +4258,7 @@
                 if (this.triZone) this.triZone.classList.remove('expanded');
                 this.startAnim(false);
                 this.updateLabels();
+                if (this.opts.onCollapse) this.opts.onCollapse();
                 if (this._syncWith && !this._syncing) {
                     this._syncWith._syncing = true;
                     this._syncWith.collapse();
@@ -4460,6 +4427,7 @@
                     if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
                         this.draw();
+                        if (this._onBinHover) this._onBinHover(-1, -1);
                     }
                     if (this._autoDismissPending && !this._dragActive) {
                         this._autoDismissPending = false;
@@ -4656,8 +4624,8 @@
         // ── end ColorBar class ────────────────────────────────────────────────
 
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
-        // Adopts the existing #slim-cb-wrap DOM elements. interactive: false
-        // because the legacy event handlers below still manage interaction.
+        // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
+        // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.
         const primaryCb = new ColorBar({
             id: 'primary',
             adoptDOM: {
@@ -4671,7 +4639,7 @@
                 colWrap:   document.getElementById('slim-cb-col'),
                 tooltip:   document.getElementById('slim-cb-tooltip'),
             },
-            interactive: false,
+            interactive: true,
             getStops:  () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
             getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
@@ -4691,12 +4659,46 @@
                 }
             },
             onWindowChange: () => {
+                _redrawActiveColorbar();
                 if (!_cbWindowChangeRafId) {
                     _cbWindowChangeRafId = requestAnimationFrame(() => {
                         _cbWindowChangeRafId = null;
                         updateView();
                         triggerPreload();
+                        saveState();
                     });
+                }
+            },
+            onExpand: () => {
+                _cbExpanded = true;  // legacy sync until Task 4
+                lebesgueMode = true;
+                _fetchLebesgueSlice();
+                _redrawActiveColorbar();
+            },
+            onCollapse: () => {
+                _cbExpanded = false;  // legacy sync until Task 4
+                _lebesgueManual = false;
+                lebesgueMode = false;
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
+                const _cbTip = document.getElementById('slim-cb-tooltip');
+                if (_cbTip) _cbTip.style.display = 'none';
+                _redrawActiveColorbar();
+            },
+            onBinHover: (binIdx, frac) => {
+                if (!lebesgueMode) return;
+                if (binIdx < 0) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; return; }
+                if (binIdx !== _lastLebesgueBin) {
+                    _lastLebesgueBin = binIdx;
+                    if (primaryCb._histData) {
+                        const { edges, counts } = primaryCb._histData;
+                        if (edges && counts) {
+                            const binLow = edges[binIdx];
+                            const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
+                            _drawLebesgueHighlight(binLow, binHigh);
+                            _highlightHistBin(binIdx);
+                        }
+                    }
                 }
             },
         });
@@ -4778,7 +4780,7 @@
                 vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
             }
             // Lerp animated window fractions toward target (snap during drag)
-            if (_cbDragActive) {
+            if (primaryCb._dragActive) {
                 _cbWinVminF = vminFrac;
                 _cbWinVmaxF = vmaxFrac;
                 _cbWinVminTarget = vminFrac;
@@ -4921,9 +4923,9 @@
                         labels.push({ x: vx, text: _cbFmtPlain(wVmax), align: 'center', color: brightColor, prio: 1 });
                     }
                     // Hover value (highest priority)
-                    if (_cbHoverFrac >= 0 && _cbHoverFrac <= 1) {
-                        const hoverVal = dmin + _cbHoverFrac * (dmax - dmin);
-                        const hx = Math.round(_cbHoverFrac * cssW);
+                    if (primaryCb._hoverFrac >= 0 && primaryCb._hoverFrac <= 1) {
+                        const hoverVal = dmin + primaryCb._hoverFrac * (dmax - dmin);
+                        const hx = Math.round(primaryCb._hoverFrac * cssW);
                         labels.push({ x: hx, text: _cbFmtPlain(hoverVal), align: 'center', color: hoverColor, prio: 2 });
                     }
                     // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
@@ -4963,6 +4965,9 @@
             // Update hit-test positions for drag interaction
             _histVminX = Math.max(2, Math.min(cssW - 2, Math.round(effVmin * cssW)));
             _histVmaxX = Math.max(2, Math.min(cssW - 2, Math.round(effVmax * cssW)));
+            // Sync to primaryCb so class's _hitTest works (Task 3 bridge)
+            primaryCb._hitVminX = _histVminX;
+            primaryCb._hitVmaxX = _histVmaxX;
         }
 
         async function _fetchHistogram() {
@@ -5435,6 +5440,11 @@
             input.addEventListener('blur', _commit);
         }
 
+        function _redrawActiveColorbar() {
+            if (multiViewActive || compareMvActive) drawMvColorbar();
+            else drawSlimColorbar(cbMarkerFrac);
+        }
+
         // ── Colorbar hover expand/collapse + histogram interaction ───────────
         (function _initCbHistInteraction() {
             const cbTooltip = document.getElementById('slim-cb-tooltip');
@@ -5442,7 +5452,7 @@
 
             let _dragTarget = null; // 'vmin' | 'vmax' | null
             let _renderRafId = null;
-            let _lastLebesgueBin = -1; // tracks which bin is currently highlighted
+            // _lastLebesgueBin moved to outer scope (needed by primaryCb callbacks)
 
             function _xToValue(x, cssW) {
                 if (!_histData) return null;
@@ -5468,229 +5478,50 @@
             }
 
             async function _expandColorbar() {
-                if (_cbExpanded || !colorbarVisible()) return;
-                // Fetch histogram data if not already cached for current slice
-                const curVersion = indices.join(',') + ':' + dim_x + ':' + dim_y;
-                const cmpVersion = curVersion + ':compare';
-                if (compareActive) {
-                    if (!_histData) {
-                        await _fetchHistogramCompare();
-                    }
-                } else if (!_histData) {
-                    const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                    if (volData) _histData = volData;
-                }
-                // Also fetch raw slice for Lebesgue mode
-                if (lebesgueMode) {
-                    const lbVer = curVersion + ':' + complexMode + ':' + logScale;
-                    if (!_lebesgueSlice || _lebesgueVersion !== lbVer) {
-                        await _fetchLebesgueSlice();
-                    }
-                }
-                _cbExpanded = true;
-                _buildKDE();
-                primaryCb.startAnim(true);
+                if (primaryCb._expanded || !colorbarVisible()) return;
+                await primaryCb.expand();
                 _redrawActiveColorbar();
             }
 
-            function _redrawActiveColorbar() {
-                if (multiViewActive || compareMvActive) drawMvColorbar();
-                else drawSlimColorbar(cbMarkerFrac);
-            }
+            // _redrawActiveColorbar moved to outer scope (needed by primaryCb callbacks)
 
             function _collapseColorbar() {
-                if (!_cbExpanded || _dragTarget) return;
-                lebesgueMode = false;
-                _cbExpanded = false;
-                _histVminX = null; _histVmaxX = null;
-                cbTooltip.style.display = 'none';
-                _clearLebesgueOverlay();
-                primaryCb.startAnim(false);
+                if (!primaryCb._expanded || primaryCb._dragActive) return;
+                primaryCb.collapse();
                 _redrawActiveColorbar();
             }
 
             function _toggleLebesgueMode() {
-                lebesgueMode = !lebesgueMode;
-                if (lebesgueMode) {
-                    _lebesgueManual = true;
-                    if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
-                    _histAutoDismissPending = false;
-                    _computeCbExpandedH();
-                    _cbExpanded = true;
-                    const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
-                    fetcher().then((d) => {
-                        if (d && !compareActive) _histData = d;
-                        _buildKDE();
-                        primaryCb.startAnim(true);
-                        _fetchLebesgueSlice();
-                        if (multiViewActive || compareMvActive) drawMvColorbar();
-                        else drawSlimColorbar(cbMarkerFrac);
-                    });
-                    showStatus('histogram mode on');
-                } else {
-                    _lebesgueManual = false;
-                    _clearLebesgueOverlay();
-                    _cbExpanded = false;
-                    primaryCb.startAnim(false);
-                    if (multiViewActive || compareMvActive) drawMvColorbar();
-                    else drawSlimColorbar(cbMarkerFrac);
+                if (primaryCb._expanded) {
+                    primaryCb.collapse();
                     showStatus('histogram mode off');
-                }
-            }
-
-            slimCbWrap.addEventListener('mouseenter', () => {
-                _cbMouseOver = true;
-            });
-
-            slimCbWrap.addEventListener('mouseleave', () => {
-                _cbMouseOver = false;
-                if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _syncPrimaryCb(); primaryCb.draw(); }
-                if (_dragTarget) return; // don't collapse while dragging
-                _clearLebesgueOverlay();
-                _lastLebesgueBin = -1;
-                cbTooltip.style.display = 'none';
-                if (_cbExpanded) {
-                    // If histogram was toggled open via dblclick, don't auto-dismiss
-                    if (_lebesgueManual) return;
-                    // Histogram is open: start a 3s countdown for 'd'-key-opened histograms
-                    _histAutoDismissPending = false;
-                    if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                    _histAutoDismissTimer = setTimeout(() => {
-                        _histAutoDismissTimer = null;
-                        if (!_cbDragActive && !_cbMouseOver && _cbExpanded) {
-                            lebesgueMode = false;
-                            _cbExpanded = false;
-                            _clearLebesgueOverlay();
-                            primaryCb.startAnim(false);
-                            _redrawActiveColorbar();
-                        }
-                    }, 3000);
-                    return;
-                }
-                clearTimeout(_cbHoverTimer);
-                _cbHoverTimer = setTimeout(_collapseColorbar, 200);
-            });
-
-            // Double-click on colorbar canvas toggles histogram (Lebesgue) mode
-            // Double-click on vmin/vmax labels opens popup editor
-
-            function _startCbValEdit(labelEl, which) {
-                _showCbValPopup(labelEl, which,
-                    () => which === 'vmin' ? (manualVmin ?? currentVmin) : (manualVmax ?? currentVmax),
-                    (v) => {
-                        if (which === 'vmin') {
-                            if (manualVmin === null) manualVmax = manualVmax ?? currentVmax;
-                            manualVmin = v;
-                        } else {
-                            if (manualVmax === null) manualVmin = manualVmin ?? currentVmin;
-                            manualVmax = v;
-                        }
-                        updateView();
-                        _redrawActiveColorbar();
-                        saveState();
-                    }
-                );
-            }
-            slimCbWrap.addEventListener('dblclick', (e) => {
-                const label = e.target.closest('.slim-cb-val');
-                if (label) {
-                    e.stopPropagation();
-                    const which = label.id === 'slim-cb-vmin' ? 'vmin' : 'vmax';
-                    _startCbValEdit(label, which);
-                    return;
-                }
-                _toggleLebesgueMode();
-            });
-
-            slimCbCanvas.addEventListener('mousedown', (e) => {
-                if (!_cbExpanded || !_histData) return;
-                const rect = slimCbCanvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const target = _hitLine(x);
-                if (!target) return;
-                _startClimDrag(target, e);
-            });
-
-            // Triangle DOM element drag handlers
-            function _startClimDrag(target, e) {
-                _dragTarget = target;
-                _cbDragActive = true;
-                if (manualVmin === null) { manualVmin = currentVmin ?? _histData.vmin; }
-                if (manualVmax === null) { manualVmax = currentVmax ?? _histData.vmax; }
-                slimCbCanvas.style.cursor = 'grabbing';
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            const triVminEl = document.getElementById('slim-cb-tri-vmin');
-            const triVmaxEl = document.getElementById('slim-cb-tri-vmax');
-            if (triVminEl) triVminEl.addEventListener('mousedown', (e) => {
-                if (!_cbExpanded || !_histData) return;
-                _startClimDrag('vmin', e);
-            });
-            if (triVmaxEl) triVmaxEl.addEventListener('mousedown', (e) => {
-                if (!_cbExpanded || !_histData) return;
-                _startClimDrag('vmax', e);
-            });
-
-            window.addEventListener('mousemove', (e) => {
-                if (!_cbExpanded || !_histData) return;
-                const rect = slimCbCanvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const cssW = rect.width || 1;
-                if (_dragTarget) {
-                    const val = _xToValue(Math.max(0, Math.min(cssW, x)), cssW);
-                    if (val === null) return;
-                    if (_dragTarget === 'vmin') {
-                        const curMax = manualVmax ?? currentVmax ?? _histData.vmax;
-                        manualVmin = Math.min(val, curMax - 1e-10);
-                        if (manualVmax === null) manualVmax = curMax; // anchor so subsequent drags are consistent
-                    } else {
-                        const curMin = manualVmin ?? currentVmin ?? _histData.vmin;
-                        manualVmax = Math.max(val, curMin + 1e-10);
-                        if (manualVmin === null) manualVmin = curMin;
-                    }
-                    _redrawActiveColorbar();
-                    _scheduleRender();
-                } else if (rect.left <= e.clientX && e.clientX <= rect.right &&
-                           rect.top <= e.clientY && e.clientY <= rect.bottom) {
-                    // Hover: track cursor fraction, draw value label on canvas
-                    _cbHoverFrac = Math.max(0, Math.min(1, x / cssW));
-                    cbTooltip.style.display = 'none';
-                    _syncPrimaryCb();
-                    primaryCb.draw();
-                    // Update cursor near clim lines
-                    slimCbCanvas.style.cursor = _hitLine(x) ? 'grab' : (lebesgueMode ? 'crosshair' : 'default');
-                    // Lebesgue integral: highlight matching pixels
-                    const { edges, counts } = _histData;
-                    if (lebesgueMode && _lebesgueSlice && edges && counts && counts.length) {
-                        const nBins = counts.length;
-                        const binIdx = Math.max(0, Math.min(nBins - 1, Math.floor((x / cssW) * nBins)));
-                        if (binIdx !== _lastLebesgueBin) {
-                            _lastLebesgueBin = binIdx;
-                            const binLow = edges[binIdx];
-                            const binHigh = edges[binIdx + 1] + (binIdx === nBins - 1 ? 1e-9 : 0);
-                            _drawLebesgueHighlight(binLow, binHigh);
-                            _syncPrimaryCb();
-                            primaryCb.draw();
-                            _highlightHistBin(binIdx);
-                        }
-                    }
                 } else {
-                    if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _syncPrimaryCb(); primaryCb.draw(); }
-                    cbTooltip.style.display = 'none';
-                    if (lebesgueMode) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; }
+                    _lebesgueManual = true;
+                    primaryCb._manualExpand = true;
+                    primaryCb.cancelAutoDismiss();
+                    _computeCbExpandedH();
+                    primaryCb.expand();
+                    showStatus('histogram mode on');
                 }
-            });
+            }
 
-            window.addEventListener('mouseup', () => {
-                if (_dragTarget) {
-                    _dragTarget = null;
-                    _cbDragActive = false;
-                    slimCbCanvas.style.cursor = 'default';
-                    if (_renderRafId) { cancelAnimationFrame(_renderRafId); _renderRafId = null; }
-                    updateView(); triggerPreload();
-                }
-            });
+            // ── Legacy event handlers REMOVED (Task 3) ──────────────────────
+            // The ColorBar class (interactive: true) now handles:
+            //   mouseenter/leave, dblclick (expand/collapse + label editing),
+            //   mousedown (clim drag + pan), mousemove (drag + hover), mouseup.
+            // App-specific side effects are wired via callbacks:
+            //   onExpand, onCollapse, onBinHover, onWindowChange, onAnimFrame.
+            //
+            // The following legacy handlers have been deleted:
+            //   slimCbWrap mouseenter/mouseleave
+            //   slimCbWrap dblclick (label editing + toggle lebesgue)
+            //   slimCbCanvas mousedown (clim drag start)
+            //   _startClimDrag (legacy version)
+            //   _startCbValEdit
+            //   triVmin/triVmax mousedown
+            //   window mousemove (drag + hover + lebesgue highlight)
+            //   window mouseup (drag end + updateView + triggerPreload)
+
         })();
 
         /* ── JS: Utility Functions and Vector Field ────────────────── */
@@ -7936,7 +7767,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
-                if (!_cbMouseOver && _cbExpanded) {
+                if (!primaryCb._mouseOver && _cbExpanded) {
                     lebesgueMode = false;
                     _cbExpanded = false;
                     _clearLebesgueOverlay();
@@ -7944,7 +7775,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (tz) tz.classList.remove('expanded');
                     primaryCb.startAnim(false);
                     _bcRedrawCb();
-                } else if (_cbMouseOver && _cbExpanded) {
+                } else if (primaryCb._mouseOver && _cbExpanded) {
                     _histAutoDismissPending = true;
                 }
             }, 3000);
@@ -9678,7 +9509,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!_cbMouseOver && _cbExpanded) {
+                            if (!primaryCb._mouseOver && _cbExpanded) {
                                 lebesgueMode = false;
                                 _cbExpanded = false;
                                 _clearLebesgueOverlay();
@@ -9690,7 +9521,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (_cbMouseOver && _cbExpanded) {
+                            } else if (primaryCb._mouseOver && _cbExpanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
@@ -9735,7 +9566,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!_cbMouseOver && _cbExpanded) {
+                            if (!primaryCb._mouseOver && _cbExpanded) {
                                 lebesgueMode = false;
                                 _cbExpanded = false;
                                 _clearLebesgueOverlay();
@@ -9747,7 +9578,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (_cbMouseOver && _cbExpanded) {
+                            } else if (primaryCb._mouseOver && _cbExpanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
@@ -13028,7 +12859,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb._expanded = primaryCb._expanded || _cbExpanded;
             if (cb.triZone) cb.triZone.classList.toggle('expanded', _cbExpanded);
             if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbAnimT > 0.05);
-            cb._hoverFrac = _cbHoverFrac;
+            cb._hoverFrac = primaryCb._hoverFrac;
             cb._histData = _histData;
             cb._kdeSmooth = _kdeSmooth;
             cb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
