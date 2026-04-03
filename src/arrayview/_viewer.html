@@ -3447,6 +3447,16 @@
 
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
+        function _syncPrimaryCb() {
+            primaryCb._animT = _cbAnimT;
+            primaryCb._expanded = _cbExpanded;
+            primaryCb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
+            primaryCb._hoverFrac = _cbHoverFrac;
+            primaryCb._histData = _histData;
+            primaryCb._kdeSmooth = _kdeSmooth;
+            primaryCb._dragActive = _cbDragActive;
+        }
+
         function drawSlimColorbar(markerFrac) {
             // Per-pane colorbars must update even when shared cb is hidden
             if (compareActive) drawAllComparePaneCbs();
@@ -3501,7 +3511,8 @@
                 }
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
-                _cbMorphDraw();
+                _syncPrimaryCb();
+                primaryCb.draw();
                 // Eggs
                 const eggsEl = document.getElementById('mode-eggs');
                 if (eggsEl) {
@@ -3587,7 +3598,8 @@
             // Build KDE if we have histogram data but no smoothed curve yet
             if (_histData && !_kdeSmooth) _buildKDE();
             // Draw via morph renderer
-            _cbMorphDraw();
+            _syncPrimaryCb();
+            primaryCb.draw();
             // Hide mode eggs when histogram is expanded (they sit underneath)
             const eggsEl = document.getElementById('mode-eggs');
             if (eggsEl) {
@@ -5514,7 +5526,7 @@
 
             slimCbWrap.addEventListener('mouseleave', () => {
                 _cbMouseOver = false;
-                if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _cbMorphDraw(); }
+                if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _syncPrimaryCb(); primaryCb.draw(); }
                 if (_dragTarget) return; // don't collapse while dragging
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
@@ -5626,7 +5638,8 @@
                     // Hover: track cursor fraction, draw value label on canvas
                     _cbHoverFrac = Math.max(0, Math.min(1, x / cssW));
                     cbTooltip.style.display = 'none';
-                    _cbMorphDraw();
+                    _syncPrimaryCb();
+                    primaryCb.draw();
                     // Update cursor near clim lines
                     slimCbCanvas.style.cursor = _hitLine(x) ? 'grab' : (lebesgueMode ? 'crosshair' : 'default');
                     // Lebesgue integral: highlight matching pixels
@@ -5639,12 +5652,13 @@
                             const binLow = edges[binIdx];
                             const binHigh = edges[binIdx + 1] + (binIdx === nBins - 1 ? 1e-9 : 0);
                             _drawLebesgueHighlight(binLow, binHigh);
-                            _cbMorphDraw();
+                            _syncPrimaryCb();
+                            primaryCb.draw();
                             _highlightHistBin(binIdx);
                         }
                     }
                 } else {
-                    if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _cbMorphDraw(); }
+                    if (_cbHoverFrac >= 0) { _cbHoverFrac = -1; _syncPrimaryCb(); primaryCb.draw(); }
                     cbTooltip.style.display = 'none';
                     if (lebesgueMode) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; }
                 }
@@ -14205,7 +14219,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (vminEl) vminEl.style.display = _cbExpanded ? 'none' : '';
             if (vmaxEl) vmaxEl.style.display = _cbExpanded ? 'none' : '';
             // Redraw to restore correct state
-            _cbMorphDraw();
+            _syncPrimaryCb();
+            primaryCb.draw();
         }
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
