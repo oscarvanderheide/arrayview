@@ -5224,6 +5224,87 @@
             }
         }
 
+        /** Shared popup editor for vmin/vmax labels across all colorbar types.
+         *  @param {Element} anchorEl — the label element to anchor the popup to
+         *  @param {string} which — 'vmin' or 'vmax'
+         *  @param {function} getValue — () => current value
+         *  @param {function} onCommit — (newValue) => apply the value
+         */
+        function _showCbValPopup(anchorEl, which, getValue, onCommit) {
+            const curVal = getValue();
+            if (curVal == null) return;
+            // Remove any existing popup
+            const existing = document.querySelector('.cb-val-popup-wrap');
+            if (existing) existing.remove();
+            // Build popup inside a wrapper (wrapper carries drop-shadow,
+            // inner div carries background + clip-path for balloon shape)
+            const wrap = document.createElement('div');
+            wrap.className = 'cb-val-popup-wrap';
+            const popup = document.createElement('div');
+            popup.className = 'cb-val-popup';
+            const label = document.createElement('span');
+            label.className = 'cb-val-label';
+            label.textContent = which;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'slim-cb-val-input';
+            input.value = parseFloat(curVal.toPrecision(6));
+            popup.appendChild(label);
+            popup.appendChild(input);
+            wrap.appendChild(popup);
+            document.body.appendChild(wrap);
+            // Measure natural size, then apply balloon clip-path
+            const popW = popup.offsetWidth;
+            const popH = popup.offsetHeight;
+            const r = 10; // border-radius
+            const notchW = 8, notchH = 7; // notch (arrow) size
+            // Balloon shape: rounded rect body + center notch at bottom
+            // Total element height = popH + notchH
+            const totalH = popH + notchH;
+            popup.style.paddingBottom = (6 + notchH) + 'px'; // extra room for notch
+            const cx = popW / 2; // notch center x
+            // SVG path for clip-path: rounded rect + notch pointing down
+            const path = `M ${r} 0`
+                + ` H ${popW - r} Q ${popW} 0 ${popW} ${r}`
+                + ` V ${popH - r} Q ${popW} ${popH} ${popW - r} ${popH}`
+                + ` H ${cx + notchW}`
+                + ` L ${cx} ${totalH}`
+                + ` L ${cx - notchW} ${popH}`
+                + ` H ${r} Q 0 ${popH} 0 ${popH - r}`
+                + ` V ${r} Q 0 0 ${r} 0 Z`;
+            popup.style.clipPath = `path('${path}')`;
+            popup.style.webkitClipPath = `path('${path}')`;
+            // Position: above the colorbar island, notch points down at value
+            const island = anchorEl.closest('.cb-island') || anchorEl.closest('#slim-cb-wrap');
+            const islandRect = island ? island.getBoundingClientRect() : anchorEl.getBoundingClientRect();
+            const labelRect = anchorEl.getBoundingClientRect();
+            let left = labelRect.left + labelRect.width / 2 - popW / 2;
+            let top = Math.max(4, islandRect.top - totalH - 2);
+            left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
+            wrap.style.left = left + 'px';
+            wrap.style.top = top + 'px';
+            input.focus();
+            input.select();
+            let _done = false;
+            function _cleanup() {
+                if (_done) return;
+                _done = true;
+                wrap.remove();
+            }
+            function _commit() {
+                const v = parseFloat(input.value);
+                if (!isNaN(v)) onCommit(v);
+                _cleanup();
+            }
+            function _cancel() { _cleanup(); }
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); _commit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
+                e.stopPropagation();
+            });
+            input.addEventListener('blur', _commit);
+        }
+
         // ── Colorbar hover expand/collapse + histogram interaction ───────────
         (function _initCbHistInteraction() {
             const cbTooltip = document.getElementById('slim-cb-tooltip');
@@ -5356,87 +5437,6 @@
 
             // Double-click on colorbar canvas toggles histogram (Lebesgue) mode
             // Double-click on vmin/vmax labels opens popup editor
-
-            /** Shared popup editor for vmin/vmax labels across all colorbar types.
-             *  @param {Element} anchorEl — the label element to anchor the popup to
-             *  @param {string} which — 'vmin' or 'vmax'
-             *  @param {function} getValue — () => current value
-             *  @param {function} onCommit — (newValue) => apply the value
-             */
-            function _showCbValPopup(anchorEl, which, getValue, onCommit) {
-                const curVal = getValue();
-                if (curVal == null) return;
-                // Remove any existing popup
-                const existing = document.querySelector('.cb-val-popup-wrap');
-                if (existing) existing.remove();
-                // Build popup inside a wrapper (wrapper carries drop-shadow,
-                // inner div carries background + clip-path for balloon shape)
-                const wrap = document.createElement('div');
-                wrap.className = 'cb-val-popup-wrap';
-                const popup = document.createElement('div');
-                popup.className = 'cb-val-popup';
-                const label = document.createElement('span');
-                label.className = 'cb-val-label';
-                label.textContent = which;
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'slim-cb-val-input';
-                input.value = parseFloat(curVal.toPrecision(6));
-                popup.appendChild(label);
-                popup.appendChild(input);
-                wrap.appendChild(popup);
-                document.body.appendChild(wrap);
-                // Measure natural size, then apply balloon clip-path
-                const popW = popup.offsetWidth;
-                const popH = popup.offsetHeight;
-                const r = 10; // border-radius
-                const notchW = 8, notchH = 7; // notch (arrow) size
-                // Balloon shape: rounded rect body + center notch at bottom
-                // Total element height = popH + notchH
-                const totalH = popH + notchH;
-                popup.style.paddingBottom = (6 + notchH) + 'px'; // extra room for notch
-                const cx = popW / 2; // notch center x
-                // SVG path for clip-path: rounded rect + notch pointing down
-                const path = `M ${r} 0`
-                    + ` H ${popW - r} Q ${popW} 0 ${popW} ${r}`
-                    + ` V ${popH - r} Q ${popW} ${popH} ${popW - r} ${popH}`
-                    + ` H ${cx + notchW}`
-                    + ` L ${cx} ${totalH}`
-                    + ` L ${cx - notchW} ${popH}`
-                    + ` H ${r} Q 0 ${popH} 0 ${popH - r}`
-                    + ` V ${r} Q 0 0 ${r} 0 Z`;
-                popup.style.clipPath = `path('${path}')`;
-                popup.style.webkitClipPath = `path('${path}')`;
-                // Position: above the colorbar island, notch points down at value
-                const island = anchorEl.closest('.cb-island') || anchorEl.closest('#slim-cb-wrap');
-                const islandRect = island ? island.getBoundingClientRect() : anchorEl.getBoundingClientRect();
-                const labelRect = anchorEl.getBoundingClientRect();
-                let left = labelRect.left + labelRect.width / 2 - popW / 2;
-                let top = Math.max(4, islandRect.top - totalH - 2);
-                left = Math.max(4, Math.min(left, window.innerWidth - popW - 4));
-                wrap.style.left = left + 'px';
-                wrap.style.top = top + 'px';
-                input.focus();
-                input.select();
-                let _done = false;
-                function _cleanup() {
-                    if (_done) return;
-                    _done = true;
-                    wrap.remove();
-                }
-                function _commit() {
-                    const v = parseFloat(input.value);
-                    if (!isNaN(v)) onCommit(v);
-                    _cleanup();
-                }
-                function _cancel() { _cleanup(); }
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); _commit(); }
-                    else if (e.key === 'Escape') { e.preventDefault(); _cancel(); }
-                    e.stopPropagation();
-                });
-                input.addEventListener('blur', _commit);
-            }
 
             function _startCbValEdit(labelEl, which) {
                 _showCbValPopup(labelEl, which,
