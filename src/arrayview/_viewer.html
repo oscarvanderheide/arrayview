@@ -3570,7 +3570,7 @@
                 const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
                 if (stale) {
                     _histData = null; _kdeSmooth = null; // clear immediately to prevent stale use
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
+                    const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
                         if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
@@ -5421,7 +5421,7 @@
                     _histAutoDismissPending = false;
                     _computeCbExpandedH();
                     _cbExpanded = true;
-                    const fetcher = compareActive ? _fetchHistogramCompare : _fetchVolumeHistogram;
+                    const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
                         _buildKDE();
