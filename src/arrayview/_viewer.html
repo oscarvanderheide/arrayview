@@ -1860,6 +1860,7 @@
         let comparePending = false;
         let diffMode = 0; // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A| (derived from compareCenterMode)
         let _lastDiffVmin = 0, _lastDiffVmax = 1;
+        let _diffManualVmin = null, _diffManualVmax = null;
         let _diffCenterColormap = ''; // override colormap for diff/center pane; '' = server default
         let _diffCenterColormapStops = null; // gradient stops for center pane colorbar
         const DIFF_COLORMAPS = ['RdBu_r', 'coolwarm', 'bwr', 'seismic', 'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdYlBu_r', 'RdYlGn', 'twilight_shifted'];
@@ -2967,10 +2968,10 @@
                     interactive: true,
                     getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
-                    getWindow: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
-                    setWindow: (lo, hi) => { /* diff range is auto-computed */ },
-                    fetchHistogram: null,
-                    onWindowChange: () => {},
+                    getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
+                    setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; },
+                    fetchHistogram: () => _fetchDiffHistogram(),
+                    onWindowChange: () => { fetchAndDrawDiff(); },
                 });
             }
         }
@@ -2988,6 +2989,7 @@
                 cb._detachEvents();
             });
             _diffLeftCb = null; _diffRightCb = null; _diffCenterCb = null;
+            _diffManualVmin = null; _diffManualVmax = null;
         }
 
         function _setCompareCenterMode(newMode) {
@@ -5025,6 +5027,26 @@
             return _histData;
         }
 
+        async function _fetchDiffHistogram() {
+            if (!diffMode || !compareActive || compareDisplaySids.length < 2) return null;
+            const [sid_a, sid_b] = compareDisplaySids;
+            const params = new URLSearchParams({
+                dim_x: String(dim_x),
+                dim_y: String(dim_y),
+                dim_z: String(dim_z),
+                indices: indices.join(','),
+                complex_mode: String(complexMode),
+                log_scale: String(logScale),
+                diff_mode: String(diffMode),
+                bins: '64',
+            });
+            try {
+                const resp = await proxyFetch(`/diff-histogram/${sid_a}/${sid_b}?${params}`);
+                if (!resp.ok) return null;
+                return await resp.json();
+            } catch (_) { return null; }
+        }
+
         function _drawClimLines(sCtx, cssW, stripH) {
             const { vmin: dmin, vmax: dmax } = _histData;
             const range = dmax - dmin || 1;
@@ -6148,6 +6170,8 @@
                 diff_mode: String(diffMode),
             });
             if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
+            if (_diffManualVmin !== null) params.set('vmin_override', String(_diffManualVmin));
+            if (_diffManualVmax !== null) params.set('vmax_override', String(_diffManualVmax));
             try {
                 const resp = await proxyFetch(`/diff/${sid_a}/${sid_b}?${params}`);
                 if (!resp.ok) return;
@@ -9320,7 +9344,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         } else {
                             const q = _diffCenterCb.cycleQuantile();
                             if (q) {
+                                _diffManualVmin = q.vmin;
+                                _diffManualVmax = q.vmax;
                                 _diffCenterCb.draw();
+                                fetchAndDrawDiff();
                                 showStatus(`diff histogram: ${q.label}`);
                             }
                             _diffCenterCb.startAutoDismiss();
