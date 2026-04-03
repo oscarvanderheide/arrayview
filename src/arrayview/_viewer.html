@@ -917,9 +917,9 @@
             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
             border-radius: 0 0 6px 0;
         }
-        /* Ensure dimbar is not clipped at top in qMRI immersive */
+        /* qMRI immersive: no extra padding — dimbar overlays the panes */
         body.fullscreen-mode #qmri-view-wrap.active {
-            padding-top: 40px;
+            padding-top: 0;
         }
         /* Wrap is the positioning context for overlaid colorbar islands */
         body.fullscreen-mode .compare-canvas-wrap {
@@ -4948,6 +4948,17 @@
                 _histDataVersion = cacheKey;
                 return data;
             } catch (_) { return null; }
+        }
+
+        /** Return opts for _fetchVolumeHistogram that cover the full 3D spatial volume. */
+        function _volHistSpatialOpts() {
+            if (multiViewActive && mvDims && mvDims.length === 3) {
+                return { dimX: mvDims[1], dimY: mvDims[0], scrollDim: mvDims[2] };
+            }
+            if (dim_z >= 0) {
+                return { scrollDim: dim_z };
+            }
+            return {};
         }
 
         function _invalidateVolHistCache() {
@@ -9421,7 +9432,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (compareActive) {
                             await _fetchHistogramCompare();
                         } else {
-                            const volData = await _fetchVolumeHistogram();
+                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                             if (volData) _histData = volData;
                         }
                         _buildKDE();
@@ -9458,7 +9469,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         // Subsequent presses: cycle quantile presets
                         // Re-fetch if histogram data is stale for current dim config
                         if (!_histData || _histDataVersion !== _expectedHistKey()) {
-                            const volData = await _fetchVolumeHistogram();
+                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                             if (volData) { _histData = volData; _buildKDE(); }
                         }
                         const _QUANTILE_PRESETS = [
@@ -13618,6 +13629,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         });
                         if (minClipTop < Infinity) anchorTop = minClipTop;
                         if (maxClipBottom > 0) anchorBottom = maxClipBottom;
+                    } else if (qmriActive) {
+                        const qvCanvases = document.querySelectorAll('#qmri-view-wrap .qv-canvas');
+                        let minTop = Infinity, maxBottom = 0;
+                        qvCanvases.forEach(c => {
+                            const r = c.getBoundingClientRect();
+                            if (r.top < minTop) minTop = r.top;
+                            if (r.bottom > maxBottom) maxBottom = r.bottom;
+                        });
+                        if (minTop < Infinity) anchorTop = minTop;
+                        if (maxBottom > 0) anchorBottom = maxBottom;
                     }
                     const infoH = infoEl.offsetHeight || 0;
                     const desiredTop = anchorTop + 8;
