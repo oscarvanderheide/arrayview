@@ -154,6 +154,7 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
+        /* ── Hard UI invariants (structural enforcement) ──────── */
         /* ── CSS: ColorBar and Dynamic Islands ───────────────────── */
         .cb-island,
         .compare-pane-cb-island,
@@ -794,6 +795,7 @@
         body.zen-mode #help-hint, body.zen-mode #status,
         body.zen-mode #preload-status { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
+        /* ── Fullscreen mode (K key) ────────────────────────────── */
         /* ── CSS: Immersive, Fullscreen, and Compact Mode ─────────── */
         body.fullscreen-mode #array-name {
             opacity: 0; max-height: 0; height: 0; min-height: 0; overflow: hidden; margin: 0; padding: 0;
@@ -8320,6 +8322,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } catch (e) { /* clipboard may fail in non-secure contexts */ }
         }
 
+        // ---------------------------------------------------------------
+        // nnInteractive segmentation helpers
+        // ---------------------------------------------------------------
         /* ── JS: nnInteractive Segmentation ──────────────────────── */
 
         function _segShowMethodStatus() {
@@ -13165,6 +13170,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             updateLogoAnim();
         })();
 
+        // ═══════════════════════════════════════════════════════════════
+        // NEW FEATURES BLOCK
+        // ═══════════════════════════════════════════════════════════════
+
+        // ── 1. Cross-fade ─────────────────────────────────────────────
         /* ── JS: Immersive Mode, Cross-Fade, and Visual Effects ───── */
         const _fadeCanvas = document.getElementById('viewer-fade');
         const _fadeCtx = _fadeCanvas ? _fadeCanvas.getContext('2d') : null;
@@ -14719,6 +14729,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         init();
 
+        // ── Compact mode (K key / programmatic) ─────────────────────────────
         /* ── JS: Compact Mode and Touch Input ─────────────────────── */
         let _compactModeActive = false;
         function setCompactMode(on) {
