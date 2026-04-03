@@ -7883,6 +7883,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         // ── Brightness/Contrast drag (middle-click or Ctrl+left-click) ────
         let _bcDrag = null; // { startX, startY, initCenter, initWidth }
+        let _bcScrollTimer = null; // debounce timer for scroll-based BC
         function _bcCanDrag() {
             return !rectRoiMode && !_rulerMode && !rgbMode;
         }
@@ -13258,6 +13259,56 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function onSliceWheel(e) {
             e.preventDefault();
+            // Cmd+Shift+scroll → brightness/contrast
+            if (e.metaKey && e.shiftKey && _bcCanDrag()) {
+                // deltaX = brightness (shift center), deltaY = contrast (change width)
+                const vmin = manualVmin ?? currentVmin;
+                const vmax = manualVmax ?? currentVmax;
+                const center = (vmin + vmax) / 2;
+                const width = vmax - vmin;
+                const sens = width / 200;
+                const newCenter = center + e.deltaX * sens;
+                const newWidth = Math.max(width * 0.01, width + e.deltaY * sens * 2);
+                manualVmin = newCenter - newWidth / 2;
+                manualVmax = newCenter + newWidth / 2;
+                // Expand histogram if not already
+                if (!_cbExpanded) {
+                    _lebesgueManual = false;
+                    _computeCbExpandedH();
+                    _cbExpanded = true;
+                    const triZone = document.getElementById('slim-cb-tri-zone');
+                    if (triZone) triZone.classList.add('expanded');
+                    (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
+                        .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); _cbStartAnim(true); });
+                }
+                if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                if (multiViewActive || compareMvActive) drawMvColorbar();
+                else drawSlimColorbar(cbMarkerFrac);
+                // Debounce server update
+                clearTimeout(_bcScrollTimer);
+                _bcScrollTimer = setTimeout(() => {
+                    updateView();
+                    saveState();
+                    // Auto-dismiss histogram after 3s of no scrolling
+                    if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+                    _histAutoDismissTimer = setTimeout(() => {
+                        _histAutoDismissTimer = null;
+                        if (!_cbMouseOver && _cbExpanded) {
+                            lebesgueMode = false;
+                            _cbExpanded = false;
+                            _clearLebesgueOverlay();
+                            const tz = document.getElementById('slim-cb-tri-zone');
+                            if (tz) tz.classList.remove('expanded');
+                            _cbStartAnim(false);
+                            if (multiViewActive || compareMvActive) drawMvColorbar();
+                            else drawSlimColorbar(cbMarkerFrac);
+                        } else if (_cbMouseOver && _cbExpanded) {
+                            _histAutoDismissPending = true;
+                        }
+                    }, 3000);
+                }, 150);
+                return;
+            }
             // Ctrl / Cmd + scroll → zoom
             if ((e.ctrlKey || e.metaKey) && !_immersiveAnimating) {
                 // Use deltaY magnitude to scale zoom — small trackpad pinch
