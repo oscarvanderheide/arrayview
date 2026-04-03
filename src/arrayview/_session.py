@@ -203,6 +203,10 @@ COLORMAPS = [
     "navia",
     "viridis",
     "plasma",
+    "magma",
+    "inferno",
+    "cividis",
+    "rainbow",
     "RdBu_r",
     "twilight_shifted",
 ]
