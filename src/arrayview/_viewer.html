@@ -12964,8 +12964,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const span = e.target.closest('[data-dim]');
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
-                // Immediately highlight the hovered dim (turn it yellow)
-                if (activeDim !== hoveredDim) { activeDim = hoveredDim; renderInfo(); }
             } else {
                 hoveredDim = -1;
             }
