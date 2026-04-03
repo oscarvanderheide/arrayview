@@ -1913,6 +1913,90 @@ def get_volume_histogram(
     return result
 
 
+# ── Volume Data (3-D MIP) ────────────────────────────────────────
+
+
+@app.get("/volume_data/{sid}")
+def get_volume_data(
+    sid: str,
+    dims: str = "",
+    indices: str = "",
+    complex_mode: int = 0,
+):
+    """Return the full 3-D sub-volume as raw float32 bytes for the WebGL MIP renderer.
+
+    *dims* is a comma-separated triple of the three spatial dimensions (e.g. ``"0,1,2"``).
+    *indices* gives the current index for every dimension (comma-separated).
+    Dimensions not in *dims* are sliced at the value given in *indices*.
+
+    If any axis exceeds 256, stride-based down-sampling is applied so that
+    the returned volume fits within 256^3.
+
+    Response headers carry ``X-Shape`` (comma-separated), ``X-Vmin``, ``X-Vmax``.
+    """
+    session = SESSIONS.get(sid)
+    if not session:
+        return Response(status_code=404)
+
+    # Parse dims and indices
+    if not dims:
+        return Response(status_code=400, content="dims required")
+    dim_list = [int(d) for d in dims.split(",")]
+    if len(dim_list) != 3:
+        return Response(status_code=400, content="dims must be exactly 3 integers")
+
+    idx_list = [int(x) for x in indices.split(",")] if indices else [s // 2 for s in session.shape]
+
+    # Build slicer: keep the 3 spatial dims free, fix everything else
+    slicer = []
+    for i in range(len(session.shape)):
+        if i in dim_list:
+            slicer.append(slice(None))
+        else:
+            idx = idx_list[i] if i < len(idx_list) else session.shape[i] // 2
+            slicer.append(min(max(idx, 0), session.shape[i] - 1))
+    vol = np.array(session.data[tuple(slicer)])
+
+    # Reorder axes so dim_list order maps to (0, 1, 2) of the output
+    # vol currently has axes at the positions corresponding to dim_list within
+    # the free-axis subset.  We need to figure out which axes of `vol` correspond
+    # to which dim in dim_list.
+    free_axes_sorted = sorted(dim_list)
+    # vol axes are in the order of free_axes_sorted (numpy preserves order)
+    perm = [free_axes_sorted.index(d) for d in dim_list]
+    vol = np.transpose(vol, perm)
+
+    # Apply complex mode
+    vol = apply_complex_mode(vol, complex_mode)
+
+    # Downsample any axis > 256
+    max_dim = 256
+    strides = []
+    for s in vol.shape:
+        strides.append(max(1, (s + max_dim - 1) // max_dim))
+    if any(st > 1 for st in strides):
+        vol = vol[::strides[0], ::strides[1], ::strides[2]]
+
+    vol = np.ascontiguousarray(vol, dtype=np.float32)
+
+    finite = vol[np.isfinite(vol)]
+    if finite.size > 0:
+        vmin = float(np.percentile(finite, 1))
+        vmax = float(np.percentile(finite, 99))
+    else:
+        vmin, vmax = 0.0, 1.0
+
+    return Response(
+        content=vol.tobytes(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Shape": ",".join(str(s) for s in vol.shape),
+            "X-Vmin": str(vmin),
+            "X-Vmax": str(vmax),
+        },
+    )
+
+
 @app.get("/lebesgue/{sid}")
 def get_lebesgue_slice(
     sid: str,
