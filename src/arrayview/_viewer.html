@@ -10024,6 +10024,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
+                userZoom = 1.0;
+                _zoomAdjustedByUser = false;
+                comparePan.reset();
                 compareActive = true;
                 applyCompareLayout();
                 _reconcileUI();
@@ -10062,6 +10065,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
+                userZoom = 1.0;
+                _zoomAdjustedByUser = false;
+                comparePan.reset();
                 compareActive = true;
                 applyCompareLayout();
                 _reconcileUI();
@@ -13400,8 +13406,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // i.e. the vertical space limits fit-zoom more than horizontal.
             // Immersive reclaims the 80px bottom chrome reserve; if width was
             // already limiting, entering immersive gains nothing.
-            const w = lastImgW || canvas.width;
-            const h = lastImgH || canvas.height;
+            let w, h;
+            if (compareActive && compareFrames.length) {
+                // In compare mode, use first frame dimensions × column count
+                const f = compareFrames.find(Boolean);
+                if (!f) return false;
+                const hasCenterPane = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
+                const cols = (hasCenterPane && compareFrames.filter(Boolean).length === 2) ? 3 : compareFrames.filter(Boolean).length;
+                w = f.width * cols;
+                h = f.height;
+            } else {
+                w = lastImgW || canvas.width;
+                h = lastImgH || canvas.height;
+            }
             if (!w || !h) return false;
             const maxW = Math.max(100, window.innerWidth - 80);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - 80);
