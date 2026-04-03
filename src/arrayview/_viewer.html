@@ -3635,6 +3635,10 @@
         const _cbAnimDuration = 350; // animation duration in ms
         let _cbWinVminF = 0;        // animated window vmin fraction (lerped toward target)
         let _cbWinVmaxF = 1;        // animated window vmax fraction (lerped toward target)
+        let _cbWinTransStart = 0;   // performance.now() when transition began
+        let _cbWinTransDur = 200;   // transition duration in ms
+        let _cbWinVminFrom = 0;     // start value for vmin transition
+        let _cbWinVmaxFrom = 1;     // start value for vmax transition
         let _cbHoverFrac = -1;      // cursor x-fraction on canvas (-1 = not hovering)
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
@@ -3730,6 +3734,10 @@
                 this._winVmaxF = 1;
                 this._winVminTarget = 0;
                 this._winVmaxTarget = 1;
+                this._winTransStart = 0;        // performance.now() when transition began
+                this._winTransDur = 200;        // transition duration in ms
+                this._winVminFrom = 0;          // start value for vmin transition
+                this._winVmaxFrom = 1;          // start value for vmax transition
 
                 // Hover / drag state
                 this._hoverFrac = -1;
@@ -3998,17 +4006,26 @@
                     vmaxFrac = (win.vmax - dmin) / range;
                 }
 
-                // Track targets for convergence
-                this._winVminTarget = vminFrac;
-                this._winVmaxTarget = vmaxFrac;
-
                 // Lerp animated window fractions toward target (snap during drag)
                 if (this._dragActive) {
                     this._winVminF = vminFrac;
                     this._winVmaxF = vmaxFrac;
+                    this._winVminTarget = vminFrac;
+                    this._winVmaxTarget = vmaxFrac;
                 } else {
-                    this._winVminF += (vminFrac - this._winVminF) * 0.18;
-                    this._winVmaxF += (vmaxFrac - this._winVmaxF) * 0.18;
+                    // Detect target change → start new transition from current position
+                    if (vminFrac !== this._winVminTarget || vmaxFrac !== this._winVmaxTarget) {
+                        this._winVminFrom = this._winVminF;
+                        this._winVmaxFrom = this._winVmaxF;
+                        this._winVminTarget = vminFrac;
+                        this._winVmaxTarget = vmaxFrac;
+                        this._winTransStart = performance.now();
+                    }
+                    const elapsed = performance.now() - this._winTransStart;
+                    const rawT = Math.min(1, elapsed / this._winTransDur);
+                    const t = 1 - Math.pow(1 - rawT, 3);  // ease-out cubic
+                    this._winVminF = this._winVminFrom + (this._winVminTarget - this._winVminFrom) * t;
+                    this._winVmaxF = this._winVmaxFrom + (this._winVmaxTarget - this._winVmaxFrom) * t;
                 }
 
                 // Animated window edges: full-range when collapsed, window when expanded
@@ -4731,14 +4748,25 @@
                 vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
             }
             // Lerp animated window fractions toward target (snap during drag)
-            _cbWinVminTarget = vminFrac;
-            _cbWinVmaxTarget = vmaxFrac;
             if (_cbDragActive) {
                 _cbWinVminF = vminFrac;
                 _cbWinVmaxF = vmaxFrac;
+                _cbWinVminTarget = vminFrac;
+                _cbWinVmaxTarget = vmaxFrac;
             } else {
-                _cbWinVminF += (vminFrac - _cbWinVminF) * 0.18;
-                _cbWinVmaxF += (vmaxFrac - _cbWinVmaxF) * 0.18;
+                // Detect target change → start new transition from current position
+                if (vminFrac !== _cbWinVminTarget || vmaxFrac !== _cbWinVmaxTarget) {
+                    _cbWinVminFrom = _cbWinVminF;
+                    _cbWinVmaxFrom = _cbWinVmaxF;
+                    _cbWinVminTarget = vminFrac;
+                    _cbWinVmaxTarget = vmaxFrac;
+                    _cbWinTransStart = performance.now();
+                }
+                const elapsed = performance.now() - _cbWinTransStart;
+                const rawT = Math.min(1, elapsed / _cbWinTransDur);
+                const t = 1 - Math.pow(1 - rawT, 3);  // ease-out cubic
+                _cbWinVminF = _cbWinVminFrom + (_cbWinVminTarget - _cbWinVminFrom) * t;
+                _cbWinVmaxF = _cbWinVmaxFrom + (_cbWinVmaxTarget - _cbWinVmaxFrom) * t;
             }
             // Animated window edges: full-range when collapsed, window when expanded
             const effVmin = _cbWinVminF * aT;
@@ -14114,7 +14142,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const vpEl = document.getElementById('canvas-viewport');
                 if (vpEl) availW = vpEl.offsetWidth;
             }
-            const maxThumbs = Math.min(5, Math.max(1, Math.floor(availW / THUMB_W)));
+            const rawThumbs = Math.max(1, Math.floor(availW / THUMB_W));
+            const maxThumbs = rawThumbs % 2 === 0 ? rawThumbs - 1 : rawThumbs;
             const SIDE = Math.floor((maxThumbs - 1) / 2);
             _cmapStrip.innerHTML = '';
             if (_cmapStripRight) _cmapStripRight.innerHTML = '';
@@ -14164,7 +14193,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Create inline preview container and move strip content into it
                 const preview = document.createElement('div');
                 preview.id = 'cmap-island-preview';
-                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;overflow:hidden;mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);-webkit-mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);';
+                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;flex:1;overflow:hidden;mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);-webkit-mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);';
                 while (_cmapStrip.firstChild) {
                     preview.appendChild(_cmapStrip.firstChild);
                 }
