@@ -68,7 +68,10 @@ for epoch in range(100):
 
 ## Once open
 
-`c` colormaps · `d` dynamic range · `v` 3-plane · `z` mosaic · `Shift+O` overlay toggle · `?` help · colorbar dblclick histogram
+**Navigation:** scroll slices · `h`/`l` cycle dims · `j`/`k` slices · `=`/`-` zoom · drag pan
+**Views:** `v` 3-plane · `z` mosaic · `q` qMRI · `n` compare · `=` immersive
+**Display:** `c`/`C` colormaps · `d`/`D` dynamic range · `f` FFT · `m` complex · `p` projections · `L` log
+**Tools:** `S` segmentation · `u` ruler · `s` screenshot · `?` help
 
 
 ## nnInteractive Segmentation
