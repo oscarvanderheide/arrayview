@@ -32,3 +32,4 @@ benchmarks/data
 site/
 van_gogh/
 docs/superpowers
+.playwright-mcp/
