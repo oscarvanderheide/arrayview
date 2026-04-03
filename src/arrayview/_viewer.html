@@ -12900,14 +12900,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
 
-        // Click on a dim label to make it the active dim
+        // Click on a dim label to make it the active dim (consistent with h/l navigation)
         const infoEl = document.getElementById('info');
         infoEl.addEventListener('click', (e) => {
             const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
+            // Skip dims in projection or quantization mode — they aren't navigable
+            if (projectionMode > 0 && d === projectionDim) return;
+            if ((qmriActive && d === qmriDim) || (compareQmriActive && d === compareQmriDim)) return;
             activeDim = d;
             if (d === VFIELD_T_DIM) {
+                flashAxesIndicators();
                 renderInfo();
                 sink.focus();
                 return;
@@ -12918,12 +12922,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     [dim_x, dim_y] = [dim_y, dim_x];
                     dim_z = -1;
                     activeDim = d === dim_x ? dim_x : dim_y; // stay on the clicked label
-                    updateView(); triggerPreload(); sink.focus(); return;
+                    updateView(); triggerPreload(); flashAxesIndicators(); sink.focus(); return;
                 }
             }
-            if (!multiViewActive && !qmriActive && d !== dim_x && d !== dim_y && d !== dim_z) {
+            if (d !== VFIELD_T_DIM && d !== dim_x && d !== dim_y && d !== dim_z) {
                 current_slice_dim = d; _invalidateVolHistCache(); triggerPreload();
             }
+            flashAxesIndicators();
             renderInfo();
             sink.focus();
         });
