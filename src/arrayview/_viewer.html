@@ -3021,8 +3021,10 @@
             updateCompareTitles();
 
             if (newMode === 0) {
-                // Restore shared colorbar (per-pane colorbars hidden via drawAllComparePaneCbs)
+                // Restore shared colorbar; hide per-pane colorbars and rescale to 2-column layout
                 drawSlimColorbar(cbMarkerFrac);
+                drawAllComparePaneCbs();
+                drawCompareFramesFromCache();
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
                 const dt = document.getElementById('compare-diff-title');
@@ -5020,6 +5022,7 @@
                 _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':compare';
             } catch (_) { _histData = null; }
             _histFetching = false;
+            return _histData;
         }
 
         function _drawClimLines(sCtx, cssW, stripH) {
@@ -9305,26 +9308,45 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         saveState();
                     });
             } else if (e.key === 'd') {
-                // In diff mode (not hovering center), expand/cycle diff ColorBars
+                // In diff mode: expand/cycle left+right colorbars in sync,
+                // unless hovering over the center (diff) pane — then affect
+                // only the center colorbar.
                 if (compareActive && diffMode > 0 && _diffLeftCb) {
-                    const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
-                    if (!_diffLeftCb.expanded) {
-                        for (const cb of cbs) {
-                            await cb.expand();
-                            cb.startAutoDismiss();
+                    if (_mouseOverCenterPane && _diffCenterCb) {
+                        // Hovering center diff pane — expand/cycle center colorbar only
+                        if (!_diffCenterCb.expanded) {
+                            await _diffCenterCb.expand();
+                            _diffCenterCb.startAutoDismiss();
+                        } else {
+                            const q = _diffCenterCb.cycleQuantile();
+                            if (q) {
+                                _diffCenterCb.draw();
+                                showStatus(`diff histogram: ${q.label}`);
+                            }
+                            _diffCenterCb.startAutoDismiss();
                         }
+                        showStatus('diff histogram');
                     } else {
-                        const q = _diffLeftCb.cycleQuantile();
-                        if (q) {
-                            cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
-                            cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
-                            _diffLeftCb.draw(); _diffRightCb?.draw();
-                            compareRender();
-                            showStatus(`histogram: ${q.label}`);
+                        // Hovering left/right pane — expand/cycle both in sync
+                        const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
+                        if (!_diffLeftCb.expanded) {
+                            for (const cb of cbs) {
+                                await cb.expand();
+                                cb.startAutoDismiss();
+                            }
+                        } else {
+                            const q = _diffLeftCb.cycleQuantile();
+                            if (q) {
+                                cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
+                                cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
+                                _diffLeftCb.draw(); _diffRightCb?.draw();
+                                compareRender();
+                                showStatus(`histogram: ${q.label}`);
+                            }
+                            for (const cb of cbs) cb.startAutoDismiss();
                         }
-                        for (const cb of cbs) cb.startAutoDismiss();
+                        showStatus('histogram');
                     }
-                    showStatus('histogram');
                     return;
                 }
                 // In qMRI mode, hovering a specific pane: expand + cycle quantile

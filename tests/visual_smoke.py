@@ -598,7 +598,7 @@ def run_smoke(page, base, client, tmp):
     _press(page, "0")  # reset zoom
     _press(page, "v", wait=400)  # exit multiview
 
-    # ── 39: compare center pane cycle (X key: off→A−B→|A−B|→|A−B|/|A|→overlay→wipe→off)
+    # ── 39: compare center pane cycle (X key: off→A−B→|A−B|→|A−B|/|A|→overlay→wipe→flicker→checker→off)
     _goto_compare(page, base, sid2d, sid2d_b)
     _focus(page)
     _shot(page, "39a_diff_compare_base")
@@ -612,6 +612,8 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "39e_overlay")
     _press(page, "Shift+X", wait=800)  # 5: wipe
     _shot(page, "39f_wipe")
+    _press(page, "Shift+X", wait=400)  # 6: flicker
+    _press(page, "Shift+X", wait=400)  # 7: checker
     _press(page, "Shift+X", wait=400)  # 0: off
     _shot(page, "39g_off")
 
