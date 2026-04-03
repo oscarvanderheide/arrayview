@@ -2340,6 +2340,8 @@ def get_diff(
     log_scale: bool = False,
     diff_mode: int = 1,
     diff_colormap: str = "",
+    vmin_override: float = None,
+    vmax_override: float = None,
 ):
     session_a = SESSIONS.get(sid_a)
     session_b = SESSIONS.get(sid_b)
@@ -2395,6 +2397,11 @@ def get_diff(
         vmax = float(raw.max()) or 1.0
         vmin = 0.0
         colormap = "afmhot"
+    # Allow frontend to override vmin/vmax
+    if vmin_override is not None:
+        vmin = vmin_override
+    if vmax_override is not None:
+        vmax = vmax_override
     # Allow frontend to override the colormap
     if diff_colormap and _ensure_lut(diff_colormap):
         colormap = diff_colormap
@@ -2420,6 +2427,73 @@ def get_diff(
             "X-ArrayView-Colormap": colormap,
         },
     )
+
+
+@app.get("/diff-histogram/{sid_a}/{sid_b}")
+def get_diff_histogram(
+    sid_a: str,
+    sid_b: str,
+    dim_x: int,
+    dim_y: int,
+    indices: str,
+    dim_z: int = -1,
+    dr: int = 1,
+    complex_mode: int = 0,
+    log_scale: bool = False,
+    diff_mode: int = 1,
+    bins: int = 64,
+):
+    session_a = SESSIONS.get(sid_a)
+    session_b = SESSIONS.get(sid_b)
+    if not session_a or not session_b:
+        return Response(status_code=404)
+    idx_tuple = tuple(int(x) for x in indices.split(","))
+    ndim_a = len(session_a.shape)
+    ndim_b = len(session_b.shape)
+    idx_a = idx_tuple[:ndim_a]
+    idx_b = idx_tuple[:ndim_b]
+    try:
+        if dim_z >= 0:
+            a, _ = _render_normalized_mosaic(
+                session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale
+            )
+            b, _ = _render_normalized_mosaic(
+                session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale
+            )
+        else:
+            a = _render_normalized(
+                session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale
+            )
+            b = _render_normalized(
+                session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale
+            )
+    except Exception:
+        return Response(status_code=422)
+    if a.shape != b.shape:
+        try:
+            from PIL import Image as _Image
+
+            b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
+            b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
+            b = np.array(b_img, dtype=np.float32) / 255.0
+        except Exception:
+            return Response(status_code=422)
+    if diff_mode == 1:
+        raw = a - b
+    elif diff_mode == 2:
+        raw = np.abs(a - b)
+    else:
+        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
+        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
+    vmin = float(raw.min())
+    vmax = float(raw.max())
+    counts, edges = np.histogram(raw.ravel(), bins=bins)
+    return {
+        "counts": counts.tolist(),
+        "edges": edges.tolist(),
+        "vmin": vmin,
+        "vmax": vmax,
+    }
 
 
 @app.get("/oblique/{sid}")
