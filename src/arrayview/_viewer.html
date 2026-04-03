@@ -7899,66 +7899,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return !rectRoiMode && !_rulerMode && !compareActive && !multiViewActive && !qmriActive;
         }
 
-        // ── Brightness/Contrast drag (middle-click or Ctrl+left-click) ────
+        // ── Brightness/Contrast drag (Cmd+Shift+drag) and scroll ─────────
         let _bcDrag = null; // { startX, startY, initCenter, initWidth }
         let _bcScrollTimer = null; // debounce timer for scroll-based BC
+        let _bcScrollAnchor = null; // { center, width, accumX, accumY } for scroll accumulation
+        let _bcUpdateTimer = null; // throttle timer for server updates during drag
         function _bcCanDrag() {
             return !rectRoiMode && !_rulerMode && !rgbMode;
         }
-        async function _bcStartDrag(e) {
-            const vmin = manualVmin ?? currentVmin;
-            const vmax = manualVmax ?? currentVmax;
-            _bcDrag = {
-                startX: e.clientX, startY: e.clientY,
-                initCenter: (vmin + vmax) / 2,
-                initWidth: vmax - vmin,
-            };
-            canvas.style.cursor = 'crosshair';
-            // Expand histogram like 'd' does
-            if (!_cbExpanded) {
-                _lebesgueManual = false;
-                _computeCbExpandedH();
-                _cbExpanded = true;
-                const triZone = document.getElementById('slim-cb-tri-zone');
-                if (triZone) triZone.classList.add('expanded');
-                if (compareActive) {
-                    await _fetchHistogramCompare();
-                } else {
-                    const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                    if (volData) _histData = volData;
-                }
-                _buildKDE();
-                lebesgueMode = true;
-                _fetchLebesgueSlice();
-                primaryCb.startAnim(true);
-                if (multiViewActive || compareMvActive) drawMvColorbar();
-                else drawSlimColorbar(cbMarkerFrac);
-            }
+        function _bcExpandHist() {
+            if (_cbExpanded) return;
+            _lebesgueManual = false;
+            _computeCbExpandedH();
+            _cbExpanded = true;
+            const triZone = document.getElementById('slim-cb-tri-zone');
+            if (triZone) triZone.classList.add('expanded');
+            (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
+                .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); primaryCb.startAnim(true); _bcRedrawCb(); });
         }
-        function _bcUpdateDrag(e) {
-            if (!_bcDrag) return;
-            const dx = e.clientX - _bcDrag.startX;
-            const dy = e.clientY - _bcDrag.startY;
-            // Sensitivity: scale by initial width so drag feels proportional
-            const sens = _bcDrag.initWidth / 300;
-            // Horizontal = brightness (shift center), vertical = contrast (change width)
-            const newCenter = _bcDrag.initCenter - dx * sens;
-            const newWidth = Math.max(_bcDrag.initWidth * 0.01, _bcDrag.initWidth - dy * sens * 2);
-            manualVmin = newCenter - newWidth / 2;
-            manualVmax = newCenter + newWidth / 2;
-            // Live update without server round-trip — redraw colorbar immediately
-            if (!primaryCb._animating) { primaryCb._animating = true; primaryCb._animStep(); }
+        function _bcRedrawCb() {
             if (multiViewActive || compareMvActive) drawMvColorbar();
             else drawSlimColorbar(cbMarkerFrac);
         }
-        function _bcEndDrag() {
-            if (!_bcDrag) return;
-            _bcDrag = null;
-            canvas.style.cursor = '';
-            // Apply to server
-            updateView();
-            saveState();
-            // Auto-dismiss histogram after 3s
+        function _bcApplyWindow(center, width) {
+            const w = Math.max(width * 0.001, width);
+            manualVmin = center - w / 2;
+            manualVmax = center + w / 2;
+            primaryCb.ensureAnimating();
+            _bcRedrawCb();
+        }
+        function _bcThrottledUpdate() {
+            if (_bcUpdateTimer) return;
+            _bcUpdateTimer = setTimeout(() => { _bcUpdateTimer = null; updateView(); }, 80);
+        }
+        function _bcAutoDismiss() {
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
@@ -7969,12 +7943,42 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const tz = document.getElementById('slim-cb-tri-zone');
                     if (tz) tz.classList.remove('expanded');
                     primaryCb.startAnim(false);
-                    if (multiViewActive || compareMvActive) drawMvColorbar();
-                    else drawSlimColorbar(cbMarkerFrac);
+                    _bcRedrawCb();
                 } else if (_cbMouseOver && _cbExpanded) {
                     _histAutoDismissPending = true;
                 }
             }, 3000);
+        }
+        async function _bcStartDrag(e) {
+            const vmin = manualVmin ?? currentVmin;
+            const vmax = manualVmax ?? currentVmax;
+            _bcDrag = {
+                startX: e.clientX, startY: e.clientY,
+                initCenter: (vmin + vmax) / 2,
+                initWidth: vmax - vmin,
+            };
+            canvas.style.cursor = 'crosshair';
+            _bcExpandHist();
+        }
+        function _bcUpdateDrag(e) {
+            if (!_bcDrag) return;
+            const dx = e.clientX - _bcDrag.startX;
+            const dy = e.clientY - _bcDrag.startY;
+            // Sensitivity: scale by initial width so drag feels proportional
+            const sens = _bcDrag.initWidth / 300;
+            const newCenter = _bcDrag.initCenter - dx * sens;
+            const newWidth = _bcDrag.initWidth - dy * sens * 2;
+            _bcApplyWindow(newCenter, newWidth);
+            _bcThrottledUpdate();
+        }
+        function _bcEndDrag() {
+            if (!_bcDrag) return;
+            _bcDrag = null;
+            canvas.style.cursor = '';
+            if (_bcUpdateTimer) { clearTimeout(_bcUpdateTimer); _bcUpdateTimer = null; }
+            updateView();
+            saveState();
+            _bcAutoDismiss();
         }
 
         canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -13279,52 +13283,32 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             e.preventDefault();
             // Cmd+Shift+scroll → brightness/contrast
             if (e.metaKey && e.shiftKey && _bcCanDrag()) {
-                // deltaX = brightness (shift center), deltaY = contrast (change width)
-                const vmin = manualVmin ?? currentVmin;
-                const vmax = manualVmax ?? currentVmax;
-                const center = (vmin + vmax) / 2;
-                const width = vmax - vmin;
-                const sens = width / 200;
-                const newCenter = center + e.deltaX * sens;
-                const newWidth = Math.max(width * 0.01, width + e.deltaY * sens * 2);
-                manualVmin = newCenter - newWidth / 2;
-                manualVmax = newCenter + newWidth / 2;
-                // Expand histogram if not already
-                if (!_cbExpanded) {
-                    _lebesgueManual = false;
-                    _computeCbExpandedH();
-                    _cbExpanded = true;
-                    const triZone = document.getElementById('slim-cb-tri-zone');
-                    if (triZone) triZone.classList.add('expanded');
-                    (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
-                        .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); primaryCb.startAnim(true); });
+                // Anchor on first scroll event; accumulate deltas from there
+                if (!_bcScrollAnchor) {
+                    const vmin = manualVmin ?? currentVmin;
+                    const vmax = manualVmax ?? currentVmax;
+                    _bcScrollAnchor = {
+                        center: (vmin + vmax) / 2,
+                        width: vmax - vmin,
+                        accumX: 0, accumY: 0,
+                    };
+                    _bcExpandHist();
                 }
-                primaryCb.ensureAnimating();
-                if (multiViewActive || compareMvActive) drawMvColorbar();
-                else drawSlimColorbar(cbMarkerFrac);
-                // Debounce server update
+                // Accumulate scroll deltas (clamped to avoid huge jumps)
+                _bcScrollAnchor.accumX += Math.max(-30, Math.min(30, e.deltaX));
+                _bcScrollAnchor.accumY += Math.max(-30, Math.min(30, e.deltaY));
+                const sens = _bcScrollAnchor.width / 400;
+                const newCenter = _bcScrollAnchor.center + _bcScrollAnchor.accumX * sens;
+                const newWidth = _bcScrollAnchor.width + _bcScrollAnchor.accumY * sens * 2;
+                _bcApplyWindow(newCenter, newWidth);
+                // Debounce server update + auto-dismiss
                 clearTimeout(_bcScrollTimer);
                 _bcScrollTimer = setTimeout(() => {
+                    _bcScrollAnchor = null;
                     updateView();
                     saveState();
-                    // Auto-dismiss histogram after 3s of no scrolling
-                    if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                    _histAutoDismissTimer = setTimeout(() => {
-                        _histAutoDismissTimer = null;
-                        if (!_cbMouseOver && _cbExpanded) {
-                            lebesgueMode = false;
-                            _cbExpanded = false;
-                            _clearLebesgueOverlay();
-                            const tz = document.getElementById('slim-cb-tri-zone');
-                            if (tz) tz.classList.remove('expanded');
-                            primaryCb.startAnim(false);
-                            if (multiViewActive || compareMvActive) drawMvColorbar();
-                            else drawSlimColorbar(cbMarkerFrac);
-                        } else if (_cbMouseOver && _cbExpanded) {
-                            _histAutoDismissPending = true;
-                        }
-                    }, 3000);
-                }, 150);
+                    _bcAutoDismiss();
+                }, 200);
                 return;
             }
             // Ctrl / Cmd + scroll → zoom
