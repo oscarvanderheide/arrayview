@@ -3704,6 +3704,7 @@
 
                 // Animation state
                 this._expanded = false;
+                this._manualExpand = false; // true when expanded via dblclick (no auto-dismiss)
                 this._animT = 0;
                 this._animTarget = 0;
                 this._animFrom = 0;
@@ -4238,6 +4239,7 @@
             collapse() {
                 if (!this._expanded || this._dragActive) return;
                 this._expanded = false;
+                this._manualExpand = false;
                 this._hitVminX = null;
                 this._hitVmaxX = null;
                 if (this.triZone) this.triZone.classList.remove('expanded');
@@ -4350,12 +4352,18 @@
                     this._dragX = e.clientX;
                 });
 
-                // Dblclick resets window
+                // Dblclick toggles histogram expand/collapse
                 this.canvas.addEventListener('dblclick', (e) => {
-                    this.opts.setWindow(null, null);
-                    this.draw();
-                    if (this.opts.onWindowChange) this.opts.onWindowChange();
-                    this._syncInteraction('reset', {});
+                    if (this._expanded) {
+                        this._manualExpand = false;
+                        this.collapse();
+                        this.cancelAutoDismiss();
+                    } else {
+                        this._manualExpand = true;
+                        this.expand();
+                        // No auto-dismiss — user explicitly toggled via dblclick
+                        this.cancelAutoDismiss();
+                    }
                 });
 
                 // Dblclick on vmin/vmax labels for inline editing
@@ -4409,7 +4417,7 @@
                     if (this._autoDismissPending && !this._dragActive) {
                         this._autoDismissPending = false;
                         this.collapse();
-                    } else if (this._expanded && !this._dragActive && !this._autoDismissTimer) {
+                    } else if (this._expanded && !this._dragActive && !this._autoDismissTimer && !this._manualExpand) {
                         if (this._hoverTimer) clearTimeout(this._hoverTimer);
                         this._hoverTimer = setTimeout(() => {
                             this._hoverTimer = null;
@@ -4621,7 +4629,7 @@
             getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
-            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(),
+            fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
             onWindowChange: () => {
                 if (!_cbWindowChangeRafId) {
                     _cbWindowChangeRafId = requestAnimationFrame(() => {
@@ -5373,7 +5381,7 @@
                         await _fetchHistogramCompare();
                     }
                 } else if (!_histData) {
-                    const volData = await _fetchVolumeHistogram();
+                    const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                     if (volData) _histData = volData;
                 }
                 // Also fetch raw slice for Lebesgue mode
@@ -9385,7 +9393,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (lebesgueMode && _histData) {
                     // Re-fetch if histogram data is stale for current dim config
                     if (_histDataVersion !== _expectedHistKey()) {
-                        const volData = await _fetchVolumeHistogram();
+                        const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                         if (volData) { _histData = volData; _buildKDE(); }
                     }
                     // Histogram mode open: cycle quantile presets with smooth indicator updates
@@ -10683,7 +10691,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     },
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
                     setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
-                    fetchHistogram: () => _fetchVolumeHistogram(),
+                    fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); },
                     onBinHover: (binIdx, frac) => {
                         if (!lebesgueMode) return;
@@ -12806,7 +12814,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const stale = !_histData || _histDataVersion !== _expectedHistKey();
                 if (stale) {
                     _histData = null; _kdeSmooth = null;
-                    _fetchVolumeHistogram().then((d) => {
+                    _fetchVolumeHistogram(_volHistSpatialOpts()).then((d) => {
                         if (d) _histData = d;
                         if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
                     });
