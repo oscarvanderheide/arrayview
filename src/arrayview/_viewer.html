@@ -1726,13 +1726,13 @@
         let _histDataVersion = null; // tracks which data_version the cached _histData belongs to
         let _histFetching = false; // prevents concurrent fetches
         // primaryCb._dragActive removed (Task 3) — use primaryCb._dragActive instead
-        let _cbExpanded = false; // true while colorbar is in expanded (histogram) state
-        let _cbHoverTimer = null; // timer for delayed collapse on mouseleave
+        // primaryCb._expanded removed (Task 4) — use primaryCb._expanded
+        // _cbHoverTimer removed (Task 4) — class handles auto-dismiss
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
         // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
         let _histAutoDismissPending = false; // true when auto-dismiss fired but mouse was over histogram
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
-        let _histVminX = null, _histVmaxX = null; // last-drawn clim line X in CSS px (for drag hit-testing)
+        // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
         let _lebesgueVersion = null;    // version key for cached _lebesgueSlice
@@ -3414,9 +3414,6 @@
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
         function _syncPrimaryCb() {
-            // _cbAnimT is NO LONGER synced here — primaryCb owns it, and onAnimFrame syncs it back
-            // _hoverFrac, _dragActive are NO LONGER synced — primaryCb owns interaction state (Task 3)
-            primaryCb._expanded = _cbExpanded;
             primaryCb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
             primaryCb._histData = _histData;
             primaryCb._kdeSmooth = _kdeSmooth;
@@ -3482,13 +3479,13 @@
                 const eggsEl = document.getElementById('mode-eggs');
                 if (eggsEl) {
                     const wasHidden = eggsEl.style.display === 'none';
-                    eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
+                    eggsEl.style.display = primaryCb._animT > 0.1 ? 'none' : '';
                     eggsEl.style.opacity = '';
                     if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
                 }
                 // Triangle zone
                 const triZone = document.getElementById('slim-cb-tri-zone');
-                if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
+                if (triZone) triZone.classList.toggle('expanded', primaryCb._expanded);
                 // Position anchored to bottom of viewport
                 _positionFullscreenChrome();
                 return;
@@ -3514,7 +3511,7 @@
             const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
                 : Math.max(120, Math.min(rawW, window.innerWidth - 40, 900));
             if (!cssW || cssW < 10) return;
-            const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
+            const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * primaryCb._animT;
             // Mirror the gap between name-bar/title bottom and canvas top
             let chromeGap;
             // In both modes, #info (dim bar) is the element directly above the canvas area
@@ -3549,14 +3546,14 @@
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded && !_histFetching) {
+            if (primaryCb._expanded && !_histFetching) {
                 const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
                 if (stale) {
                     _histData = null; _kdeSmooth = null; // clear immediately to prevent stale use
                     const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
-                        if (_cbExpanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
+                        if (primaryCb._expanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
                     });
                 }
             }
@@ -3569,13 +3566,13 @@
             const eggsEl = document.getElementById('mode-eggs');
             if (eggsEl) {
                 const wasHidden = eggsEl.style.display === 'none';
-                eggsEl.style.display = _cbAnimT > 0.1 ? 'none' : '';
+                eggsEl.style.display = primaryCb._animT > 0.1 ? 'none' : '';
                 eggsEl.style.opacity = '';
                 if (wasHidden && eggsEl.style.display !== 'none') positionEggs();
             }
             // Toggle triangle zone visibility (tied to state, CSS handles fade)
             const triZone = document.getElementById('slim-cb-tri-zone');
-            if (triZone) triZone.classList.toggle('expanded', _cbExpanded);
+            if (triZone) triZone.classList.toggle('expanded', primaryCb._expanded);
             // Update inline vmin/vmax values
             // When expanded: show stable data range (dmin/dmax) so layout doesn't shift
             // When collapsed: show window values (manualVmin/Vmax or currentVmin/Vmax)
@@ -3604,19 +3601,8 @@
         const CB_COLLAPSED_H = 18;  // flat colorbar height in CSS px
         const CB_LABEL_H     = 0;   // no label zone — dmin/dmax shown as DOM elements
         let _cbExpandedH  = 18;  // histogram fits within colorbar height (no vertical expansion)
-        let _cbAnimT = 0;           // 0 = collapsed (flat bar), 1 = expanded (distribution)
-        let _cbAnimating = false;
-        let _cbAnimTarget = 0;
-        let _cbAnimFrom = 0;        // value of _cbAnimT when animation started
-        let _cbAnimStart = 0;       // performance.now() timestamp of animation start
-        const _cbAnimDuration = 350; // animation duration in ms
-        let _cbWinVminF = 0;        // animated window vmin fraction (lerped toward target)
-        let _cbWinVmaxF = 1;        // animated window vmax fraction (lerped toward target)
-        let _cbWinTransStart = 0;   // performance.now() when transition began
-        let _cbWinTransDur = 200;   // transition duration in ms
-        let _cbWinVminFrom = 0;     // start value for vmin transition
-        let _cbWinVmaxFrom = 1;     // start value for vmax transition
-        // primaryCb._hoverFrac removed (Task 3) — use primaryCb._hoverFrac instead
+        const _cbAnimDuration = 350; // animation duration in ms (shared with ColorBar class)
+        // Legacy animation globals removed (Task 4) — primaryCb owns all animation state
         let _kdeSmooth = null;      // smoothed histogram values (Float64Array, NPTS entries)
         const _KDE_NPTS = 300;      // resolution of the smooth curve
 
@@ -4646,8 +4632,6 @@
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
             onAnimFrame: (cb) => {
-                // Sync class animation state back to legacy globals (temporary bridge until Task 4)
-                _cbAnimT = cb._animT;
                 // Layout recalculation during expand/collapse animation
                 if (multiViewActive || compareMvActive) {
                     drawMvColorbar();
@@ -4670,13 +4654,11 @@
                 }
             },
             onExpand: () => {
-                _cbExpanded = true;  // legacy sync until Task 4
                 lebesgueMode = true;
                 _fetchLebesgueSlice();
                 _redrawActiveColorbar();
             },
             onCollapse: () => {
-                _cbExpanded = false;  // legacy sync until Task 4
                 _lebesgueManual = false;
                 lebesgueMode = false;
                 _clearLebesgueOverlay();
@@ -4705,292 +4687,11 @@
         let _cbWindowChangeRafId = null;
         window._primaryCb = primaryCb;
 
-        function _cbStartAnim(expand) {  // legacy — now dead code, calls go through primaryCb.startAnim()
-            _cbAnimTarget = expand ? 1 : 0;
-            _cbAnimFrom = _cbAnimT;
-            _cbAnimStart = performance.now();
-            if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
-        }
+        // _cbStartAnim, _cbAnimStep, _cbMorphDraw removed (Task 4) — primaryCb handles all rendering/animation
 
-        function _cbAnimStep() {
-            const elapsed = performance.now() - _cbAnimStart;
-            const rawT = Math.min(1, elapsed / _cbAnimDuration);
-            // Ease-out (fast start, gentle finish) for both expand and collapse
-            const easedT = 1 - Math.pow(1 - rawT, 3);
-            _cbAnimT = _cbAnimFrom + (_cbAnimTarget - _cbAnimFrom) * easedT;
-            // Toggle cb-expanded class for non-immersive outline removal
-            const _wrapEl = document.getElementById(
-                (multiViewActive || compareMvActive) ? 'mv-cb-wrap' : 'slim-cb-wrap');
-            if (_wrapEl) _wrapEl.classList.toggle('cb-expanded', _cbAnimT > 0.05);
-            // Redraw colorbar AND reposition island each frame so bottom stays anchored
-            if (multiViewActive || compareMvActive) {
-                drawMvColorbar();
-                // Recalc pane layout so canvases track the changing colorbar height,
-                // but preserve userZoom so the clamping inside mvScaleAllCanvases
-                // doesn't fight a concurrent zoom animation.
-                const _savedZoom = userZoom;
-                mvScaleAllCanvases();
-                userZoom = _savedZoom;
-            } else {
-                drawSlimColorbar(cbMarkerFrac);
-            }
-            // Check if both expand/collapse AND window fractions have converged
-            const morphDone = rawT >= 1;
-            const winDone = Math.abs(_cbWinVminF - _cbWinVminTarget) < 0.002
-                         && Math.abs(_cbWinVmaxF - _cbWinVmaxTarget) < 0.002;
-            if (morphDone && winDone) {
-                _cbAnimating = false;
-                return;
-            }
-            requestAnimationFrame(_cbAnimStep);
-        }
-        // Targets tracked for convergence check (set inside _cbMorphDraw)
-        let _cbWinVminTarget = 0;
-        let _cbWinVmaxTarget = 1;
+        // _cbMorphDraw removed (Task 4) — primaryCb.draw() handles all rendering
 
-        /** Core morph renderer — draws the colorbar/histogram as one shape.
-         *  @param {HTMLCanvasElement} [targetCanvas] — canvas to draw on (defaults to slimCbCanvas)
-         */
-        function _cbMorphDraw(targetCanvas) {
-            const cvs = targetCanvas || slimCbCanvas;
-            if (!cvs) return;
-            if (!targetCanvas && _cmapInIsland) return; // colormap preview is showing — don't overdraw
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-            if (!stops || !stops.length) return;
-            const dpr = window.devicePixelRatio || 1;
-            const cssW = cvs.clientWidth || 200;
-            const aT = _cbAnimT;
-            const cssH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * aT;
-            cvs.width = Math.round(cssW * dpr);
-            cvs.height = Math.round(cssH * dpr);
-            cvs.style.height = cssH + 'px';
-            const ctx = cvs.getContext('2d');
-            ctx.clearRect(0, 0, cvs.width, cvs.height);
-            ctx.save();
-            ctx.scale(dpr, dpr);
-
-            // Compute target window fractions in data range
-            let vminFrac = 0, vmaxFrac = 1;
-            if (_histData) {
-                const { vmin: dmin, vmax: dmax } = _histData;
-                const range = dmax - dmin || 1;
-                vminFrac = ((manualVmin ?? currentVmin) - dmin) / range;
-                vmaxFrac = ((manualVmax ?? currentVmax) - dmin) / range;
-                vminFrac = Math.max(0, Math.min(1, vminFrac));
-                vmaxFrac = Math.max(0, Math.min(1, vmaxFrac));
-            }
-            // Lerp animated window fractions toward target (snap during drag)
-            if (primaryCb._dragActive) {
-                _cbWinVminF = vminFrac;
-                _cbWinVmaxF = vmaxFrac;
-                _cbWinVminTarget = vminFrac;
-                _cbWinVmaxTarget = vmaxFrac;
-            } else {
-                // Detect target change → start new transition from current position
-                if (vminFrac !== _cbWinVminTarget || vmaxFrac !== _cbWinVmaxTarget) {
-                    _cbWinVminFrom = _cbWinVminF;
-                    _cbWinVmaxFrom = _cbWinVmaxF;
-                    _cbWinVminTarget = vminFrac;
-                    _cbWinVmaxTarget = vmaxFrac;
-                    _cbWinTransStart = performance.now();
-                }
-                const elapsed = performance.now() - _cbWinTransStart;
-                const rawT = Math.min(1, elapsed / _cbWinTransDur);
-                const t = 1 - Math.pow(1 - rawT, 3);  // ease-out cubic
-                _cbWinVminF = _cbWinVminFrom + (_cbWinVminTarget - _cbWinVminFrom) * t;
-                _cbWinVmaxF = _cbWinVmaxFrom + (_cbWinVmaxTarget - _cbWinVmaxFrom) * t;
-            }
-            // Animated window edges: full-range when collapsed, window when expanded
-            const effVmin = _cbWinVminF * aT;
-            const effVmax = 1 - (1 - _cbWinVmaxF) * aT;
-            const effW = effVmax - effVmin;
-
-            // Build colormap lookup table (256 entries)
-            const cmSz = 256;
-            const cmLut = new Uint8Array(cmSz * 3);
-            const ns = stops.length;
-            for (let i = 0; i < cmSz; i++) {
-                const t = i / (cmSz - 1);
-                const fi = t * (ns - 1);
-                const lo = Math.floor(fi), hi = Math.min(lo + 1, ns - 1), f = fi - lo;
-                cmLut[i * 3]     = Math.round(stops[lo][0] * (1 - f) + stops[hi][0] * f);
-                cmLut[i * 3 + 1] = Math.round(stops[lo][1] * (1 - f) + stops[hi][1] * f);
-                cmLut[i * 3 + 2] = Math.round(stops[lo][2] * (1 - f) + stops[hi][2] * f);
-            }
-            function cmAt(frac) {
-                const idx = Math.max(0, Math.min(cmSz - 1, Math.round(frac * (cmSz - 1)))) * 3;
-                return [cmLut[idx], cmLut[idx + 1], cmLut[idx + 2]];
-            }
-
-            const hasKDE = _kdeSmooth && aT > 0;
-            // Label zone grows from 0 at aT=0 to CB_LABEL_H at aT=1
-            const labelH = CB_LABEL_H * aT;
-            // Histogram drawing area starts below the label zone
-            const histTop = labelH;
-            const histH = cssH - histTop; // available height for the morph shape
-
-            for (let px = 0; px < cssW; px++) {
-                const t = px / cssW;
-                const inRange = t >= effVmin && t <= effVmax;
-                const cmapT = effW > 0.001 ? (t - effVmin) / effW : 0.5;
-
-                let r, g, b;
-                if (inRange) {
-                    [r, g, b] = cmAt(cmapT);
-                } else {
-                    const [cr, cg, cb] = cmAt(t);
-                    r = Math.round(cr + (60 - cr) * aT);
-                    g = Math.round(cg + (60 - cg) * aT);
-                    b = Math.round(cb + (60 - cb) * aT);
-                }
-
-                let colH;
-                if (hasKDE) {
-                    const kdeH = Math.max(2, _kdeAt(t) * (_cbExpandedH - CB_LABEL_H));
-                    colH = CB_COLLAPSED_H + (kdeH - CB_COLLAPSED_H) * aT;
-                } else {
-                    colH = histH;
-                }
-
-                const y = cssH - colH;
-                const alpha = inRange ? 1 : (1 - 0.65 * aT);
-                ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
-                ctx.fillRect(px, y, 1, colH);
-            }
-
-
-            // Solid handle lines + all value labels in the label zone
-            if (aT > 0.1) {
-                ctx.globalAlpha = aT;
-                // Solid handle lines at vmin/vmax
-                if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                    [effVmin, effVmax].forEach(f => {
-                        if (f < 0 || f > 1) return;
-                        const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
-
-                        const lineH = cssH - labelH;
-                        const lineTop = labelH;
-
-                        // Sample colormap at this position to determine line visibility
-                        const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
-                        const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
-                        const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
-
-                        // Yellow line color: check if background is too close to yellow
-                        const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
-
-                        // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
-                        const coreColor = isYellowish
-                            ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
-                            : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
-                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
-
-                        // Outline (4px wide)
-                        ctx.fillStyle = outlineColor;
-                        ctx.fillRect(x - 2, lineTop, 4, lineH);
-                        // Core line (2px wide)
-                        ctx.fillStyle = coreColor;
-                        ctx.fillRect(x - 1, lineTop, 2, lineH);
-                    });
-                }
-                // Value labels in the label zone
-                // Collect all labels with their x-positions, then cull overlaps
-                if (labelH > 4 && _histData) {
-                    const { vmin: dmin, vmax: dmax } = _histData;
-                    const wVmin = manualVmin ?? currentVmin;
-                    const wVmax = manualVmax ?? currentVmax;
-                    const dimColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-                    const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
-                    const hoverColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
-                    ctx.font = '9px monospace';
-                    // Measure char width for overlap detection
-                    const charW = ctx.measureText('0').width;
-                    const labelY = labelH - 3;
-                    // Build label list: [{x, text, color, priority}]
-                    // Higher priority labels suppress lower when overlapping
-                    const labels = [];
-                    // dmin at left edge (start-aligned at stripe), dmax at right edge (end-aligned)
-                    labels.push({ x: 1, text: _cbFmtPlain(dmin), align: 'start', color: dimColor, prio: 0 });
-                    labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax), align: 'end', color: dimColor, prio: 0 });
-                    // vmin (if different from dmin)
-                    if (effVmin > 0.01 && effVmin < 0.99) {
-                        const vx = Math.round(effVmin * cssW);
-                        labels.push({ x: vx, text: _cbFmtPlain(wVmin), align: 'center', color: brightColor, prio: 1 });
-                    }
-                    // vmax (if different from dmax)
-                    if (effVmax > 0.01 && effVmax < 0.99) {
-                        const vx = Math.round(effVmax * cssW);
-                        labels.push({ x: vx, text: _cbFmtPlain(wVmax), align: 'center', color: brightColor, prio: 1 });
-                    }
-                    // Hover value (highest priority)
-                    if (primaryCb._hoverFrac >= 0 && primaryCb._hoverFrac <= 1) {
-                        const hoverVal = dmin + primaryCb._hoverFrac * (dmax - dmin);
-                        const hx = Math.round(primaryCb._hoverFrac * cssW);
-                        labels.push({ x: hx, text: _cbFmtPlain(hoverVal), align: 'center', color: hoverColor, prio: 2 });
-                    }
-                    // Sort by priority (highest first so they claim space; lower-prio labels skip if overlap)
-                    labels.sort((a, b) => b.prio - a.prio);
-                    // Compute pixel extents and cull overlaps
-                    const drawn = []; // [{left, right}] of already drawn labels
-                    for (const lbl of labels) {
-                        const tw = lbl.text.length * charW;
-                        let left, right;
-                        if (lbl.align === 'start') { left = lbl.x; right = lbl.x + tw; }
-                        else if (lbl.align === 'end') { left = lbl.x - tw; right = lbl.x; }
-                        else { left = lbl.x - tw / 2; right = lbl.x + tw / 2; }
-                        // Check overlap with higher-priority already-drawn labels
-                        const overlaps = drawn.some(d => left < d.right + 4 && right > d.left - 4);
-                        if (overlaps) continue; // skip this lower-priority label
-                        ctx.fillStyle = lbl.color;
-                        ctx.textAlign = lbl.align;
-                        ctx.fillText(lbl.text, lbl.x, labelY);
-                        drawn.push({ left, right });
-                    }
-                    ctx.textAlign = 'start';
-                }
-                ctx.globalAlpha = 1;
-            }
-
-            ctx.restore();
-
-            // Update triangle positions
-            const triZone = document.getElementById('slim-cb-tri-zone');
-            const triVmin = document.getElementById('slim-cb-tri-vmin');
-            const triVmax = document.getElementById('slim-cb-tri-vmax');
-            if (triZone && triVmin && triVmax) {
-                triVmin.style.left = Math.max(0, Math.min(100, effVmin * 100)) + '%';
-                triVmax.style.left = Math.max(0, Math.min(100, effVmax * 100)) + '%';
-            }
-
-            // Update hit-test positions for drag interaction
-            _histVminX = Math.max(2, Math.min(cssW - 2, Math.round(effVmin * cssW)));
-            _histVmaxX = Math.max(2, Math.min(cssW - 2, Math.round(effVmax * cssW)));
-            // Sync to primaryCb so class's _hitTest works (Task 3 bridge)
-            primaryCb._hitVminX = _histVminX;
-            primaryCb._hitVmaxX = _histVmaxX;
-        }
-
-        async function _fetchHistogram() {
-            if (!sid || !indices.length || _histFetching) return;
-            _histFetching = true;
-            // In multiview, fetch histogram for the first pane's view dims
-            const fetchDimX = (multiViewActive && mvViews.length) ? mvViews[0].dimX : dim_x;
-            const fetchDimY = (multiViewActive && mvViews.length) ? mvViews[0].dimY : dim_y;
-            const params = new URLSearchParams({
-                dim_x: fetchDimX,
-                dim_y: fetchDimY,
-                indices: indices.join(','),
-                complex_mode: complexMode,
-                bins: 64,
-            });
-            try {
-                const resp = await proxyFetch(`/histogram/${sid}?${params}`);
-                if (!resp.ok) { _histFetching = false; return; }
-                _histData = await resp.json();
-                _histDataVersion = indices.join(',') + ':' + fetchDimX + ':' + fetchDimY;
-            } catch (_) { _histData = null; }
-            _histFetching = false;
-        }
+        // _fetchHistogram removed (Task 4) — replaced by _fetchVolumeHistogram
 
         let _volHistCache = {};
 
@@ -5126,58 +4827,7 @@
             } catch (_) { return null; }
         }
 
-        function _drawClimLines(sCtx, cssW, stripH) {
-            const { vmin: dmin, vmax: dmax } = _histData;
-            const range = dmax - dmin || 1;
-            const wVmin = manualVmin ?? currentVmin;
-            const wVmax = manualVmax ?? currentVmax;
-            const vminF = (wVmin - dmin) / range;
-            const vmaxF = (wVmax - dmin) / range;
-            const histAreaH = stripH - CB_COLLAPSED_H;
-            const markerColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,100,0,0.9)';
-            const guideColor = isDark ? 'rgba(255,255,100,0.25)' : 'rgba(180,100,0,0.25)';
-            const labelColor = isDark ? 'rgba(255,255,100,0.7)' : 'rgba(180,100,0,0.7)';
-            const triW = 4, triH = 5; // triangle half-width and height
-            const triTop = histAreaH + CB_COLLAPSED_H + 1; // just below the colorbar strip
-            _histVminX = null; _histVmaxX = null;
-
-            function drawMarker(frac, val) {
-                if (frac < 0 || frac > 1) return null;
-                const x = Math.round(frac * (cssW - 1));
-                // Striped vertical line through histogram area (alternating filled/gap rects)
-                const stripeOn = 4, stripeOff = 3;
-                sCtx.save();
-                sCtx.fillStyle = guideColor;
-                for (let y = 0; y < stripH; y += stripeOn + stripeOff) {
-                    sCtx.fillRect(x - 0.5, y, 2, Math.min(stripeOn, stripH - y));
-                }
-                sCtx.restore();
-                // Upward-pointing triangle below colorbar
-                sCtx.fillStyle = markerColor;
-                sCtx.beginPath();
-                sCtx.moveTo(x - triW, triTop + triH);
-                sCtx.lineTo(x, triTop);
-                sCtx.lineTo(x + triW, triTop + triH);
-                sCtx.closePath();
-                sCtx.fill();
-                // Value label centered above the stripe line
-                sCtx.fillStyle = labelColor;
-                sCtx.font = '9px monospace';
-                sCtx.textAlign = 'center';
-                sCtx.fillText(_cbFmtPlain(val), x, 8);
-                sCtx.textAlign = 'start'; // reset
-                return x;
-            }
-
-            if (vminF >= 0 && vminF <= 1) {
-                const px = drawMarker(vminF, wVmin);
-                if (px !== null) _histVminX = px;
-            }
-            if (vmaxF >= 0 && vmaxF <= 1 && Math.abs(vmaxF - vminF) > 0.002) {
-                const px = drawMarker(vmaxF, wVmax);
-                if (px !== null) _histVmaxX = px;
-            }
-        }
+        // _drawClimLines removed (Task 4) — primaryCb.draw() handles clim line rendering
 
         // ── Lebesgue integral mode ──────────────────────────────────────────
         const lebesgueCanvas = document.getElementById('lebesgue-canvas');
@@ -5258,7 +4908,7 @@
             const sCtx = slimCbCanvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
             const cssW = slimCbCanvas.clientWidth || slimCbCanvas.width / dpr;
-            const cssH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * _cbAnimT;
+            const cssH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * primaryCb._animT;
             const binW = cssW / nBins;
             const binCenter = (binIdx + 0.5) / nBins;
             const colH = _kdeSmooth ? Math.max(2, _kdeAt(binCenter) * _cbExpandedH) : cssH;
@@ -5445,84 +5095,7 @@
             else drawSlimColorbar(cbMarkerFrac);
         }
 
-        // ── Colorbar hover expand/collapse + histogram interaction ───────────
-        (function _initCbHistInteraction() {
-            const cbTooltip = document.getElementById('slim-cb-tooltip');
-            if (!slimCbWrap || !slimCbCanvas || !cbTooltip) return;
-
-            let _dragTarget = null; // 'vmin' | 'vmax' | null
-            let _renderRafId = null;
-            // _lastLebesgueBin moved to outer scope (needed by primaryCb callbacks)
-
-            function _xToValue(x, cssW) {
-                if (!_histData) return null;
-                const { vmin: dmin, vmax: dmax } = _histData;
-                const range = dmax - dmin || 1;
-                return dmin + (x / cssW) * range;
-            }
-
-            function _hitLine(x) {
-                const HIT = 7; // px hit radius
-                if (_histVminX !== null && Math.abs(x - _histVminX) <= HIT) return 'vmin';
-                if (_histVmaxX !== null && Math.abs(x - _histVmaxX) <= HIT) return 'vmax';
-                return null;
-            }
-
-            function _scheduleRender() {
-                if (_renderRafId) return; // already scheduled
-                _renderRafId = requestAnimationFrame(() => {
-                    _renderRafId = null;
-                    updateView();
-                    triggerPreload();
-                });
-            }
-
-            async function _expandColorbar() {
-                if (primaryCb._expanded || !colorbarVisible()) return;
-                await primaryCb.expand();
-                _redrawActiveColorbar();
-            }
-
-            // _redrawActiveColorbar moved to outer scope (needed by primaryCb callbacks)
-
-            function _collapseColorbar() {
-                if (!primaryCb._expanded || primaryCb._dragActive) return;
-                primaryCb.collapse();
-                _redrawActiveColorbar();
-            }
-
-            function _toggleLebesgueMode() {
-                if (primaryCb._expanded) {
-                    primaryCb.collapse();
-                    showStatus('histogram mode off');
-                } else {
-                    _lebesgueManual = true;
-                    primaryCb._manualExpand = true;
-                    primaryCb.cancelAutoDismiss();
-                    _computeCbExpandedH();
-                    primaryCb.expand();
-                    showStatus('histogram mode on');
-                }
-            }
-
-            // ── Legacy event handlers REMOVED (Task 3) ──────────────────────
-            // The ColorBar class (interactive: true) now handles:
-            //   mouseenter/leave, dblclick (expand/collapse + label editing),
-            //   mousedown (clim drag + pan), mousemove (drag + hover), mouseup.
-            // App-specific side effects are wired via callbacks:
-            //   onExpand, onCollapse, onBinHover, onWindowChange, onAnimFrame.
-            //
-            // The following legacy handlers have been deleted:
-            //   slimCbWrap mouseenter/mouseleave
-            //   slimCbWrap dblclick (label editing + toggle lebesgue)
-            //   slimCbCanvas mousedown (clim drag start)
-            //   _startClimDrag (legacy version)
-            //   _startCbValEdit
-            //   triVmin/triVmax mousedown
-            //   window mousemove (drag + hover + lebesgue highlight)
-            //   window mouseup (drag end + updateView + triggerPreload)
-
-        })();
+        // Legacy colorbar interaction IIFE removed (Task 4) — ColorBar class handles all events
 
         /* ── JS: Utility Functions and Vector Field ────────────────── */
 
@@ -7739,10 +7312,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return !rectRoiMode && !_rulerMode && !rgbMode;
         }
         function _bcExpandHist() {
-            if (_cbExpanded) return;
+            if (primaryCb._expanded) return;
             _lebesgueManual = false;
             _computeCbExpandedH();
-            _cbExpanded = true;
+            primaryCb._expanded = true;
             const triZone = document.getElementById('slim-cb-tri-zone');
             if (triZone) triZone.classList.add('expanded');
             (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
@@ -7767,15 +7340,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
-                if (!primaryCb._mouseOver && _cbExpanded) {
+                if (!primaryCb._mouseOver && primaryCb._expanded) {
                     lebesgueMode = false;
-                    _cbExpanded = false;
+                    primaryCb._expanded = false;
                     _clearLebesgueOverlay();
                     const tz = document.getElementById('slim-cb-tri-zone');
                     if (tz) tz.classList.remove('expanded');
                     primaryCb.startAnim(false);
                     _bcRedrawCb();
-                } else if (primaryCb._mouseOver && _cbExpanded) {
+                } else if (primaryCb._mouseOver && primaryCb._expanded) {
                     _histAutoDismissPending = true;
                 }
             }, 3000);
@@ -9042,7 +8615,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         // Exit qMRI mosaic
                         qmriMosaicActive = false;
                         _qmriMosaicZDim = -1;
-                        _cbExpanded = false;
+                        primaryCb._expanded = false;
                         qmriViews.forEach(v => { v.rendering = false; v.pending = false; v._histData = null; });
                         _rebuildQmriMosaicLayout();
                         qvScaleAllCanvases();
@@ -9305,7 +8878,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 refreshAxesColor();
                 // When histogram is open, skip the previewer — just update the colorbar display
-                const _histOpen = _cbExpanded || (_diffLeftCb && _diffLeftCb.expanded);
+                const _histOpen = primaryCb._expanded || (_diffLeftCb && _diffLeftCb.expanded);
                 if (_histOpen) {
                     if (multiViewActive || compareMvActive) drawMvColorbar();
                     else drawSlimColorbar(cbMarkerFrac);
@@ -9482,11 +9055,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`range: ${preset.label}`);
                 } else {
                     // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
-                    if (!_cbExpanded) {
+                    if (!primaryCb._expanded) {
                         // First press: expand histogram
                         _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
                         _computeCbExpandedH();
-                        _cbExpanded = true;
+                        primaryCb._expanded = true;
                         const triZone = document.getElementById('slim-cb-tri-zone');
                         if (triZone) triZone.classList.add('expanded');
                         if (compareActive) {
@@ -9509,9 +9082,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!primaryCb._mouseOver && _cbExpanded) {
+                            if (!primaryCb._mouseOver && primaryCb._expanded) {
                                 lebesgueMode = false;
-                                _cbExpanded = false;
+                                primaryCb._expanded = false;
                                 _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
@@ -9521,7 +9094,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (primaryCb._mouseOver && _cbExpanded) {
+                            } else if (primaryCb._mouseOver && primaryCb._expanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
@@ -9566,9 +9139,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                         _histAutoDismissTimer = setTimeout(() => {
                             _histAutoDismissTimer = null;
-                            if (!primaryCb._mouseOver && _cbExpanded) {
+                            if (!primaryCb._mouseOver && primaryCb._expanded) {
                                 lebesgueMode = false;
-                                _cbExpanded = false;
+                                primaryCb._expanded = false;
                                 _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
@@ -9578,7 +9151,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 } else {
                                     drawSlimColorbar(cbMarkerFrac);
                                 }
-                            } else if (primaryCb._mouseOver && _cbExpanded) {
+                            } else if (primaryCb._mouseOver && primaryCb._expanded) {
                                 _histAutoDismissPending = true;
                             }
                         }, 3000);
@@ -10939,7 +10512,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             flip_x = flipDims[dim_x] ?? flip_x;
             flip_y = flipDims[dim_y] ?? flip_y;
             // Collapse histogram if it was expanded in multiview
-            _cbExpanded = false; _histData = null; _invalidateVolHistCache();
+            primaryCb._expanded = false; _histData = null; _invalidateVolHistCache();
             userZoom = _mvPrevZoom;
             squareStretch = _mvPrevSquareStretch;
             mvDims = [];
@@ -12856,23 +12429,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb.show();
             // Sync state from globals (until full migration removes globals)
             cb._animT = primaryCb._animT;
-            cb._expanded = primaryCb._expanded || _cbExpanded;
-            if (cb.triZone) cb.triZone.classList.toggle('expanded', _cbExpanded);
-            if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbAnimT > 0.05);
+            cb._expanded = primaryCb._expanded;
+            if (cb.triZone) cb.triZone.classList.toggle('expanded', primaryCb._expanded);
+            if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', primaryCb._animT > 0.05);
             cb._hoverFrac = primaryCb._hoverFrac;
-            cb._histData = _histData;
-            cb._kdeSmooth = _kdeSmooth;
+            cb._histData = primaryCb._histData || _histData;
+            cb._kdeSmooth = primaryCb._kdeSmooth || _kdeSmooth;
             cb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
             cb.draw();
             cb.updateLabels();
             // Auto-refresh histogram when expanded but data is stale
-            if (_cbExpanded && !_histFetching) {
+            if (primaryCb._expanded && !_histFetching) {
                 const stale = !_histData || _histDataVersion !== _expectedHistKey();
                 if (stale) {
                     _histData = null; _kdeSmooth = null;
                     _fetchVolumeHistogram(_volHistSpatialOpts()).then((d) => {
                         if (d) _histData = d;
-                        if (_cbExpanded) { _buildKDE(); drawMvColorbar(); }
+                        if (primaryCb._expanded) { _buildKDE(); drawMvColorbar(); }
                     });
                 }
             }
@@ -14100,8 +13673,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (cv) cv.style.display = '';
             if (triZone) triZone.style.display = '';
             // Only show flanking values if histogram is collapsed
-            if (vminEl) vminEl.style.display = _cbExpanded ? 'none' : '';
-            if (vmaxEl) vmaxEl.style.display = _cbExpanded ? 'none' : '';
+            if (vminEl) vminEl.style.display = primaryCb._expanded ? 'none' : '';
+            if (vmaxEl) vmaxEl.style.display = primaryCb._expanded ? 'none' : '';
             // Redraw to restore correct state
             _syncPrimaryCb();
             primaryCb.draw();
