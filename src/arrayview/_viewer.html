@@ -1471,7 +1471,8 @@
                                 <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O) — instance sidebar with thumbnails when multiple arrays loaded; RAM guard blocks oversized .pt/.tif/.mat files; Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
                 <div class="help-row"><span class="key">Shift+O</span><span class="desc">cycle overlay visibility: all → off → individual masks (when overlays active)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">movie: fps · flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
+                <div class="help-row"><span class="key">&lt; / &gt;</span><span class="desc">movie: fps (during playback)</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density · movie: fps</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                 <div class="help-row"><span class="key">U</span><span class="desc">toggle vector arrows</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -7496,7 +7497,7 @@
         function togglePlay() {
             if (isPlaying) { stopPlay(); return; }
             isPlaying = true;
-            setStatus(`▶ playing  (Space to stop · [ / ] fps: ${playFps})`);
+            setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
             if (activeDim === VFIELD_T_DIM) {
                 playingVfieldT = true;
                 playingDim = -1; // vfield-T playback uses vfieldT, not indices[]
@@ -8938,11 +8939,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'n') {
                 if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
                 cycleCompareTarget(1);
+            } else if (e.key === '<' || e.key === '>') {
+                if (isPlaying) {
+                    const delta = e.key === '>' ? 5 : -5;
+                    playFps = Math.max(1, Math.min(120, playFps + delta));
+                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
+                    showToast(`playback: ${playFps} fps`);
+                    return;
+                }
             } else if (e.key === '[' || e.key === ']') {
                 if (isPlaying) {
                     const delta = e.key === ']' ? 5 : -5;
                     playFps = Math.max(1, Math.min(120, playFps + delta));
-                    setStatus(`▶ playing  (Space to stop · [ / ] fps: ${playFps})`);
+                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
                     showToast(`playback: ${playFps} fps`);
                     return;
                 }
