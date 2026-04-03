@@ -14019,7 +14019,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Compute how many thumbs fit in available width (~76px per thumb incl gap)
             const THUMB_W = 76;
             let availW = 999;
-            if (_fullscreenActive && compareActive) {
+            const useIslandEarly = !anchorEl && !multiViewActive;
+            if (useIslandEarly) {
+                const col = document.getElementById('slim-cb-col');
+                if (col) availW = col.offsetWidth;
+            } else if (_fullscreenActive && compareActive) {
                 const firstInner = anchorEl ? anchorEl.closest('.compare-canvas-inner') : document.querySelector('.compare-canvas-inner');
                 const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
                 if (vpW > 0) availW = vpW;
@@ -14077,7 +14081,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // Create inline preview container and move strip content into it
                 const preview = document.createElement('div');
                 preview.id = 'cmap-island-preview';
-                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;';
+                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;overflow:hidden;mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);-webkit-mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);';
                 while (_cmapStrip.firstChild) {
                     preview.appendChild(_cmapStrip.firstChild);
                 }
