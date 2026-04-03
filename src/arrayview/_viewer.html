@@ -3448,7 +3448,7 @@
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
         function _syncPrimaryCb() {
-            primaryCb._animT = _cbAnimT;
+            // _cbAnimT is NO LONGER synced here — primaryCb owns it, and onAnimFrame syncs it back
             primaryCb._expanded = _cbExpanded;
             primaryCb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
             primaryCb._hoverFrac = _cbHoverFrac;
@@ -4231,6 +4231,11 @@
                 this._animFrom = this._animT;
                 this._animTarget = expand ? 1 : 0;
                 this._animStart = performance.now();
+                this.ensureAnimating();
+            }
+
+            /** Ensure the animation loop is running (for window fraction transitions). */
+            ensureAnimating() {
                 if (!this._animating) {
                     this._animating = true;
                     this._animStep();
@@ -4672,6 +4677,19 @@
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
             setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
+            onAnimFrame: (cb) => {
+                // Sync class animation state back to legacy globals (temporary bridge until Task 4)
+                _cbAnimT = cb._animT;
+                // Layout recalculation during expand/collapse animation
+                if (multiViewActive || compareMvActive) {
+                    drawMvColorbar();
+                    const _savedZoom = userZoom;
+                    mvScaleAllCanvases();
+                    userZoom = _savedZoom;
+                } else {
+                    drawSlimColorbar(cbMarkerFrac);
+                }
+            },
             onWindowChange: () => {
                 if (!_cbWindowChangeRafId) {
                     _cbWindowChangeRafId = requestAnimationFrame(() => {
@@ -4685,7 +4703,7 @@
         let _cbWindowChangeRafId = null;
         window._primaryCb = primaryCb;
 
-        function _cbStartAnim(expand) {
+        function _cbStartAnim(expand) {  // legacy — now dead code, calls go through primaryCb.startAnim()
             _cbAnimTarget = expand ? 1 : 0;
             _cbAnimFrom = _cbAnimT;
             _cbAnimStart = performance.now();
@@ -5471,7 +5489,7 @@
                 }
                 _cbExpanded = true;
                 _buildKDE();
-                _cbStartAnim(true);
+                primaryCb.startAnim(true);
                 _redrawActiveColorbar();
             }
 
@@ -5487,7 +5505,7 @@
                 _histVminX = null; _histVmaxX = null;
                 cbTooltip.style.display = 'none';
                 _clearLebesgueOverlay();
-                _cbStartAnim(false);
+                primaryCb.startAnim(false);
                 _redrawActiveColorbar();
             }
 
@@ -5503,7 +5521,7 @@
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
                         _buildKDE();
-                        _cbStartAnim(true);
+                        primaryCb.startAnim(true);
                         _fetchLebesgueSlice();
                         if (multiViewActive || compareMvActive) drawMvColorbar();
                         else drawSlimColorbar(cbMarkerFrac);
@@ -5513,7 +5531,7 @@
                     _lebesgueManual = false;
                     _clearLebesgueOverlay();
                     _cbExpanded = false;
-                    _cbStartAnim(false);
+                    primaryCb.startAnim(false);
                     if (multiViewActive || compareMvActive) drawMvColorbar();
                     else drawSlimColorbar(cbMarkerFrac);
                     showStatus('histogram mode off');
@@ -5543,7 +5561,7 @@
                             lebesgueMode = false;
                             _cbExpanded = false;
                             _clearLebesgueOverlay();
-                            _cbStartAnim(false);
+                            primaryCb.startAnim(false);
                             _redrawActiveColorbar();
                         }
                     }, 3000);
@@ -7912,7 +7930,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _buildKDE();
                 lebesgueMode = true;
                 _fetchLebesgueSlice();
-                _cbStartAnim(true);
+                primaryCb.startAnim(true);
                 if (multiViewActive || compareMvActive) drawMvColorbar();
                 else drawSlimColorbar(cbMarkerFrac);
             }
@@ -7929,7 +7947,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             manualVmin = newCenter - newWidth / 2;
             manualVmax = newCenter + newWidth / 2;
             // Live update without server round-trip — redraw colorbar immediately
-            if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+            if (!primaryCb._animating) { primaryCb._animating = true; primaryCb._animStep(); }
             if (multiViewActive || compareMvActive) drawMvColorbar();
             else drawSlimColorbar(cbMarkerFrac);
         }
@@ -7950,7 +7968,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _clearLebesgueOverlay();
                     const tz = document.getElementById('slim-cb-tri-zone');
                     if (tz) tz.classList.remove('expanded');
-                    _cbStartAnim(false);
+                    primaryCb.startAnim(false);
                     if (multiViewActive || compareMvActive) drawMvColorbar();
                     else drawSlimColorbar(cbMarkerFrac);
                 } else if (_cbMouseOver && _cbExpanded) {
@@ -9625,7 +9643,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                     cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                     proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                    if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                    primaryCb.ensureAnimating();
                     showStatus(`range: ${preset.label}`);
                 } else {
                     // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
@@ -9645,7 +9663,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _buildKDE();
                         lebesgueMode = true;
                         _fetchLebesgueSlice();
-                        _cbStartAnim(true);
+                        primaryCb.startAnim(true);
                         if (multiViewActive || compareMvActive) {
                             drawMvColorbar();
                         } else {
@@ -9662,7 +9680,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
-                                _cbStartAnim(false);
+                                primaryCb.startAnim(false);
                                 if (multiViewActive || compareMvActive) {
                                     drawMvColorbar();
                                 } else {
@@ -9707,7 +9725,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                         cmpManualVmin.fill(null); cmpManualVmax.fill(null);
                         proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                        if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                        primaryCb.ensureAnimating();
                         showStatus(`range: ${preset.label}`);
                         // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
                         if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
@@ -9719,7 +9737,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 _clearLebesgueOverlay();
                                 const tz = document.getElementById('slim-cb-tri-zone');
                                 if (tz) tz.classList.remove('expanded');
-                                _cbStartAnim(false);
+                                primaryCb.startAnim(false);
                                 if (multiViewActive || compareMvActive) {
                                     drawMvColorbar();
                                 } else {
@@ -13002,8 +13020,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             cb.show();
             // Sync state from globals (until full migration removes globals)
-            cb._animT = _cbAnimT;
-            cb._expanded = _cbExpanded;
+            cb._animT = primaryCb._animT;
+            cb._expanded = primaryCb._expanded || _cbExpanded;
             if (cb.triZone) cb.triZone.classList.toggle('expanded', _cbExpanded);
             if (cb.wrap) cb.wrap.classList.toggle('cb-expanded', _cbAnimT > 0.05);
             cb._hoverFrac = _cbHoverFrac;
@@ -13279,9 +13297,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const triZone = document.getElementById('slim-cb-tri-zone');
                     if (triZone) triZone.classList.add('expanded');
                     (compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()).then(d => { if (d) _histData = d; }))
-                        .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); _cbStartAnim(true); });
+                        .then(() => { _buildKDE(); lebesgueMode = true; _fetchLebesgueSlice(); primaryCb.startAnim(true); });
                 }
-                if (!_cbAnimating) { _cbAnimating = true; _cbAnimStep(); }
+                primaryCb.ensureAnimating();
                 if (multiViewActive || compareMvActive) drawMvColorbar();
                 else drawSlimColorbar(cbMarkerFrac);
                 // Debounce server update
@@ -13299,7 +13317,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             _clearLebesgueOverlay();
                             const tz = document.getElementById('slim-cb-tri-zone');
                             if (tz) tz.classList.remove('expanded');
-                            _cbStartAnim(false);
+                            primaryCb.startAnim(false);
                             if (multiViewActive || compareMvActive) drawMvColorbar();
                             else drawSlimColorbar(cbMarkerFrac);
                         } else if (_cbMouseOver && _cbExpanded) {
