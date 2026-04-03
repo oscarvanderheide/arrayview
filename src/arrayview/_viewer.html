@@ -1524,12 +1524,9 @@
         const REAL_MODES = __REAL_MODES__;
 
         const urlParams = new URLSearchParams(__ARRAYVIEW_QUERY__ || window.location.search);
-        // isInlineEmbed: true when embedded in Jupyter (cross-origin parent) but NOT
-        // when embedded in the native pywebview shell (same-origin, __arrayviewShell=true).
-        const isInlineEmbed = (() => {
-            if (window.parent === window) return false;
-            try { return !window.parent.__arrayviewShell; } catch(e) { return true; }
-        })();
+        // isInlineEmbed: true when explicitly launched as an inline Jupyter/notebook embed
+        // (the Python launcher adds &inline=1 to the URL for inline IFrames).
+        const isInlineEmbed = urlParams.get('inline') === '1';
         if (isInlineEmbed) {
             document.body.classList.add('inline-embed');
             // Start inline embeds in immersive mode for maximum vertical space

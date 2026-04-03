@@ -1256,7 +1256,9 @@ def view(
     if inline:
         from IPython.display import IFrame, display as _ipy_display
 
-        iframe = IFrame(src=url_viewer, width="100%", height=height)
+        # Add inline=1 param so the viewer starts in immersive mode
+        _inline_url = url_viewer + "&inline=1"
+        iframe = IFrame(src=_inline_url, width="100%", height=height)
         if n_arrays == 1:
             return iframe
         # Multi-array inline: display the IFrame and return a uniform tuple of handles.
@@ -1534,8 +1536,9 @@ def _view_subprocess(
     _print_viewer_location(url_viewer)
 
     if inline:
+        _inline_url = url_viewer + "&inline=1"
         iframe_html = (
-            f"<iframe src='{url_viewer}' width='100%'"
+            f"<iframe src='{_inline_url}' width='100%'"
             f" height='{height}' frameborder='0'></iframe>"
         )
         # IJulia kernel: push HTML through Julia's display stack (routes to Jupyter
