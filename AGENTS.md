@@ -1,19 +1,6 @@
+Read `src/arrayview/ARCHITECTURE.md` for codebase orientation.
+
 # ArrayView
-
-Interactive viewer for multi-dimensional arrays and medical/scientific volumes. FastAPI server + single-file HTML/JS frontend (`_viewer.html`), displayed via native window, browser, VS Code Simple Browser, or Jupyter iframe.
-
-## Core Files
-
-| File | Role |
-|------|------|
-| `_launcher.py` | Entry points, process management, display routing |
-| `_server.py` | FastAPI app, REST/WebSocket, HTML templates |
-| `_session.py` | Sessions, state, caches, render thread |
-| `_render.py` | Colormaps, LUTs, slice extraction, RGBA |
-| `_viewer.html` | All frontend (JS/CSS embedded, single file) |
-| `_vscode.py` | Extension management, signal-file IPC |
-| `_stdio_server.py` | Stdio transport for direct webview mode |
-| `_segmentation.py` | nnInteractive segmentation client |
 
 ## Skills
 
