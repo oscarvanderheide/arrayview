@@ -3,6 +3,8 @@
 This module was extracted from _app.py during the modular refactor.
 """
 
+# ── Imports and Lazy Loading ─────────────────────────────────────
+
 import argparse
 import asyncio
 import io
@@ -125,9 +127,8 @@ def _vprint(*args, **kwargs) -> None:
     _session_mod._vprint(*args, **kwargs)
 
 
-# ---------------------------------------------------------------------------
-# Subprocess GUI Launcher
-# ---------------------------------------------------------------------------
+# ── Subprocess GUI Launcher ───────────────────────────────────────
+
 _ICON_PNG_PATH: str | None = None
 
 
@@ -380,9 +381,7 @@ def _open_webview_cli(
     return True
 
 
-# ---------------------------------------------------------------------------
-# Server port utilities
-# ---------------------------------------------------------------------------
+# ── Server Port Utilities ─────────────────────────────────────────
 
 
 def _server_alive(port: int, timeout: float = 0.5) -> bool:
@@ -479,9 +478,7 @@ def _relay_array_to_server(
     )
 
 
-# ---------------------------------------------------------------------------
-# Zero-config SSH relay: send array to VS Code extension on SSH client machine
-# ---------------------------------------------------------------------------
+# ── Zero-Config SSH Relay ─────────────────────────────────────────
 
 _RELAY_MAGIC = b"AVRELAY1"
 _RELAY_DEFAULT_PORT = 17789
@@ -631,6 +628,9 @@ async def _serve_background(port: int, stop_when_closed: bool = False):
 
 
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
+
+
+# ── ViewHandle and view() API ────────────────────────────────────
 
 
 class ViewHandle(str):
@@ -1317,6 +1317,9 @@ def view(
     return tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
 
 
+# ── Server Lifecycle ──────────────────────────────────────────────
+
+
 def _is_script_mode() -> bool:
     """True when running as a plain Python script (not interactive REPL, not Jupyter, not Julia)."""
     if _in_jupyter() or _is_julia_env():
@@ -1727,6 +1730,9 @@ def _serve_daemon(
     os._exit(0)
 
 
+# ── Demo Array and File Watching ──────────────────────────────────
+
+
 def _make_demo_array() -> "np.ndarray":
     """Return a (128, 128, 32, 3) float32 RGB plasma animation.
 
@@ -1807,6 +1813,9 @@ def _start_watch_thread(filepath: str, sid: str, port: int) -> None:
 
     t = threading.Thread(target=_watch, daemon=True)
     t.start()
+
+
+# ── Config Subcommand ─────────────────────────────────────────────
 
 
 def _handle_config_command(args: list[str]) -> None:
@@ -1892,6 +1901,9 @@ def _handle_config_command(args: list[str]) -> None:
     print(f"Unknown config command: {args[0]}")
     print("Usage: arrayview config [list|set|get|reset|path]")
     sys.exit(1)
+
+
+# ── CLI Entry Point (arrayview command) ───────────────────────────
 
 
 def arrayview():

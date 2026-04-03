@@ -3,6 +3,8 @@
 This module was extracted from _app.py during the modular refactor.
 """
 
+# ── Imports ───────────────────────────────────────────────────────
+
 import asyncio
 import io
 import itertools
@@ -71,6 +73,9 @@ from arrayview._render import (
 
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
 from arrayview._config import get_viewer_colormaps
+
+
+# ── Vector Field Helpers ──────────────────────────────────────────
 
 
 def _normalize_axis(axis: int, ndim: int, flag_name: str) -> int:
@@ -174,9 +179,8 @@ def _get_vfield_layout(session: Session) -> dict[str, object] | None:
         }
     return _configure_vectorfield(session, session.vfield)
 
-# ---------------------------------------------------------------------------
-# Lazy PIL import (only needed for JPEG/PNG/GIF encoding in routes)
-# ---------------------------------------------------------------------------
+# ── Lazy PIL Import ───────────────────────────────────────────────
+
 _pil_image_mod = None
 
 
@@ -190,9 +194,7 @@ def _pil_image():
     return _pil_image_mod
 
 
-# ---------------------------------------------------------------------------
-# Overlay helpers
-# ---------------------------------------------------------------------------
+# ── Overlay Helpers ───────────────────────────────────────────────
 
 
 def _parse_hex_color(hex_str: str) -> np.ndarray | None:
@@ -240,9 +242,8 @@ def _composite_overlays(
     return rgba
 
 
-# ---------------------------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------------------------
+# ── FastAPI Application ───────────────────────────────────────────
+
 app = FastAPI()
 
 
@@ -260,9 +261,8 @@ async def _generic_exception_handler(request: Request, exc: Exception):
     )
 
 
-# ---------------------------------------------------------------------------
-# HTML Templates (loaded once at import time from package files)
-# ---------------------------------------------------------------------------
+# ── HTML Templates ────────────────────────────────────────────────
+
 _SHELL_HTML: str = (
     _pkg_files("arrayview").joinpath("_shell.html").read_text(encoding="utf-8")
 )
@@ -271,9 +271,8 @@ _VIEWER_HTML_TEMPLATE: str = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Shell WebSocket for Webview Tab Management
-# ---------------------------------------------------------------------------
+# ── WebSocket Routes (Shell and Viewer) ───────────────────────────
+
 async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
     """Push a new-tab message to all connected webview shell windows.
 
@@ -547,6 +546,9 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
         _session_mod.VIEWER_SOCKETS = max(0, _session_mod.VIEWER_SOCKETS - 1)
         # Note: we don't remove from VIEWER_SIDS here because the set is used
         # only to check if a session was *ever* connected, not currently connected.
+
+
+# ── REST Routes: Cache, Metadata, and Session Management ─────────
 
 
 @app.get("/clearcache/{sid}")
@@ -912,6 +914,9 @@ def _safe_float(v) -> float | None:
     return f if math.isfinite(f) else None
 
 
+# ── REST Routes: Pixel, ROI, and Analysis ────────────────────────
+
+
 @app.get("/pixel/{sid}")
 def get_pixel(
     sid: str,
@@ -1241,9 +1246,7 @@ def _encode_mask_b64(mask: np.ndarray, bbox: dict) -> str:
     return base64.b64encode(sub.tobytes()).decode("ascii")
 
 
-# ---------------------------------------------------------------------------
-# nnInteractive segmentation
-# ---------------------------------------------------------------------------
+# ── nnInteractive Segmentation ────────────────────────────────────
 
 _seg_overlay_sid: str | None = None  # current segmentation overlay session ID
 _seg_label_mask: np.ndarray | None = None  # cumulative multi-label mask (3D)
@@ -2142,6 +2145,9 @@ async def set_rgb_endpoint(sid: str, request: Request):
     }
 
 
+# ── REST Routes: Slice Rendering, Diff, and Oblique ──────────────
+
+
 @app.get("/slice/{sid}")
 def get_slice(
     sid: str,
@@ -2981,6 +2987,9 @@ async def get_exploded_slices(
     return JSONResponse({"slices": results})
 
 
+# ── REST Routes: File Loading and Session Listing ────────────────
+
+
 @app.post("/load")
 async def load_file(request: Request):
     """Load a file into a new session. Optionally notify webview shells."""
@@ -3137,6 +3146,9 @@ async def load_bytes_endpoint(request: Request):
     _open_via_signal_file(url)
 
     return {"sid": session.sid, "url": url}
+
+
+# ── Root UI Route ─────────────────────────────────────────────────
 
 
 @app.get("/")

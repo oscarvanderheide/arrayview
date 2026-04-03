@@ -4,6 +4,7 @@
     <title>ArrayView</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2.5' fill='%230c0c0c'/%3E%3Crect x='2' y='2' width='3' height='3' fill='%233a0ca3'/%3E%3Crect x='6.5' y='2' width='3' height='3' fill='%23560bad'/%3E%3Crect x='11' y='2' width='3' height='3' fill='%23c77dff'/%3E%3Crect x='2' y='6.5' width='3' height='3' fill='%234361ee'/%3E%3Crect x='6.5' y='6.5' width='3' height='3' fill='%234cc9f0'/%3E%3Crect x='11' y='6.5' width='3' height='3' fill='%23f5c842'/%3E%3Crect x='2' y='11' width='3' height='3' fill='%234895ef'/%3E%3Crect x='6.5' y='11' width='3' height='3' fill='%2380ed99'/%3E%3Crect x='11' y='11' width='3' height='3' fill='%23f8961e'/%3E%3C/svg%3E">
     <style>
+        /* ── CSS: Theme Variables and Base Layout ────────────────────── */
         :root {
             --bg: #0c0c0c; --surface: #141414; --surface-2: #1c1c1c;
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
@@ -153,7 +154,7 @@
             background: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
-        /* ── Hard UI invariants (structural enforcement) ──────── */
+        /* ── CSS: ColorBar and Dynamic Islands ───────────────────── */
         .cb-island,
         .compare-pane-cb-island,
         .qv-cb-island {
@@ -284,6 +285,7 @@
         #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8 {
             transition: opacity 0.3s ease;
         }
+        /* ── CSS: Compare, Overlay, and Prompt Styles ────────────── */
         #compare-view-wrap.focus-diff .compare-pane:not(.compare-diff) { display: none !important; }
         #compare-view-wrap.focus-reg .compare-pane:not(.compare-diff) { display: none !important; }
         #inline-prompt {
@@ -396,6 +398,7 @@
         .ram-block-ok { margin-top: 14px; padding: 5px 20px; background: var(--surface-2); border: 1px solid var(--border);
             border-radius: 3px; font-size: 10px; color: var(--text); cursor: pointer; }
         .ram-block-ok:hover { border-color: var(--picker-accent, var(--active-dim)); }
+        /* ── CSS: Help and Info Overlays ──────────────────────────── */
         #help-overlay, #info-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
@@ -791,7 +794,7 @@
         body.zen-mode #help-hint, body.zen-mode #status,
         body.zen-mode #preload-status { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
-        /* ── Fullscreen mode (K key) ────────────────────────────── */
+        /* ── CSS: Immersive, Fullscreen, and Compact Mode ─────────── */
         body.fullscreen-mode #array-name {
             opacity: 0; max-height: 0; height: 0; min-height: 0; overflow: hidden; margin: 0; padding: 0;
             transition: none;
@@ -1497,6 +1500,7 @@
     <div class="gallery-items"></div>
 </div>
     <script>
+        /* ── JS: Constants and Transport Setup ───────────────────── */
         const COLORMAPS = __COLORMAPS__;
 
         const COLORMAP_GRADIENT_STOPS = __COLORMAP_GRADIENT_STOPS__;
@@ -1675,6 +1679,7 @@
         if (hintEl) hintEl.textContent = '{cmd,ctrl,shift}+o';
         if (helpEl) helpEl.textContent = openShortcutText;
 
+        /* ── JS: Viewer State Variables ───────────────────────────── */
         let shape = [];
         let dim_x = 0, dim_y = 1, current_slice_dim = 2;
         let activeDim = 2;
@@ -2326,6 +2331,8 @@
             document.getElementById('info').textContent = "No session ID provided in URL.";
         }
 
+        /* ── JS: Canvas Scaling and Layout ───────────────────────── */
+
         function currentColormap() {
             return colormap_idx === -1 ? customColormap : COLORMAPS[colormap_idx];
         }
@@ -2511,6 +2518,8 @@
             }
             _zoomAnimId = requestAnimationFrame(step);
         }
+
+        /* ── JS: Compare Mode ─────────────────────────────────────── */
 
         function compareScaleCanvases() {
             const panesEl = document.getElementById('compare-panes');
@@ -3416,6 +3425,8 @@
             }
             return m + 'e' + exp;
         };
+
+        /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
         function drawSlimColorbar(markerFrac) {
             // Per-pane colorbars must update even when shared cb is hidden
@@ -5542,6 +5553,8 @@
             });
         })();
 
+        /* ── JS: Utility Functions and Vector Field ────────────────── */
+
         function showDataInfo(rows) {
             document.getElementById('info-table').innerHTML =
                 rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
@@ -5761,6 +5774,8 @@
 
         let _wsRetryTimer = null;
         let _wsEverConnected = false;
+
+        /* ── JS: WebSocket and Data Transport ────────────────────── */
 
         function initWebSocket() {
             if (httpTransport) {
@@ -6239,6 +6254,8 @@
             _watchPollTimer = setTimeout(_doPoll, 1500);
         }
 
+        /* ── JS: Initialization and Metadata Fetch ────────────────── */
+
         async function init() {
             // ── Loading screen: show pulsing logo while fetching data ──
             const _loadingOverlay = document.getElementById('loading-overlay');
@@ -6637,6 +6654,8 @@
             const unfilled = (active || playing || isVfieldT) ? muted : border;
             return slashFill(pct, fill, unfilled);
         }
+        /* ── JS: Info Bar and Pixel Display ───────────────────────── */
+
         function renderInfo() {
             let idxStr = indices.map((v, i) => {
                 const active = (i === activeDim);
@@ -6918,6 +6937,8 @@
                 };
             });
         }
+
+        /* ── JS: State Persistence and Restore ────────────────────── */
 
         function collectStateSnapshot() {
             return {
@@ -7256,6 +7277,8 @@
                 showStatus(`Failed to load file: ${err.message}`);
             }
         });
+
+        /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
             renderInfo();
@@ -7645,6 +7668,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const helpPanels = Array.from(document.querySelectorAll('.help-panel'));
         let helpTabIdx = Math.max(0, helpTabs.findIndex(tab => tab.classList.contains('active')));
 
+        /* ── JS: Help Overlay ─────────────────────────────────────── */
+
         function setHelpTab(index) {
             if (!helpTabs.length) return;
             helpTabIdx = (index + helpTabs.length) % helpTabs.length;
@@ -7711,6 +7736,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (wrap) wrap.classList.remove('mosaic-dragging');
             },
         });
+        /* ── JS: ROI and Selection Modes ──────────────────────────── */
+
         function _mosaicResetPan() {
             mosaicPan.x = 0; mosaicPan.y = 0;
             mosaicPan._drag = null;
@@ -8293,9 +8320,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } catch (e) { /* clipboard may fail in non-secure contexts */ }
         }
 
-        // ---------------------------------------------------------------
-        // nnInteractive segmentation helpers
-        // ---------------------------------------------------------------
+        /* ── JS: nnInteractive Segmentation ──────────────────────── */
+
         function _segShowMethodStatus() {
             const hints = {
                 click: 'click add · shift+click exclude',
@@ -8618,6 +8644,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
         });
+
+        /* ── JS: Keyboard Shortcuts ───────────────────────────────── */
 
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
@@ -10035,6 +10063,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             });
         }
 
+        /* ── JS: File Picker and Session Management ────────────────── */
+
         function showUnifiedPicker(mode) {
             return new Promise(async resolve => {
                 const { sessions, fileEntries } = await _fetchPickerData();
@@ -10520,6 +10550,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             saveState();
         }
+
+        /* ── JS: Mode Transitions (Compare, MultiView, qMRI) ───── */
 
         function exitCompareMode() {
             if (compareQmriActive) exitCompareQmri();
@@ -12971,6 +13003,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             saveState();
         }, { passive: false });
 
+        /* ── JS: Scroll, Zoom, and Pan ────────────────────────────── */
+
         function onSliceWheel(e) {
             e.preventDefault();
             // Ctrl / Cmd + scroll → zoom
@@ -13131,11 +13165,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             updateLogoAnim();
         })();
 
-        // ═══════════════════════════════════════════════════════════════
-        // NEW FEATURES BLOCK
-        // ═══════════════════════════════════════════════════════════════
-
-        // ── 1. Cross-fade ─────────────────────────────────────────────
+        /* ── JS: Immersive Mode, Cross-Fade, and Visual Effects ───── */
         const _fadeCanvas = document.getElementById('viewer-fade');
         const _fadeCtx = _fadeCanvas ? _fadeCanvas.getContext('2d') : null;
         function crossFadeIn(newImageData, width, height) {
@@ -13623,6 +13653,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _validateUIState();
         }
 
+        /* ── JS: UI Validation and Reconciliation ─────────────────── */
+
         function _validateUIState() {
             if (!_DEBUG_UI) return;
             const w = [];
@@ -13914,6 +13946,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
+        /* ── JS: Colormap Strip and Wipe/Flicker Compare Tools ───── */
+
         function showColormapStrip(overrideName, overridePool, anchorEl, extraFadeEls) {
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
             const pool = overridePool || COLORMAPS;
@@ -14212,6 +14246,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _rulerPtA = null, _rulerPtB = null;
         const _rulerSvg = document.getElementById('ruler-svg');
         const _lineProfileOverlay = document.getElementById('line-profile-overlay');
+
+        /* ── JS: Ruler, Line Profile, and Mini-Map ────────────────── */
 
         function toggleRulerMode() {
             _rulerMode = !_rulerMode;
@@ -14683,7 +14719,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         init();
 
-        // ── Compact mode (K key / programmatic) ─────────────────────────────
+        /* ── JS: Compact Mode and Touch Input ─────────────────────── */
         let _compactModeActive = false;
         function setCompactMode(on) {
             _compactModeActive = on;
