@@ -5019,13 +5019,17 @@
 
         /** Compute expected histogram version key for current dim/index config. */
         function _expectedHistKey() {
-            const sd = current_slice_dim;
+            // In multiview, histogram is fetched with multiview dims, not global dims
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const dx = useMv ? mvDims[1] : dim_x;
+            const dy = useMv ? mvDims[0] : dim_y;
+            const sd = useMv ? mvDims[2] : current_slice_dim;
             const parts = [];
             for (let i = 0; i < shape.length; i++) {
-                if (i === dim_x || i === dim_y || i === sd) continue;
+                if (i === dx || i === dy || i === sd) continue;
                 parts.push(`${i}:${indices[i]}`);
             }
-            return `${dim_x}:${dim_y}:${sd}:${parts.join(',')}:${complexMode}`;
+            return `${dx}:${dy}:${sd}:${parts.join(',')}:${complexMode}`;
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
