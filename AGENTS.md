@@ -23,6 +23,7 @@ Load the relevant skill before touching the corresponding area.
 - Do not regress working display paths when fixing another
 - For visual/animation features, propose 2-3 options BEFORE implementing
 - UI visibility changes go through reconcilers (`_reconcileUI`/`_reconcileLayout`/`_reconcileCompareState`/`_reconcileCbVisibility`), not inline `style.display` or `classList` toggles in mode functions
+- All colorbar state (animation, window/level, hover, drag) flows through `primaryCb` ColorBar instance — never read/write legacy globals. Multiview colorbars sync via `primaryCb`.
 
 ## Execution
 

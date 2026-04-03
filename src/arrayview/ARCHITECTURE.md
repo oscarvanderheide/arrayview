@@ -47,12 +47,12 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_platform.py` | 396 | Environment detection: Jupyter, VS Code, SSH, tunnel, Julia, native-window capability |
 | `_render.py` | 834 | Rendering pipeline: colormap LUTs, slice extraction, RGBA/RGB/mosaic rendering, overlay compositing, preload |
 | `_segmentation.py` | 227 | nnInteractive segmentation client (pure HTTP, no nnInteractive dependency) |
-| `_server.py` | 3184 | FastAPI app, all REST + WebSocket routes, HTML template serving |
+| `_server.py` | 3258 | FastAPI app, all REST + WebSocket routes, HTML template serving |
 | `_session.py` | 344 | `Session` class, global state (sockets, loops), render thread, prefetch, cache budgets, constants |
 | `_stdio_server.py` | 791 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
 | `_torch.py` | 217 | PyTorch integration: `view_batch()`, `TrainingMonitor` (lazy torch import) |
 | `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, shared-memory IPC, browser opening |
-| `_viewer.html` | 14750 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
+| `_viewer.html` | 14480 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
 | `_shell.html` | 174 | Tab-bar shell for native pywebview — wraps viewer iframes, manages multi-tab sessions |
 
 ## Frontend (_viewer.html)
