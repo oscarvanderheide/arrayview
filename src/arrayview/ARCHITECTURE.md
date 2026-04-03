@@ -30,7 +30,7 @@ Frontend (_viewer.html — single self-contained HTML file)
 | VS Code tunnel     | Direct webview (stdio)             | stdio       |
 | Julia              | System browser                     | network     |
 | CLI / Python script | Native pywebview                   | network     |
-| SSH terminal       | Print URL (user opens browser)     | network     |
+| SSH terminal (ni)  | VS Code ext via TCP relay (prints URL on relay failure) | network |
 
 Detection logic lives in `_platform.py`. Display opening logic lives in `_launcher.py` (section: ViewHandle and view() API) and `_vscode.py`.
 
@@ -38,7 +38,7 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 
 | File | Lines | Owns |
 |------|------:|------|
-| `__init__.py` | 5 | Public API re-exports: `view`, `arrayview`, `ViewHandle`, `TrainingMonitor`, `view_batch` |
+| `__init__.py` | 5 | Public API re-exports: `view`, `arrayview`, `ViewHandle`, `TrainingMonitor`, `view_batch`, `zarr_chunk_preset` |
 | `__main__.py` | 4 | `python -m arrayview` entry point |
 | `_app.py` | 179 | Backward-compat shim — re-exports everything from the split modules |
 | `_config.py` | 121 | `~/.arrayview/config.toml` read/write, valid window modes/env keys |
@@ -81,7 +81,7 @@ The frontend is a single self-contained HTML file (~15k lines). No build step, n
 | Canvas Scaling and Layout | `scaleCanvas()`, `mvScaleAllCanvases()`, `compareScaleCanvases()`, `qvScaleAllCanvases()` |
 | Compare Mode | Multi-pane compare infrastructure, drag-to-reorder, sub-modes |
 | Colorbar Rendering and Histogram | Colorbar draw routines, histogram morph, fullscreen overlay colorbar |
-| ColorBar class | Reusable `ColorBar` class (~1100 lines) — draw, histogram, window/level, hover |
+| ColorBar class | Reusable `ColorBar` class (~900 lines) — draw, histogram, window/level, hover |
 | WebSocket and Data Transport | Binary slice receive, request queueing, reconnect |
 | Initialization and Metadata Fetch | `/meta` fetch, loading screen, initial render |
 | Info Bar and Pixel Display | Bottom info bar, hover pixel readout, coordinate display |
