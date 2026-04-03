@@ -907,6 +907,20 @@
             pointer-events: none !important;
         }
         body.fullscreen-mode .qv-cb-island.fs-overlay > * { pointer-events: auto; }
+        /* qMRI pane titles as glass corner labels in immersive */
+        body.fullscreen-mode .qv-pane { position: relative; }
+        body.fullscreen-mode .qv-label {
+            position: absolute; top: 4px; left: 4px; z-index: 3;
+            font-size: 12px; padding: 2px 8px;
+            background: rgba(30, 30, 30, 0.7);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border-radius: 0 0 6px 0;
+            opacity: 0.7;
+        }
+        /* Ensure dimbar is not clipped at top in qMRI immersive */
+        body.fullscreen-mode #qmri-view-wrap.active {
+            padding-top: 40px;
+        }
         /* Wrap is the positioning context for overlaid colorbar islands */
         body.fullscreen-mode .compare-canvas-wrap {
             position: relative;
