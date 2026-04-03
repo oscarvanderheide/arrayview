@@ -7947,8 +7947,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         canvas.addEventListener('contextmenu', e => e.preventDefault());
         canvas.addEventListener('mousedown', e => {
             sink.focus();
-            // Middle-click drag or Alt+left-drag: brightness/contrast
-            if ((e.button === 1 || (e.button === 0 && e.altKey && !e.shiftKey && !e.metaKey)) && _bcCanDrag()) {
+            // Cmd+Shift+drag or middle-click: brightness/contrast
+            if ((e.button === 1 || (e.button === 0 && e.shiftKey && e.metaKey)) && _bcCanDrag()) {
                 e.preventDefault();
                 _bcStartDrag(e);
                 return;
