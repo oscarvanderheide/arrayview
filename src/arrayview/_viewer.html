@@ -12492,6 +12492,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     v.pane.style.height = T + 'px';
                 }
             }
+            // Match multiview colorbar width to one pane
+            const mvCbW = document.getElementById('mv-cb-wrap');
+            if (mvCbW && squareStretch) mvCbW.style.width = T + 'px';
+            else if (mvCbW) mvCbW.style.width = '';
+
             fixWrapperAlignment();
             positionEggs();
             return requestedT > absMaxT ? 'max' : null;
