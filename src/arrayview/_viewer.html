@@ -3443,7 +3443,6 @@
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
                 // Fullscreen: use morph draw, then position anchored to bottom
-                if (_cmapInIsland) return;
                 const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
                 // Cap width: use pane viewport width if available, otherwise % of reference
                 let maxCbW = 350;
@@ -3494,8 +3493,6 @@
             }
 
             // ── Normal horizontal colorbar ──────────────────────────
-            // Skip everything if colormap preview is showing in the island
-            if (_cmapInIsland) return;
             if (wrap) {
                 wrap.classList.remove('compact-vertical', 'compact-overlay');
                 wrap.style.transform = '';
@@ -3580,7 +3577,7 @@
             // When collapsed: show window values (manualVmin/Vmax or currentVmin/Vmax)
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
-            if (slimVmin && slimVmax && !_cmapInIsland) {
+            if (slimVmin && slimVmax) {
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
@@ -9230,7 +9227,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap backward
-                if ((_cmapInIsland || (_cmapStrip && _cmapStrip.classList.contains('visible'))) && !qmriActive && !compareQmriActive && !rgbMode) {
+                if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
                     if (_cmapStripMode === 'diff-center') {
                         const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                         const idx = pool.indexOf(_diffCenterColormap);
@@ -9277,7 +9274,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap forward
-                if ((_cmapInIsland || (_cmapStrip && _cmapStrip.classList.contains('visible'))) && !qmriActive && !compareQmriActive && !rgbMode) {
+                if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
                     if (_cmapStripMode === 'diff-center') {
                         const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
                         const idx = pool.indexOf(_diffCenterColormap);
@@ -13667,25 +13664,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const _cmapStripRight = document.getElementById('colormap-strip-right');
         let _cmapStripTimer = null;
         let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
-        let _cmapInIsland = false; // true when preview is rendered inside the island
-        function _cmapIslandRestore() {
-            if (!_cmapInIsland) return;
-            _cmapInIsland = false;
-            const inlinePreview = document.getElementById('cmap-island-preview');
-            if (inlinePreview) inlinePreview.remove();
-            const cv = document.getElementById('slim-cb');
-            const triZone = document.getElementById('slim-cb-tri-zone');
-            const vminEl = document.getElementById('slim-cb-vmin');
-            const vmaxEl = document.getElementById('slim-cb-vmax');
-            if (cv) cv.style.display = '';
-            if (triZone) triZone.style.display = '';
-            // Only show flanking values if histogram is collapsed
-            if (vminEl) vminEl.style.display = primaryCb._expanded ? 'none' : '';
-            if (vmaxEl) vmaxEl.style.display = primaryCb._expanded ? 'none' : '';
-            // Redraw to restore correct state
-            _syncPrimaryCb();
-            primaryCb.draw();
-        }
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
         /* ── JS: Colormap Strip and Wipe/Flicker Compare Tools ───── */
@@ -13697,14 +13675,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Compute how many thumbs fit in available width (~76px per thumb incl gap)
             const THUMB_W = 76;
             let availW = 999;
-            const useIslandEarly = !anchorEl && !multiViewActive;
-            if (useIslandEarly) {
-                const col = document.getElementById('slim-cb-col');
-                if (col) availW = col.offsetWidth;
-            } else if (_fullscreenActive && compareActive) {
-                const firstInner = anchorEl ? anchorEl.closest('.compare-canvas-inner') : document.querySelector('.compare-canvas-inner');
-                const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
-                if (vpW > 0) availW = vpW;
+            if (compareActive && anchorEl) {
+                const wrap = anchorEl.closest('.compare-canvas-wrap');
+                const inner = wrap ? wrap.querySelector('.compare-canvas-inner') : null;
+                if (inner) {
+                    const vpW = inner.dataset.vpW ? parseInt(inner.dataset.vpW) : inner.offsetWidth;
+                    if (vpW > 0) availW = vpW;
+                }
             } else if (_fullscreenActive) {
                 const vpEl = document.getElementById('canvas-viewport');
                 if (vpEl) availW = vpEl.offsetWidth;
@@ -13743,37 +13720,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapStrip.appendChild(_makeThumb(ci + offs, offs === 0));
             }
 
-            // --- Normal mode: render inside the island instead of floating ---
-            const useIsland = !anchorEl && !multiViewActive;
-            if (useIsland) {
-                _cmapIslandRestore(); // clean up any previous inline preview
-                const col = document.getElementById('slim-cb-col');
-                const cv = document.getElementById('slim-cb');
-                const triZone = document.getElementById('slim-cb-tri-zone');
-                const vminEl = document.getElementById('slim-cb-vmin');
-                const vmaxEl = document.getElementById('slim-cb-vmax');
-                // Hide normal colorbar contents
-                if (cv) cv.style.display = 'none';
-                if (triZone) triZone.style.display = 'none';
-                if (vminEl) vminEl.style.display = 'none';
-                if (vmaxEl) vmaxEl.style.display = 'none';
-                // Create inline preview container and move strip content into it
-                const preview = document.createElement('div');
-                preview.id = 'cmap-island-preview';
-                preview.style.cssText = 'display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;flex:1;overflow:hidden;mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);-webkit-mask-image:linear-gradient(to right, transparent, black 15%, black 85%, transparent);';
-                while (_cmapStrip.firstChild) {
-                    preview.appendChild(_cmapStrip.firstChild);
-                }
-                col.appendChild(preview);
-                _cmapInIsland = true;
-                clearTimeout(_cmapStripTimer);
-                _cmapStripTimer = setTimeout(() => {
-                    _cmapIslandRestore();
-                }, 1500);
-                return;
-            }
-
-            // --- Anchored / multiview modes: floating strip (original behavior) ---
+            // --- Floating strip positioned on the colorbar (or custom anchor) ---
             const hasRightAnchor = extraFadeEls && extraFadeEls.length > 0 && extraFadeEls[0] && _cmapStripRight;
             if (hasRightAnchor) {
                 for (let offs = -SIDE; offs <= SIDE; offs++) {
