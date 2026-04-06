@@ -13672,20 +13672,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
             const pool = overridePool || COLORMAPS;
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
-            // Compute how many thumbs fit in available width (~76px per thumb incl gap)
+            // Compute how many thumbs fit — never wider than the colorbar
             const THUMB_W = 76;
-            let availW = 999;
-            if (compareActive && anchorEl) {
-                const wrap = anchorEl.closest('.compare-canvas-wrap');
-                const inner = wrap ? wrap.querySelector('.compare-canvas-inner') : null;
-                if (inner) {
-                    const vpW = inner.dataset.vpW ? parseInt(inner.dataset.vpW) : inner.offsetWidth;
-                    if (vpW > 0) availW = vpW;
-                }
-            } else if (_fullscreenActive) {
-                const vpEl = document.getElementById('canvas-viewport');
-                if (vpEl) availW = vpEl.offsetWidth;
-            }
+            const cbWrap = anchorEl || document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
+            const availW = cbWrap ? cbWrap.getBoundingClientRect().width : 999;
             const rawThumbs = Math.max(1, Math.floor(availW / THUMB_W));
             const maxThumbs = rawThumbs % 2 === 0 ? rawThumbs - 1 : rawThumbs;
             const SIDE = Math.floor((maxThumbs - 1) / 2);
@@ -13728,7 +13718,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             // Position strip centered on the colorbar (or custom anchor)
-            const cbWrap = anchorEl || document.getElementById(multiViewActive ? 'mv-cb-wrap' : 'slim-cb-wrap');
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
                 _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
