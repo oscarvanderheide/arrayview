@@ -13722,7 +13722,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Position strip centered on the colorbar (or custom anchor)
             if (cbWrap) {
                 const cbRect = cbWrap.getBoundingClientRect();
-                _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
+                _cmapStrip.style.top = (cbRect.top - 36) + 'px';
                 _cmapStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
                 _cmapStrip.style.maxWidth = cbRect.width + 'px';
@@ -13732,7 +13732,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (hasRightAnchor) {
                 const rightAnchor = extraFadeEls[0];
                 const rRect = rightAnchor.getBoundingClientRect();
-                _cmapStripRight.style.top = (rRect.top + rRect.height / 2 - 16) + 'px';
+                _cmapStripRight.style.top = (rRect.top - 36) + 'px';
                 _cmapStripRight.style.left = (rRect.left + rRect.width / 2) + 'px';
                 _cmapStripRight.style.transform = 'translateX(-50%)';
                 _cmapStripRight.style.maxWidth = rRect.width + 'px';
