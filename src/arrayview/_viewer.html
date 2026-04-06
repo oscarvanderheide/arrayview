@@ -10668,6 +10668,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_mipGL) return _mipGL;
             const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
             if (!gl) { showStatus('WebGL2 not available'); return null; }
+            gl.getExtension('OES_texture_float_linear');  // required for LINEAR filtering on R32F textures
             _mipGL = gl;
 
             // Compile shaders
@@ -10725,42 +10726,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!stops || !stops.length) return;
 
             // Build 256-wide RGBA LUT from gradient stops
+            // Stops are [r, g, b] triplets evenly spaced across the colormap
             const lutSize = 256;
             const data = new Uint8Array(lutSize * 4);
-
-            // Parse stops: each is [position, cssColor]
-            const parsed = stops.map(s => {
-                const pos = s[0];
-                const c = s[1];
-                let r = 0, g = 0, b = 0;
-                if (c.startsWith('#')) {
-                    const h = c.length === 4
-                        ? c[1]+c[1]+c[2]+c[2]+c[3]+c[3]
-                        : c.slice(1);
-                    r = parseInt(h.slice(0,2), 16);
-                    g = parseInt(h.slice(2,4), 16);
-                    b = parseInt(h.slice(4,6), 16);
-                } else if (c.startsWith('rgb')) {
-                    const m = c.match(/(\d+)/g);
-                    if (m) { r = +m[0]; g = +m[1]; b = +m[2]; }
-                }
-                return { pos, r, g, b };
-            });
-            parsed.sort((a, b) => a.pos - b.pos);
+            const n = stops.length;
 
             for (let i = 0; i < lutSize; i++) {
-                const t = i / (lutSize - 1);
-                let lo = parsed[0], hi = parsed[parsed.length - 1];
-                for (let j = 0; j < parsed.length - 1; j++) {
-                    if (t >= parsed[j].pos && t <= parsed[j + 1].pos) {
-                        lo = parsed[j]; hi = parsed[j + 1]; break;
-                    }
-                }
-                const range = hi.pos - lo.pos;
-                const f = range > 0 ? (t - lo.pos) / range : 0;
-                data[i * 4 + 0] = Math.round(lo.r + (hi.r - lo.r) * f);
-                data[i * 4 + 1] = Math.round(lo.g + (hi.g - lo.g) * f);
-                data[i * 4 + 2] = Math.round(lo.b + (hi.b - lo.b) * f);
+                const t = i / (lutSize - 1) * (n - 1);
+                const lo = Math.floor(t);
+                const hi = Math.min(lo + 1, n - 1);
+                const f = t - lo;
+                data[i * 4 + 0] = Math.round(stops[lo][0] + (stops[hi][0] - stops[lo][0]) * f);
+                data[i * 4 + 1] = Math.round(stops[lo][1] + (stops[hi][1] - stops[lo][1]) * f);
+                data[i * 4 + 2] = Math.round(stops[lo][2] + (stops[hi][2] - stops[lo][2]) * f);
                 data[i * 4 + 3] = 255;
             }
 
