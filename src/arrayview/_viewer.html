@@ -1484,7 +1484,7 @@
                 <div class="help-row"><span class="key">Shift+O</span><span class="desc">cycle overlay visibility: all → off → individual masks (when overlays active)</span></div>
                 <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
                 <div class="help-row"><span class="key">&lt; / &gt;</span><span class="desc">movie: fps (during playback)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density · movie: fps</span></div>
+                <div class="help-row"><span class="key">[ / ]</span><span class="desc">flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
                 <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
                 <div class="help-row"><span class="key">U</span><span class="desc">toggle vector arrows</span></div>
                  <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
@@ -4069,7 +4069,7 @@
                     if (vminFrac > 0.005 || vmaxFrac < 0.995) {
                         [effVmin, effVmax].forEach(f => {
                             if (f <= 0.003 || f >= 0.997) return;
-                            const x = Math.round(f * cssW);
+                            const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
 
                             const lineH = cssH - labelH;
                             const lineTop = labelH;
@@ -8524,13 +8524,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     return;
                 }
             } else if (e.key === '[' || e.key === ']') {
-                if (isPlaying) {
-                    const delta = e.key === ']' ? 5 : -5;
-                    playFps = Math.max(1, Math.min(120, playFps + delta));
-                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
-                    showToast(`playback: ${playFps} fps`);
-                    return;
-                }
                 const step = e.key === ']' ? 0.05 : -0.05;
                 if (rectRoiMode && _roiShape === 'floodfill') {
                     // Adjust flood fill tolerance
@@ -10846,8 +10839,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _mipResizeCanvas() {
             const canvas = document.getElementById('mip-canvas');
             const row = document.getElementById('viewer-row');
-            canvas.style.width = row.clientWidth + 'px';
-            canvas.style.height = row.clientHeight + 'px';
+            const w = Math.max(100, window.innerWidth - 80);
+            const h = Math.max(100, window.innerHeight - uiReserveV() - 80);
+            // Set viewer-row to contain the canvas (it collapses when mv-wrap is hidden)
+            row.style.minHeight = h + 'px';
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
             _mipRender();
         }
 
@@ -10933,6 +10930,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Show multiview again
             const wrap = document.getElementById('multi-view-wrap');
             wrap.style.display = '';
+            document.getElementById('viewer-row').style.minHeight = '';
 
             // Hide shared cb, restore mv colorbar
             _reconcileCbVisibility();
