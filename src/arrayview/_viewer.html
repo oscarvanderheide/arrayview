@@ -83,6 +83,7 @@
             border-color: rgba(216, 222, 233, 0.07);
         }
         #viewer-row {
+            position: relative;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
             width: 100%; padding: 8px; box-sizing: border-box;
         }
@@ -462,6 +463,8 @@
                               border: 1px solid rgba(210,90,200,0.25); }
         .mode-badge-diff    { background: rgba(255,130,90,0.15); color: #ff8a5c;
                               border: 1px solid rgba(255,130,90,0.25); }
+        .mode-badge-mip     { background: rgba(0,200,180,0.15); color: #4fd1c5;
+                              border-color: rgba(0,200,180,0.3); }
         .mode-badge-proj    { background: rgba(140,100,240,0.15); color: #a78bfa;
                               border: 1px solid rgba(140,100,240,0.25); }
         :root.light .mode-badge-fft { background: rgba(40,160,100,0.1); color: #288c64; border-color: rgba(40,160,100,0.25); }
@@ -470,6 +473,7 @@
         :root.light .mode-badge-alpha { background: rgba(180,50,50,0.1); color: #c04040; border-color: rgba(180,50,50,0.25); }
         :root.light .mode-badge-rgb  { background: rgba(170,50,160,0.1); color: #a030a0; border-color: rgba(170,50,160,0.25); }
         :root.light .mode-badge-diff { background: rgba(200,100,50,0.1); color: #b05520; border-color: rgba(200,100,50,0.25); }
+        :root.light .mode-badge-mip  { background: rgba(0,180,160,0.1); color: #108080; border-color: rgba(0,180,160,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 0.3s ease; }
         body.fullscreen-mode .mode-badge { background-color: rgba(30, 30, 30, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
@@ -618,6 +622,10 @@
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius); pointer-events: none;
         }
+        /* ── MIP 3-D volume renderer ─────────────────────────────── */
+        #mip-canvas { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; z-index: 5; }
+        #mip-canvas:active { cursor: grabbing; }
+
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
@@ -1368,6 +1376,7 @@
                 </div>
             </div>
         </div>
+        <canvas id="mip-canvas"></canvas>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
         <div id="loading-overlay"></div>
@@ -1484,7 +1493,7 @@
                 <div class="help-row"><span class="key">shift+drag</span><span class="desc">move dimbar / colorbar in immersive mode (resets on exit)</span></div>
                 <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
                 <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
-                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM</span></div>
+                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM; in multiview: toggle 3-D MIP volume renderer</span></div>
                 <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
                 <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
                 <div class="help-row"><span class="key">M</span><span class="desc">toggle alpha transparency</span></div>
@@ -1839,6 +1848,7 @@
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
         let multiViewActive = false;
+        let mipActive = false;
         let mvViews = [];
         let mvDims = [];
         let mvDraggingView = null;
@@ -2261,6 +2271,7 @@
         function _cbApplyAndRender() {
             proxyFetch(`/clearcache/${sid}`);
             updateView();
+            _mipOnWindowChange();
             saveState();
         }
         // Legacy slimCbCanvas wheel/mousedown/dblclick handlers REMOVED (Task 3).
@@ -3342,6 +3353,7 @@
             ModeRegistry.scaleAll();
             positionEggs();
             _validateUIState();
+            if (mipActive) _mipResizeCanvas();
         });
 
         // ── Mode crossfade utility ──────────────────────────────
@@ -4650,6 +4662,7 @@
                         _cbWindowChangeRafId = null;
                         updateView();
                         triggerPreload();
+                        _mipOnWindowChange();
                         saveState();
                     });
                 }
@@ -5917,6 +5930,9 @@
                 html += `<span class="mode-badge mode-badge-alpha">ALPHA</span>`;
             if (projectionMode > 0) {
                 html += `<span class="mode-badge mode-badge-proj">${PROJECTION_LABELS[projectionMode - 1]}</span>`;
+            }
+            if (mipActive) {
+                html += `<span class="mode-badge mode-badge-mip">MIP</span>`;
             }
             el.innerHTML = html;
             // Position eggs below the active canvas, just above the slim colorbar
@@ -8316,6 +8332,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             if (e.key === 'Escape') {
+                if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
@@ -8878,6 +8895,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
                 proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                 refreshAxesColor();
+                _mipOnColormapChange();
                 // When histogram is open, skip the previewer — just update the colorbar display
                 const _histOpen = primaryCb._expanded || (_diffLeftCb && _diffLeftCb.expanded);
                 if (_histOpen) {
@@ -8908,6 +8926,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         colormap_idx = -1;
                         proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                         refreshAxesColor();
+                        _mipOnColormapChange();
                         showStatus(`colormap: ${customColormap}`);
                         saveState();
                     });
@@ -9342,6 +9361,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 renderEggs();
                 saveState();
             } else if (e.key === 'p') {
+                // In multiview: toggle 3-D MIP volume renderer
+                if (multiViewActive || mipActive) {
+                    if (mipActive) { exitMipMode(); }
+                    else { enterMipMode(); }
+                    return;
+                }
                 // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
                 if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; }
                 if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; }
@@ -10324,7 +10349,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
                     setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
-                    onWindowChange: () => { for (const v of mvViews) mvRender(v); },
+                    onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
                     onBinHover: (binIdx, frac) => {
                         if (!lebesgueMode) return;
                         if (binIdx < 0) { _clearLebesgueOverlay(); return; }
@@ -10502,6 +10527,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function exitMultiView() {
+            if (mipActive) exitMipMode();
             multiViewActive = false;
             // Clean up multiview vector field state
             _mvVfieldCache.clear();
@@ -10537,6 +10563,500 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             updateView();
             showStatus('3-plane view: off');
         }
+
+        // ═══════════════════════════════════════════════════════════
+        // ── 3-D Maximum Intensity Projection (MIP) renderer ──────
+        // ═══════════════════════════════════════════════════════════
+
+        // WebGL2 state
+        let _mipGL = null;
+        let _mipProgram = null;
+        let _mipVolTex = null;
+        let _mipLutTex = null;
+        let _mipVAO = null;
+        let _mipAzimuth = 0;
+        let _mipElevation = 0;
+        let _mipZoom = 2.5;
+        let _mipDragging = false;
+        let _mipDragX = 0;
+        let _mipDragY = 0;
+        let _mipVolShape = [1, 1, 1];
+        let _mipVolCacheKey = null;  // "sid:dims:indices:version" to detect changes
+        let _mipAnimFrame = null;
+
+        const _MIP_VERT_SRC = `#version 300 es
+        in vec2 a_pos;
+        out vec2 v_uv;
+        void main() {
+            v_uv = a_pos * 0.5 + 0.5;
+            gl_Position = vec4(a_pos, 0.0, 1.0);
+        }`;
+
+        const _MIP_FRAG_SRC = `#version 300 es
+        precision highp float;
+        precision highp sampler3D;
+        in vec2 v_uv;
+        out vec4 fragColor;
+
+        uniform sampler3D u_volume;
+        uniform sampler2D u_lut;
+        uniform vec3 u_volSize;   // normalized size ratios
+        uniform float u_vmin;
+        uniform float u_vmax;
+        uniform mat3 u_rotation;
+        uniform float u_camDist;
+        uniform int u_steps;
+
+        void main() {
+            // Ray origin and direction from orbit camera with perspective
+            vec3 center = vec3(0.0);
+            vec3 camPos = u_rotation * vec3(0.0, 0.0, u_camDist);
+
+            // Build ray direction with slight perspective
+            vec3 right = u_rotation * vec3(1.0, 0.0, 0.0);
+            vec3 up    = u_rotation * vec3(0.0, 1.0, 0.0);
+            vec3 fwd   = u_rotation * vec3(0.0, 0.0, -1.0);
+
+            float fov = 0.8; // radians
+            vec2 ndc = (v_uv - 0.5) * 2.0;
+            vec3 rayDir = normalize(fwd + ndc.x * right * fov + ndc.y * up * fov);
+            vec3 rayOri = camPos;
+
+            // AABB intersection with box [-0.5*volSize, 0.5*volSize]
+            vec3 halfBox = u_volSize * 0.5;
+            vec3 invDir = 1.0 / rayDir;
+            vec3 t0 = (-halfBox - rayOri) * invDir;
+            vec3 t1 = ( halfBox - rayOri) * invDir;
+            vec3 tmin = min(t0, t1);
+            vec3 tmax = max(t0, t1);
+            float tNear = max(max(tmin.x, tmin.y), tmin.z);
+            float tFar  = min(min(tmax.x, tmax.y), tmax.z);
+
+            if (tNear > tFar || tFar < 0.0) {
+                fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            tNear = max(tNear, 0.0);
+
+            // Ray-march: find maximum intensity
+            float maxVal = -1e30;
+            float stepSize = (tFar - tNear) / float(u_steps);
+            for (int i = 0; i < 512; i++) {
+                if (i >= u_steps) break;
+                float t = tNear + (float(i) + 0.5) * stepSize;
+                vec3 pos = rayOri + t * rayDir;
+                // Map to texture coords [0,1]
+                vec3 tc = pos / u_volSize + 0.5;
+                float val = texture(u_volume, tc).r;
+                maxVal = max(maxVal, val);
+            }
+
+            // Windowing
+            float intensity = clamp((maxVal - u_vmin) / (u_vmax - u_vmin + 1e-10), 0.0, 1.0);
+
+            // Colormap lookup
+            vec3 color = texture(u_lut, vec2(intensity, 0.5)).rgb;
+            fragColor = vec4(color, 1.0);
+        }`;
+
+        function _mipBuildRotationMatrix(az, el) {
+            const ca = Math.cos(az), sa = Math.sin(az);
+            const ce = Math.cos(el), se = Math.sin(el);
+            // Rotation: first azimuth around Y, then elevation around X
+            return [
+                ca,      sa * se,   sa * ce,
+                0,       ce,       -se,
+               -sa,      ca * se,   ca * ce,
+            ];
+        }
+
+        function _mipInitGL() {
+            const canvas = document.getElementById('mip-canvas');
+            if (_mipGL) return _mipGL;
+            const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+            if (!gl) { showStatus('WebGL2 not available'); return null; }
+            _mipGL = gl;
+
+            // Compile shaders
+            function compile(type, src) {
+                const s = gl.createShader(type);
+                gl.shaderSource(s, src);
+                gl.compileShader(s);
+                if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                    console.error('MIP shader error:', gl.getShaderInfoLog(s));
+                    return null;
+                }
+                return s;
+            }
+            const vs = compile(gl.VERTEX_SHADER, _MIP_VERT_SRC);
+            const fs = compile(gl.FRAGMENT_SHADER, _MIP_FRAG_SRC);
+            const prog = gl.createProgram();
+            gl.attachShader(prog, vs);
+            gl.attachShader(prog, fs);
+            gl.linkProgram(prog);
+            if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+                console.error('MIP program link error:', gl.getProgramInfoLog(prog));
+                return null;
+            }
+            _mipProgram = prog;
+
+            // Full-screen quad VAO
+            _mipVAO = gl.createVertexArray();
+            gl.bindVertexArray(_mipVAO);
+            const buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1
+            ]), gl.STATIC_DRAW);
+            const loc = gl.getAttribLocation(prog, 'a_pos');
+            gl.enableVertexAttribArray(loc);
+            gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            gl.bindVertexArray(null);
+
+            // Create LUT texture
+            _mipLutTex = gl.createTexture();
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, _mipLutTex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+            return gl;
+        }
+
+        function _mipBuildLUT() {
+            const gl = _mipGL;
+            if (!gl || !_mipLutTex) return;
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!stops || !stops.length) return;
+
+            // Build 256-wide RGBA LUT from gradient stops
+            const lutSize = 256;
+            const data = new Uint8Array(lutSize * 4);
+
+            // Parse stops: each is [position, cssColor]
+            const parsed = stops.map(s => {
+                const pos = s[0];
+                const c = s[1];
+                let r = 0, g = 0, b = 0;
+                if (c.startsWith('#')) {
+                    const h = c.length === 4
+                        ? c[1]+c[1]+c[2]+c[2]+c[3]+c[3]
+                        : c.slice(1);
+                    r = parseInt(h.slice(0,2), 16);
+                    g = parseInt(h.slice(2,4), 16);
+                    b = parseInt(h.slice(4,6), 16);
+                } else if (c.startsWith('rgb')) {
+                    const m = c.match(/(\d+)/g);
+                    if (m) { r = +m[0]; g = +m[1]; b = +m[2]; }
+                }
+                return { pos, r, g, b };
+            });
+            parsed.sort((a, b) => a.pos - b.pos);
+
+            for (let i = 0; i < lutSize; i++) {
+                const t = i / (lutSize - 1);
+                let lo = parsed[0], hi = parsed[parsed.length - 1];
+                for (let j = 0; j < parsed.length - 1; j++) {
+                    if (t >= parsed[j].pos && t <= parsed[j + 1].pos) {
+                        lo = parsed[j]; hi = parsed[j + 1]; break;
+                    }
+                }
+                const range = hi.pos - lo.pos;
+                const f = range > 0 ? (t - lo.pos) / range : 0;
+                data[i * 4 + 0] = Math.round(lo.r + (hi.r - lo.r) * f);
+                data[i * 4 + 1] = Math.round(lo.g + (hi.g - lo.g) * f);
+                data[i * 4 + 2] = Math.round(lo.b + (hi.b - lo.b) * f);
+                data[i * 4 + 3] = 255;
+            }
+
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, _mipLutTex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lutSize, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        }
+
+        function _mipUploadVolume(float32Data, shape) {
+            const gl = _mipGL;
+            if (!gl) return;
+            if (_mipVolTex) gl.deleteTexture(_mipVolTex);
+            _mipVolTex = gl.createTexture();
+            _mipVolShape = shape;
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_3D, _mipVolTex);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+            gl.texImage3D(gl.TEXTURE_3D, 0, gl.R32F,
+                shape[2], shape[1], shape[0],   // width=Z, height=Y, depth=X  → texture(tc) where tc.xyz maps to [col, row, slice]
+                0, gl.RED, gl.FLOAT, float32Data);
+        }
+
+        function _mipRender() {
+            const gl = _mipGL;
+            if (!gl || !_mipProgram || !_mipVolTex) return;
+
+            const canvas = document.getElementById('mip-canvas');
+            const dpr = window.devicePixelRatio || 1;
+            const w = canvas.clientWidth;
+            const h = canvas.clientHeight;
+            if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+                canvas.width = w * dpr;
+                canvas.height = h * dpr;
+            }
+            gl.viewport(0, 0, canvas.width, canvas.height);
+
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            gl.useProgram(_mipProgram);
+
+            // Volume size: normalize so longest side = 1
+            // Texture layout: width=shape[2], height=shape[1], depth=shape[0]
+            // World-space axes: x=width(shape[2]), y=height(shape[1]), z=depth(shape[0])
+            const s = _mipVolShape;
+            const maxS = Math.max(s[0], s[1], s[2]);
+            const volSize = [s[2] / maxS, s[1] / maxS, s[0] / maxS];
+
+            // Uniforms
+            const rotMat = _mipBuildRotationMatrix(_mipAzimuth, _mipElevation);
+
+            gl.uniform3f(gl.getUniformLocation(_mipProgram, 'u_volSize'), volSize[0], volSize[1], volSize[2]);
+            gl.uniform1f(gl.getUniformLocation(_mipProgram, 'u_vmin'), manualVmin ?? currentVmin);
+            gl.uniform1f(gl.getUniformLocation(_mipProgram, 'u_vmax'), manualVmax ?? currentVmax);
+            gl.uniformMatrix3fv(gl.getUniformLocation(_mipProgram, 'u_rotation'), false, rotMat);
+            gl.uniform1f(gl.getUniformLocation(_mipProgram, 'u_camDist'), _mipZoom);
+            gl.uniform1i(gl.getUniformLocation(_mipProgram, 'u_steps'), 256);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_3D, _mipVolTex);
+            gl.uniform1i(gl.getUniformLocation(_mipProgram, 'u_volume'), 0);
+
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, _mipLutTex);
+            gl.uniform1i(gl.getUniformLocation(_mipProgram, 'u_lut'), 1);
+
+            gl.bindVertexArray(_mipVAO);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            gl.bindVertexArray(null);
+        }
+
+        function _mipResizeCanvas() {
+            const canvas = document.getElementById('mip-canvas');
+            const row = document.getElementById('viewer-row');
+            canvas.style.width = row.clientWidth + 'px';
+            canvas.style.height = row.clientHeight + 'px';
+            _mipRender();
+        }
+
+        function _mipCacheKey() {
+            const dims = mvDims.join(',');
+            const extraIndices = indices.map((v, i) => mvDims.includes(i) ? '' : v).join(',');
+            return `${sid}:${dims}:${extraIndices}:${_watchDataVersion}`;
+        }
+
+        async function enterMipMode() {
+            if (mipActive) return;
+            if (!multiViewActive) { showStatus('MIP: enter multiview first (v)'); return; }
+            if (shape.length < 3) { showStatus('MIP: need at least 3D array'); return; }
+
+            mipActive = true;
+            _eggsVisible = true;
+
+            // Hide multiview panes, show MIP canvas
+            const wrap = document.getElementById('multi-view-wrap');
+            wrap.style.display = 'none';
+            const canvas = document.getElementById('mip-canvas');
+            canvas.style.display = 'block';
+
+            // Show shared colorbar for MIP mode (mv-cb is inside hidden wrap)
+            _reconcileCbVisibility();
+            drawSlimColorbar(cbMarkerFrac);
+
+            showStatus('Loading volume...');
+            renderEggs();
+
+            // Init WebGL
+            const gl = _mipInitGL();
+            if (!gl) { exitMipMode(); return; }
+
+            // Fetch volume data
+            const cacheKey = _mipCacheKey();
+            if (_mipVolCacheKey !== cacheKey || !_mipVolTex) {
+                try {
+                    const dims = mvDims.join(',');
+                    const idxStr = indices.join(',');
+                    const resp = await proxyFetch(`/volume_data/${sid}?dims=${dims}&indices=${idxStr}&complex_mode=${complexMode}`);
+                    if (!resp.ok) { showStatus('MIP: failed to load volume'); exitMipMode(); return; }
+                    const shapeStr = resp.headers.get('X-Shape');
+                    const vmin = parseFloat(resp.headers.get('X-Vmin'));
+                    const vmax = parseFloat(resp.headers.get('X-Vmax'));
+                    const volShape = shapeStr.split(',').map(Number);
+                    const buf = await resp.arrayBuffer();
+                    const f32 = new Float32Array(buf);
+
+                    _mipUploadVolume(f32, volShape);
+                    _mipVolCacheKey = cacheKey;
+
+                    // Set auto vmin/vmax if not manually overridden
+                    if (manualVmin === null) currentVmin = vmin;
+                    if (manualVmax === null) currentVmax = vmax;
+                } catch (err) {
+                    console.error('MIP volume fetch error:', err);
+                    showStatus('MIP: volume load error');
+                    exitMipMode();
+                    return;
+                }
+            }
+
+            _mipBuildLUT();
+            _mipResizeCanvas();
+
+            // Attach mouse handlers
+            _mipAttachEvents();
+
+            showStatus('MIP — drag to rotate, scroll to zoom, p/Esc to exit', 3000);
+        }
+
+        function exitMipMode() {
+            if (!mipActive) return;
+            mipActive = false;
+
+            const canvas = document.getElementById('mip-canvas');
+            canvas.style.display = 'none';
+            _mipDetachEvents();
+
+            if (_mipAnimFrame) { cancelAnimationFrame(_mipAnimFrame); _mipAnimFrame = null; }
+
+            // Show multiview again
+            const wrap = document.getElementById('multi-view-wrap');
+            wrap.style.display = '';
+
+            // Hide shared cb, restore mv colorbar
+            _reconcileCbVisibility();
+
+            _eggsVisible = true;
+            renderEggs();
+
+            // Re-render multiview panes
+            for (const v of mvViews) mvRender(v);
+            if (window._mvColorBar) window._mvColorBar.draw();
+
+            showStatus('MIP: off');
+        }
+
+        // Mouse interaction
+        let _mipEventsBound = false;
+        function _mipAttachEvents() {
+            if (_mipEventsBound) return;
+            const canvas = document.getElementById('mip-canvas');
+            canvas.addEventListener('mousedown', _mipOnMouseDown);
+            canvas.addEventListener('mousemove', _mipOnMouseMove);
+            canvas.addEventListener('mouseup', _mipOnMouseUp);
+            canvas.addEventListener('mouseleave', _mipOnMouseUp);
+            canvas.addEventListener('wheel', _mipOnWheel, { passive: false });
+            canvas.addEventListener('contextmenu', _mipPreventDefault);
+            // Touch support
+            canvas.addEventListener('touchstart', _mipOnTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', _mipOnTouchMove, { passive: false });
+            canvas.addEventListener('touchend', _mipOnTouchEnd);
+            _mipEventsBound = true;
+        }
+        function _mipDetachEvents() {
+            if (!_mipEventsBound) return;
+            const canvas = document.getElementById('mip-canvas');
+            canvas.removeEventListener('mousedown', _mipOnMouseDown);
+            canvas.removeEventListener('mousemove', _mipOnMouseMove);
+            canvas.removeEventListener('mouseup', _mipOnMouseUp);
+            canvas.removeEventListener('mouseleave', _mipOnMouseUp);
+            canvas.removeEventListener('wheel', _mipOnWheel);
+            canvas.removeEventListener('contextmenu', _mipPreventDefault);
+            canvas.removeEventListener('touchstart', _mipOnTouchStart);
+            canvas.removeEventListener('touchmove', _mipOnTouchMove);
+            canvas.removeEventListener('touchend', _mipOnTouchEnd);
+            _mipEventsBound = false;
+        }
+        function _mipPreventDefault(e) { e.preventDefault(); e.stopPropagation(); }
+        function _mipOnMouseDown(e) {
+            e.preventDefault(); e.stopPropagation();
+            _mipDragging = true;
+            _mipDragX = e.clientX;
+            _mipDragY = e.clientY;
+        }
+        function _mipOnMouseMove(e) {
+            if (!_mipDragging) return;
+            e.preventDefault(); e.stopPropagation();
+            const dx = e.clientX - _mipDragX;
+            const dy = e.clientY - _mipDragY;
+            _mipDragX = e.clientX;
+            _mipDragY = e.clientY;
+            _mipAzimuth += dx * 0.008;
+            _mipElevation = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _mipElevation + dy * 0.008));
+            _mipRender();
+        }
+        function _mipOnMouseUp(e) {
+            _mipDragging = false;
+        }
+        function _mipOnWheel(e) {
+            e.preventDefault(); e.stopPropagation();
+            _mipZoom = Math.max(0.5, Math.min(10.0, _mipZoom + e.deltaY * 0.005));
+            _mipRender();
+        }
+        // Touch events
+        let _mipTouchPrev = null;
+        let _mipTouchDist = null;
+        function _mipOnTouchStart(e) {
+            e.preventDefault(); e.stopPropagation();
+            if (e.touches.length === 1) {
+                _mipTouchPrev = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            } else if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                _mipTouchDist = Math.sqrt(dx * dx + dy * dy);
+            }
+        }
+        function _mipOnTouchMove(e) {
+            e.preventDefault(); e.stopPropagation();
+            if (e.touches.length === 1 && _mipTouchPrev) {
+                const dx = e.touches[0].clientX - _mipTouchPrev.x;
+                const dy = e.touches[0].clientY - _mipTouchPrev.y;
+                _mipTouchPrev = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                _mipAzimuth += dx * 0.008;
+                _mipElevation = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _mipElevation + dy * 0.008));
+                _mipRender();
+            } else if (e.touches.length === 2 && _mipTouchDist !== null) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const delta = _mipTouchDist - dist;
+                _mipZoom = Math.max(0.5, Math.min(10.0, _mipZoom + delta * 0.01));
+                _mipTouchDist = dist;
+                _mipRender();
+            }
+        }
+        function _mipOnTouchEnd(e) {
+            _mipTouchPrev = null;
+            _mipTouchDist = null;
+        }
+
+        // Called when colormap changes to update the LUT texture
+        function _mipOnColormapChange() {
+            if (!mipActive || !_mipGL) return;
+            _mipBuildLUT();
+            _mipRender();
+        }
+
+        // Called when vmin/vmax changes to re-render
+        function _mipOnWindowChange() {
+            if (!mipActive || !_mipGL) return;
+            _mipRender();
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ── End MIP renderer ─────────────────────────────────────
+        // ═══════════════════════════════════════════════════════════
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
@@ -13630,7 +14150,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // 1. Shared colorbar
             _sharedCbVisible = colorbarVisible() && !isCenter
-                && !multiViewActive && !compareMvActive
+                && (!multiViewActive || mipActive) && !compareMvActive
                 && !qmriActive && !compareQmriActive;
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap) cbWrap.style.display = _sharedCbVisible ? '' : 'none';
