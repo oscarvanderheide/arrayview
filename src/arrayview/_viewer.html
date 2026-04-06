@@ -6866,6 +6866,7 @@
                 compareRender();
                 return;
             }
+            if (mipActive) { _mipBuildLUT(); _mipRender(); return; }
             if (httpTransport) {
                 if (multiViewActive) {
                     mvViews.forEach(v => mvRender(v));
@@ -9145,6 +9146,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             manualVmin = qLo; manualVmax = qHi;
                         }
                         cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                        // Sync per-view locked ranges so multiview renders use the new values
+                        if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                         proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                         primaryCb.ensureAnimating();
                         showStatus(`range: ${preset.label}`);
@@ -10569,7 +10572,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _mipVAO = null;
         let _mipAzimuth = 0;
         let _mipElevation = 0;
-        let _mipZoom = 2.5;
+        let _mipZoom = 1.5;
         let _mipDragging = false;
         let _mipDragX = 0;
         let _mipDragY = 0;
@@ -10849,6 +10852,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Show shared colorbar for MIP mode (mv-cb is inside hidden wrap)
             _reconcileCbVisibility();
             drawSlimColorbar(cbMarkerFrac);
+            // Raise colorbar above MIP canvas (z-index 5) and position at bottom
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) { cbWrap.style.zIndex = '10'; cbWrap.style.bottom = '12px'; cbWrap.style.top = 'auto'; }
 
             showStatus('Loading volume...');
             renderEggs();
@@ -10910,7 +10916,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             wrap.style.display = '';
             document.getElementById('viewer-row').style.minHeight = '';
 
-            // Hide shared cb, restore mv colorbar
+            // Restore colorbar z-index and hide shared cb, restore mv colorbar
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            if (cbWrap) { cbWrap.style.zIndex = ''; cbWrap.style.bottom = ''; cbWrap.style.top = ''; }
             _reconcileCbVisibility();
 
             _eggsVisible = true;
