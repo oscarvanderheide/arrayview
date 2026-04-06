@@ -967,7 +967,9 @@
         #colormap-strip, #colormap-strip-right {
             position:fixed; display:flex; flex-direction:row; align-items:center; gap:8px;
             opacity:0; pointer-events:none; transition:opacity 0.25s ease;
-            z-index:8;
+            z-index:8; overflow:hidden; justify-content:center;
+            mask-image:linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+            -webkit-mask-image:linear-gradient(to right, transparent, black 8%, black 92%, transparent);
         }
         #colormap-strip.visible, #colormap-strip-right.visible { opacity:1; }
         .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.5; transition:opacity 0.15s ease; }
@@ -13723,6 +13725,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapStrip.style.top = (cbRect.top + cbRect.height / 2 - 16) + 'px';
                 _cmapStrip.style.left = (cbRect.left + cbRect.width / 2) + 'px';
                 _cmapStrip.style.transform = 'translateX(-50%)';
+                _cmapStrip.style.maxWidth = cbRect.width + 'px';
                 cbWrap.style.opacity = '0';
             }
             // Position right strip on the right pane's colorbar
@@ -13732,6 +13735,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapStripRight.style.top = (rRect.top + rRect.height / 2 - 16) + 'px';
                 _cmapStripRight.style.left = (rRect.left + rRect.width / 2) + 'px';
                 _cmapStripRight.style.transform = 'translateX(-50%)';
+                _cmapStripRight.style.maxWidth = rRect.width + 'px';
                 rightAnchor.style.opacity = '0';
                 for (let i = 1; i < extraFadeEls.length; i++) {
                     if (extraFadeEls[i]) extraFadeEls[i].style.opacity = '0';
