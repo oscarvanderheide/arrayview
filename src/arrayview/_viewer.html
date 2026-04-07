@@ -4065,37 +4065,37 @@
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
 
-                    // Solid handle lines at vmin/vmax
-                    if (vminFrac > 0.005 || vmaxFrac < 0.995) {
-                        [effVmin, effVmax].forEach(f => {
-                            if (f <= 0.003 || f >= 0.997) return;
-                            const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
+                    // Solid handle lines at vmin/vmax. Only skip when BOTH endpoints
+                    // are at the data extremes (full range) — otherwise each line must
+                    // remain visible even when pressed right against dmin or dmax.
+                    const isFullRange = vminFrac <= 0.005 && vmaxFrac >= 0.995;
+                    if (!isFullRange) [effVmin, effVmax].forEach(f => {
+                        const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
 
-                            const lineH = cssH - labelH;
-                            const lineTop = labelH;
+                        const lineH = cssH - labelH;
+                        const lineTop = labelH;
 
-                            // Sample colormap at this position to determine line visibility
-                            const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
-                            const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
-                            const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
+                        // Sample colormap at this position to determine line visibility
+                        const cmIdx = Math.max(0, Math.min(cmSz - 1, Math.round(f * (cmSz - 1)))) * 3;
+                        const bgR = cmLut[cmIdx], bgG = cmLut[cmIdx + 1], bgB = cmLut[cmIdx + 2];
+                        const bgLum = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) / 255;
 
-                            // Yellow line color: check if background is too close to yellow
-                            const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
+                        // Yellow line color: check if background is too close to yellow
+                        const isYellowish = bgR > 180 && bgG > 180 && bgB < 150;
 
-                            // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
-                            const coreColor = isYellowish
-                                ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
-                                : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
-                            const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+                        // Draw: 1px dark outline + 2px yellow core line, or dark line if yellowish bg
+                        const coreColor = isYellowish
+                            ? (isDark ? 'rgba(100,180,255,0.9)' : 'rgba(0,80,180,0.9)')
+                            : (isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)');
+                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
 
-                            // Outline (4px wide)
-                            ctx.fillStyle = outlineColor;
-                            ctx.fillRect(x - 2, lineTop, 4, lineH);
-                            // Core line (2px wide)
-                            ctx.fillStyle = coreColor;
-                            ctx.fillRect(x - 1, lineTop, 2, lineH);
-                        });
-                    }
+                        // Outline (4px wide)
+                        ctx.fillStyle = outlineColor;
+                        ctx.fillRect(x - 2, lineTop, 4, lineH);
+                        // Core line (2px wide)
+                        ctx.fillStyle = coreColor;
+                        ctx.fillRect(x - 1, lineTop, 2, lineH);
+                    });
 
                     if (labelH > 4 && this._histData) {
                         const { vmin: dmin, vmax: dmax } = this._histData;
