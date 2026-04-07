@@ -9064,6 +9064,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         manualVmax = qHi;
                     }
                     cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                    // Sync per-view locked ranges so multiview renders use the new values
+                    if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                     proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                     primaryCb.ensureAnimating();
                     showStatus(`range: ${preset.label}`);
