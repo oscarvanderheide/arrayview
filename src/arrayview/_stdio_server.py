@@ -312,10 +312,7 @@ def _handle_clearcache(msg: dict) -> None:
     sid = msg["sid"]
     session = SESSIONS.get(sid)
     if session:
-        session.raw_cache.clear()
-        session.rgba_cache.clear()
-        session.mosaic_cache.clear()
-        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        session.reset_caches()
     _write_json({"status": "ok"})
 
 

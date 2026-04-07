@@ -308,12 +308,7 @@ async def shell_websocket(ws: WebSocket):
             if msg.get("action") == "close":
                 sid = msg.get("sid")
                 if sid in SESSIONS:
-                    SESSIONS[sid].raw_cache.clear()
-                    SESSIONS[sid].rgba_cache.clear()
-                    SESSIONS[sid].mosaic_cache.clear()
-                    SESSIONS[sid]._raw_bytes = SESSIONS[sid]._rgba_bytes = SESSIONS[
-                        sid
-                    ]._mosaic_bytes = 0
+                    SESSIONS[sid].reset_caches()
                     SESSIONS[sid].data = None
                     del SESSIONS[sid]
     except Exception:
@@ -555,10 +550,7 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
 def clear_cache(sid: str):
     session = SESSIONS.get(sid)
     if session:
-        session.raw_cache.clear()
-        session.rgba_cache.clear()
-        session.mosaic_cache.clear()
-        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        session.reset_caches()
     return {"status": "ok"}
 
 
@@ -595,10 +587,7 @@ async def reload_session(sid: str):
     session.fft_original_data = None
     session.fft_axes = None
     # Clear all render caches.
-    session.raw_cache.clear()
-    session.rgba_cache.clear()
-    session.mosaic_cache.clear()
-    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    session.reset_caches()
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -627,10 +616,7 @@ async def update_session(sid: str, request: Request):
     session.rgb_axis = None
     session.fft_original_data = None
     session.fft_axes = None
-    session.raw_cache.clear()
-    session.rgba_cache.clear()
-    session.mosaic_cache.clear()
-    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    session.reset_caches()
     session.data_version = getattr(session, "data_version", 0) + 1
     return {"version": session.data_version}
 
@@ -1656,12 +1642,7 @@ def _seg_set_overlay(data: np.ndarray) -> None:
         ov = SESSIONS[_seg_overlay_sid]
         ov.data = data
         ov.shape = data.shape
-        ov.raw_cache.clear()
-        ov.rgba_cache.clear()
-        ov.mosaic_cache.clear()
-        ov._raw_bytes = 0
-        ov._rgba_bytes = 0
-        ov._mosaic_bytes = 0
+        ov.reset_caches()
         ov.data_version += 1
     else:
         ov = Session(data, name="nnInteractive segmentation")
@@ -2146,10 +2127,7 @@ async def toggle_fft(sid: str, request: Request):
         session.shape = session.data.shape
         session.fft_original_data = None
         session.fft_axes = None
-        session.raw_cache.clear()
-        session.rgba_cache.clear()
-        session.mosaic_cache.clear()
-        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        session.reset_caches()
         return {"status": "restored", "is_complex": bool(np.iscomplexobj(session.data))}
 
     try:
@@ -2178,10 +2156,7 @@ async def toggle_fft(sid: str, request: Request):
     session.data = np.fft.fftshift(np.fft.fftn(full, axes=axes), axes=axes)
     session.shape = session.data.shape
     session.fft_axes = axes
-    session.raw_cache.clear()
-    session.rgba_cache.clear()
-    session.mosaic_cache.clear()
-    session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+    session.reset_caches()
     return {
         "status": "fft_applied",
         "axes": list(axes),

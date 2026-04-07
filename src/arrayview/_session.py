@@ -173,6 +173,13 @@ class Session:
         self.vfield_time_dim = None  # optional time axis in the raw vfield array
         self.vfield_spatial_axes = None  # image spatial dim -> vfield axis mapping
 
+    def reset_caches(self):
+        """Clear all three render caches and reset their byte counters to 0."""
+        self.raw_cache.clear()
+        self.rgba_cache.clear()
+        self.mosaic_cache.clear()
+        self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
+
     def _estimate_memory(self):
         """Estimate memory footprint in bytes (array data + cache budgets)."""
         itemsize = np.dtype(getattr(self.data, "dtype", np.float32)).itemsize
