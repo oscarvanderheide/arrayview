@@ -16,6 +16,7 @@ import threading
 import numpy as np
 from fastapi import (
     Body,
+    Depends,
     FastAPI,
     File,
     HTTPException,
@@ -543,6 +544,14 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
         # only to check if a session was *ever* connected, not currently connected.
 
 
+
+def get_session_or_404(sid: str) -> "Session":
+    """FastAPI dependency: fetch session by sid or raise 404."""
+    session = SESSIONS.get(sid)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
 # ── REST Routes: Cache, Metadata, and Session Management ─────────
 
 
@@ -555,23 +564,17 @@ def clear_cache(sid: str):
 
 
 @app.get("/data_version/{sid}")
-def get_data_version(sid: str):
+def get_data_version(sid: str, session: "Session" = Depends(get_session_or_404)):
     """Return the current data version for a session (incremented on reload)."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     return {"version": getattr(session, "data_version", 0)}
 
 
 @app.post("/reload/{sid}")
-async def reload_session(sid: str):
+async def reload_session(sid: str, session: "Session" = Depends(get_session_or_404)):
     """Reload session data from its source file (used by --watch mode).
 
     Clears caches and bumps data_version so polling clients know to re-render.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     filepath = session.filepath
     if not filepath or not os.path.isfile(filepath):
         return {"error": "session has no reloadable filepath"}
@@ -593,16 +596,13 @@ async def reload_session(sid: str):
 
 
 @app.post("/update/{sid}")
-async def update_session(sid: str, request: Request):
+async def update_session(sid: str, request: Request, session: "Session" = Depends(get_session_or_404)):
     """Replace session data with a new numpy array sent as raw .npy bytes.
 
     The request body must be a valid .npy file (as produced by ``np.save``).
     Clears caches and bumps ``data_version`` so polling clients re-render.
     Used by ``ViewHandle.update(arr)`` in Python.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     raw = await request.body()
     if not raw:
         return Response(status_code=400, content="empty body")
@@ -622,11 +622,8 @@ async def update_session(sid: str, request: Request):
 
 
 @app.get("/cache_info/{sid}")
-def cache_info(sid: str):
+def cache_info(sid: str, session: "Session" = Depends(get_session_or_404)):
     """Phase 5: debug endpoint — returns per-session cache usage and budgets."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     return {
         "raw_cache": {
             "entries": len(session.raw_cache),
@@ -912,10 +909,8 @@ def get_pixel(
     px: int,
     py: int,
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"value": None}
 
@@ -935,10 +930,8 @@ def get_roi_freehand(
     indices: str,
     complex_mode: int = 0,
     body: dict = Body(...),
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
     points = body.get("points", [])
@@ -975,10 +968,8 @@ def get_roi_circle(
     cy: float,
     r: float,
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
     idx_tuple = tuple(int(v) for v in indices.split(","))
@@ -1011,10 +1002,8 @@ def get_roi(
     x1: int,
     y1: int,
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
     idx_tuple = tuple(int(v) for v in indices.split(","))
@@ -1049,15 +1038,13 @@ def get_roi_multi(
     x1: int = 0,
     y1: int = 0,
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """ROI stats across dimension combinations for multi-dim export.
 
     Uses bounding box (x0,y0,x1,y1) for rect ROIs. Circle and freehand ROIs
     are converted to bounding boxes client-side before calling this endpoint.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
     arr = session.data
@@ -1158,11 +1145,9 @@ def get_roi_floodfill(
     py: int,
     tolerance: float = 0.1,
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Flood-fill ROI: grow connected region from seed pixel within tolerance."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return {"error": "not supported for RGB sessions"}
     idx_tuple = tuple(int(v) for v in indices.split(","))
@@ -1258,7 +1243,8 @@ def _seg_coord_3d(
 
 @app.post("/seg/activate/{sid}")
 async def seg_activate(sid: str, dim_x: int = 0, dim_y: int = 1, scroll_dim: int = -1,
-                       indices: str = ""):
+                       indices: str = "",
+                       session: "Session" = Depends(get_session_or_404)):
     """Connect to nnInteractive server (auto-launch if needed) and upload volume.
 
     For >3D data, a 3D subvolume is extracted using dim_x, dim_y, and scroll_dim
@@ -1266,9 +1252,6 @@ async def seg_activate(sid: str, dim_x: int = 0, dim_y: int = 1, scroll_dim: int
     """
     from arrayview import _segmentation as seg
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     shape = session.spatial_shape if session.rgb_axis is not None else session.shape
     ndim = len(shape)
@@ -1350,13 +1333,11 @@ async def seg_click(
     px: int,
     py: int,
     positive: bool = True,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Send a point interaction to nnInteractive and return overlay session ID."""
     from arrayview import _segmentation as seg
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if not seg.is_connected():
         return {"status": "error", "message": "not connected"}
 
@@ -1372,13 +1353,10 @@ async def seg_click(
 
 
 @app.post("/seg/bbox/{sid}")
-async def seg_bbox(sid: str, body: dict = Body(...)):
+async def seg_bbox(sid: str, body: dict = Body(...), session: "Session" = Depends(get_session_or_404)):
     """Send a bounding box interaction to nnInteractive."""
     from arrayview import _segmentation as seg
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if not seg.is_connected():
         return {"status": "error", "message": "not connected"}
 
@@ -1400,13 +1378,10 @@ async def seg_bbox(sid: str, body: dict = Body(...)):
 
 
 @app.post("/seg/scribble/{sid}")
-async def seg_scribble(sid: str, body: dict = Body(...)):
+async def seg_scribble(sid: str, body: dict = Body(...), session: "Session" = Depends(get_session_or_404)):
     """Send a scribble interaction (freehand drawn points on current slice)."""
     from arrayview import _segmentation as seg
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if not seg.is_connected() or _seg_label_mask is None:
         return {"status": "error", "message": "not connected"}
 
@@ -1424,13 +1399,10 @@ async def seg_scribble(sid: str, body: dict = Body(...)):
 
 
 @app.post("/seg/lasso/{sid}")
-async def seg_lasso(sid: str, body: dict = Body(...)):
+async def seg_lasso(sid: str, body: dict = Body(...), session: "Session" = Depends(get_session_or_404)):
     """Send a lasso interaction (filled closed contour on current slice)."""
     from arrayview import _segmentation as seg
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if not seg.is_connected() or _seg_label_mask is None:
         return {"status": "error", "message": "not connected"}
 
@@ -1730,11 +1702,9 @@ def get_line_profile(
     y1: int,
     complex_mode: int = 0,
     log_scale: bool = False,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return intensity values sampled along a line between two points."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -1763,6 +1733,7 @@ def get_histogram(
     indices: str,
     complex_mode: int = 0,
     bins: int = 128,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return a histogram of the current 2-D slice as JSON.
 
@@ -1770,9 +1741,6 @@ def get_histogram(
     where ``edges`` has length ``bins + 1``.  Finite values only.
     Used by the W-key histogram strip in the viewer.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -1808,6 +1776,7 @@ def get_volume_histogram(
     fixed_indices: str = "",
     complex_mode: int = 0,
     bins: int = 64,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return a histogram sampled across the scroll dimension.
 
@@ -1819,9 +1788,6 @@ def get_volume_histogram(
     pin non-display, non-scroll dimensions (e.g. ``"3:0"`` to select the
     first parameter map in qMRI mode).
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     # Parse fixed indices
     fixed = {}
@@ -1903,6 +1869,7 @@ def get_volume_data(
     dims: str = "",
     indices: str = "",
     complex_mode: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return the full 3-D sub-volume as raw float32 bytes for the WebGL MIP renderer.
 
@@ -1915,9 +1882,6 @@ def get_volume_data(
 
     Response headers carry ``X-Shape`` (comma-separated), ``X-Vmin``, ``X-Vmax``.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     # Parse dims and indices
     if not dims:
@@ -1986,6 +1950,7 @@ def get_lebesgue_slice(
     indices: str,
     complex_mode: int = 0,
     log_scale: bool = False,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return the raw 2-D slice as float32 binary for Lebesgue integral mode.
 
@@ -1994,9 +1959,6 @@ def get_lebesgue_slice(
     True the values are ``log10(|x| + 1)``.  The client uses this to do
     per-pixel bin lookups without a server round-trip on each hover.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode).astype(np.float32)
@@ -2021,6 +1983,7 @@ def export_slice(
     indices: str,
     complex_mode: int = 0,
     save_to_downloads: int = 0,
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return the current 2-D slice as a downloadable .npy file.
 
@@ -2030,9 +1993,6 @@ def export_slice(
     When save_to_downloads=1 (PyWebView), saves the file directly to ~/Downloads
     instead of returning it as a download response.
     """
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     idx_tuple = tuple(int(v) for v in indices.split(","))
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     data = apply_complex_mode(raw, complex_mode)
@@ -2079,10 +2039,7 @@ async def save_file(request: Request):
 
 
 @app.get("/info/{sid}")
-def get_info(sid: str):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
+def get_info(sid: str, session: "Session" = Depends(get_session_or_404)):
 
     try:
         dtype_str = str(session.data.dtype)
@@ -2227,10 +2184,8 @@ def get_slice(
     mosaic_cols: int | None = None,
     projection_mode: int = 0,
     projection_dim: int = -1,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     idx_tuple = tuple(int(x) for x in indices.split(","))
     if projection_mode > 0 and projection_dim >= 0:
         rgba = render_projection_rgba(
@@ -2577,11 +2532,9 @@ def get_oblique(
     vmin_override: float | None = None,
     vmax_override: float | None = None,
     quality: str = "full",
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Render an oblique (arbitrarily-oriented) slice through a 3-D volume."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     from scipy.ndimage import map_coordinates
 
@@ -2799,10 +2752,8 @@ def get_grid(
     slice_dim: int,
     colormap: str = "gray",
     dr: int = 1,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return JSONResponse(
             status_code=400, content={"error": "not supported for RGB sessions"}
@@ -2877,10 +2828,8 @@ def get_gif(
     slice_dim: int,
     colormap: str = "gray",
     dr: int = 1,
+    session: "Session" = Depends(get_session_or_404),
 ):
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
     if session.rgb_axis is not None:
         return JSONResponse(
             status_code=400, content={"error": "not supported for RGB sessions"}
@@ -3028,11 +2977,8 @@ def get_sessions():
 
 
 @app.get("/thumbnail/{sid}")
-async def get_thumbnail(sid: str, w: int = 96, h: int = 72):
+async def get_thumbnail(sid: str, w: int = 96, h: int = 72, session: "Session" = Depends(get_session_or_404)):
     """Return a small JPEG thumbnail of the session's current default view."""
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     ndim = len(session.shape)
     if ndim < 2:
@@ -3077,13 +3023,11 @@ async def get_exploded_slices(
     log_scale: bool = Body(False),
     vmin_override: float | None = Body(None),
     vmax_override: float | None = Body(None),
+    session: "Session" = Depends(get_session_or_404),
 ):
     """Return JPEG thumbnails for multiple slices along scroll_dim."""
     import base64
 
-    session = SESSIONS.get(sid)
-    if not session:
-        return Response(status_code=404)
 
     ndim = len(session.shape)
     if ndim < 3:
