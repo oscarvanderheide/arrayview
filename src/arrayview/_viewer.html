@@ -1831,6 +1831,7 @@
         let _mvPrevZoom = 1.0;
         let _mvPrevSquareStretch = false;
         let _cmvPrevSquareStretch = false;
+        let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
@@ -11034,6 +11035,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             activeDim = targetDim;
             if (compareActive) exitCompareMode();
             if (multiViewActive) exitMultiView();
+            _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
             qmriActive = true;
             qmriDim = activeDim;
             
@@ -11221,6 +11223,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
+            userZoom = _qmriPrevZoom;  // restore prior zoom (mirrors exitMultiView line 10521)
             updateView();
             _reconcileUI();
             renderInfo();
