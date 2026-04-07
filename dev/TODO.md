@@ -32,6 +32,27 @@ while preserving shared `SESSIONS`/`app`/helper state is a high-risk restructure
 only payoff is navigation ergonomics. Revisit only if the file grows past ~4000 lines
 or if module boundaries become a concrete friction point during feature work.
 
+## UI Maturity Strategy (2026-04-07)
+
+A multi-phase plan to tame the combinatorial mode/feature/keybind bug class
+("changed colorbar — works with 1 array but not 2"; "enter mode, change
+something, exit, change is lost"; "feature works in mode A but not mode B"):
+
+- **Strategy:** [`dev/plans/ui-maturity-strategy.md`](plans/ui-maturity-strategy.md)
+- **Codebase report:** [`dev/plans/ui-maturity-codebase-report.md`](plans/ui-maturity-codebase-report.md)
+- **External research:** [`dev/plans/ui-maturity-external-research.md`](plans/ui-maturity-external-research.md)
+
+Four pillars (do not start a phase before the previous is green):
+1. **Phase 0** — round-trip pytest matrix (safety net, no production changes)
+2. **Phase 1 (Pillar A)** — finish `collectStateSnapshot`; every mode enter/exit symmetric; reconciler called after every state mutation
+3. **Phase 2 (Pillar C)** — command registry + `when` clauses; kill the 1309-line keydown switch
+4. **Phase 3 (Pillar B step 1)** — finish `ColorBar` class migration (multi-view, qMRI)
+5. **Phase 4 (Pillar B step 2)** — collapse 5 scale functions into 1 + layout strategies
+6. **Phase 5 (Pillar D step 3)** — Hypothesis stateful tests; optional Photoshop variant
+
+Explicitly skipped: XState, React/Lit, renderer rewrite, hierarchical statecharts,
+big snapshot matrix. See strategy doc for why.
+
 ## New candidates (spotted 2026-04-07)
 
 ### 6. Decompose `view()` in `_launcher.py`
