@@ -2520,6 +2520,21 @@
         /* ── JS: Compare Mode ─────────────────────────────────────── */
 
         function compareScaleCanvases() {
+            function _ensureClipWrapper(inner, vpW, vpH) {
+                let clip = inner.parentElement;
+                if (!clip || !clip.classList.contains('compare-canvas-clip')) {
+                    clip = document.createElement('div');
+                    clip.className = 'compare-canvas-clip';
+                    inner.parentElement.insertBefore(clip, inner);
+                    clip.appendChild(inner);
+                }
+                clip.style.width = vpW + 'px';
+                clip.style.height = vpH + 'px';
+                inner.dataset.vpW = vpW;
+                inner.dataset.vpH = vpH;
+                inner.style.width = '';
+                inner.style.height = '';
+            }
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
             const titleReserve = _fullscreenActive ? 0 : 28;
@@ -2599,20 +2614,8 @@
                     if (cvH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cvW / cvH));
                     if (cvW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cvH / cvW));
                     // Ensure clip wrapper exists between wrap and inner
-                    let clip = inner.parentElement;
-                    if (!clip || !clip.classList.contains('compare-canvas-clip')) {
-                        clip = document.createElement('div');
-                        clip.className = 'compare-canvas-clip';
-                        inner.parentElement.insertBefore(clip, inner);
-                        clip.appendChild(inner);
-                    }
-                    clip.style.width = vpW + 'px';
-                    clip.style.height = vpH + 'px';
-                    inner.dataset.vpW = vpW;
-                    inner.dataset.vpH = vpH;
+                    _ensureClipWrapper(inner, vpW, vpH);
                     // Inner must NOT be constrained — let it size to the canvas
-                    inner.style.width = '';
-                    inner.style.height = '';
                 }
             }
             // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
@@ -2628,19 +2631,7 @@
                 const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
                 const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
                 if (diffInner && firstInner) {
-                    let diffClip = diffInner.parentElement;
-                    if (!diffClip || !diffClip.classList.contains('compare-canvas-clip')) {
-                        diffClip = document.createElement('div');
-                        diffClip.className = 'compare-canvas-clip';
-                        diffInner.parentElement.insertBefore(diffClip, diffInner);
-                        diffClip.appendChild(diffInner);
-                    }
-                    diffClip.style.width = (firstInner.dataset.vpW || 0) + 'px';
-                    diffClip.style.height = (firstInner.dataset.vpH || 0) + 'px';
-                    diffInner.dataset.vpW = firstInner.dataset.vpW;
-                    diffInner.dataset.vpH = firstInner.dataset.vpH;
-                    diffInner.style.width = '';
-                    diffInner.style.height = '';
+                    _ensureClipWrapper(diffInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
                 }
             }
             // Wipe canvas inner viewport sizing (also used by flicker and checkerboard)
@@ -2651,19 +2642,7 @@
                 if (wipeInner && firstInner && wipeCv) {
                     wipeCv.style.width = compareCanvases[0].style.width;
                     wipeCv.style.height = compareCanvases[0].style.height;
-                    let wipeClip = wipeInner.parentElement;
-                    if (!wipeClip || !wipeClip.classList.contains('compare-canvas-clip')) {
-                        wipeClip = document.createElement('div');
-                        wipeClip.className = 'compare-canvas-clip';
-                        wipeInner.parentElement.insertBefore(wipeClip, wipeInner);
-                        wipeClip.appendChild(wipeInner);
-                    }
-                    wipeClip.style.width = (firstInner.dataset.vpW || 0) + 'px';
-                    wipeClip.style.height = (firstInner.dataset.vpH || 0) + 'px';
-                    wipeInner.dataset.vpW = firstInner.dataset.vpW;
-                    wipeInner.dataset.vpH = firstInner.dataset.vpH;
-                    wipeInner.style.width = '';
-                    wipeInner.style.height = '';
+                    _ensureClipWrapper(wipeInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
                 }
             }
             // Shrink pane slots to wrap content so panes stay close together.
