@@ -110,7 +110,8 @@ def _schedule_prefetch(session, dim_x, dim_y, idx_list, slice_dim, direction):
         for t in targets:
             idx = list(idx_list)
             idx[slice_dim] = t
-            key = (dim_x, dim_y, tuple(idx))
+            key_idx = tuple(None if i in (dim_x, dim_y) else idx[i] for i in range(len(idx)))
+            key = (dim_x, dim_y, key_idx)
             if key not in session.raw_cache:
                 try:
                     extract_slice(session, dim_x, dim_y, idx)

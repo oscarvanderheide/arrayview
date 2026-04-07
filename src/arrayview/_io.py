@@ -133,7 +133,13 @@ def load_data(filepath):
         if len(keys) == 1:
             return npz[keys[0]]
         return _select_npz_array(npz, filepath)
-    elif filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
+    elif filepath.endswith(".nii.gz"):
+        # Gzip streams aren't seekable, so nibabel's lazy dataobj decompresses
+        # large portions of the file on every arbitrary slice access. Materialize
+        # the volume up front so subsequent slicing is cheap.
+        return np.asarray(_nib().load(filepath).dataobj)
+    elif filepath.endswith(".nii"):
+        # Uncompressed NIfTI is memory-mapped via dataobj — slicing is cheap.
         return _nib().load(filepath).dataobj
     elif filepath.endswith(".zarr") or filepath.endswith(".zarr.zip"):
         import zarr

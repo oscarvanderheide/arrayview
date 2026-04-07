@@ -111,7 +111,10 @@ def _compute_vmin_vmax(session, data, dr=0, complex_mode=0):
 
 
 def extract_slice(session, dim_x, dim_y, idx_list):
-    key = (dim_x, dim_y, tuple(idx_list))
+    # Mask out indices along the displayed dims — they're slice(None) in the
+    # slicer below, so the extracted data doesn't depend on them.
+    key_idx = tuple(None if i in (dim_x, dim_y) else idx_list[i] for i in range(len(idx_list)))
+    key = (dim_x, dim_y, key_idx)
     if key in session.raw_cache:
         session.raw_cache.move_to_end(key)
         return session.raw_cache[key]
@@ -154,7 +157,12 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
 
     proj_mode: 1=max, 2=min, 3=mean, 4=std, 5=sos (sum of squares)
     """
-    key = ("proj", dim_x, dim_y, tuple(idx_list), proj_dim, proj_mode)
+    # Mask out indices along the displayed/projected dims — they're slice(None).
+    key_idx = tuple(
+        None if i in (dim_x, dim_y, proj_dim) else idx_list[i]
+        for i in range(len(idx_list))
+    )
+    key = ("proj", dim_x, dim_y, key_idx, proj_dim, proj_mode)
     if key in session.raw_cache:
         session.raw_cache.move_to_end(key)
         return session.raw_cache[key]
