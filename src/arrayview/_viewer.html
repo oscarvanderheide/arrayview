@@ -1718,7 +1718,7 @@
         let dim_z = -1;
         let lastDirection = 1;
         let isDark = true;
-        let themeIdx = __DEFAULT_THEME_IDX__; // 0=dark, 1=light, 2=solarized, 3=nord
+        let themeIdx = 0; // set immediately by applyTheme() below
         const THEMES = ['dark', 'light', 'solarized', 'nord'];
         function applyTheme(idx) {
             themeIdx = idx;
@@ -1727,6 +1727,7 @@
             document.documentElement.classList.remove('light', 'solarized', 'nord');
             if (t !== 'dark') document.documentElement.classList.add(t);
         }
+        applyTheme(__DEFAULT_THEME_IDX__);
         let isComplex = false;
         let complexMode = 0;
         let complexModeEverUsed = false;
