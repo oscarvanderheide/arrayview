@@ -72,7 +72,7 @@ from arrayview._render import (
 )
 
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
-from arrayview._config import get_viewer_colormaps
+from arrayview._config import get_viewer_colormaps, get_viewer_theme
 
 
 # ── Vector Field Helpers ──────────────────────────────────────────
@@ -3331,12 +3331,16 @@ def get_ui(sid: str = None):
     _init_luts()
     _cfg_colormaps = get_viewer_colormaps()
     _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
+    _theme_names = ["dark", "light", "solarized", "nord"]
+    _cfg_theme = get_viewer_theme()
+    _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
+        .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
     )
     headers = {"Cache-Control": "no-store"}
     return HTMLResponse(content=html, headers=headers)

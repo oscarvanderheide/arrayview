@@ -41,6 +41,21 @@ def get_viewer_colormaps() -> list[str] | None:
     return None
 
 
+_VALID_THEMES = {"dark", "light", "solarized", "nord"}
+
+
+def get_viewer_theme() -> str | None:
+    """Return user-configured default theme name, or None if not configured."""
+    cfg = load_config()
+    viewer_cfg = cfg.get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    theme = viewer_cfg.get("theme")
+    if isinstance(theme, str) and theme.strip().lower() in _VALID_THEMES:
+        return theme.strip().lower()
+    return None
+
+
 def get_nninteractive_url() -> str | None:
     """Return configured nnInteractive server URL, or None.
 
