@@ -431,13 +431,44 @@
             border-radius: 3px; font-size: 10px; color: var(--text); cursor: pointer; }
         .ram-block-ok:hover { border-color: var(--picker-accent, var(--active-dim)); }
         /* ── CSS: Help and Info Overlays ──────────────────────────── */
-        #help-overlay, #info-overlay {
+        #help-overlay, #info-overlay, #cmd-palette {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
             z-index: 10; justify-content: center; align-items: center;
         }
-        #help-overlay.visible, #info-overlay.visible { display: flex; }
+        #help-overlay.visible, #info-overlay.visible, #cmd-palette.visible { display: flex; }
+        #cmd-palette { z-index: 50; align-items: flex-start; padding-top: 14vh; }
+        #cmd-palette-box {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: min(640px, 92vw); max-height: 70vh;
+            display: flex; flex-direction: column;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            color: var(--text); overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        #cmd-palette-input {
+            background: transparent; border: 0;
+            border-bottom: 1px solid var(--border);
+            color: var(--text); font: inherit; font-size: 13px;
+            padding: 12px 14px; outline: none; width: 100%; box-sizing: border-box;
+        }
+        #cmd-palette-list {
+            list-style: none; margin: 0; padding: 6px 0;
+            overflow-y: auto; flex: 1; min-height: 0;
+        }
+        #cmd-palette-list li {
+            display: flex; align-items: baseline; gap: 8px;
+            padding: 5px 14px; font-size: 12px; cursor: pointer;
+            white-space: nowrap;
+        }
+        #cmd-palette-list li.hidden { display: none; }
+        #cmd-palette-list li.disabled { opacity: 0.4; cursor: default; }
+        #cmd-palette-list li.active { background: rgba(230,200,60,0.18); }
+        #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
+        #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+        #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
         #help-box, #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1482,6 +1513,12 @@
             </div>
             <div class="help-footer">press <kbd>?</kbd> to close</div>
         </div>
+    </div>
+</div>
+<div id="cmd-palette">
+    <div id="cmd-palette-box">
+        <input id="cmd-palette-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false">
+        <ul id="cmd-palette-list"></ul>
     </div>
 </div>
 <div id="snapshot-gallery" class="gallery-panel">
@@ -9857,8 +9894,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     return;
                 },
             },
+            'palette.open': {
+                title: 'Open command palette',
+                when: ['!paletteOpen'],
+                run: (ctx, e) => { openCommandPalette(); },
+            },
         };
         const keybinds = [
+            { key: '/', command: 'palette.open' },
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
@@ -10024,6 +10067,123 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 panel.appendChild(row);
             }
         }
+
+        // Command palette -----------------------------------------------------
+        let _paletteBuilt = false;
+        let _paletteEntries = []; // [{id, title, category, keyStr, li}]
+        let _paletteVisible = []; // filtered indices into _paletteEntries (enabled only)
+        let _paletteActiveVisIdx = 0;
+
+        function _paletteBuild() {
+            const list = document.getElementById('cmd-palette-list');
+            list.innerHTML = '';
+            _paletteEntries = [];
+            const bindsByCmd = {};
+            for (const b of keybinds) (bindsByCmd[b.command] = bindsByCmd[b.command] || []).push(b);
+            const ids = Object.keys(commands).sort();
+            for (const id of ids) {
+                const cmd = commands[id];
+                const title = cmd.title || id;
+                const category = id.split('.')[0];
+                const binds = bindsByCmd[id] || [];
+                const keyStr = binds.map(formatKeybind).join(', ');
+                const li = document.createElement('li');
+                li.dataset.cmdId = id;
+                const cat = document.createElement('span'); cat.className = 'cmd-cat'; cat.textContent = category;
+                const ttl = document.createElement('span'); ttl.className = 'cmd-title'; ttl.textContent = title;
+                const key = document.createElement('span'); key.className = 'cmd-key'; key.textContent = keyStr;
+                li.appendChild(cat); li.appendChild(ttl); li.appendChild(key);
+                li.addEventListener('mousedown', (ev) => {
+                    ev.preventDefault();
+                    if (li.classList.contains('disabled') || li.classList.contains('hidden')) return;
+                    _paletteRun(id);
+                });
+                list.appendChild(li);
+                _paletteEntries.push({ id, title, category, keyStr, li });
+            }
+        }
+
+        function _paletteFilter(query) {
+            const ctx = makeContext(null);
+            const q = (query || '').trim().toLowerCase();
+            _paletteVisible = [];
+            for (let i = 0; i < _paletteEntries.length; i++) {
+                const e = _paletteEntries[i];
+                const hay = (e.title + ' ' + e.category + ' ' + e.id).toLowerCase();
+                const matches = q.length === 0 || hay.indexOf(q) !== -1;
+                const enabled = evalWhen(commands[e.id].when, ctx);
+                e.li.classList.toggle('hidden', !matches);
+                e.li.classList.toggle('disabled', !enabled);
+                e.li.classList.remove('active');
+                if (matches && enabled) _paletteVisible.push(i);
+            }
+            _paletteActiveVisIdx = 0;
+            _paletteHighlight();
+        }
+
+        function _paletteHighlight() {
+            for (const e of _paletteEntries) e.li.classList.remove('active');
+            if (_paletteVisible.length === 0) return;
+            if (_paletteActiveVisIdx < 0) _paletteActiveVisIdx = 0;
+            if (_paletteActiveVisIdx >= _paletteVisible.length) _paletteActiveVisIdx = _paletteVisible.length - 1;
+            const e = _paletteEntries[_paletteVisible[_paletteActiveVisIdx]];
+            e.li.classList.add('active');
+            e.li.scrollIntoView({ block: 'nearest' });
+        }
+
+        function _paletteRun(id) {
+            const cmd = commands[id];
+            if (!cmd) return;
+            closeCommandPalette();
+            try { cmd.run(makeContext(null), null); } catch (err) { console.warn('palette run failed', id, err); }
+        }
+
+        function _paletteKey(e) {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommandPalette(); return; }
+            if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); _paletteActiveVisIdx++; _paletteHighlight(); return; }
+            if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); _paletteActiveVisIdx--; _paletteHighlight(); return; }
+            if (e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation();
+                if (_paletteVisible.length === 0) return;
+                const entry = _paletteEntries[_paletteVisible[_paletteActiveVisIdx]];
+                _paletteRun(entry.id);
+                return;
+            }
+            // Stop other keydown listeners (e.g. the sink dispatcher) from firing while palette is open.
+            e.stopPropagation();
+        }
+
+        function openCommandPalette() {
+            if (paletteOpen) return;
+            if (!_paletteBuilt) { _paletteBuild(); _paletteBuilt = true; }
+            const root = document.getElementById('cmd-palette');
+            const input = document.getElementById('cmd-palette-input');
+            paletteOpen = true;
+            root.classList.add('visible');
+            input.value = '';
+            _paletteFilter('');
+            setTimeout(() => input.focus(), 0);
+        }
+
+        function closeCommandPalette() {
+            if (!paletteOpen) return;
+            paletteOpen = false;
+            document.getElementById('cmd-palette').classList.remove('visible');
+            try { sink.focus(); } catch (_) {}
+        }
+
+        // Wire palette DOM listeners once the DOM is ready.
+        (function _wirePalette() {
+            const input = document.getElementById('cmd-palette-input');
+            const root = document.getElementById('cmd-palette');
+            if (!input || !root) return;
+            input.addEventListener('input', () => _paletteFilter(input.value));
+            // Capture-phase keydown so we intercept before the sink dispatcher.
+            input.addEventListener('keydown', _paletteKey, true);
+            root.addEventListener('mousedown', (e) => {
+                if (e.target === root) closeCommandPalette();
+            });
+        })();
 
         function evalWhen(whenArr, ctx) {
             if (!whenArr || whenArr.length === 0) return true;
