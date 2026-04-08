@@ -8423,6 +8423,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'zoom.in': {
+                title: 'Zoom in / enter immersive',
+                when: [],
+                run: (ctx, e) => {
+                    if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
+                    if (!_fullscreenActive && !_zoomAdjustedByUser &&
+                        _shouldEnterImmersive()) {
+                        // First =: enter immersive mode via animated transition
+                        _enterImmersive();
+                        showStatus('immersive');
+                        saveState();
+                    } else {
+                        // Already immersive or can't enter: zoom in
+                        userZoom = userZoom * 1.1;
+                        if (!_snapZoomToFit()) {
+                            _zoomAdjustedByUser = true;
+                        }
+                        _scaleAllWithAnim();
+                        showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                        saveState();
+                    }
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8444,6 +8467,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
+            { key: '+', command: 'zoom.in' },
+            { key: '=', command: 'zoom.in' },
         ];
 
         function makeContext(_state) {
@@ -8525,25 +8550,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === '+' || e.key === '=') {
-                if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
-                if (!_fullscreenActive && !_zoomAdjustedByUser &&
-                    _shouldEnterImmersive()) {
-                    // First =: enter immersive mode via animated transition
-                    _enterImmersive();
-                    showStatus('immersive');
-                    saveState();
-                } else {
-                    // Already immersive or can't enter: zoom in
-                    userZoom = userZoom * 1.1;
-                    if (!_snapZoomToFit()) {
-                        _zoomAdjustedByUser = true;
-                    }
-                    _scaleAllWithAnim();
-                    showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
-                    saveState();
-                }
-            } else if (e.key === '-') {
+            if (e.key === '-') {
                 if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                 userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
                 if (!_snapZoomToFit()) {
