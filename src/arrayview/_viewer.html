@@ -10377,6 +10377,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 comparePan.reset();
                 compareActive = true;
                 applyCompareLayout();
+                // Restore-path fix: if snapshot set diffMode > 0, recreate diff colorbars
+                // (applyStateSnapshot doesn't call _setCompareCenterMode so this is needed).
+                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
                 _reconcileUI();
                 renderInfo();
                 updateView();
@@ -10419,6 +10422,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 comparePan.reset();
                 compareActive = true;
                 applyCompareLayout();
+                // Restore-path fix: if snapshot set diffMode > 0, recreate diff colorbars
+                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
                 _reconcileUI();
                 renderInfo();
                 updateView();
