@@ -9531,6 +9531,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'vfield.toggleArrows': {
+                title: 'Toggle vector field arrow overlay',
+                when: [],
+                run: (ctx, e) => {
+                    if (!hasVectorfield) {
+                        showStatus('U: no vector field loaded');
+                        return;
+                    } // kept inline: emits toast
+                    vfieldVisible = !vfieldVisible;
+                    if (!vfieldVisible) {
+                        if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
+                        vfieldCanvas.style.display = 'none';
+                        if (multiViewActive) {
+                            _mvVfieldAborts.forEach(ac => ac.abort());
+                            _mvVfieldAborts.clear();
+                            _mvVfieldCache.clear();
+                            document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
+                        }
+                    } else {
+                        if (multiViewActive) mvDrawAllVectorOverlays();
+                        else drawVectorOverlay();
+                    }
+                    showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
+                    saveState();
+                },
+            },
+            'ruler.toggle': {
+                title: 'Toggle ruler (click A→B to measure)',
+                when: [],
+                run: (ctx, e) => {
+                    // Ruler mode: click A→B to measure pixel distance
+                    toggleRulerMode();
+                },
+            },
             'seg.exit': {
                 title: 'Exit segmentation mode',
                 when: ['segMode'],
@@ -9959,6 +9993,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Order matters: seg.exit (when segMode) takes precedence over slice.cancelJump
             { key: 'Escape', command: 'seg.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
+            { key: 'U', command: 'vfield.toggleArrows' },
+            { key: 'u', command: 'ruler.toggle' },
         ];
 
         function makeContext(_state) {
@@ -10066,31 +10102,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 helpOverlay.classList.remove('visible');
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
-            }
-            if (e.key === 'U') {
-                if (!hasVectorfield) {
-                    showStatus('U: no vector field loaded');
-                    return;
-                }
-                vfieldVisible = !vfieldVisible;
-                if (!vfieldVisible) {
-                    if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
-                    vfieldCanvas.style.display = 'none';
-                    if (multiViewActive) {
-                        _mvVfieldAborts.forEach(ac => ac.abort());
-                        _mvVfieldAborts.clear();
-                        _mvVfieldCache.clear();
-                        document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
-                    }
-                } else {
-                    if (multiViewActive) mvDrawAllVectorOverlays();
-                    else drawVectorOverlay();
-                }
-                showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
-                saveState();
-            } else if (e.key === 'u') {
-                // Ruler mode: click A→B to measure pixel distance
-                toggleRulerMode();
             }
         });
 
