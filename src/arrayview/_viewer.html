@@ -8713,6 +8713,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'alpha.toggle': {
+                title: 'Toggle alpha (transparent below vmin)',
+                when: [],
+                run: (ctx, e) => {
+                    // Toggle alpha (transparent below vmin)
+                    alphaLevel = alphaLevel ? 0 : 1;
+                    _eggsVisible = true;
+                    proxyFetch(`/alpha/${sid}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ level: alphaLevel }),
+                    }).then(r => r.json()).then(d => {
+                        if (d.error) { showStatus('alpha error: ' + d.error); return; }
+                        updateView(); triggerPreload();
+                        renderEggs();
+                    });
+                },
+            },
             'view.toggleSquareStretch': {
                 title: 'Toggle stretch-to-square',
                 when: [],
@@ -8976,6 +8994,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 't', command: 'view.transpose' },
             { key: 'b', command: 'borders.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
+            { key: 'A', command: 'alpha.toggle' },
         ];
 
         function makeContext(_state) {
@@ -9081,20 +9100,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'A') {
-                // Toggle alpha (transparent below vmin)
-                alphaLevel = alphaLevel ? 0 : 1;
-                _eggsVisible = true;
-                proxyFetch(`/alpha/${sid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ level: alphaLevel }),
-                }).then(r => r.json()).then(d => {
-                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
-                    updateView(); triggerPreload();
-                    renderEggs();
-                });
-            } else if (e.key === 's') {
+            if (e.key === 's') {
                 saveScreenshot();
             } else if (e.key === 'S') {
                 // Toggle/cycle nnInteractive segmentation mode
