@@ -65,23 +65,40 @@
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums; align-self: center;
             padding: 5px 16px; border-radius: 18px;
-            background: rgba(30, 30, 30, 0.8);
+            background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            transition: background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            position: relative;
+            transition: background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+        }
+        /* Param-flash edge layer: a colored border overlay clipped to the
+           left --av-fill-px portion of the pill. Sits on top of the existing
+           border so the colored fraction reads as a brighter outline. */
+        #info::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border: 1px solid var(--av-fill-tint, transparent);
+            border-radius: inherit;
+            pointer-events: none;
+            z-index: 1;
+            clip-path: inset(0 calc(100% - var(--av-fill-px, 0px)) 0 0);
+            transition: clip-path 0.18s cubic-bezier(0.2, 0.7, 0.2, 1.0),
+                        border-color 0.4s ease;
         }
         :root.light #info {
-            background: rgba(240, 240, 240, 0.85);
+            background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
         }
         :root.solarized #info {
-            background: rgba(238, 232, 213, 0.85);
+            background-color: rgba(238, 232, 213, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
         }
         :root.nord #info {
-            background: rgba(36, 41, 56, 0.85);
+            background-color: rgba(36, 41, 56, 0.85);
             border-color: rgba(216, 222, 233, 0.07);
         }
+
         #viewer-row {
             position: relative;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -828,7 +845,7 @@
         body.fullscreen-mode #info {
             position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
             margin: 0 !important; padding: 6px 16px;
-            background: rgba(30, 30, 30, 0.8);
+            background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 14px;
@@ -955,7 +972,7 @@
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
         body:not(.fullscreen-mode) #info {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            background-color: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
         }
         body:not(.fullscreen-mode) #slim-cb-wrap {
@@ -6425,6 +6442,49 @@
             }
         }
 
+        // ── Param flash on the dimbar (#info) ──────────────────────────
+        // Paints a left-to-right colored *edge* on the #info pill whose
+        // width encodes the current value of a parameter (playback fps /
+        // vfield density / vfield length) within its [min, max] range.
+        // When viewing a single array in non-immersive mode, also swaps the
+        // array name with a caption ("Playback FPS: 30", etc). Otherwise no
+        // text is shown — the edge fill alone is the indicator. The fill +
+        // any text swap fade out 1 second after the last press.
+        const _DIMBAR_TINTS = {
+            fps:     'rgba(245,150, 70, 0.85)',
+            density: 'rgba( 90,170,240, 0.85)',
+            length:  'rgba(140,220,140, 0.85)',
+        };
+        let _dimbarFlashTimer = null;
+        let _dimbarSavedName = null;   // original array-name text while a flash is swapping it
+        function _dimbarFillFlash(which, norm01, captionHTML) {
+            const el = document.getElementById('info');
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const fillPx = Math.max(0, Math.min(1, norm01)) * rect.width;
+            el.style.setProperty('--av-fill-px', fillPx.toFixed(1) + 'px');
+            el.style.setProperty('--av-fill-tint', _DIMBAR_TINTS[which] || 'transparent');
+
+            // Caption swap: only when viewing a single array in non-immersive mode.
+            const showCaption = !compareActive && !document.body.classList.contains('fullscreen-mode');
+            const nameEl = document.getElementById('array-name-text');
+            if (showCaption && nameEl) {
+                if (_dimbarSavedName === null) _dimbarSavedName = nameEl.innerHTML;
+                nameEl.innerHTML = captionHTML;
+            }
+
+            if (_dimbarFlashTimer) clearTimeout(_dimbarFlashTimer);
+            _dimbarFlashTimer = setTimeout(() => {
+                el.style.setProperty('--av-fill-px', '0px');
+                el.style.setProperty('--av-fill-tint', 'transparent');
+                if (_dimbarSavedName !== null && nameEl) {
+                    nameEl.innerHTML = _dimbarSavedName;
+                    _dimbarSavedName = null;
+                }
+                _dimbarFlashTimer = null;
+            }, 1000);
+        }
+
         function _getVisibleOverlaySids() {
             let base = '';
             if (overlay_sid) {
@@ -8500,10 +8560,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 cycleCompareTarget(1);
             } else if (e.key === '<' || e.key === '>') {
                 if (isPlaying) {
-                    const delta = e.key === '>' ? 5 : -5;
-                    playFps = Math.max(1, Math.min(120, playFps + delta));
+                    // Multiplicative step so the slider feels continuous rather
+                    // than stairs-y. Floor the change at ±1 so small integers
+                    // don't round back to themselves.
+                    const up = e.key === '>';
+                    let next = up ? playFps * 1.12 : playFps / 1.12;
+                    next = Math.round(next);
+                    if (next === playFps) next = playFps + (up ? 1 : -1);
+                    playFps = Math.max(1, Math.min(120, next));
                     setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
                     showToast(`playback: ${playFps} fps`);
+                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1),
+                        `Playback FPS: <b>${playFps}</b>`);
                     return;
                 }
             } else if (e.key === '[' || e.key === ']') {
@@ -8556,6 +8624,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
                     else drawVectorOverlay();
                     showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
+                    _dimbarFillFlash('density', (vfDensityLevel + 5) / 10,
+                        'Vector field: <b>arrow density</b>');
                 } else {
                     showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                 }
@@ -8564,6 +8634,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (multiViewActive) mvDrawAllVectorOverlays();
                 else drawVectorOverlay();
                 showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
+                _dimbarFillFlash('length', (vfLengthLevel + 5) / 10,
+                    'Vector field: <b>arrow length</b>');
             } else if (e.key === 'i') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) {
