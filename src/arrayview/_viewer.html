@@ -12582,7 +12582,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastH = frame.height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
-                drawCmvSlimCb(v);
+                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; compareMvRender(v); }
@@ -12680,16 +12680,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (compareMvActive) {
-                    compareMvViews.forEach(v2 => drawCmvSlimCb(v2));
+                    compareMvViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
                     positionEggs();
                 }
             });
             return scaledMin > absMaxScale + 0.001 ? 'max' : null;
-        }
-
-        function drawCmvSlimCb(v) {
-            // Reuse the same logic as drawQvSlimCb
-            drawQvSlimCb(v);
         }
 
         function compareMvOnMessage(v, event) {
@@ -12709,7 +12704,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastW = width; v.lastH = height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
-                drawCmvSlimCb(v);
+                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; compareMvRender(v); }
@@ -13046,51 +13041,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             });
             return atMax ? 'max' : null;
-        }
-
-        function drawQvSlimCb(v) {
-            if (!v.cbCanvas) return;
-            const qvCbIsland = v.cbCanvas.closest('.cb-island');
-            const canvasCssW = parseInt(v.canvas.style.width);
-            if (!canvasCssW || canvasCssW < 10) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
-            // Use canvas CSS width directly — qvScaleAllCanvases already caps the canvas
-            // to fit within the pane, so no clientWidth clamping needed (and clientWidth
-            // may be 0 before browser layout settles on first render).
-            const cssW = canvasCssW;
-            if (!colorbarVisible()) { v.cbCanvas.style.display = 'none'; if (v.cbVmin) v.cbVmin.style.display = 'none'; if (v.cbVmax) v.cbVmax.style.display = 'none'; if (qvCbIsland) qvCbIsland.style.display = 'none'; return; }
-            // v.colormap is set for qMRI panes; for compare-mv panes it may be absent — fall back to global
-            const stops = v.colormap
-                ? COLORMAP_GRADIENT_STOPS[v.colormap]
-                : (colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]]);
-            if (!stops) return;
-            const stripH = CB_COLLAPSED_H;
-            const dpr = window.devicePixelRatio || 1;
-            v.cbCanvas.width = Math.round(cssW * dpr);
-            v.cbCanvas.height = Math.round(stripH * dpr);
-            v.cbCanvas.style.width = cssW + 'px';
-            v.cbCanvas.style.height = stripH + 'px';
-            v.cbCanvas.style.display = '';
-            if (v.cbVmin) v.cbVmin.style.display = '';
-            if (v.cbVmax) v.cbVmax.style.display = '';
-            if (qvCbIsland) { qvCbIsland.style.display = ''; qvCbIsland.style.width = cssW + 'px'; }
-            const sCtx = v.cbCanvas.getContext('2d');
-            sCtx.clearRect(0, 0, v.cbCanvas.width, v.cbCanvas.height);
-            sCtx.save();
-            sCtx.scale(dpr, dpr);
-            const grad = sCtx.createLinearGradient(0, 0, cssW, 0);
-            const n = stops.length;
-            for (let i = 0; i < n; i++) {
-                const t = n <= 1 ? 0 : i / (n - 1);
-                const rgb = stops[i];
-                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-            }
-            sCtx.fillStyle = grad;
-            sCtx.fillRect(0, 0, cssW, stripH);
-            sCtx.restore();
-            {
-                if (v.cbVmin) v.cbVmin.innerHTML = _cbFmt(v.vmin);
-                if (v.cbVmax) v.cbVmax.innerHTML = _cbFmt(v.vmax);
-            }
         }
 
         function qvOnMessage(v, event) {
