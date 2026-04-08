@@ -9761,6 +9761,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'I', command: 'info.toggle' },
             { key: 'e', command: 'url.copyReusable' },
             { key: 'f', command: 'fft.toggle' },
+            { key: 'x', command: 'axis.assignX' },
         ];
 
         function makeContext(_state) {
@@ -9866,17 +9867,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'x') {
-                if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
-                if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; }
-                if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; }
-                if (shape.length < 3) return;
-                if (activeDim === dim_x) { /* already x */ }
-                else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
-                else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
-                dim_z = -1;
-                updateView(); triggerPreload();
-            } else if (e.key === 'y') {
+            if (e.key === 'y') {
                 if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
                 if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; }
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; }
