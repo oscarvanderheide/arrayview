@@ -8782,7 +8782,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function dispatchCommand(e) {
-            const matching = keybinds.filter(b => b.key === e.key);
+            const _modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
+            const matching = keybinds.filter(b => {
+                if (b.key !== e.key) return false;
+                // Unspecified ctrl/alt/meta/mod ⇒ must be OFF.
+                // Shift is special: since bindings use literal characters
+                // like 'F' or '{' that inherently require shift on most
+                // layouts, `shift` defaults to don't-care unless explicitly
+                // set to true/false.
+                const needAlt = !!b.alt;
+                const needCtrl = !!b.ctrl, needMeta = !!b.meta, needMod = !!b.mod;
+                if (b.shift === true && !e.shiftKey) return false;
+                if (b.shift === false && e.shiftKey) return false;
+                if (!!e.altKey !== needAlt) return false;
+                if (needMod) {
+                    if (!_modKey) return false;
+                    // When `mod` is set, don't also require raw ctrl/meta.
+                } else {
+                    if (!!e.ctrlKey !== needCtrl) return false;
+                    if (!!e.metaKey !== needMeta) return false;
+                }
+                return true;
+            });
             if (matching.length === 0) return false;
             const ctx = makeContext(null);
             for (const b of matching) {
