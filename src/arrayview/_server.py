@@ -768,6 +768,49 @@ async def get_metadata(sid: str):
         )
 
 
+# density_offset → arrow sampling target.
+#
+# Historically we picked an integer `stride` per level, but on small slices
+# consecutive levels rounded to the same stride — pressing ] did nothing for
+# a few presses and then jumped. Instead we interpolate the *number of
+# arrows* in log-space between a sparse endpoint and H*W, which stays
+# monotonic on every slice size. The effective stride (float) is derived
+# from n_arrows for the visual arrow-length scale. Level +5 switches to
+# grid sampling covering every pixel.
+
+
+_MAX_VFIELD_ARROWS = 65536
+
+
+def _vfield_counts_for_level(density_offset: int, H: int, W: int, base_stride: int):
+    """Return ``(n_arrows, effective_stride, use_grid)`` for a density level.
+
+    ``effective_stride`` is a float used only to scale arrow visual length;
+    ``n_arrows`` drives the actual sampling count.
+    """
+    level = max(-5, min(5, int(density_offset)))
+    total = max(1, H * W)
+    if level >= 5:
+        return min(total, _MAX_VFIELD_ARROWS), 1.0, True
+    # Sparse endpoint (level -5): ~ (H/(2·base_stride)) × (W/(2·base_stride))
+    # — meaningfully sparser than the default without disappearing on small
+    # slices.
+    sparse_stride = max(1, base_stride * 2)
+    n_min = max(1, max(1, H // sparse_stride) * max(1, W // sparse_stride))
+    # Dense endpoint (level +4, just below the +5 grid). Two caps apply:
+    #   - total // 2 so +4 is always visibly sparser than the grid
+    #   - _MAX_VFIELD_ARROWS // 2 so large slices (H·W > 2·MAX) don't clamp
+    #     +3 and +4 to the same capped count
+    n_max = max(n_min * 2, min(total // 2, _MAX_VFIELD_ARROWS // 2))
+    log_min = float(np.log2(n_min))
+    log_max = float(np.log2(n_max))
+    t = (level + 5) / 9.0  # 0 at -5, 1 at +4
+    log_n = log_min + t * (log_max - log_min)
+    n_arrows = max(1, min(total, int(round(2.0**log_n))))
+    effective_stride = float((total / n_arrows) ** 0.5)
+    return n_arrows, effective_stride, False
+
+
 def _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index=0, density_offset=0):
     """Compute downsampled vector field arrows for a 2-D view.
 
@@ -819,30 +862,44 @@ def _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index=0, density_
     vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
     vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
 
-    # Uniform random sampling with a fixed seed derived from (H, W) so that
-    # arrow positions are stable across slices (scrolling doesn't rearrange arrows).
+    # density_offset in [-5, +5]. n_arrows is interpolated in log-space so
+    # every level produces a different count on every slice size. The top
+    # level (+5) is the only one that switches to grid sampling — all
+    # other levels use random scatter for the organic look.
     base_stride = max(1, max(H, W) // 32)
-    # density_offset: positive = denser (smaller stride), negative = sparser
-    # Use √2 per step (half-octave) for finer control than 2x per step
-    stride = max(1, round(base_stride * (1.4142**-density_offset)))
-    MAX_ARROWS = 4096
-    n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
-    rng = np.random.default_rng(int(H) * 10007 + int(W))
-    gy = rng.integers(0, H, n_arrows).astype(int)
-    gx = rng.integers(0, W, n_arrows).astype(int)
+    n_arrows_target, effective_stride, use_grid = _vfield_counts_for_level(
+        density_offset, H, W, base_stride
+    )
+    if use_grid:
+        ys = np.arange(0, H, dtype=int)
+        xs = np.arange(0, W, dtype=int)
+        gy_grid, gx_grid = np.meshgrid(ys, xs, indexing="ij")
+        gy = gy_grid.ravel()
+        gx = gx_grid.ravel()
+        if gy.size > _MAX_VFIELD_ARROWS:
+            keep = np.linspace(0, gy.size - 1, _MAX_VFIELD_ARROWS).astype(int)
+            gy = gy[keep]
+            gx = gx[keep]
+    else:
+        # Random scatter — organic look, stable across slices via a fixed
+        # seed derived from (H, W).
+        n_arrows = min(n_arrows_target, _MAX_VFIELD_ARROWS)
+        rng = np.random.default_rng(int(H) * 10007 + int(W))
+        gy = rng.integers(0, H, n_arrows).astype(int)
+        gx = rng.integers(0, W, n_arrows).astype(int)
 
     vx_s = vx_comp[gy, gx]
     vy_s = vy_comp[gy, gx]
 
-    # Scale: stride * 0.75 / p95_magnitude  (image pixels per voxel unit)
+    # Scale: effective_stride * 0.75 / p95_magnitude (image pixels per voxel unit)
     mags = np.sqrt(vx_s**2 + vy_s**2)
     nonzero = mags[mags > 0]
     p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
-    scale = float(stride * 0.75 / max(p95, 1e-9))
+    scale = float(effective_stride * 0.75 / max(p95, 1e-9))
 
     # Stack into a single array for faster serialization
     coords = np.column_stack([gx, gy, vx_s, vy_s]).astype(np.float32)
-    return {"arrows": coords, "scale": scale, "stride": int(stride)}
+    return {"arrows": coords, "scale": scale, "stride": int(round(effective_stride))}
 
 
 @app.get("/vectorfield/{sid}")
@@ -2654,15 +2711,28 @@ def get_oblique_vectorfield(
         # After time selection, extract all spatial+component data
         vf_t = np.asarray(vf[tuple(slices)], dtype=np.float32)
 
-        # Stride / sampling (same logic as _compute_vfield_arrows)
+        # Sampling (same logic as _compute_vfield_arrows)
         H, W = size_h, size_w
         base_stride = max(1, max(H, W) // 32)
-        stride = max(1, round(base_stride * (1.4142 ** -density_offset)))
-        MAX_ARROWS = 4096
-        n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
-        rng = np.random.default_rng(int(H) * 10007 + int(W))
-        gy = rng.integers(0, H, n_arrows).astype(int)
-        gx = rng.integers(0, W, n_arrows).astype(int)
+        n_arrows_target, effective_stride, use_grid = _vfield_counts_for_level(
+            density_offset, H, W, base_stride
+        )
+        if use_grid:
+            ys = np.arange(0, H, dtype=int)
+            xs = np.arange(0, W, dtype=int)
+            gy_grid, gx_grid = np.meshgrid(ys, xs, indexing="ij")
+            gy = gy_grid.ravel()
+            gx = gx_grid.ravel()
+            if gy.size > _MAX_VFIELD_ARROWS:
+                keep = np.linspace(0, gy.size - 1, _MAX_VFIELD_ARROWS).astype(int)
+                gy = gy[keep]
+                gx = gx[keep]
+        else:
+            n_arrows = min(n_arrows_target, _MAX_VFIELD_ARROWS)
+            rng = np.random.default_rng(int(H) * 10007 + int(W))
+            gy = rng.integers(0, H, n_arrows).astype(int)
+            gx = rng.integers(0, W, n_arrows).astype(int)
+        n_arrows = gy.size
 
         # Convert 2D sample positions to 3D world coordinates
         hw, hh = W / 2.0, H / 2.0
@@ -2726,13 +2796,13 @@ def get_oblique_vectorfield(
         mags = np.sqrt(vx_s ** 2 + vy_s ** 2)
         nonzero = mags[mags > 0]
         p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
-        scale = float(stride * 0.75 / max(p95, 1e-9))
+        scale = float(effective_stride * 0.75 / max(p95, 1e-9))
 
         arrows = np.column_stack([gx, gy, vx_s, vy_s]).astype(np.float32)
         return {
             "arrows": arrows.tolist(),
             "scale": scale,
-            "stride": int(stride),
+            "stride": int(round(effective_stride)),
         }
     except Exception as e:
         import traceback

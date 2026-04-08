@@ -86,6 +86,18 @@
             transition: clip-path 0.18s cubic-bezier(0.2, 0.7, 0.2, 1.0),
                         border-color 0.4s ease;
         }
+        /* During revert, the edge fades out in place — no crawl. The
+           clip-path stays frozen at its current width; only the border
+           colour fades. Border-color transition is stretched so the fade
+           feels deliberate. */
+        #info.param-reverting::before {
+            transition: border-color 1.4s ease;
+        }
+        /* Used to silently reset --av-fill-px to 0 after the revert fade
+           without any visible clip-path animation. */
+        #info.param-reset-silent::before {
+            transition: none !important;
+        }
         :root.light #info {
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
@@ -1820,7 +1832,7 @@
         const roiOverlayCanvas = document.getElementById('roi-overlay');
         const roiOverlayCtx = roiOverlayCanvas ? roiOverlayCanvas.getContext('2d') : null;
         let _vfieldAbort = null;
-        let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-5..+5, half-octave steps)
+        let vfDensityLevel = 0; // [ / ] keys adjust arrow density (-5..+5, explicit stride schedule; +5 = every pixel)
         let vfLengthLevel = 0;  // { / } keys adjust arrow length  (-5..+5, half-octave steps)
         let sliceJumpBuffer = ''; // Accumulates digit keys for slice index jump
         let sliceJumpTimeout = null;
@@ -6456,31 +6468,35 @@
             length:  'rgba(140,220,140, 0.85)',
         };
         let _dimbarFlashTimer = null;
-        let _dimbarSavedName = null;   // original array-name text while a flash is swapping it
-        function _dimbarFillFlash(which, norm01, captionHTML) {
+        let _dimbarRevertCleanupTimer = null;
+        function _dimbarFillFlash(which, norm01) {
             const el = document.getElementById('info');
             if (!el) return;
+            // Cancel any in-flight revert so a new press snaps cleanly.
+            el.classList.remove('param-reverting');
+            if (_dimbarRevertCleanupTimer) { clearTimeout(_dimbarRevertCleanupTimer); _dimbarRevertCleanupTimer = null; }
+
             const rect = el.getBoundingClientRect();
             const fillPx = Math.max(0, Math.min(1, norm01)) * rect.width;
             el.style.setProperty('--av-fill-px', fillPx.toFixed(1) + 'px');
             el.style.setProperty('--av-fill-tint', _DIMBAR_TINTS[which] || 'transparent');
 
-            // Caption swap: only when viewing a single array in non-immersive mode.
-            const showCaption = !compareActive && !document.body.classList.contains('fullscreen-mode');
-            const nameEl = document.getElementById('array-name-text');
-            if (showCaption && nameEl) {
-                if (_dimbarSavedName === null) _dimbarSavedName = nameEl.innerHTML;
-                nameEl.innerHTML = captionHTML;
-            }
-
             if (_dimbarFlashTimer) clearTimeout(_dimbarFlashTimer);
             _dimbarFlashTimer = setTimeout(() => {
-                el.style.setProperty('--av-fill-px', '0px');
+                // Slow fade back to rest: the edge fades in place
+                // (tint → transparent), no crawl. --av-fill-px is silently
+                // reset to 0 after the fade so the next flash starts from
+                // the left.
+                el.classList.add('param-reverting');
                 el.style.setProperty('--av-fill-tint', 'transparent');
-                if (_dimbarSavedName !== null && nameEl) {
-                    nameEl.innerHTML = _dimbarSavedName;
-                    _dimbarSavedName = null;
-                }
+                _dimbarRevertCleanupTimer = setTimeout(() => {
+                    el.classList.add('param-reset-silent');
+                    el.style.setProperty('--av-fill-px', '0px');
+                    void el.offsetWidth;                 // force reflow
+                    el.classList.remove('param-reset-silent');
+                    el.classList.remove('param-reverting');
+                    _dimbarRevertCleanupTimer = null;
+                }, 1500);
                 _dimbarFlashTimer = null;
             }, 1000);
         }
@@ -8570,8 +8586,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     playFps = Math.max(1, Math.min(120, next));
                     setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
                     showToast(`playback: ${playFps} fps`);
-                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1),
-                        `Playback FPS: <b>${playFps}</b>`);
+                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
                     return;
                 }
             } else if (e.key === '[' || e.key === ']') {
@@ -8624,8 +8639,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
                     else drawVectorOverlay();
                     showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
-                    _dimbarFillFlash('density', (vfDensityLevel + 5) / 10,
-                        'Vector field: <b>arrow density</b>');
+                    _dimbarFillFlash('density', (vfDensityLevel + 5) / 10);
                 } else {
                     showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                 }
@@ -8634,8 +8648,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (multiViewActive) mvDrawAllVectorOverlays();
                 else drawVectorOverlay();
                 showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
-                _dimbarFillFlash('length', (vfLengthLevel + 5) / 10,
-                    'Vector field: <b>arrow length</b>');
+                _dimbarFillFlash('length', (vfLengthLevel + 5) / 10);
             } else if (e.key === 'i') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) {
