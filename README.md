@@ -2,7 +2,15 @@
 
 [![Documentation](https://img.shields.io/badge/docs-oscarvanderheide.github.io/arrayview-blue)](https://oscarvanderheide.github.io/arrayview/)
 
-A viewer for multi-dimensional arrays.
+Work with arrays? Need to look at them? Here's a modern take.
+
+```bash
+uvx arrayview your_array.npy
+```
+
+Works with `.npy`, `.mat`, `.h5`, `.zarr`, and friends.
+
+Minimal on purpose. Press `?` to find the rest.
 
 - CLI and Python
 - Jupyter / VS Code
