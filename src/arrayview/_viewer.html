@@ -9760,6 +9760,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'p', command: 'projection.cycle' },
             { key: 'I', command: 'info.toggle' },
             { key: 'e', command: 'url.copyReusable' },
+            { key: 'f', command: 'fft.toggle' },
         ];
 
         function makeContext(_state) {
@@ -9865,36 +9866,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'f') {
-                if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
-                if (_fftActive) {
-                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
-                        .then(r => r.json()).then(d => {
-                            hideFftSpinner();
-                            _fftActive = false;
-                            isComplex = d.is_complex || false;
-                            if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
-                            manualVmin = manualVmax = null;
-                            updateView(); triggerPreload();
-                            renderEggs();
-                        }).catch(() => hideFftSpinner());
-                } else {
-                    const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
-                    if (!axesStr) return;
-                    proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
-                        .then(r => r.json()).then(d => {
-                            hideFftSpinner();
-                            if (d.error) { showStatus('FFT error: ' + d.error); return; }
-                            _fftActive = true;
-                            _eggsVisible = true;
-                            isComplex = d.is_complex || false;
-                            complexMode = 0;
-                            manualVmin = manualVmax = null;
-                            updateView(); triggerPreload();
-                            renderEggs();
-                        }).catch(() => hideFftSpinner());
-                }
-            } else if (e.key === 'x') {
+            if (e.key === 'x') {
                 if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; }
                 if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; }
                 if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; }
