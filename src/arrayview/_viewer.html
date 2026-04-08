@@ -8713,6 +8713,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'view.toggleSquareStretch': {
+                title: 'Toggle stretch-to-square',
+                when: [],
+                run: (ctx, e) => {
+                    // Toggle stretch-to-square for thin-dimension slices
+                    squareStretch = !squareStretch;
+                    ModeRegistry.scaleAll();
+                    showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
+                },
+            },
             'borders.toggle': {
                 title: 'Toggle canvas borders',
                 when: [],
@@ -8965,6 +8975,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'r', command: 'view.rotateOrFlip' },
             { key: 't', command: 'view.transpose' },
             { key: 'b', command: 'borders.toggle' },
+            { key: 'a', command: 'view.toggleSquareStretch' },
         ];
 
         function makeContext(_state) {
@@ -9070,12 +9081,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'a') {
-                // Toggle stretch-to-square for thin-dimension slices
-                squareStretch = !squareStretch;
-                ModeRegistry.scaleAll();
-                showToast(squareStretch ? 'stretch to square: on' : 'stretch to square: off');
-            } else if (e.key === 'A') {
+            if (e.key === 'A') {
                 // Toggle alpha (transparent below vmin)
                 alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
