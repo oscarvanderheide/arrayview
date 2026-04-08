@@ -2640,34 +2640,43 @@
             if (hasCenterPane && paneCount === 2) {
                 applyPaneSlot(document.getElementById((_wipeActive || _flickerActive || _checkerActive) ? 'compare-wipe-pane' : 'compare-diff-pane'));
             }
+            // Per-pane geometry routed through the shared _scalePane primitive.
+            // Compare shares a single `comparePan` across all panes; _scalePane's
+            // overflow recenter only fires when pan.x===pan.y===0, so the FIRST
+            // pane processed (pane[0] / left) effectively acts as the auto-fit
+            // reference. comparePan.overflows also reads pane[0] dims, matching
+            // the prior post-loop recenter behavior. Compare doesn't use
+            // _autoFitPending / overflow recalc (no userZoom mutation here), so
+            // updateAutoFit/allowOverflowRecalc are both false. fitSlack is
+            // baked into baseScale. viewport:null — the clip wrapper (with its
+            // dataset.vpW/vpH tags used by comparePan) is still managed by
+            // _ensureClipWrapper below using the returned vpW/vpH.
+            const availW = Math.max(40, paneOuterW - panePadX);
+            const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
             for (let i = 0; i < paneCount; i++) {
                 const frame = activeFrames[i];
                 const cv = compareCanvases[i];
                 if (!frame || !cv) continue;
-                const availW = Math.max(40, paneOuterW - panePadX);
-                const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
-                const base = Math.min(availW / frame.width, availH / frame.height);
-                const scale = Math.max(0.01, base * fitSlack * userZoom);
-                let cvW = Math.round(frame.width * scale);
-                let cvH = Math.round(frame.height * scale);
-                if (squareStretch) { const sq = Math.max(cvW, cvH); cvW = sq; cvH = sq; }
-                cv.style.width = cvW + 'px';
-                cv.style.height = cvH + 'px';
-                // Set viewport (clipping container) via .compare-canvas-clip
-                // wrapper around .compare-canvas-inner.  The clip div handles
-                // overflow:hidden; inner is free to be larger so CSS translate
-                // on it produces the pan effect (mirrors #canvas-viewport /
-                // #canvas-inner split in single-view mode).
+                const base = Math.min(availW / frame.width, availH / frame.height) * fitSlack;
+                const r = _scalePane(
+                    { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
+                    null,
+                    {
+                        maxW: Math.round(capPaneW),
+                        maxH: Math.round(capPaneH),
+                        baseScale: Math.max(0.0001, base),
+                        squareStretch: squareStretch,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                    }
+                );
                 const inner = cv.closest('.compare-canvas-inner');
                 if (inner) {
-                    let vpW = Math.min(cvW, Math.round(capPaneW));
-                    let vpH = Math.min(cvH, Math.round(capPaneH));
-                    // Maintain aspect ratio: don't widen when height hits the limit
-                    if (cvH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cvW / cvH));
-                    if (cvW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cvH / cvW));
-                    // Ensure clip wrapper exists between wrap and inner
-                    _ensureClipWrapper(inner, vpW, vpH);
-                    // Inner must NOT be constrained — let it size to the canvas
+                    // Clip wrapper sits between .compare-canvas-inner and its
+                    // parent; it owns overflow:hidden so CSS translate on inner
+                    // produces the pan effect (mirrors #canvas-viewport /
+                    // #canvas-inner split in single-view mode).
+                    _ensureClipWrapper(inner, r.vpW, r.vpH);
                 }
             }
             // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
@@ -2753,17 +2762,8 @@
                     }
                 }
             }
-            // When first overflowing, center the pan
-            if (comparePan.overflows && comparePan.x === 0 && comparePan.y === 0) {
-                const cv = compareCanvases[0];
-                const inner = cv && cv.closest('.compare-canvas-inner');
-                if (inner) {
-                    comparePan.x = -(parseInt(cv.style.width) - parseInt(inner.dataset.vpW)) / 2;
-                    comparePan.y = -(parseInt(cv.style.height) - parseInt(inner.dataset.vpH)) / 2;
-                }
-            }
-            comparePan.clamp();
-            comparePan.apply();
+            // Pan overflow recenter + clamp/apply are handled inside
+            // _scalePane (pane[0] acts as the reference — see comment above).
             // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
             // from pushing the third column to a new row.
             if (hasCenterPane && paneCount === 2) {
