@@ -8467,6 +8467,77 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'zoom.reset': {
+                title: 'Reset zoom / slice-jump digit',
+                when: [],
+                run: (ctx, e) => {
+                    // If there's buffered input, '0' is part of slice jump; otherwise it's zoom reset
+                    if (sliceJumpBuffer.length > 0) {
+                        sliceJumpBuffer += e.key;
+                        if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
+                        sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; showStatus(''); }, 2000);
+                        showStatus(`jump to slice: ${sliceJumpBuffer}_`);
+                    } else {
+                        const now = performance.now();
+                        const isDoubleTap = _fullscreenActive && (now - _lastZeroPress < 500);
+                        _lastZeroPress = now;
+                        // Cancel any in-progress immersive animation before snapping
+                        if (_immersiveAnimating) {
+                            _immersiveAnimating = false;
+                            if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
+                            for (const el of [document.getElementById('info'), document.getElementById('slim-cb-wrap'), document.getElementById('array-name')]) {
+                                if (el) { el.style.transition = ''; el.style.opacity = ''; }
+                            }
+                            // Clean up compare/multiview/qMRI element styles
+                            document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
+                                el.style.transition = ''; el.style.opacity = '';
+                            });
+                            const _zMvCb = document.getElementById('mv-cb-wrap');
+                            if (_zMvCb) { _zMvCb.style.transition = ''; _zMvCb.style.opacity = ''; }
+                            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                                el.style.transition = ''; el.style.opacity = '';
+                            });
+                            _reconcileUI();
+                        }
+                        if (isDoubleTap) {
+                            // Double-tap 0: exit immersive + full reset
+                            if (_fullscreenActive) setFullscreenMode(false);
+                            // Clean up mode-specific immersive artifacts
+                            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                                el.style.transition = ''; el.style.opacity = '';
+                            });
+                            _reconcileUI();
+                            const _dtMvCb = document.getElementById('mv-cb-wrap');
+                            if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
+                            userZoom = 1.0;
+                            _zoomAdjustedByUser = false;
+                            mainPan.reset();
+                            mosaicPan.reset();
+                            ModeRegistry.scaleAllAutoFit();
+                            showStatus('zoom: fit');
+                        } else if (_fullscreenActive) {
+                            // First tap in immersive: reset to immersive-fit level
+                            const w = lastImgW || canvas.width;
+                            const h = lastImgH || canvas.height;
+                            userZoom = _calcAutoFitZoom(w, h, true);
+                            _fitZoom = userZoom;
+                            _zoomAdjustedByUser = false;
+                            mainPan.reset();
+                            ModeRegistry.scaleAll();
+                            showStatus('immersive · press 0 again to exit');
+                        } else {
+                            // Not in immersive: reset to normal fit
+                            userZoom = 1.0;
+                            _zoomAdjustedByUser = false;
+                            mainPan.reset();
+                            mosaicPan.reset();
+                            ModeRegistry.scaleAllAutoFit();
+                            showStatus('zoom: fit');
+                        }
+                        saveState();
+                    }
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8491,6 +8562,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
             { key: '-', command: 'zoom.out' },
+            { key: '0', command: 'zoom.reset' },
         ];
 
         function makeContext(_state) {
@@ -8572,73 +8644,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === '0') {
-                // If there's buffered input, '0' is part of slice jump; otherwise it's zoom reset
-                if (sliceJumpBuffer.length > 0) {
-                    sliceJumpBuffer += e.key;
-                    if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
-                    sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; showStatus(''); }, 2000);
-                    showStatus(`jump to slice: ${sliceJumpBuffer}_`);
-                } else {
-                    const now = performance.now();
-                    const isDoubleTap = _fullscreenActive && (now - _lastZeroPress < 500);
-                    _lastZeroPress = now;
-                    // Cancel any in-progress immersive animation before snapping
-                    if (_immersiveAnimating) {
-                        _immersiveAnimating = false;
-                        if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
-                        for (const el of [document.getElementById('info'), document.getElementById('slim-cb-wrap'), document.getElementById('array-name')]) {
-                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                        }
-                        // Clean up compare/multiview/qMRI element styles
-                        document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
-                            el.style.transition = ''; el.style.opacity = '';
-                        });
-                        const _zMvCb = document.getElementById('mv-cb-wrap');
-                        if (_zMvCb) { _zMvCb.style.transition = ''; _zMvCb.style.opacity = ''; }
-                        document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.style.transition = ''; el.style.opacity = '';
-                        });
-                        _reconcileUI();
-                    }
-                    if (isDoubleTap) {
-                        // Double-tap 0: exit immersive + full reset
-                        if (_fullscreenActive) setFullscreenMode(false);
-                        // Clean up mode-specific immersive artifacts
-                        document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                            el.style.transition = ''; el.style.opacity = '';
-                        });
-                        _reconcileUI();
-                        const _dtMvCb = document.getElementById('mv-cb-wrap');
-                        if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
-                        userZoom = 1.0;
-                        _zoomAdjustedByUser = false;
-                        mainPan.reset();
-                        mosaicPan.reset();
-                        ModeRegistry.scaleAllAutoFit();
-                        showStatus('zoom: fit');
-                    } else if (_fullscreenActive) {
-                        // First tap in immersive: reset to immersive-fit level
-                        const w = lastImgW || canvas.width;
-                        const h = lastImgH || canvas.height;
-                        userZoom = _calcAutoFitZoom(w, h, true);
-                        _fitZoom = userZoom;
-                        _zoomAdjustedByUser = false;
-                        mainPan.reset();
-                        ModeRegistry.scaleAll();
-                        showStatus('immersive · press 0 again to exit');
-                    } else {
-                        // Not in immersive: reset to normal fit
-                        userZoom = 1.0;
-                        _zoomAdjustedByUser = false;
-                        mainPan.reset();
-                        mosaicPan.reset();
-                        ModeRegistry.scaleAllAutoFit();
-                        showStatus('zoom: fit');
-                    }
-                    saveState();
-                }
-            } else if (e.key === 'O' && e.shiftKey && !modKey && overlay_sid) {
+            if (e.key === 'O' && e.shiftKey && !modKey && overlay_sid) {
                 // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
                 const sids = overlay_sid.split(',');
                 const nMasks = sids.length;
