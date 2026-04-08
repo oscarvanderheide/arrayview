@@ -12673,10 +12673,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (scaledMin > absMaxScale + 0.001) {
                 userZoom = 1.0;
             }
+            // Per-pane geometry routed through the shared _scalePane primitive.
+            // compare-multiview has no pan state (no clip wrappers) and no
+            // per-pane viewport element to size — _scalePane just needs to set
+            // canvas cssW/cssH. baseScale = absMaxScale (global min across all
+            // views) so finalScale = baseScale * userZoom = cappedScale, giving
+            // every pane the same uniform scale factor. userZoom is pre-clamped
+            // above, so updateAutoFit / allowOverflowRecalc are both false.
+            // squareStretch uses default per-pane max(cssW,cssH) (not a shared
+            // forceViewport square), matching the pre-refactor behavior where
+            // each view's square was sized from its own max(w,h)*cappedScale.
+            const _cmvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
-                const _sq = Math.round(Math.max(v.lastW, v.lastH) * cappedScale);
-                v.canvas.style.width  = squareStretch ? _sq + 'px' : Math.round(v.lastW * cappedScale) + 'px';
-                v.canvas.style.height = squareStretch ? _sq + 'px' : Math.round(v.lastH * cappedScale) + 'px';
+                _scalePane(
+                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _cmvPanStub },
+                    null,
+                    {
+                        maxW: Math.round(absMaxScaleW),
+                        maxH: Math.round(absMaxScaleH),
+                        baseScale: absMaxScale,
+                        squareStretch: squareStretch,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                    }
+                );
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('#qmri-view-wrap .cq-header-label');
