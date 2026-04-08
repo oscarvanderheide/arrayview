@@ -9759,6 +9759,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'L', command: 'logscale.toggle' },
             { key: 'p', command: 'projection.cycle' },
             { key: 'I', command: 'info.toggle' },
+            { key: 'e', command: 'url.copyReusable' },
         ];
 
         function makeContext(_state) {
@@ -9864,12 +9865,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'e') {
-                const reusableUrl = buildReusableUrl();
-                navigator.clipboard.writeText(reusableUrl).then(() => {
-                    showStatus('Reusable URL copied');
-                }).catch(() => showStatus('Clipboard unavailable'));
-            } else if (e.key === 'f') {
+            if (e.key === 'f') {
                 if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; }
                 if (_fftActive) {
                     proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
