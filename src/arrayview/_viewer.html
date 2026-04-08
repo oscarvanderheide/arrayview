@@ -9069,6 +9069,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'colormap.promptCustom': {
+                title: 'Prompt for matplotlib colormap',
+                when: ['!rgbMode'],
+                run: (ctx, e) => {
+                    if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; } // kept inline: emits toast
+                    if (rgbMode) return;
+                    const name = window.prompt('Matplotlib colormap name:', '');
+                    if (!name) return;
+                    proxyFetch(`/colormap/${encodeURIComponent(name.trim())}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            if (!d) { showStatus('Unknown colormap'); return; }
+                            customColormap = name.trim();
+                            customGradientStops = d.gradient_stops;
+                            colormap_idx = -1;
+                            proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                            refreshAxesColor();
+                            _mipOnColormapChange();
+                            showStatus(`colormap: ${customColormap}`);
+                            saveState();
+                        });
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9132,6 +9155,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'g', command: 'gif.save' },
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
             { key: 'm', command: 'complex.cycleMode' },
+            { key: 'C', command: 'colormap.promptCustom' },
         ];
 
         function makeContext(_state) {
@@ -9237,25 +9261,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'C') {
-                if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
-                if (rgbMode) return;
-                const name = window.prompt('Matplotlib colormap name:', '');
-                if (!name) return;
-                proxyFetch(`/colormap/${encodeURIComponent(name.trim())}`)
-                    .then(r => r.ok ? r.json() : null)
-                    .then(d => {
-                        if (!d) { showStatus('Unknown colormap'); return; }
-                        customColormap = name.trim();
-                        customGradientStops = d.gradient_stops;
-                        colormap_idx = -1;
-                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                        refreshAxesColor();
-                        _mipOnColormapChange();
-                        showStatus(`colormap: ${customColormap}`);
-                        saveState();
-                    });
-            } else if (e.key === 'd') {
+            if (e.key === 'd') {
                 // In diff mode: expand/cycle left+right colorbars in sync,
                 // unless hovering over the center (diff) pane — then affect
                 // only the center colorbar.
