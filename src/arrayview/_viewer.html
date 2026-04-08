@@ -8945,6 +8945,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // For 'open' action, navigation already happened in the picker
                 },
             },
+            'screenshot.save': {
+                title: 'Save screenshot',
+                when: [],
+                run: (ctx, e) => {
+                    saveScreenshot();
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8995,6 +9002,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'b', command: 'borders.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'alpha.toggle' },
+            { key: 's', command: 'screenshot.save' },
         ];
 
         function makeContext(_state) {
@@ -9100,9 +9108,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 's') {
-                saveScreenshot();
-            } else if (e.key === 'S') {
+            if (e.key === 'S') {
                 // Toggle/cycle nnInteractive segmentation mode
                 if (_segMode) {
                     const idx = _SEG_METHODS.indexOf(_segMethod);
