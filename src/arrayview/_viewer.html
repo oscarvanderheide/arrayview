@@ -9092,6 +9092,263 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         });
                 },
             },
+            'histogram.openOrCycle': {
+                title: 'Open histogram / cycle quantile',
+                when: [],
+                run: async (ctx, e) => {
+                    // In diff mode: expand/cycle left+right colorbars in sync,
+                    // unless hovering over the center (diff) pane — then affect
+                    // only the center colorbar.
+                    if (compareActive && diffMode > 0 && _diffLeftCb) {
+                        if (_mouseOverCenterPane && _diffCenterCb) {
+                            // Hovering center diff pane — expand/cycle center colorbar only
+                            if (!_diffCenterCb.expanded) {
+                                await _diffCenterCb.expand();
+                                _diffCenterCb.startAutoDismiss();
+                            } else {
+                                const q = _diffCenterCb.cycleQuantile();
+                                if (q) {
+                                    _diffManualVmin = q.vmin;
+                                    _diffManualVmax = q.vmax;
+                                    _diffCenterCb.draw();
+                                    fetchAndDrawDiff();
+                                    showStatus(`diff histogram: ${q.label}`);
+                                }
+                                _diffCenterCb.startAutoDismiss();
+                            }
+                            showStatus('diff histogram');
+                        } else {
+                            // Hovering left/right pane — expand/cycle both in sync
+                            const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
+                            if (!_diffLeftCb.expanded) {
+                                for (const cb of cbs) {
+                                    await cb.expand();
+                                    cb.startAutoDismiss();
+                                }
+                            } else {
+                                const q = _diffLeftCb.cycleQuantile();
+                                if (q) {
+                                    cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
+                                    cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
+                                    _diffLeftCb.draw(); _diffRightCb?.draw();
+                                    compareRender();
+                                    showStatus(`histogram: ${q.label}`);
+                                }
+                                for (const cb of cbs) cb.startAutoDismiss();
+                            }
+                            showStatus('histogram');
+                        }
+                        return;
+                    }
+                    // In qMRI mode, hovering a specific pane: expand + cycle quantile
+                    if (qmriActive && _hoveredQmriView) {
+                        const hv = _hoveredQmriView;
+                        const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
+                        if (!cb) return;
+                        if (!cb._expanded) {
+                            await cb.expand();
+                            cb.startAutoDismiss();
+                            showStatus('histogram');
+                        } else {
+                            const q = cb.cycleQuantile();
+                            if (q) {
+                                hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
+                                hv.seq++; hv.rendering = false; hv.pending = false;
+                                qvRender(hv);
+                                const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
+                                showStatus(`${paneLabel}: ${q.label}`);
+                            }
+                            cb.startAutoDismiss();
+                        }
+                        return;
+                    }
+                    // In qMRI mode without hovered pane: show histograms for all panes; cycle quantile on repeat
+                    if (qmriActive && !qmriMosaicActive) {
+                        const cbs = qmriViews.map(v => v._colorBar).filter(Boolean);
+                        if (cbs.some(cb => !cb._expanded)) {
+                            for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
+                            showStatus('histogram');
+                        } else {
+                            let label = null;
+                            for (const v of qmriViews) {
+                                if (!v._colorBar) continue;
+                                const q = v._colorBar.cycleQuantile();
+                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                                v._colorBar.startAutoDismiss();
+                            }
+                            if (label) showStatus(`range: ${label}`);
+                        }
+                        return;
+                    }
+                    // In qMRI mosaic mode without hovered pane: show histograms for all panes; cycle quantile on repeat
+                    if (qmriActive && qmriMosaicActive) {
+                        const cbs = qmriViews.map(v => v._mosaicColorBar).filter(Boolean);
+                        if (cbs.some(cb => !cb._expanded)) {
+                            for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
+                            showStatus('histogram');
+                        } else {
+                            let label = null;
+                            for (const v of qmriViews) {
+                                if (!v._mosaicColorBar) continue;
+                                const q = v._mosaicColorBar.cycleQuantile();
+                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                                v._mosaicColorBar.startAutoDismiss();
+                            }
+                            if (label) showStatus(`range: ${label}`);
+                        }
+                        return;
+                    }
+                    if (rgbMode) return;
+
+                    if (lebesgueMode && _histData) {
+                        // Re-fetch if histogram data is stale for current dim config
+                        if (_histDataVersion !== _expectedHistKey()) {
+                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                            if (volData) { _histData = volData; _buildKDE(); }
+                        }
+                        // Histogram mode open: cycle quantile presets with smooth indicator updates
+                        const _QUANTILE_PRESETS = [
+                            { label: 'full range', lo: 0, hi: 1 },
+                            { label: '1–99%', lo: 0.01, hi: 0.99 },
+                            { label: '5–95%', lo: 0.05, hi: 0.95 },
+                            { label: '10–90%', lo: 0.10, hi: 0.90 },
+                        ];
+                        if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+                        window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+                        const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+                        if (preset.lo === 0 && preset.hi === 1) {
+                            manualVmin = null; manualVmax = null;
+                        } else {
+                            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                            const total = counts.reduce((a, b) => a + b, 0);
+                            let cumLo = 0, cumHi = 0;
+                            let qLo = dmin, qHi = dmax;
+                            for (let i = 0; i < counts.length; i++) {
+                                cumLo += counts[i];
+                                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+                            }
+                            for (let i = counts.length - 1; i >= 0; i--) {
+                                cumHi += counts[i];
+                                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                            }
+                            manualVmin = qLo;
+                            manualVmax = qHi;
+                        }
+                        cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                        // Sync per-view locked ranges so multiview renders use the new values
+                        if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
+                        proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                        primaryCb.ensureAnimating();
+                        showStatus(`range: ${preset.label}`);
+                    } else {
+                        // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
+                        if (!primaryCb._expanded) {
+                            // First press: expand histogram
+                            _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
+                            _computeCbExpandedH();
+                            primaryCb._expanded = true;
+                            const triZone = document.getElementById('slim-cb-tri-zone');
+                            if (triZone) triZone.classList.add('expanded');
+                            if (compareActive) {
+                                await _fetchHistogramCompare();
+                            } else {
+                                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                                if (volData) _histData = volData;
+                            }
+                            _buildKDE();
+                            lebesgueMode = true;
+                            _fetchLebesgueSlice();
+                            primaryCb.startAnim(true);
+                            if (multiViewActive || compareMvActive) {
+                                drawMvColorbar();
+                            } else {
+                                drawSlimColorbar(cbMarkerFrac);
+                            }
+                            showStatus('histogram');
+                            // Auto-dismiss after 3s; if mouse still over, defer until mouseleave
+                            if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+                            _histAutoDismissTimer = setTimeout(() => {
+                                _histAutoDismissTimer = null;
+                                if (!primaryCb._mouseOver && primaryCb._expanded) {
+                                    lebesgueMode = false;
+                                    primaryCb._expanded = false;
+                                    _clearLebesgueOverlay();
+                                    const tz = document.getElementById('slim-cb-tri-zone');
+                                    if (tz) tz.classList.remove('expanded');
+                                    primaryCb.startAnim(false);
+                                    if (multiViewActive || compareMvActive) {
+                                        drawMvColorbar();
+                                    } else {
+                                        drawSlimColorbar(cbMarkerFrac);
+                                    }
+                                } else if (primaryCb._mouseOver && primaryCb._expanded) {
+                                    _histAutoDismissPending = true;
+                                }
+                            }, 3000);
+                        } else {
+                            // Subsequent presses: cycle quantile presets
+                            // Re-fetch if histogram data is stale for current dim config
+                            if (!_histData || _histDataVersion !== _expectedHistKey()) {
+                                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                                if (volData) { _histData = volData; _buildKDE(); }
+                            }
+                            const _QUANTILE_PRESETS = [
+                                { label: 'full range', lo: 0, hi: 1 },
+                                { label: '1\u201399%', lo: 0.01, hi: 0.99 },
+                                { label: '5\u201395%', lo: 0.05, hi: 0.95 },
+                                { label: '10\u201390%', lo: 0.10, hi: 0.90 },
+                            ];
+                            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+                            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+                            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+                            if (preset.lo === 0 && preset.hi === 1) {
+                                manualVmin = null; manualVmax = null;
+                            } else if (_histData && _histData.counts) {
+                                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                                const total = counts.reduce((a, b) => a + b, 0);
+                                let cumLo = 0, cumHi = 0;
+                                let qLo = dmin, qHi = dmax;
+                                for (let i = 0; i < counts.length; i++) {
+                                    cumLo += counts[i];
+                                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+                                }
+                                for (let i = counts.length - 1; i >= 0; i--) {
+                                    cumHi += counts[i];
+                                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                                }
+                                manualVmin = qLo; manualVmax = qHi;
+                            }
+                            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                            // Sync per-view locked ranges so multiview renders use the new values
+                            if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
+                            proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                            primaryCb.ensureAnimating();
+                            showStatus(`range: ${preset.label}`);
+                            // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
+                            if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+                            _histAutoDismissTimer = setTimeout(() => {
+                                _histAutoDismissTimer = null;
+                                if (!primaryCb._mouseOver && primaryCb._expanded) {
+                                    lebesgueMode = false;
+                                    primaryCb._expanded = false;
+                                    _clearLebesgueOverlay();
+                                    const tz = document.getElementById('slim-cb-tri-zone');
+                                    if (tz) tz.classList.remove('expanded');
+                                    primaryCb.startAnim(false);
+                                    if (multiViewActive || compareMvActive) {
+                                        drawMvColorbar();
+                                    } else {
+                                        drawSlimColorbar(cbMarkerFrac);
+                                    }
+                                } else if (primaryCb._mouseOver && primaryCb._expanded) {
+                                    _histAutoDismissPending = true;
+                                }
+                            }, 3000);
+                        }
+                    }
+                    saveState();
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9156,6 +9413,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
+            { key: 'd', command: 'histogram.openOrCycle' },
         ];
 
         function makeContext(_state) {
@@ -9261,259 +9519,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'd') {
-                // In diff mode: expand/cycle left+right colorbars in sync,
-                // unless hovering over the center (diff) pane — then affect
-                // only the center colorbar.
-                if (compareActive && diffMode > 0 && _diffLeftCb) {
-                    if (_mouseOverCenterPane && _diffCenterCb) {
-                        // Hovering center diff pane — expand/cycle center colorbar only
-                        if (!_diffCenterCb.expanded) {
-                            await _diffCenterCb.expand();
-                            _diffCenterCb.startAutoDismiss();
-                        } else {
-                            const q = _diffCenterCb.cycleQuantile();
-                            if (q) {
-                                _diffManualVmin = q.vmin;
-                                _diffManualVmax = q.vmax;
-                                _diffCenterCb.draw();
-                                fetchAndDrawDiff();
-                                showStatus(`diff histogram: ${q.label}`);
-                            }
-                            _diffCenterCb.startAutoDismiss();
-                        }
-                        showStatus('diff histogram');
-                    } else {
-                        // Hovering left/right pane — expand/cycle both in sync
-                        const cbs = [_diffLeftCb, _diffCenterCb].filter(Boolean);
-                        if (!_diffLeftCb.expanded) {
-                            for (const cb of cbs) {
-                                await cb.expand();
-                                cb.startAutoDismiss();
-                            }
-                        } else {
-                            const q = _diffLeftCb.cycleQuantile();
-                            if (q) {
-                                cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
-                                cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
-                                _diffLeftCb.draw(); _diffRightCb?.draw();
-                                compareRender();
-                                showStatus(`histogram: ${q.label}`);
-                            }
-                            for (const cb of cbs) cb.startAutoDismiss();
-                        }
-                        showStatus('histogram');
-                    }
-                    return;
-                }
-                // In qMRI mode, hovering a specific pane: expand + cycle quantile
-                if (qmriActive && _hoveredQmriView) {
-                    const hv = _hoveredQmriView;
-                    const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
-                    if (!cb) return;
-                    if (!cb._expanded) {
-                        await cb.expand();
-                        cb.startAutoDismiss();
-                        showStatus('histogram');
-                    } else {
-                        const q = cb.cycleQuantile();
-                        if (q) {
-                            hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
-                            hv.seq++; hv.rendering = false; hv.pending = false;
-                            qvRender(hv);
-                            const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
-                            showStatus(`${paneLabel}: ${q.label}`);
-                        }
-                        cb.startAutoDismiss();
-                    }
-                    return;
-                }
-                // In qMRI mode without hovered pane: show histograms for all panes; cycle quantile on repeat
-                if (qmriActive && !qmriMosaicActive) {
-                    const cbs = qmriViews.map(v => v._colorBar).filter(Boolean);
-                    if (cbs.some(cb => !cb._expanded)) {
-                        for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
-                        showStatus('histogram');
-                    } else {
-                        let label = null;
-                        for (const v of qmriViews) {
-                            if (!v._colorBar) continue;
-                            const q = v._colorBar.cycleQuantile();
-                            if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
-                            v._colorBar.startAutoDismiss();
-                        }
-                        if (label) showStatus(`range: ${label}`);
-                    }
-                    return;
-                }
-                // In qMRI mosaic mode without hovered pane: show histograms for all panes; cycle quantile on repeat
-                if (qmriActive && qmriMosaicActive) {
-                    const cbs = qmriViews.map(v => v._mosaicColorBar).filter(Boolean);
-                    if (cbs.some(cb => !cb._expanded)) {
-                        for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
-                        showStatus('histogram');
-                    } else {
-                        let label = null;
-                        for (const v of qmriViews) {
-                            if (!v._mosaicColorBar) continue;
-                            const q = v._mosaicColorBar.cycleQuantile();
-                            if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
-                            v._mosaicColorBar.startAutoDismiss();
-                        }
-                        if (label) showStatus(`range: ${label}`);
-                    }
-                    return;
-                }
-                if (rgbMode) return;
-
-                if (lebesgueMode && _histData) {
-                    // Re-fetch if histogram data is stale for current dim config
-                    if (_histDataVersion !== _expectedHistKey()) {
-                        const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                        if (volData) { _histData = volData; _buildKDE(); }
-                    }
-                    // Histogram mode open: cycle quantile presets with smooth indicator updates
-                    const _QUANTILE_PRESETS = [
-                        { label: 'full range', lo: 0, hi: 1 },
-                        { label: '1–99%', lo: 0.01, hi: 0.99 },
-                        { label: '5–95%', lo: 0.05, hi: 0.95 },
-                        { label: '10–90%', lo: 0.10, hi: 0.90 },
-                    ];
-                    if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
-                    window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
-                    const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-                    if (preset.lo === 0 && preset.hi === 1) {
-                        manualVmin = null; manualVmax = null;
-                    } else {
-                        const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                        const total = counts.reduce((a, b) => a + b, 0);
-                        let cumLo = 0, cumHi = 0;
-                        let qLo = dmin, qHi = dmax;
-                        for (let i = 0; i < counts.length; i++) {
-                            cumLo += counts[i];
-                            if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                        }
-                        for (let i = counts.length - 1; i >= 0; i--) {
-                            cumHi += counts[i];
-                            if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                        }
-                        manualVmin = qLo;
-                        manualVmax = qHi;
-                    }
-                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                    // Sync per-view locked ranges so multiview renders use the new values
-                    if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
-                    proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                    primaryCb.ensureAnimating();
-                    showStatus(`range: ${preset.label}`);
-                } else {
-                    // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
-                    if (!primaryCb._expanded) {
-                        // First press: expand histogram
-                        _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
-                        _computeCbExpandedH();
-                        primaryCb._expanded = true;
-                        const triZone = document.getElementById('slim-cb-tri-zone');
-                        if (triZone) triZone.classList.add('expanded');
-                        if (compareActive) {
-                            await _fetchHistogramCompare();
-                        } else {
-                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                            if (volData) _histData = volData;
-                        }
-                        _buildKDE();
-                        lebesgueMode = true;
-                        _fetchLebesgueSlice();
-                        primaryCb.startAnim(true);
-                        if (multiViewActive || compareMvActive) {
-                            drawMvColorbar();
-                        } else {
-                            drawSlimColorbar(cbMarkerFrac);
-                        }
-                        showStatus('histogram');
-                        // Auto-dismiss after 3s; if mouse still over, defer until mouseleave
-                        if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                        _histAutoDismissTimer = setTimeout(() => {
-                            _histAutoDismissTimer = null;
-                            if (!primaryCb._mouseOver && primaryCb._expanded) {
-                                lebesgueMode = false;
-                                primaryCb._expanded = false;
-                                _clearLebesgueOverlay();
-                                const tz = document.getElementById('slim-cb-tri-zone');
-                                if (tz) tz.classList.remove('expanded');
-                                primaryCb.startAnim(false);
-                                if (multiViewActive || compareMvActive) {
-                                    drawMvColorbar();
-                                } else {
-                                    drawSlimColorbar(cbMarkerFrac);
-                                }
-                            } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                                _histAutoDismissPending = true;
-                            }
-                        }, 3000);
-                    } else {
-                        // Subsequent presses: cycle quantile presets
-                        // Re-fetch if histogram data is stale for current dim config
-                        if (!_histData || _histDataVersion !== _expectedHistKey()) {
-                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                            if (volData) { _histData = volData; _buildKDE(); }
-                        }
-                        const _QUANTILE_PRESETS = [
-                            { label: 'full range', lo: 0, hi: 1 },
-                            { label: '1\u201399%', lo: 0.01, hi: 0.99 },
-                            { label: '5\u201395%', lo: 0.05, hi: 0.95 },
-                            { label: '10\u201390%', lo: 0.10, hi: 0.90 },
-                        ];
-                        if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
-                        window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
-                        const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-                        if (preset.lo === 0 && preset.hi === 1) {
-                            manualVmin = null; manualVmax = null;
-                        } else if (_histData && _histData.counts) {
-                            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                            const total = counts.reduce((a, b) => a + b, 0);
-                            let cumLo = 0, cumHi = 0;
-                            let qLo = dmin, qHi = dmax;
-                            for (let i = 0; i < counts.length; i++) {
-                                cumLo += counts[i];
-                                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                            }
-                            for (let i = counts.length - 1; i >= 0; i--) {
-                                cumHi += counts[i];
-                                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                            }
-                            manualVmin = qLo; manualVmax = qHi;
-                        }
-                        cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                        // Sync per-view locked ranges so multiview renders use the new values
-                        if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
-                        proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                        primaryCb.ensureAnimating();
-                        showStatus(`range: ${preset.label}`);
-                        // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
-                        if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                        _histAutoDismissTimer = setTimeout(() => {
-                            _histAutoDismissTimer = null;
-                            if (!primaryCb._mouseOver && primaryCb._expanded) {
-                                lebesgueMode = false;
-                                primaryCb._expanded = false;
-                                _clearLebesgueOverlay();
-                                const tz = document.getElementById('slim-cb-tri-zone');
-                                if (tz) tz.classList.remove('expanded');
-                                primaryCb.startAnim(false);
-                                if (multiViewActive || compareMvActive) {
-                                    drawMvColorbar();
-                                } else {
-                                    drawSlimColorbar(cbMarkerFrac);
-                                }
-                            } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                                _histAutoDismissPending = true;
-                            }
-                        }, 3000);
-                    }
-                }
-                saveState();
-            } else if (e.key === 'D') {
+            if (e.key === 'D') {
                 if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; }
                 const v1 = await showInlinePrompt('vmin:', _cbFmtPlain(currentVmin));
                 if (v1 === null) return;
