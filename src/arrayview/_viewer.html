@@ -9371,6 +9371,36 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
                 },
             },
+            'slice.next': {
+                title: 'Next slice / flip',
+                when: [],
+                run: (ctx, e) => {
+                    e.preventDefault();
+                    if (isPlaying && activeDim === playingDim) { stopPlay(); }
+                    if (activeDim === VFIELD_T_DIM) {
+                        vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
+                        drawVectorOverlay(); renderInfo(); saveState();
+                    } else if (multiViewActive) {
+                        indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        renderInfo();
+                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        saveState();
+                    } else if (activeDim === dim_x) {
+                        flip_x = !flip_x;
+                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        renderInfo(); saveState();
+                    } else if (activeDim === dim_y) {
+                        flip_y = !flip_y;
+                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        renderInfo(); saveState();
+                    } else {
+                        lastDirection = 1;
+                        indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        updateView();
+                        saveState();
+                    }
+                },
+            },
             'slice.prev': {
                 title: 'Previous slice / flip',
                 when: [],
@@ -9469,6 +9499,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'D', command: 'range.promptManual' },
             { key: 'j', command: 'slice.prev' },
             { key: 'ArrowDown', command: 'slice.prev' },
+            { key: 'k', command: 'slice.next' },
+            { key: 'ArrowUp', command: 'slice.next' },
         ];
 
         function makeContext(_state) {
@@ -9574,32 +9606,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'k' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                if (isPlaying && activeDim === playingDim) { stopPlay(); }
-                if (activeDim === VFIELD_T_DIM) {
-                    vfieldT = Math.min(vfieldNTimes - 1, vfieldT + 1);
-                    drawVectorOverlay(); renderInfo(); saveState();
-                } else if (multiViewActive) {
-                    indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
-                    renderInfo();
-                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                    saveState();
-                } else if (activeDim === dim_x) {
-                    flip_x = !flip_x;
-                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                    renderInfo(); saveState();
-                } else if (activeDim === dim_y) {
-                    flip_y = !flip_y;
-                    if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
-                    renderInfo(); saveState();
-                } else {
-                    lastDirection = 1;
-                    indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
-                    updateView();
-                    saveState();
-                }
-            } else if (e.key === 'h' || e.key === 'ArrowLeft') {
+            if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap backward
                 if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
