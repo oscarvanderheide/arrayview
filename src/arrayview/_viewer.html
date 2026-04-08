@@ -8571,6 +8571,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     renderEggs();
                 },
             },
+            'compare.cycleTarget': {
+                title: 'Cycle compare target array',
+                when: [],
+                run: (ctx, e) => {
+                    if (!compareActive) { showStatus('compare: off (use the picker to open 2+ arrays)'); return; }
+                    cycleCompareTarget(1);
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8597,6 +8605,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '-', command: 'zoom.out' },
             { key: '0', command: 'zoom.reset' },
             { key: 'R', command: 'roi.cycleMode' },
+            { key: 'n', command: 'compare.cycleTarget' },
         ];
 
         function makeContext(_state) {
@@ -8713,9 +8722,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'n') {
-                if (!compareActive) { showStatus('compare: off (use the picker to open 2+ arrays)'); return; }
-                cycleCompareTarget(1);
             } else if (e.key === '<' || e.key === '>') {
                 if (isPlaying) {
                     // Multiplicative step so the slider feels continuous rather
