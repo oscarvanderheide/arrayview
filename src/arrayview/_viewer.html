@@ -1832,6 +1832,7 @@
         let _mvPrevSquareStretch = false;
         let _cmvPrevSquareStretch = false;
         let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
+        let _comparePrevZoom = 1.0;  // saved on enterCompareMode, restored on exitCompareMode
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
@@ -9635,6 +9636,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
+                if (!compareActive) _comparePrevZoom = userZoom;  // save on first enter only
                 userZoom = 1.0;
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
@@ -9676,6 +9678,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareRegistrationFrame = null;
                 compareRendering = false;
                 comparePending = false;
+                if (!compareActive) _comparePrevZoom = userZoom;  // save on first enter only
                 userZoom = 1.0;
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
@@ -10271,6 +10274,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
             compareFocusMode = false;
+            userZoom = _comparePrevZoom;  // restore prior zoom (mirrors exitMultiView / exitQmri)
             _reconcileUI();
             drawSlimColorbar(cbMarkerFrac);
             renderEggs();
