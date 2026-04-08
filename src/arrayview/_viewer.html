@@ -2424,6 +2424,65 @@
             return Math.min(maxW / w, maxH / h) * 0.80;
         }
 
+        /**
+         * Pure geometry primitive: compute finalScale/cssW/cssH/vpW/vpH for a single
+         * pane, apply them to the pane's canvas + viewport element, update userZoom on
+         * auto-fit, and clamp the provided pan. Mode-specific side-effects (colorbar,
+         * eggs, minimap, overlays, wrapper alignment) stay in the caller.
+         *
+         * pane: { canvas: HTMLCanvasElement, w: number, h: number, pan: Pan }
+         * viewport: HTMLElement | null — the clipping container to size
+         * opts: {
+         *   maxW, maxH,                // available layout space (px)
+         *   baseScale,                 // device/logical base scale for this pane
+         *   squareStretch: bool,       // force square CSS box
+         *   updateAutoFit: bool,       // if true, mutate userZoom/_fitZoom/etc on auto-fit
+         *   allowOverflowRecalc: bool, // if true, recalc zoom when restored state overflows
+         * }
+         * returns: { finalScale, cssW, cssH, vpW, vpH, capScale }
+         */
+        function _scalePane(pane, viewport, opts) {
+            const { canvas: cvs, w, h, pan } = pane;
+            const { maxW, maxH, baseScale, squareStretch: sqStretch,
+                    updateAutoFit, allowOverflowRecalc } = opts;
+            const capScale = Math.min(maxW / w, maxH / h);
+            if (updateAutoFit && _autoFitPending && !_isWelcomeScreen) {
+                _autoFitPending = false;
+                userZoom = Math.max(1.0, capScale / baseScale);
+                _fitZoom = userZoom;
+                if (!_fullscreenActive) _normalFitZoom = userZoom;
+                _zoomRendered = userZoom;
+            } else if (allowOverflowRecalc && !_zoomAdjustedByUser && !_fullscreenActive) {
+                const projW = Math.round(w * baseScale * userZoom);
+                const projH = Math.round(h * baseScale * userZoom);
+                if (projW > maxW + 2 || projH > maxH + 2) {
+                    userZoom = Math.max(1.0, capScale / baseScale);
+                    _fitZoom = userZoom;
+                    _normalFitZoom = userZoom;
+                    _zoomRendered = userZoom;
+                }
+            }
+            const finalScale = baseScale * userZoom;
+            let cssW = Math.round(w * finalScale);
+            let cssH = Math.round(h * finalScale);
+            if (sqStretch) { const sq = Math.max(cssW, cssH); cssW = sq; cssH = sq; }
+            cvs.style.width  = cssW + 'px';
+            cvs.style.height = cssH + 'px';
+            let vpW = Math.min(cssW, Math.round(maxW));
+            let vpH = Math.min(cssH, Math.round(maxH));
+            if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
+            if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
+            if (viewport) { viewport.style.width = vpW + 'px'; viewport.style.height = vpH + 'px'; }
+            const overflowing = cssW > vpW + 2 || cssH > vpH + 2;
+            if (overflowing && pan.x === 0 && pan.y === 0) {
+                pan.x = -(cssW - vpW) / 2;
+                pan.y = -(cssH - vpH) / 2;
+            }
+            pan.clamp();
+            pan.apply();
+            return { finalScale, cssW, cssH, vpW, vpH, capScale };
+        }
+
         function scaleCanvas(w, h) {
             const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             const immersivePad = 12; // breathing room on each side in immersive mode
@@ -2432,53 +2491,18 @@
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
             const effectiveMaxH = Math.min(maxH, welcomeCapH);
-            const baseScale = getBaseScale(w, h);
-            // The viewport (clipping container) never exceeds available layout space
-            const capScale = Math.min(maxW / w, effectiveMaxH / h);
-            // On first render, auto-fit: set userZoom so the canvas fills the available space
-            if (_autoFitPending && !_isWelcomeScreen) {
-                _autoFitPending = false;
-                userZoom = Math.max(1.0, capScale / baseScale);
-                _fitZoom = userZoom;
-                if (!_fullscreenActive) _normalFitZoom = userZoom;
-                _zoomRendered = userZoom; // keep animation origin in sync with layout resets
-            } else if (!_zoomAdjustedByUser && !_fullscreenActive) {
-                // Guard: restored state may have a zoom that overflows the current viewport
-                // (e.g. saved while immersive/zoomed-in). If user intent is fit (not manually
-                // adjusted), silently recalculate rather than showing a spurious minimap.
-                const projW = Math.round(w * baseScale * userZoom);
-                const projH = Math.round(h * baseScale * userZoom);
-                if (projW > maxW + 2 || projH > effectiveMaxH + 2) {
-                    userZoom = Math.max(1.0, capScale / baseScale);
-                    _fitZoom = userZoom;
-                    _normalFitZoom = userZoom;
-                    _zoomRendered = userZoom;
+            _scalePane(
+                { canvas: canvas, w: w, h: h, pan: mainPan },
+                document.getElementById('canvas-viewport'),
+                {
+                    maxW: maxW,
+                    maxH: effectiveMaxH,
+                    baseScale: getBaseScale(w, h),
+                    squareStretch: squareStretch,
+                    updateAutoFit: true,
+                    allowOverflowRecalc: true,
                 }
-            }
-            // Canvas CSS size grows freely with userZoom (no cap/snap)
-            const finalScale = baseScale * userZoom;
-            let cssW = Math.round(w * finalScale);
-            let cssH = Math.round(h * finalScale);
-            if (squareStretch) { const sq = Math.max(cssW, cssH); cssW = sq; cssH = sq; }
-            canvas.style.width  = cssW + 'px';
-            canvas.style.height = cssH + 'px';
-            // Set viewport (clipping container) to the lesser of canvas size and available space
-            let vpW = Math.min(cssW, Math.round(maxW));
-            let vpH = Math.min(cssH, Math.round(effectiveMaxH));
-            // Maintain aspect ratio: don't widen when height hits the limit (or vice versa)
-            if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
-            if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
-            const vp = document.getElementById('canvas-viewport');
-            if (vp) { vp.style.width = vpW + 'px'; vp.style.height = vpH + 'px'; }
-            // When first overflowing, center the pan so the user sees the middle
-            const overflowing = cssW > vpW + 2 || cssH > vpH + 2;
-            if (overflowing && mainPan.x === 0 && mainPan.y === 0) {
-                mainPan.x = -(cssW - vpW) / 2;
-                mainPan.y = -(cssH - vpH) / 2;
-            }
-            // Clamp pan so visible region stays within image
-            mainPan.clamp();
-            mainPan.apply();
+            );
             if (hasVectorfield) drawVectorOverlay();
             // fixWrapperAlignment must run before drawSlimColorbar so the canvas
             // is in its final viewport position before we anchor the fixed colorbar.
