@@ -8973,6 +8973,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'slice.exportNpy': {
+                title: 'Export current slice as .npy',
+                when: [],
+                run: (ctx, e) => {
+                    // Export current 2-D slice as .npy
+                    if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; } // kept inline: emits toast
+                    if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; } // kept inline: emits toast
+                    const idxStr = indices.join(',');
+                    const params = new URLSearchParams({
+                        dim_x: dim_x, dim_y: dim_y,
+                        indices: idxStr,
+                        complex_mode: complexMode,
+                    });
+                    if (_inPyWebView) {
+                        proxyFetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
+                            .then(r => r.ok ? setStatus('slice saved to Downloads (.npy)') : setStatus('slice export failed'))
+                            .catch(() => setStatus('slice export failed'));
+                    } else {
+                        const a = document.createElement('a');
+                        a.href = `/export_slice/${sid}?${params}`;
+                        a.download = '';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        showStatus('slice saved to Downloads (.npy)');
+                    }
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9032,6 +9060,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'A', command: 'alpha.toggle' },
             { key: 's', command: 'screenshot.save' },
             { key: 'S', command: 'segmentation.cycle' },
+            { key: 'N', command: 'slice.exportNpy' },
         ];
 
         function makeContext(_state) {
@@ -9137,30 +9166,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'N') {
-                // Export current 2-D slice as .npy
-                if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; }
-                if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; }
-                const idxStr = indices.join(',');
-                const params = new URLSearchParams({
-                    dim_x: dim_x, dim_y: dim_y,
-                    indices: idxStr,
-                    complex_mode: complexMode,
-                });
-                if (_inPyWebView) {
-                    proxyFetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
-                        .then(r => r.ok ? setStatus('slice saved to Downloads (.npy)') : setStatus('slice export failed'))
-                        .catch(() => setStatus('slice export failed'));
-                } else {
-                    const a = document.createElement('a');
-                    a.href = `/export_slice/${sid}?${params}`;
-                    a.download = '';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    showStatus('slice saved to Downloads (.npy)');
-                }
-            } else if (e.key === 'g') {
+            if (e.key === 'g') {
                 if (ModeRegistry.isMultiPane) { showStatus('GIF export: not available in this mode'); return; }
                 saveGif();
             } else if (e.key === 'G') {
