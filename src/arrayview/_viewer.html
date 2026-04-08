@@ -9037,6 +9037,38 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus('compare layout: ' + compareLayoutMode);
                 },
             },
+            'complex.cycleMode': {
+                title: 'Cycle complex mode',
+                when: [],
+                run: (ctx, e) => {
+                    if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; } // kept inline: emits toast
+                    if (rgbMode) { showStatus('complex mode: not available for RGB'); return; } // kept inline: emits toast
+                    const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
+                    complexMode = (complexMode + 1) % modeCount;
+                    complexModeEverUsed = true;
+                    _invalidateVolHistCache();
+                    manualVmin = manualVmax = null;
+                    _eggsVisible = true;
+                    _complexEggVisible = true;
+                    clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
+                    // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
+                    if (complexMode === 0) {
+                        _complexFadeTimer = setTimeout(() => {
+                            const badge = document.querySelector('.mode-badge-complex');
+                            if (badge) badge.classList.add('fading');
+                            _complexFadeTimer = setTimeout(() => {
+                                _complexEggVisible = false;
+                                _complexFadeTimer = null;
+                                renderEggs();
+                            }, 900);
+                        }, 2000);
+                    }
+                    updateView(); triggerPreload();
+                    renderInfo();
+                    renderEggs();
+                    saveState();
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9099,6 +9131,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'N', command: 'slice.exportNpy' },
             { key: 'g', command: 'gif.save' },
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
+            { key: 'm', command: 'complex.cycleMode' },
         ];
 
         function makeContext(_state) {
@@ -9204,34 +9237,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'm') {
-                if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; }
-                if (rgbMode) { showStatus('complex mode: not available for RGB'); return; }
-                const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
-                complexMode = (complexMode + 1) % modeCount;
-                complexModeEverUsed = true;
-                _invalidateVolHistCache();
-                manualVmin = manualVmax = null;
-                _eggsVisible = true;
-                _complexEggVisible = true;
-                clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
-                // Fade the egg after a delay when back at default (mode 0 = magnitude/real)
-                if (complexMode === 0) {
-                    _complexFadeTimer = setTimeout(() => {
-                        const badge = document.querySelector('.mode-badge-complex');
-                        if (badge) badge.classList.add('fading');
-                        _complexFadeTimer = setTimeout(() => {
-                            _complexEggVisible = false;
-                            _complexFadeTimer = null;
-                            renderEggs();
-                        }, 900);
-                    }, 2000);
-                }
-                updateView(); triggerPreload();
-                renderInfo();
-                renderEggs();
-                saveState();
-            } else if (e.key === 'C') {
+            if (e.key === 'C') {
                 if (qmriActive || compareQmriActive) { showStatus('colormap: fixed per-map in qMRI mode'); return; }
                 if (rgbMode) return;
                 const name = window.prompt('Matplotlib colormap name:', '');
