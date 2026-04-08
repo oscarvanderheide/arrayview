@@ -9531,6 +9531,51 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'slice.jumpCommit': {
+                title: 'Commit slice-jump buffer (Enter) / accept seg',
+                when: [],
+                run: (ctx, e) => {
+                    if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
+                    // Enter key: jump to buffered slice index (1-based input)
+                    if (sliceJumpBuffer.length > 0) {
+                        const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
+                        sliceJumpBuffer = '';
+                        if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        if (activeDim === VFIELD_T_DIM) {
+                            if (targetIndex >= 0 && targetIndex < vfieldNTimes) {
+                                vfieldT = targetIndex;
+                                drawVectorOverlay(); renderInfo(); saveState();
+                                showStatus(`vfield time: ${targetIndex + 1} / ${vfieldNTimes}`);
+                            } else {
+                                showStatus(`invalid vfield time: ${targetIndex + 1} (valid range 1–${vfieldNTimes})`);
+                            }
+                        } else if (multiViewActive) {
+                            const n = shape[activeDim];
+                            if (targetIndex >= 0 && targetIndex < n) {
+                                indices[activeDim] = targetIndex;
+                                renderInfo();
+                                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                                saveState();
+                                showStatus(`slice: ${targetIndex + 1} / ${n}`);
+                            } else {
+                                showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
+                            }
+                        } else if (activeDim === dim_x || activeDim === dim_y) {
+                            showStatus('cannot jump on display dimension (x/y)');
+                        } else {
+                            const n = shape[activeDim];
+                            if (targetIndex >= 0 && targetIndex < n) {
+                                indices[activeDim] = targetIndex;
+                                updateView();
+                                saveState();
+                                showStatus(`slice: ${targetIndex + 1} / ${n}`);
+                            } else {
+                                showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
+                            }
+                        }
+                    }
+                },
+            },
             'slice.bufferDigit': {
                 title: 'Buffer digit for slice-jump',
                 when: [],
@@ -9891,6 +9936,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '7', command: 'slice.bufferDigit' },
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
+            { key: 'Enter', command: 'slice.jumpCommit' },
         ];
 
         function makeContext(_state) {
@@ -9996,47 +10042,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'Enter') {
-                if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
-                // Enter key: jump to buffered slice index (1-based input)
-                if (sliceJumpBuffer.length > 0) {
-                    const targetIndex = parseInt(sliceJumpBuffer, 10) - 1;
-                    sliceJumpBuffer = '';
-                    if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
-                    if (activeDim === VFIELD_T_DIM) {
-                        if (targetIndex >= 0 && targetIndex < vfieldNTimes) {
-                            vfieldT = targetIndex;
-                            drawVectorOverlay(); renderInfo(); saveState();
-                            showStatus(`vfield time: ${targetIndex + 1} / ${vfieldNTimes}`);
-                        } else {
-                            showStatus(`invalid vfield time: ${targetIndex + 1} (valid range 1–${vfieldNTimes})`);
-                        }
-                    } else if (multiViewActive) {
-                        const n = shape[activeDim];
-                        if (targetIndex >= 0 && targetIndex < n) {
-                            indices[activeDim] = targetIndex;
-                            renderInfo();
-                            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                            saveState();
-                            showStatus(`slice: ${targetIndex + 1} / ${n}`);
-                        } else {
-                            showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
-                        }
-                    } else if (activeDim === dim_x || activeDim === dim_y) {
-                        showStatus('cannot jump on display dimension (x/y)');
-                    } else {
-                        const n = shape[activeDim];
-                        if (targetIndex >= 0 && targetIndex < n) {
-                            indices[activeDim] = targetIndex;
-                            updateView();
-                            saveState();
-                            showStatus(`slice: ${targetIndex + 1} / ${n}`);
-                        } else {
-                            showStatus(`invalid slice: ${targetIndex + 1} (valid range 1–${n})`);
-                        }
-                    }
-                }
-            } else if (e.key === 'Escape') {
+            if (e.key === 'Escape') {
                 if (_segMode) { _segDeactivate(); return; }
                 // Escape: clear slice jump buffer
                 if (sliceJumpBuffer.length > 0) {
