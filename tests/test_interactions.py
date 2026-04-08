@@ -106,16 +106,25 @@ def _wait_status(page, contains, timeout=2000):
     )
 
 
-def _pick_compare_session(page, name_contains, timeout=3000):
-    page.wait_for_selector("#compare-picker.visible", timeout=timeout)
-    page.locator(".cp-item").filter(has_text=name_contains).first.click()
+def _enter_compare(page, partner_sid):
+    """Enter compare mode with a given partner sid.
 
-
-def _enter_compare(page, compare_name):
+    The B keybind that used to open the compare picker has been retired;
+    we now invoke enterCompareModeBySid() directly via page.evaluate(). This
+    is the same JS entry point used by URL-param launches and drag-drop, so
+    it exercises the real production code path.
+    """
     _focus_kb(page)
-    page.keyboard.press("B")
-    _pick_compare_session(page, compare_name)
+    page.evaluate(
+        f"async () => {{ await enterCompareModeBySid({partner_sid!r}); }}"
+    )
     page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+    page.wait_for_timeout(400)
+
+
+def _exit_compare(page):
+    """Exit compare mode via the JS entry point (B keybind retired)."""
+    page.evaluate("() => exitCompareMode()")
     page.wait_for_timeout(400)
 
 
@@ -835,7 +844,7 @@ class TestModeGuards:
 
     def test_g_gif_blocked_in_compare(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("g")
         page.wait_for_timeout(300)
@@ -846,7 +855,7 @@ class TestModeGuards:
 
     def test_N_npy_blocked_in_compare(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("N")
         page.wait_for_timeout(300)
@@ -1033,7 +1042,7 @@ class TestROIMode:
 class TestCompareModeSync:
     def test_d_in_compare_shows_status(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
@@ -1044,7 +1053,7 @@ class TestCompareModeSync:
 
     def test_d_in_compare_rerenders_both_panes(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         left_before = page.evaluate(_JS_COMPARE_LEFT_PIXEL)
         right_before = page.evaluate(_JS_COMPARE_RIGHT_PIXEL)
@@ -1063,7 +1072,7 @@ class TestCompareModeSync:
         """After colorbar adjustment on one pane (per-pane override),
         pressing d should restore fair comparison (overrides cleared)."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         # Adjust left pane's colorbar (creates per-pane override)
         left_cb = page.locator("canvas#compare-left-pane-cb")
         cb_box = left_cb.bounding_box()
@@ -1084,7 +1093,7 @@ class TestCompareModeSync:
 
     def test_scroll_syncs_both_compare_panes(self, loaded_viewer, sid_3d, sid_cmp_3d):
         page = loaded_viewer(sid_3d)
-        _enter_compare(page, "arr3d_cmp")
+        _enter_compare(page, sid_cmp_3d)
         _focus_kb(page)
         left_before = page.evaluate(_JS_COMPARE_LEFT_PIXEL)
         right_before = page.evaluate(_JS_COMPARE_RIGHT_PIXEL)
@@ -1102,7 +1111,7 @@ class TestCompareModeSync:
     ):
         """Zooming should keep compare panes side-by-side and show the minimap when they overflow."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         # Zoom in several times
         _focus_kb(page)
         for _ in range(5):
@@ -1138,13 +1147,13 @@ class TestCompareModeSync:
 
     def test_compare_left_right_panes_visible(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
 
     def test_compare_shows_per_pane_colorbars(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         assert page.is_visible("canvas#compare-left-pane-cb"), (
             "Left pane colorbar not visible"
         )
@@ -1157,7 +1166,7 @@ class TestCompareModeSync:
     ):
         """The normal shared slim colorbar should be hidden in compare mode."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         slim_cb_visible = page.evaluate(
             "() => { const el = document.getElementById('slim-cb-wrap'); if (!el) return false; "
             "const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'; }"
@@ -1166,16 +1175,14 @@ class TestCompareModeSync:
             "Shared slim colorbar should be hidden in compare mode"
         )
 
-    def test_compare_B_exit_restores_single_view(
+    def test_compare_exit_restores_single_view(
         self, loaded_viewer, sid_2d, sid_cmp_2d
     ):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
-        _focus_kb(page)
-        page.keyboard.press("B")
-        page.wait_for_timeout(400)
+        _enter_compare(page, sid_cmp_2d)
+        _exit_compare(page)
         assert not page.is_visible("#compare-view-wrap.active"), (
-            "Compare mode should be exited after pressing B again"
+            "Compare mode should be exited after exitCompareMode()"
         )
         assert page.is_visible("canvas#viewer"), (
             "Main canvas should be visible after exiting compare"
@@ -1516,7 +1523,7 @@ class TestExportKeys:
 class TestDiffMode:
     def test_X_enters_diff_mode(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("X")
         page.wait_for_timeout(400)
@@ -1529,7 +1536,7 @@ class TestDiffMode:
 
     def test_X_diff_shows_center_pane(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("X")
         page.wait_for_timeout(500)
@@ -1539,7 +1546,7 @@ class TestDiffMode:
 
     def test_X_off_hides_diff_pane(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         # Cycle X until we see "off" in status (goes through diff→|diff|→rel→overlay→wipe→off)
         for _ in range(6):
@@ -1560,7 +1567,7 @@ class TestDiffMode:
         """The diff canvas should look different from both source arrays
         (it shows the A−B difference, not a copy of A or B)."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("X")
         page.wait_for_timeout(600)

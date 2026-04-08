@@ -86,13 +86,23 @@ def _focus_kb(page):
     page.focus("#keyboard-sink")
 
 
-def _pick_compare_session(page, name_contains=None, timeout=3000):
-    """Interact with the inline compare picker DOM overlay (replaces browser dialog)."""
-    page.wait_for_selector("#compare-picker.visible", timeout=timeout)
-    if name_contains:
-        page.locator(".cp-item").filter(has_text=name_contains).first.click()
-    else:
-        page.locator(".cp-item:not(.cp-item-current)").first.click()
+def _enter_compare(page, partner_sid, timeout=5000):
+    """Enter compare mode with a given partner sid.
+
+    The B keybind that used to open the compare picker has been retired;
+    we now invoke enterCompareModeBySid() directly via page.evaluate(). This
+    is the same JS entry point used by URL-param launches and drag-drop, so
+    it exercises the real production code path.
+    """
+    page.evaluate(
+        f"async () => {{ await enterCompareModeBySid({partner_sid!r}); }}"
+    )
+    page.wait_for_selector("#compare-view-wrap.active", timeout=timeout)
+
+
+def _exit_compare(page):
+    """Exit compare mode via the JS entry point (B keybind retired)."""
+    page.evaluate("() => exitCompareMode()")
 
 
 def _compare_snapshot(page, name: str, threshold: float = 0.01):
@@ -338,9 +348,14 @@ class TestKeyboard:
         # Canvas should still be visible (mosaic mode still active)
         assert page.is_visible("#canvas-wrap")
 
-    def test_B_toggles_side_by_side_compare(
+    def test_compare_entry_creates_side_by_side_view(
         self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
     ):
+        """enterCompareModeBySid → exitCompareMode round-trip via JS entry points.
+
+        This test used to press B (now retired); the compare entry point is
+        now exercised via the same JS function the unified picker calls.
+        """
         path = tmp_path / "arr2d_compare.npy"
         np.save(path, arr_2d * 0.5)
         resp = client.post(
@@ -350,9 +365,7 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("B")
-        _pick_compare_session(page, "arr2d_compare")
-        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        _enter_compare(page, sid_compare)
         page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
@@ -360,7 +373,7 @@ class TestKeyboard:
         assert page.is_visible("#slim-cb-wrap")
         assert "arr2d_compare" in page.inner_text("#compare-right-title").lower()
 
-        page.keyboard.press("B")
+        _exit_compare(page)
         page.wait_for_timeout(350)
         assert not page.is_visible("#compare-view-wrap.active")
 
@@ -375,9 +388,7 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("B")
-        _pick_compare_session(page, "arr3d_compare")
-        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        _enter_compare(page, sid_compare)
 
         page.keyboard.press("Space")
         page.wait_for_timeout(250)
@@ -398,9 +409,7 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("B")
-        _pick_compare_session(page, "arr3d_compare_scale")
-        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        _enter_compare(page, sid_compare)
         page.wait_for_timeout(350)
         before = page.evaluate(_JS_COMPARE_LEFT_CSS_SIZE)
 
@@ -427,9 +436,7 @@ class TestKeyboard:
 
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("B")
-        _pick_compare_session(page, "arr2d_compare_1")
-        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        _enter_compare(page, sid1)
         assert page.is_visible("canvas#compare-right-canvas")
         assert not page.is_visible("canvas#compare-third-canvas")
         assert page.is_visible("#slim-cb-wrap")
@@ -464,34 +471,10 @@ class TestKeyboard:
         assert "overlay-center" not in diff_classes
         assert page.is_visible("canvas#compare-right-canvas")
 
-    def test_B_is_locked_for_multi_array_launch(
-        self, page, server_url, sid_2d, arr_2d, client, tmp_path
-    ):
-        path1 = tmp_path / "arr2d_compare_locked_1.npy"
-        path2 = tmp_path / "arr2d_compare_locked_2.npy"
-        np.save(path1, arr_2d * 0.5)
-        np.save(path2, np.flipud(arr_2d))
-        sid1 = client.post(
-            "/load", json={"filepath": str(path1), "name": "arr2d_compare_locked_1"}
-        ).json()["sid"]
-        sid2 = client.post(
-            "/load", json={"filepath": str(path2), "name": "arr2d_compare_locked_2"}
-        ).json()["sid"]
-
-        page.goto(
-            f"{server_url}/?sid={sid_2d}&compare_sid={sid1}&compare_sids={sid1},{sid2}"
-        )
-        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
-        page.wait_for_timeout(500)
-        assert page.is_visible("canvas#compare-third-canvas")
-        assert page.is_visible("#slim-cb-wrap")
-
-        _focus_kb(page)
-        page.keyboard.press("B")
-        page.wait_for_timeout(250)
-        assert page.is_visible("#compare-view-wrap.active")
-        status = page.inner_text("#status").lower()
-        assert "fixed" in status or "multi-array" in status
+    # test_B_is_locked_for_multi_array_launch removed: the B keybind has
+    # been retired entirely, so "B is locked" is meaningless. The
+    # multi-array URL launch path is still covered by
+    # test_multi_array_launch_supports_six_compare_panes below.
 
     def test_multi_array_launch_supports_six_compare_panes(
         self, page, server_url, sid_2d, arr_2d, client, tmp_path

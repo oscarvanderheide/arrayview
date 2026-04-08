@@ -105,20 +105,25 @@ def _focus_kb(page):
     page.focus("#keyboard-sink")
 
 
-def _pick_compare_session(page, name_contains=None, timeout=3000):
-    page.wait_for_selector("#compare-picker.visible", timeout=timeout)
-    if name_contains:
-        page.locator(".cp-item").filter(has_text=name_contains).first.click()
-    else:
-        page.locator(".cp-item:not(.cp-item-current)").first.click()
+def _enter_compare(page, partner_sid):
+    """Enter compare mode with a given partner sid.
 
-
-def _enter_compare(page, compare_name):
-    """Enter compare mode by pressing B and picking a session."""
+    The B keybind that used to open the compare picker has been retired;
+    we now invoke enterCompareModeBySid() directly via page.evaluate(). This
+    is the same JS entry point used by URL-param launches and drag-drop, so
+    it exercises the real production code path.
+    """
     _focus_kb(page)
-    page.keyboard.press("B")
-    _pick_compare_session(page, compare_name)
+    page.evaluate(
+        f"async () => {{ await enterCompareModeBySid({partner_sid!r}); }}"
+    )
     page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+    page.wait_for_timeout(400)
+
+
+def _exit_compare(page):
+    """Exit compare mode via the JS entry point (B keybind retired)."""
+    page.evaluate("() => exitCompareMode()")
     page.wait_for_timeout(400)
 
 
@@ -167,22 +172,20 @@ class TestModeEnterExit:
 
     def test_compare_enter_exit(self, loaded_viewer, sid_2d, sid_compare_2d):
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         assert page.is_visible("#compare-view-wrap.active")
         assert page.is_visible("canvas#compare-left-canvas")
         assert page.is_visible("canvas#compare-right-canvas")
 
         # Exit
-        _focus_kb(page)
-        page.keyboard.press("B")
-        page.wait_for_timeout(400)
+        _exit_compare(page)
         assert not page.is_visible("#compare-view-wrap.active")
         assert page.is_visible("canvas#viewer")
 
     def test_diff_mode_cycle(self, loaded_viewer, sid_2d, sid_compare_2d):
         """Cycle through all compare center modes: off->A-B->|A-B|->|A-B|/|A|->overlay->wipe->off."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
 
         # X once: 0->1 (A-B) -- diff pane visible
@@ -257,7 +260,7 @@ class TestStateTransitions:
 
     def test_compare_to_multiview_and_back(self, loaded_viewer, sid_3d, sid_compare_3d):
         page = loaded_viewer(sid_3d)
-        _enter_compare(page, "arr3d_compare")
+        _enter_compare(page, sid_compare_3d)
 
         _focus_kb(page)
         # v in compare -> compare multi-view
@@ -277,7 +280,7 @@ class TestStateTransitions:
     def test_diff_exit_cleans_up_panes(self, loaded_viewer, sid_2d, sid_compare_2d):
         """After exiting compare with diff active, no residual diff pane."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
 
         # Enter diff mode
@@ -286,8 +289,7 @@ class TestStateTransitions:
         assert page.evaluate(_JS_DIFF_PANE_VISIBLE)
 
         # Exit compare
-        page.keyboard.press("B")
-        page.wait_for_timeout(400)
+        _exit_compare(page)
         assert page.is_visible("canvas#viewer")
         assert not page.evaluate(_JS_DIFF_PANE_VISIBLE)
 
@@ -301,7 +303,7 @@ class TestCompareMvOrientation:
         self, loaded_viewer, sid_3d, sid_compare_3d
     ):
         page = loaded_viewer(sid_3d)
-        _enter_compare(page, "arr3d_compare")
+        _enter_compare(page, sid_compare_3d)
 
         _focus_kb(page)
         page.keyboard.press("v")
@@ -313,7 +315,7 @@ class TestCompareMvOrientation:
         self, loaded_viewer, sid_3d, sid_compare_3d
     ):
         page = loaded_viewer(sid_3d)
-        _enter_compare(page, "arr3d_compare")
+        _enter_compare(page, sid_compare_3d)
         _focus_kb(page)
 
         page.keyboard.press("v")
@@ -335,7 +337,7 @@ class TestCompareOverlayPosition:
     ):
         """Overlay mode (mode 4) should use the diff pane with overlay-center class."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
 
         # Cycle X to overlay: off->A-B->|A-B|->|A-B|/|A|->overlay (4 presses)
@@ -360,7 +362,7 @@ class TestCompareZoomClipping:
     ):
         """Zooming in compare mode should clip canvases, not rearrange them."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
         page.wait_for_timeout(300)
 
@@ -390,7 +392,7 @@ class TestCompareZoomClipping:
     ):
         """After zooming past viewport, .compare-canvas-inner gets explicit viewport dims."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
         page.wait_for_timeout(300)
 
@@ -414,7 +416,7 @@ class TestWipeInteraction:
     def test_bracket_keys_adjust_wipe(self, loaded_viewer, sid_2d, sid_compare_2d):
         """[ and ] keys should adjust wipe position (status message changes)."""
         page = loaded_viewer(sid_2d)
-        _enter_compare(page, "arr2d_cmp")
+        _enter_compare(page, sid_compare_2d)
         _focus_kb(page)
 
         # Cycle X to wipe: off->A-B->|A-B|->|A-B|/|A|->overlay->wipe (5 presses)
@@ -497,12 +499,8 @@ class TestZoomRegression:
         assert page.evaluate(_JS_CANVAS_HAS_CONTENT), "Canvas should have content after multiview exit"
 
         # Compare on/off
-        page.keyboard.press("B")
-        _pick_compare_session(page, "arr3d_compare")
-        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
-        _focus_kb(page)
-        page.keyboard.press("B")
-        page.wait_for_timeout(400)
+        _enter_compare(page, sid_compare_3d)
+        _exit_compare(page)
         assert page.evaluate(_JS_CANVAS_HAS_CONTENT), "Canvas should have content after compare exit"
 
     def test_elements_dont_disappear_on_zoom(self, loaded_viewer, sid_2d):
