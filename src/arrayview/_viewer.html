@@ -8423,11 +8423,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'compare.toggleDiff': {
+                when: ['compareActive', 'arraysLength>=2'],
+                run: (ctx, e) => {
+                    const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
+                    if (!compareActive || cmpCount !== 2) {
+                        showToast('center-mode cycle: only available in 2-pane compare');
+                        return;
+                    }
+                    // Cycle 1→2→...→7→0 (off). From off, go to 1 (skip showing "off" as a stop).
+                    const nextMode = compareCenterMode === 0 ? 1
+                        : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
+                        : compareCenterMode + 1;
+                    _setCompareCenterMode(nextMode);
+                    return;
+                },
+            },
         };
         const keybinds = [
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'K', command: 'mode.toggleZen' },  // alias
             { key: 'c', command: 'colormap.cycleNext' },
+            { key: 'X', command: 'compare.toggleDiff' },
         ];
 
         function makeContext(_state) {
@@ -8644,18 +8661,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'X') {
-                const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
-                if (!compareActive || cmpCount !== 2) {
-                    showToast('center-mode cycle: only available in 2-pane compare');
-                    return;
-                }
-                // Cycle 1→2→...→7→0 (off). From off, go to 1 (skip showing "off" as a stop).
-                const nextMode = compareCenterMode === 0 ? 1
-                    : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
-                    : compareCenterMode + 1;
-                _setCompareCenterMode(nextMode);
-                return;
             } else if (e.key === 'R') {
                 // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
                 if (compareActive || multiViewActive || qmriActive) {
