@@ -8713,6 +8713,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'view.transpose': {
+                title: 'Transpose x/y',
+                when: [],
+                run: (ctx, e) => {
+                    // Transpose x and y: swap the dimension indices and flips
+                    if (shape.length < 2) return;
+                    if (multiViewActive) {
+                        // Swap dimX/dimY for every pane so each orthogonal view is transposed
+                        mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
+                        // Keep global dim_x/dim_y in sync for post-exit state
+                        [dim_x, dim_y] = [dim_y, dim_x];
+                        [flip_x, flip_y] = [flip_y, flip_x];
+                        flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
+                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        showStatus('transposed x/y (all panes)');
+                        return;
+                    }
+                    const wasMosaic = dim_z >= 0;
+                    [dim_x, dim_y] = [dim_y, dim_x];
+                    [flip_x, flip_y] = [flip_y, flip_x];
+                    if (!wasMosaic) dim_z = -1;
+                    updateView(); triggerPreload();
+                    showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
+                },
+            },
             'view.rotateOrFlip': {
                 title: 'Rotate 90° / flip axis',
                 when: [],
@@ -8929,6 +8954,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'Spacebar', command: 'playback.toggle' },
             { key: 'T', command: 'theme.cycle' },
             { key: 'r', command: 'view.rotateOrFlip' },
+            { key: 't', command: 'view.transpose' },
         ];
 
         function makeContext(_state) {
@@ -9034,27 +9060,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 't') {
-                // Transpose x and y: swap the dimension indices and flips
-                if (shape.length < 2) return;
-                if (multiViewActive) {
-                    // Swap dimX/dimY for every pane so each orthogonal view is transposed
-                    mvViews.forEach(v => { [v.dimX, v.dimY] = [v.dimY, v.dimX]; v.seq++; });
-                    // Keep global dim_x/dim_y in sync for post-exit state
-                    [dim_x, dim_y] = [dim_y, dim_x];
-                    [flip_x, flip_y] = [flip_y, flip_x];
-                    flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
-                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                    showStatus('transposed x/y (all panes)');
-                    return;
-                }
-                const wasMosaic = dim_z >= 0;
-                [dim_x, dim_y] = [dim_y, dim_x];
-                [flip_x, flip_y] = [flip_y, flip_x];
-                if (!wasMosaic) dim_z = -1;
-                updateView(); triggerPreload();
-                showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
-            } else if (e.key === 'b') {
+            if (e.key === 'b') {
                 canvasBorders = !canvasBorders;
                 _reconcileLayout();
                 showToast(canvasBorders ? 'borders: on' : 'borders: off');
