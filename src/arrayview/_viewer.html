@@ -8945,6 +8945,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // For 'open' action, navigation already happened in the picker
                 },
             },
+            'segmentation.cycle': {
+                title: 'Cycle nnInteractive segmentation',
+                when: [],
+                run: (ctx, e) => {
+                    // Toggle/cycle nnInteractive segmentation mode
+                    if (_segMode) {
+                        const idx = _SEG_METHODS.indexOf(_segMethod);
+                        const next = (idx + 1) % (_SEG_METHODS.length + 1);
+                        if (next >= _SEG_METHODS.length) {
+                            _segDeactivate();
+                        } else {
+                            _segMethod = _SEG_METHODS[next];
+                            _segShowMethodStatus();
+                            renderEggs();
+                        }
+                    } else {
+                        // Deactivate ROI if active — modes are mutually exclusive
+                        if (rectRoiMode) {
+                            rectRoiMode = false; _roiShape = 'rect';
+                            _rois = []; _roiFreehandPts = [];
+                            _floodFillTolerance = 0.1;
+                            _clearRoiOverlay();
+                            _islandMorph();
+                        }
+                        _segActivate();
+                    }
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9003,6 +9031,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'alpha.toggle' },
             { key: 's', command: 'screenshot.save' },
+            { key: 'S', command: 'segmentation.cycle' },
         ];
 
         function makeContext(_state) {
@@ -9108,30 +9137,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'S') {
-                // Toggle/cycle nnInteractive segmentation mode
-                if (_segMode) {
-                    const idx = _SEG_METHODS.indexOf(_segMethod);
-                    const next = (idx + 1) % (_SEG_METHODS.length + 1);
-                    if (next >= _SEG_METHODS.length) {
-                        _segDeactivate();
-                    } else {
-                        _segMethod = _SEG_METHODS[next];
-                        _segShowMethodStatus();
-                        renderEggs();
-                    }
-                } else {
-                    // Deactivate ROI if active — modes are mutually exclusive
-                    if (rectRoiMode) {
-                        rectRoiMode = false; _roiShape = 'rect';
-                        _rois = []; _roiFreehandPts = [];
-                        _floodFillTolerance = 0.1;
-                        _clearRoiOverlay();
-                        _islandMorph();
-                    }
-                    _segActivate();
-                }
-            } else if (e.key === 'N') {
+            if (e.key === 'N') {
                 // Export current 2-D slice as .npy
                 if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; }
                 if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; }
