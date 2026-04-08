@@ -9349,6 +9349,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'range.promptManual': {
+                title: 'Prompt for manual vmin/vmax',
+                when: [],
+                run: async (ctx, e) => {
+                    if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; } // kept inline: emits toast
+                    const v1 = await showInlinePrompt('vmin:', _cbFmtPlain(currentVmin));
+                    if (v1 === null) return;
+                    const v2 = await showInlinePrompt('vmax:', _cbFmtPlain(currentVmax));
+                    if (v2 === null) return;
+                    const mn = parseFloat(v1), mx = parseFloat(v2);
+                    if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
+                    manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
+                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+                    mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
+                    proxyFetch(`/clearcache/${sid}`).then(() => {
+                        mvViews.forEach(v => { v.rendering = false; v.pending = false; });
+                        updateView();
+                    });
+                    drawSlimColorbar(cbMarkerFrac);
+                    showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9414,6 +9436,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
             { key: 'd', command: 'histogram.openOrCycle' },
+            { key: 'D', command: 'range.promptManual' },
         ];
 
         function makeContext(_state) {
@@ -9519,24 +9542,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'D') {
-                if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; }
-                const v1 = await showInlinePrompt('vmin:', _cbFmtPlain(currentVmin));
-                if (v1 === null) return;
-                const v2 = await showInlinePrompt('vmax:', _cbFmtPlain(currentVmax));
-                if (v2 === null) return;
-                const mn = parseFloat(v1), mx = parseFloat(v2);
-                if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
-                manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
-                cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
-                proxyFetch(`/clearcache/${sid}`).then(() => {
-                    mvViews.forEach(v => { v.rendering = false; v.pending = false; });
-                    updateView();
-                });
-                drawSlimColorbar(cbMarkerFrac);
-                showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
-            } else if (e.key === 'j' || e.key === 'ArrowDown') {
+            if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isPlaying && activeDim === playingDim) { stopPlay(); }
                 if (activeDim === VFIELD_T_DIM) {
