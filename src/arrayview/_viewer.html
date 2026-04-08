@@ -8658,6 +8658,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'vfield.adjustLength': {
+                title: 'Adjust vector field arrow length',
+                when: [],
+                run: (ctx, e) => {
+                    if (!(hasVectorfield && !compareActive)) return;
+                    vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
+                    if (multiViewActive) mvDrawAllVectorOverlays();
+                    else drawVectorOverlay();
+                    showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
+                    _dimbarFillFlash('length', (vfLengthLevel + 5) / 10);
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8689,6 +8701,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '>', command: 'playback.adjustFps' },
             { key: '[', command: 'ui.adjustBracket' },
             { key: ']', command: 'ui.adjustBracket' },
+            { key: '{', command: 'vfield.adjustLength' },
+            { key: '}', command: 'vfield.adjustLength' },
         ];
 
         function makeContext(_state) {
@@ -8805,12 +8819,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if ((e.key === '{' || e.key === '}') && hasVectorfield && !compareActive) {
-                vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
-                if (multiViewActive) mvDrawAllVectorOverlays();
-                else drawVectorOverlay();
-                showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
-                _dimbarFillFlash('length', (vfLengthLevel + 5) / 10);
             } else if (e.key === 'i') {
                 _pixelInfoVisible = !_pixelInfoVisible;
                 if (!_pixelInfoVisible) {
