@@ -9517,6 +9517,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     updateView(); triggerPreload();
                 },
             },
+            'multiview.toggle': {
+                title: 'Toggle 3-plane multi-view',
+                when: [],
+                run: (ctx, e) => {
+                    if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
+                    if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                    crossfade(() => {
+                        if (qmriActive) exitQmri();
+                        if (multiViewActive) { exitMultiView(); } else {
+                            enterMultiView(defaultMultiViewDims());
+                        }
+                    });
+                },
+            },
             'axis.assignY': {
                 title: 'Assign active dim to Y axis',
                 when: [],
@@ -9778,6 +9792,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'f', command: 'fft.toggle' },
             { key: 'x', command: 'axis.assignX' },
             { key: 'y', command: 'axis.assignY' },
+            { key: 'v', command: 'multiview.toggle' },
         ];
 
         function makeContext(_state) {
@@ -9883,16 +9898,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'v') {
-                if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
-                if (compareActive) { crossfade(() => enterCompareMv()); return; }
-                crossfade(() => {
-                    if (qmriActive) exitQmri();
-                    if (multiViewActive) { exitMultiView(); } else {
-                        enterMultiView(defaultMultiViewDims());
-                    }
-                });
-            } else if (e.key === 'V') {
+            if (e.key === 'V') {
                 if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
                 if (compareActive) { crossfade(() => enterCompareMv()); return; }
                 crossfade(() => {
