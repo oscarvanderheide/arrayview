@@ -3252,6 +3252,7 @@
             regBlendCb.style.display = 'block';
             const ctx2 = regBlendCb.getContext('2d');
             ctx2.save(); ctx2.scale(dpr, dpr);
+            // whitelisted non-ColorBar use: static 2-color registration legend (no window/level/histogram)
             const grad = ctx2.createLinearGradient(0, 0, cssW, 0);
             grad.addColorStop(0, 'rgba(74,222,128,0.9)');   // green ← left/base
             grad.addColorStop(1, 'rgba(199,125,255,0.9)');  // purple ← right/moving
@@ -14844,6 +14845,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 cv.width = cvW; cv.height = cvH;
                 if (stops) {
                     const g = cv.getContext('2d');
+                    // whitelisted non-ColorBar use: colormap picker thumbnail swatches
                     const grad = g.createLinearGradient(0, 0, cvW, 0);
                     stops.forEach(([r, gv, b], i) => {
                         grad.addColorStop(i / (stops.length - 1), `rgb(${r},${gv},${b})`);
