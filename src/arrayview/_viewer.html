@@ -8446,6 +8446,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'zoom.out': {
+                title: 'Zoom out / exit immersive',
+                when: [],
+                run: (ctx, e) => {
+                    if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
+                    userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
+                    if (!_snapZoomToFit()) {
+                        _zoomAdjustedByUser = true;
+                        // Auto-exit immersive mode when zooming back to fit
+                        if (_fullscreenActive && userZoom <= _fitZoom) {
+                            _exitImmersive();
+                            showStatus('zoom: fit');
+                            saveState();
+                            return; // _exitImmersive handles layout; skip _scaleAllWithAnim
+                        }
+                    }
+                    _scaleAllWithAnim();
+                    showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                    saveState();
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8469,6 +8490,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
+            { key: '-', command: 'zoom.out' },
         ];
 
         function makeContext(_state) {
@@ -8550,23 +8572,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === '-') {
-                if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
-                userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
-                if (!_snapZoomToFit()) {
-                    _zoomAdjustedByUser = true;
-                    // Auto-exit immersive mode when zooming back to fit
-                    if (_fullscreenActive && userZoom <= _fitZoom) {
-                        _exitImmersive();
-                        showStatus('zoom: fit');
-                        saveState();
-                        return; // _exitImmersive handles layout; skip _scaleAllWithAnim
-                    }
-                }
-                _scaleAllWithAnim();
-                showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
-                saveState();
-            } else if (e.key === '0') {
+            if (e.key === '0') {
                 // If there's buffered input, '0' is part of slice jump; otherwise it's zoom reset
                 if (sliceJumpBuffer.length > 0) {
                     sliceJumpBuffer += e.key;
