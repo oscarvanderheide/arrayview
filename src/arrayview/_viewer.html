@@ -9001,6 +9001,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'gif.save': {
+                title: 'Save animated GIF',
+                when: [],
+                run: (ctx, e) => {
+                    if (ModeRegistry.isMultiPane) { showStatus('GIF export: not available in this mode'); return; } // kept inline: emits toast
+                    saveGif();
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9061,6 +9069,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 's', command: 'screenshot.save' },
             { key: 'S', command: 'segmentation.cycle' },
             { key: 'N', command: 'slice.exportNpy' },
+            { key: 'g', command: 'gif.save' },
         ];
 
         function makeContext(_state) {
@@ -9166,10 +9175,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'g') {
-                if (ModeRegistry.isMultiPane) { showStatus('GIF export: not available in this mode'); return; }
-                saveGif();
-            } else if (e.key === 'G') {
+            if (e.key === 'G') {
                 // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
                 // When not in compare mode, toggle snapshot gallery instead
                 if (!compareActive || registrationMode || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
