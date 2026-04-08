@@ -9531,6 +9531,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'slice.bufferDigit': {
+                title: 'Buffer digit for slice-jump',
+                when: [],
+                run: (ctx, e) => {
+                    // Digit key (1-9): accumulate for slice index jump
+                    sliceJumpBuffer += e.key;
+                    if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
+                    // Auto-clear buffer after 2 seconds of inactivity
+                    sliceJumpTimeout = setTimeout(() => {
+                        sliceJumpBuffer = '';
+                        showStatus('');
+                    }, 2000);
+                    showStatus(`jump to slice: ${sliceJumpBuffer}_`);
+                },
+            },
             'qmri.cycle': {
                 title: 'Enter / cycle / exit qMRI mode',
                 when: [],
@@ -9867,6 +9882,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'V', command: 'multiview.togglePrompt' },
             { key: 'o', command: 'view.resetOrigin' },
             { key: 'q', command: 'qmri.cycle' },
+            { key: '1', command: 'slice.bufferDigit' },
+            { key: '2', command: 'slice.bufferDigit' },
+            { key: '3', command: 'slice.bufferDigit' },
+            { key: '4', command: 'slice.bufferDigit' },
+            { key: '5', command: 'slice.bufferDigit' },
+            { key: '6', command: 'slice.bufferDigit' },
+            { key: '7', command: 'slice.bufferDigit' },
+            { key: '8', command: 'slice.bufferDigit' },
+            { key: '9', command: 'slice.bufferDigit' },
         ];
 
         function makeContext(_state) {
@@ -9972,17 +9996,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key >= '1' && e.key <= '9') {
-                // Digit key (1-9): accumulate for slice index jump
-                sliceJumpBuffer += e.key;
-                if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
-                // Auto-clear buffer after 2 seconds of inactivity
-                sliceJumpTimeout = setTimeout(() => {
-                    sliceJumpBuffer = '';
-                    showStatus('');
-                }, 2000);
-                showStatus(`jump to slice: ${sliceJumpBuffer}_`);
-            } else if (e.key === 'Enter') {
+            if (e.key === 'Enter') {
                 if (_segMode && sliceJumpBuffer.length === 0) { _segAccept(); return; }
                 // Enter key: jump to buffered slice index (1-based input)
                 if (sliceJumpBuffer.length > 0) {
