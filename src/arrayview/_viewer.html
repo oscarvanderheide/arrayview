@@ -8581,22 +8581,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             'playback.adjustFps': {
                 title: 'Adjust playback fps',
-                when: [],
+                when: ['isPlaying'],
                 run: (ctx, e) => {
-                    if (isPlaying) {
-                        // Multiplicative step so the slider feels continuous rather
-                        // than stairs-y. Floor the change at ±1 so small integers
-                        // don't round back to themselves.
-                        const up = e.key === '>';
-                        let next = up ? playFps * 1.12 : playFps / 1.12;
-                        next = Math.round(next);
-                        if (next === playFps) next = playFps + (up ? 1 : -1);
-                        playFps = Math.max(1, Math.min(120, next));
-                        setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
-                        showToast(`playback: ${playFps} fps`);
-                        _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
-                        return;
-                    }
+                    // Multiplicative step so the slider feels continuous rather
+                    // than stairs-y. Floor the change at ±1 so small integers
+                    // don't round back to themselves.
+                    const up = e.key === '>';
+                    let next = up ? playFps * 1.12 : playFps / 1.12;
+                    next = Math.round(next);
+                    if (next === playFps) next = playFps + (up ? 1 : -1);
+                    playFps = Math.max(1, Math.min(120, next));
+                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
+                    showToast(`playback: ${playFps} fps`);
+                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
+                    return;
                 },
             },
             'ui.adjustBracket': {
@@ -8760,6 +8758,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 compareActive: compareActive,
                 rgbMode: rgbMode,
                 arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
+                isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
             };
         }
 
