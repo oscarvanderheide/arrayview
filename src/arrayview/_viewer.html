@@ -8713,6 +8713,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'playback.toggle': {
+                title: 'Play / pause',
+                when: [],
+                run: (ctx, e) => {
+                    e.preventDefault();
+                    if (rectRoiMode) { showStatus('exit ROI mode first (A)'); return; } // kept inline: emits toast
+                    togglePlay();
+                },
+            },
             'slice.toggleMosaic': {
                 title: 'Toggle mosaic / qMRI mosaic',
                 when: [],
@@ -8849,6 +8858,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'o', mod: true, command: 'overlay.openPicker' },
             { key: 'O', mod: true, command: 'overlay.openPicker' },
             { key: 'z', command: 'slice.toggleMosaic' },
+            { key: ' ', command: 'playback.toggle' },
+            { key: 'Spacebar', command: 'playback.toggle' },
         ];
 
         function makeContext(_state) {
@@ -8954,11 +8965,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (isSpaceKey) {
-                e.preventDefault();
-                if (rectRoiMode) { showStatus('exit ROI mode first (A)'); return; }
-                togglePlay();
-            } else if (e.key === 'T') {
+            if (e.key === 'T') {
                 applyTheme((themeIdx + 1) % THEMES.length);
                 drawSlimColorbar(cbMarkerFrac);
                 showStatus(`theme: ${THEMES[themeIdx]}`);
