@@ -9757,6 +9757,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'ArrowRight', command: 'dim.next' },
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
+            { key: 'p', command: 'projection.cycle' },
         ];
 
         function makeContext(_state) {
@@ -9862,35 +9863,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'p') {
-                // In multiview: toggle 3-D MIP volume renderer
-                if (multiViewActive || mipActive) {
-                    if (mipActive) { exitMipMode(); }
-                    else { enterMipMode(); }
-                    return;
-                }
-                // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
-                if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; }
-                if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; }
-                if (projectionMode === 0) {
-                    projectionMode = 1;
-                    projectionDim = current_slice_dim;
-                } else if (projectionMode < PROJECTION_LABELS.length) {
-                    projectionMode++;
-                } else {
-                    projectionMode = 0;
-                    projectionDim = -1;
-                }
-                _eggsVisible = true;
-                updateView();
-                renderEggs();
-                if (projectionMode === 0) {
-                    showStatus('projection: off');
-                } else {
-                    showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${projectionDim}`);
-                }
-                saveState();
-            } else if (e.key === 'I') {
+            if (e.key === 'I') {
                 const overlay = document.getElementById('info-overlay');
                 if (overlay.classList.contains('visible')) {
                     overlay.classList.remove('visible');
