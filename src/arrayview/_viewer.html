@@ -2438,13 +2438,16 @@
          *   squareStretch: bool,       // force square CSS box
          *   updateAutoFit: bool,       // if true, mutate userZoom/_fitZoom/etc on auto-fit
          *   allowOverflowRecalc: bool, // if true, recalc zoom when restored state overflows
+         *   forceViewport: {w,h} | null, // if set, bypass vpW/vpH computation (used by
+         *                                // multi-pane modes where all panes share a fixed
+         *                                // square viewport independent of canvas cssW/cssH)
          * }
          * returns: { finalScale, cssW, cssH, vpW, vpH, capScale }
          */
         function _scalePane(pane, viewport, opts) {
             const { canvas: cvs, w, h, pan } = pane;
             const { maxW, maxH, baseScale, squareStretch: sqStretch,
-                    updateAutoFit, allowOverflowRecalc } = opts;
+                    updateAutoFit, allowOverflowRecalc, forceViewport } = opts;
             const capScale = Math.min(maxW / w, maxH / h);
             if (updateAutoFit && _autoFitPending && !_isWelcomeScreen) {
                 _autoFitPending = false;
@@ -2465,13 +2468,27 @@
             const finalScale = baseScale * userZoom;
             let cssW = Math.round(w * finalScale);
             let cssH = Math.round(h * finalScale);
-            if (sqStretch) { const sq = Math.max(cssW, cssH); cssW = sq; cssH = sq; }
+            if (sqStretch) {
+                // Default: square sized to the canvas's larger display dimension.
+                // forceViewport callers (multi-pane modes) want the square sized to
+                // the shared viewport instead so every pane is the same square.
+                const sq = forceViewport
+                    ? Math.max(Math.round(forceViewport.w), Math.round(forceViewport.h))
+                    : Math.max(cssW, cssH);
+                cssW = sq; cssH = sq;
+            }
             cvs.style.width  = cssW + 'px';
             cvs.style.height = cssH + 'px';
-            let vpW = Math.min(cssW, Math.round(maxW));
-            let vpH = Math.min(cssH, Math.round(maxH));
-            if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
-            if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
+            let vpW, vpH;
+            if (forceViewport) {
+                vpW = Math.round(forceViewport.w);
+                vpH = Math.round(forceViewport.h);
+            } else {
+                vpW = Math.min(cssW, Math.round(maxW));
+                vpH = Math.min(cssH, Math.round(maxH));
+                if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
+                if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
+            }
             if (viewport) { viewport.style.width = vpW + 'px'; viewport.style.height = vpH + 'px'; }
             const overflowing = cssW > vpW + 2 || cssH > vpH + 2;
             if (overflowing && pan.x === 0 && pan.y === 0) {
@@ -13619,20 +13636,36 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
+            // userZoom is already baked into T above (T = absMaxT * userZoom, then
+            // clamped), and _scalePane re-applies userZoom as finalScale = baseScale *
+            // userZoom. So we hand it baseScale = absMaxT / maxSide so that finalScale
+            // ends up equal to the intended globalScale = T / maxSide. Auto-fit for
+            // multi-view is already handled by the pre-loop overshoot clamp above, so
+            // every pane is scaled with updateAutoFit:false / allowOverflowRecalc:false
+            // (no reference pane is needed — nothing in the loop mutates userZoom).
             const maxSide = Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
-            const globalScale = T / maxSide;
+            const mvBaseScale = absMaxT / maxSide;
+            const _mvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
-                const cssW = squareStretch ? T : Math.round(v.lastW * globalScale);
-                const cssH = squareStretch ? T : Math.round(v.lastH * globalScale);
-                v.canvas.style.width  = cssW + 'px';
-                v.canvas.style.height = cssH + 'px';
+                _scalePane(
+                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _mvPanStub },
+                    v.pane || null,
+                    {
+                        maxW: T,
+                        maxH: T,
+                        baseScale: mvBaseScale,
+                        squareStretch: squareStretch,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                        forceViewport: { w: T, h: T },
+                    }
+                );
+                // Multi-view wraps each canvas in v.wrap (sized to the canvas cssW/cssH)
+                // inside v.pane (the fixed T×T square). _scalePane sizes canvas + pane;
+                // we mirror the canvas size onto v.wrap here.
                 if (v.wrap) {
-                    v.wrap.style.width  = cssW + 'px';
-                    v.wrap.style.height = cssH + 'px';
-                }
-                if (v.pane) {
-                    v.pane.style.width  = T + 'px';
-                    v.pane.style.height = T + 'px';
+                    v.wrap.style.width  = v.canvas.style.width;
+                    v.wrap.style.height = v.canvas.style.height;
                 }
             }
             // Match multiview colorbar width to one pane
