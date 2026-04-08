@@ -8423,7 +8423,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
-            'compare.toggleDiff': {
+            'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
                     const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
@@ -8443,7 +8443,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const keybinds = [
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
-            { key: 'X', command: 'compare.toggleDiff' },
+            { key: 'X', command: 'compare.cycleCenterMode' },
         ];
 
         function makeContext(_state) {
