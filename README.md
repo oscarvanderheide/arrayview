@@ -1,5 +1,7 @@
 # arrayview
 
+[![Documentation](https://img.shields.io/badge/docs-oscarvanderheide.github.io/arrayview-blue)](https://oscarvanderheide.github.io/arrayview/)
+
 A viewer for multi-dimensional arrays.
 
 - CLI and Python
@@ -98,4 +100,3 @@ colormaps = ["gray", "viridis", "plasma"]   # colormaps cycled by 'c'
 default = "browser"                         # browser | native | vscode | inline
 ```
 
-[Full documentation →](https://oscarvanderheide.github.io/arrayview/)
