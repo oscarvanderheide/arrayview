@@ -9756,6 +9756,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'l', command: 'dim.next' },
             { key: 'ArrowRight', command: 'dim.next' },
             { key: 'M', command: 'alpha.cycleLevel' },
+            { key: 'L', command: 'logscale.toggle' },
         ];
 
         function makeContext(_state) {
@@ -9861,16 +9862,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'L') {
-                if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
-                logScale = !logScale;
-                manualVmin = manualVmax = null;
-                _eggsVisible = true;
-                proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                renderInfo();
-                renderEggs();
-                saveState();
-            } else if (e.key === 'p') {
+            if (e.key === 'p') {
                 // In multiview: toggle 3-D MIP volume renderer
                 if (multiViewActive || mipActive) {
                     if (mipActive) { exitMipMode(); }
