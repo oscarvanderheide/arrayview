@@ -8367,8 +8367,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // chain one at a time. See docs/superpowers/specs/2026-04-08-
         // pillar-c-phase-1-design.md.
 
-        const commands = {};
-        const keybinds = [];
+        const commands = {
+            'mode.toggleZen': {
+                when: [],
+                run: (ctx, e) => {
+                    // Zen / fullscreen mode — also hide borders when entering
+                    if (!_zenActive && canvasBorders) {
+                        canvasBorders = false;
+                        _reconcileLayout();
+                    }
+                    toggleZenMode();
+                },
+            },
+        };
+        const keybinds = [
+            { key: 'F', command: 'mode.toggleZen' },
+            { key: 'K', command: 'mode.toggleZen' },  // alias
+        ];
 
         function makeContext(_state) {
             return {
@@ -9701,13 +9716,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
                     showStatus('');
                 }
-            } else if (e.key === 'F') {
-                // Zen / fullscreen mode — also hide borders when entering
-                if (!_zenActive && canvasBorders) {
-                    canvasBorders = false;
-                    _reconcileLayout();
-                }
-                toggleZenMode();
             } else if (e.key === 'U') {
                 if (!hasVectorfield) {
                     showStatus('U: no vector field loaded');
