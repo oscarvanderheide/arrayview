@@ -9009,6 +9009,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveGif();
                 },
             },
+            'compare.cycleLayoutOrGallery': {
+                title: 'Cycle compare layout / toggle gallery',
+                when: [],
+                run: (ctx, e) => {
+                    // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
+                    // When not in compare mode, toggle snapshot gallery instead
+                    if (!compareActive || registrationMode || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
+                    const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
+                    const paneCount = Math.max(1, sidsLen);
+                    const canGrid = paneCount >= 3 && paneCount <= 4;
+                    if (compareLayoutMode === null) {
+                        // Determine what the auto layout currently is and advance from it
+                        const autoCols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
+                        if (autoCols === 1 || paneCount === 1) compareLayoutMode = 'horizontal';
+                        else if (autoCols === paneCount) compareLayoutMode = 'vertical'; // was horizontal
+                        else compareLayoutMode = 'horizontal'; // was grid (4 panes auto=2×2) → go horizontal
+                    } else if (compareLayoutMode === 'horizontal') {
+                        compareLayoutMode = 'vertical';
+                    } else if (compareLayoutMode === 'vertical') {
+                        compareLayoutMode = canGrid ? 'grid' : 'horizontal';
+                    } else { // 'grid'
+                        compareLayoutMode = 'horizontal';
+                    }
+                    applyCompareLayout();
+                    compareScaleCanvases();
+                    showStatus('compare layout: ' + compareLayoutMode);
+                },
+            },
             'screenshot.save': {
                 title: 'Save screenshot',
                 when: [],
@@ -9070,6 +9098,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'S', command: 'segmentation.cycle' },
             { key: 'N', command: 'slice.exportNpy' },
             { key: 'g', command: 'gif.save' },
+            { key: 'G', command: 'compare.cycleLayoutOrGallery' },
         ];
 
         function makeContext(_state) {
@@ -9175,30 +9204,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'G') {
-                // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
-                // When not in compare mode, toggle snapshot gallery instead
-                if (!compareActive || registrationMode || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
-                const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
-                const paneCount = Math.max(1, sidsLen);
-                const canGrid = paneCount >= 3 && paneCount <= 4;
-                if (compareLayoutMode === null) {
-                    // Determine what the auto layout currently is and advance from it
-                    const autoCols = paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-                    if (autoCols === 1 || paneCount === 1) compareLayoutMode = 'horizontal';
-                    else if (autoCols === paneCount) compareLayoutMode = 'vertical'; // was horizontal
-                    else compareLayoutMode = 'horizontal'; // was grid (4 panes auto=2×2) → go horizontal
-                } else if (compareLayoutMode === 'horizontal') {
-                    compareLayoutMode = 'vertical';
-                } else if (compareLayoutMode === 'vertical') {
-                    compareLayoutMode = canGrid ? 'grid' : 'horizontal';
-                } else { // 'grid'
-                    compareLayoutMode = 'horizontal';
-                }
-                applyCompareLayout();
-                compareScaleCanvases();
-                showStatus('compare layout: ' + compareLayoutMode);
-            } else if (e.key === 'm') {
+            if (e.key === 'm') {
                 if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; }
                 if (rgbMode) { showStatus('complex mode: not available for RGB'); return; }
                 const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
