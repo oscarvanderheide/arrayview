@@ -9531,6 +9531,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'seg.exit': {
+                title: 'Exit segmentation mode',
+                when: ['segMode'],
+                run: (ctx, e) => {
+                    if (_segMode) { _segDeactivate(); return; }
+                },
+            },
+            'slice.cancelJump': {
+                title: 'Clear slice-jump buffer',
+                when: ['!mipActive', '!helpVisible', '!segMode'],
+                run: (ctx, e) => {
+                    // Escape: clear slice jump buffer
+                    if (sliceJumpBuffer.length > 0) {
+                        sliceJumpBuffer = '';
+                        if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
+                        showStatus('');
+                    }
+                },
+            },
             'slice.jumpCommit': {
                 title: 'Commit slice-jump buffer (Enter) / accept seg',
                 when: [],
@@ -9937,6 +9956,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
             { key: 'Enter', command: 'slice.jumpCommit' },
+            // Order matters: seg.exit (when segMode) takes precedence over slice.cancelJump
+            { key: 'Escape', command: 'seg.exit' },
+            { key: 'Escape', command: 'slice.cancelJump' },
         ];
 
         function makeContext(_state) {
@@ -9949,6 +9971,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
                 hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
+                mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
+                helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
+                segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
             };
         }
 
@@ -10042,15 +10067,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'Escape') {
-                if (_segMode) { _segDeactivate(); return; }
-                // Escape: clear slice jump buffer
-                if (sliceJumpBuffer.length > 0) {
-                    sliceJumpBuffer = '';
-                    if (sliceJumpTimeout) { clearTimeout(sliceJumpTimeout); sliceJumpTimeout = null; }
-                    showStatus('');
-                }
-            } else if (e.key === 'U') {
+            if (e.key === 'U') {
                 if (!hasVectorfield) {
                     showStatus('U: no vector field loaded');
                     return;
