@@ -12254,11 +12254,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (scaledMin > absMaxScale + 0.001) {
                 userZoom = 1.0;
             }
+            // Per-pane geometry routed through the shared _scalePane primitive.
+            // compare-qMRI has no pan state and no per-pane viewport element —
+            // _scalePane just sets canvas cssW/cssH. baseScale = absMaxScale
+            // (global min across all views) so finalScale = baseScale * userZoom
+            // = cappedScale, giving every pane the same uniform scale factor.
+            // userZoom is pre-clamped above, so updateAutoFit and
+            // allowOverflowRecalc are both false. squareStretch is not used in
+            // compare-qMRI (non-square parameter maps). The colorbar wrap width
+            // is still synced to the canvas cssW after _scalePane returns.
+            const _cqPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
-                const cssW = Math.round(v.lastW * cappedScale);
-                v.canvas.style.width  = cssW + 'px';
-                v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
-                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = cssW + 'px';
+                const r = _scalePane(
+                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _cqPanStub },
+                    null,
+                    {
+                        maxW: Math.round(absMaxScaleW),
+                        maxH: Math.round(absMaxScaleH),
+                        baseScale: absMaxScale,
+                        squareStretch: false,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                    }
+                );
+                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = r.cssW + 'px';
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('.cq-header-label');
