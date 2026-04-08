@@ -9371,6 +9371,152 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
                 },
             },
+            'alpha.cycleLevel': {
+                title: 'Toggle alpha / mask level',
+                when: [],
+                run: (ctx, e) => {
+                    alphaLevel = alphaLevel ? 0 : 1;
+                    _eggsVisible = true;
+                    proxyFetch(`/alpha/${sid}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ level: alphaLevel }),
+                    }).then(r => r.json()).then(d => {
+                        if (d.error) { showStatus('alpha error: ' + d.error); return; }
+                        updateView(); triggerPreload();
+                        renderEggs();
+                    });
+                },
+            },
+            'logscale.toggle': {
+                title: 'Toggle log-scale intensity',
+                when: [],
+                run: (ctx, e) => {
+                    if (rgbMode) { showStatus('log scale: not available for RGB'); return; } // kept inline: emits toast
+                    logScale = !logScale;
+                    manualVmin = manualVmax = null;
+                    _eggsVisible = true;
+                    proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
+                    renderInfo();
+                    renderEggs();
+                    saveState();
+                },
+            },
+            'projection.cycle': {
+                title: 'Cycle statistical projection / MIP',
+                when: [],
+                run: (ctx, e) => {
+                    // In multiview: toggle 3-D MIP volume renderer
+                    if (multiViewActive || mipActive) {
+                        if (mipActive) { exitMipMode(); }
+                        else { enterMipMode(); }
+                        return;
+                    }
+                    // Statistical projections: off → MAX → MIN → MEAN → STD → SOS
+                    if (shape.length < 3) { showStatus('projection: need ≥ 3D array'); return; } // kept inline: emits toast
+                    if (hasVectorfield) { showStatus('projection: not available in vector field mode'); return; } // kept inline: emits toast
+                    if (projectionMode === 0) {
+                        projectionMode = 1;
+                        projectionDim = current_slice_dim;
+                    } else if (projectionMode < PROJECTION_LABELS.length) {
+                        projectionMode++;
+                    } else {
+                        projectionMode = 0;
+                        projectionDim = -1;
+                    }
+                    _eggsVisible = true;
+                    updateView();
+                    renderEggs();
+                    if (projectionMode === 0) {
+                        showStatus('projection: off');
+                    } else {
+                        showStatus(`projection: ${PROJECTION_LABELS[projectionMode - 1]} along dim ${projectionDim}`);
+                    }
+                    saveState();
+                },
+            },
+            'info.toggle': {
+                title: 'Toggle data info overlay',
+                when: [],
+                run: (ctx, e) => {
+                    const overlay = document.getElementById('info-overlay');
+                    if (overlay.classList.contains('visible')) {
+                        overlay.classList.remove('visible');
+                    } else {
+                        proxyFetch(`/info/${sid}`).then(r => r.json()).then(d => {
+                            const rows = [
+                                ['Shape', `[${d.shape.join(', ')}]`],
+                                ['Dtype', d.dtype],
+                                ['Elements', d.total_elements.toLocaleString()],
+                                ['Size', d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'],
+                            ];
+                            if (d.recommended_colormap_reason) rows.push(['Colormap', d.recommended_colormap_reason]);
+                            if (d.filepath) rows.push(['File', d.filepath]);
+                            if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
+                            showDataInfo(rows);
+                        });
+                    }
+                },
+            },
+            'url.copyReusable': {
+                title: 'Copy reusable URL',
+                when: [],
+                run: (ctx, e) => {
+                    const reusableUrl = buildReusableUrl();
+                    navigator.clipboard.writeText(reusableUrl).then(() => {
+                        showStatus('Reusable URL copied');
+                    }).catch(() => showStatus('Clipboard unavailable'));
+                },
+            },
+            'fft.toggle': {
+                title: 'Toggle / prompt FFT',
+                when: [],
+                run: async (ctx, e) => {
+                    if (qmriActive || compareQmriActive) { showStatus('FFT: not available in qMRI mode'); return; } // kept inline: emits toast
+                    if (_fftActive) {
+                        proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: ''})})
+                            .then(r => r.json()).then(d => {
+                                hideFftSpinner();
+                                _fftActive = false;
+                                isComplex = d.is_complex || false;
+                                if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
+                                manualVmin = manualVmax = null;
+                                updateView(); triggerPreload();
+                                renderEggs();
+                            }).catch(() => hideFftSpinner());
+                    } else {
+                        const axesStr = await showInlinePrompt('FFT axes (comma-separated, e.g. 0,1):', '0,1');
+                        if (!axesStr) return;
+                        proxyFetch(`/fft/${sid}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({axes: axesStr})})
+                            .then(r => r.json()).then(d => {
+                                hideFftSpinner();
+                                if (d.error) { showStatus('FFT error: ' + d.error); return; }
+                                _fftActive = true;
+                                _eggsVisible = true;
+                                isComplex = d.is_complex || false;
+                                complexMode = 0;
+                                manualVmin = manualVmax = null;
+                                updateView(); triggerPreload();
+                                renderEggs();
+                            }).catch(() => hideFftSpinner());
+                    }
+                },
+            },
+            'axis.assignX': {
+                title: 'Assign active dim to X axis',
+                when: [],
+                run: (ctx, e) => {
+                    if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; } // kept inline: emits toast
+                    if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; } // kept inline: emits toast
+                    if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; } // kept inline: emits toast
+                    if (shape.length < 3) return;
+                    if (activeDim === dim_x) { /* already x */ }
+                    else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
+                    else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
+                    dim_z = -1;
+                    updateView(); triggerPreload();
+                },
+            },
             'dim.prev': {
                 title: 'Previous active dim / cmap cycle back',
                 when: [],
@@ -9609,6 +9755,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'ArrowLeft', command: 'dim.prev' },
             { key: 'l', command: 'dim.next' },
             { key: 'ArrowRight', command: 'dim.next' },
+            { key: 'M', command: 'alpha.cycleLevel' },
         ];
 
         function makeContext(_state) {
@@ -9714,19 +9861,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'M') {
-                alphaLevel = alphaLevel ? 0 : 1;
-                _eggsVisible = true;
-                proxyFetch(`/alpha/${sid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ level: alphaLevel }),
-                }).then(r => r.json()).then(d => {
-                    if (d.error) { showStatus('alpha error: ' + d.error); return; }
-                    updateView(); triggerPreload();
-                    renderEggs();
-                });
-            } else if (e.key === 'L') {
+            if (e.key === 'L') {
                 if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
                 logScale = !logScale;
                 manualVmin = manualVmax = null;
