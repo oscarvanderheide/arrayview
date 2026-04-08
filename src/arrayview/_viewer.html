@@ -8599,6 +8599,65 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'ui.adjustBracket': {
+                title: 'Adjust contextual [ / ] parameter',
+                when: [],
+                run: (ctx, e) => {
+                    const step = e.key === ']' ? 0.05 : -0.05;
+                    if (rectRoiMode && _roiShape === 'floodfill') {
+                        // Adjust flood fill tolerance
+                        _floodFillTolerance = Math.max(0.01, Math.min(1.0, _floodFillTolerance + step));
+                        showStatus(`flood fill tolerance: ${(_floodFillTolerance * 100).toFixed(0)}% · click to reseed`);
+                        return;
+                    }
+                    if (compareActive && _flickerActive) {
+                        // Flicker rate
+                        _flickerFps = Math.max(1, Math.min(30, _flickerFps + (e.key === ']' ? 1 : -1)));
+                        _startFlicker();
+                        showStatus(`flicker: ${_flickerFps} Hz`);
+                        saveState();
+                    } else if (compareActive && _checkerActive) {
+                        // Checkerboard tile size
+                        const sizes = [8, 16, 24, 32, 48, 64, 96, 128];
+                        const curIdx = sizes.indexOf(_checkerSize);
+                        const nextIdx = e.key === ']'
+                            ? Math.min(sizes.length - 1, (curIdx < 0 ? 3 : curIdx) + 1)
+                            : Math.max(0, (curIdx < 0 ? 3 : curIdx) - 1);
+                        _checkerSize = sizes[nextIdx];
+                        _drawCheckerboard();
+                        showStatus(`checker tile: ${_checkerSize}px`);
+                        saveState();
+                    } else if (compareActive && _wipeActive) {
+                        // Wipe position
+                        _wipeFrac = Math.max(0, Math.min(1, _wipeFrac + step));
+                        _drawWipe();
+                        showStatus(`wipe: ${Math.round(_wipeFrac * 100)}%`);
+                        saveState();
+                    } else if (overlay_sid && !registrationMode) {
+                        // Overlay transparency mode
+                        overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
+                        updateView();
+                        showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
+                    } else if (compareActive && registrationMode) {
+                        registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+                        applyCompareLayout();
+                        drawCompareFramesFromCache();
+                        // Update overlay title to reflect new blend
+                        const _dt = document.getElementById('compare-diff-title');
+                        if (_dt) _dt.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+                        showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
+                        saveState();
+                    } else if (hasVectorfield && !overlay_sid && !compareActive) {
+                        vfDensityLevel = Math.max(-5, Math.min(5, vfDensityLevel + (e.key === ']' ? 1 : -1)));
+                        if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
+                        else drawVectorOverlay();
+                        showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
+                        _dimbarFillFlash('density', (vfDensityLevel + 5) / 10);
+                    } else {
+                        showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
+                    }
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8628,6 +8687,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
+            { key: '[', command: 'ui.adjustBracket' },
+            { key: ']', command: 'ui.adjustBracket' },
         ];
 
         function makeContext(_state) {
@@ -8744,60 +8805,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === '[' || e.key === ']') {
-                const step = e.key === ']' ? 0.05 : -0.05;
-                if (rectRoiMode && _roiShape === 'floodfill') {
-                    // Adjust flood fill tolerance
-                    _floodFillTolerance = Math.max(0.01, Math.min(1.0, _floodFillTolerance + step));
-                    showStatus(`flood fill tolerance: ${(_floodFillTolerance * 100).toFixed(0)}% · click to reseed`);
-                    return;
-                }
-                if (compareActive && _flickerActive) {
-                    // Flicker rate
-                    _flickerFps = Math.max(1, Math.min(30, _flickerFps + (e.key === ']' ? 1 : -1)));
-                    _startFlicker();
-                    showStatus(`flicker: ${_flickerFps} Hz`);
-                    saveState();
-                } else if (compareActive && _checkerActive) {
-                    // Checkerboard tile size
-                    const sizes = [8, 16, 24, 32, 48, 64, 96, 128];
-                    const curIdx = sizes.indexOf(_checkerSize);
-                    const nextIdx = e.key === ']'
-                        ? Math.min(sizes.length - 1, (curIdx < 0 ? 3 : curIdx) + 1)
-                        : Math.max(0, (curIdx < 0 ? 3 : curIdx) - 1);
-                    _checkerSize = sizes[nextIdx];
-                    _drawCheckerboard();
-                    showStatus(`checker tile: ${_checkerSize}px`);
-                    saveState();
-                } else if (compareActive && _wipeActive) {
-                    // Wipe position
-                    _wipeFrac = Math.max(0, Math.min(1, _wipeFrac + step));
-                    _drawWipe();
-                    showStatus(`wipe: ${Math.round(_wipeFrac * 100)}%`);
-                    saveState();
-                } else if (overlay_sid && !registrationMode) {
-                    // Overlay transparency mode
-                    overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
-                    updateView();
-                    showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
-                } else if (compareActive && registrationMode) {
-                    registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
-                    applyCompareLayout();
-                    drawCompareFramesFromCache();
-                    // Update overlay title to reflect new blend
-                    const _dt = document.getElementById('compare-diff-title');
-                    if (_dt) _dt.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
-                    showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
-                    saveState();
-                } else if (hasVectorfield && !overlay_sid && !compareActive) {
-                    vfDensityLevel = Math.max(-5, Math.min(5, vfDensityLevel + (e.key === ']' ? 1 : -1)));
-                    if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
-                    else drawVectorOverlay();
-                    showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
-                    _dimbarFillFlash('density', (vfDensityLevel + 5) / 10);
-                } else {
-                    showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
-                }
             } else if ((e.key === '{' || e.key === '}') && hasVectorfield && !compareActive) {
                 vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
                 if (multiViewActive) mvDrawAllVectorOverlays();
