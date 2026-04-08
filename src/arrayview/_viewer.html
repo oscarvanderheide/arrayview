@@ -8579,6 +8579,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cycleCompareTarget(1);
                 },
             },
+            'playback.adjustFps': {
+                title: 'Adjust playback fps',
+                when: [],
+                run: (ctx, e) => {
+                    if (isPlaying) {
+                        // Multiplicative step so the slider feels continuous rather
+                        // than stairs-y. Floor the change at ±1 so small integers
+                        // don't round back to themselves.
+                        const up = e.key === '>';
+                        let next = up ? playFps * 1.12 : playFps / 1.12;
+                        next = Math.round(next);
+                        if (next === playFps) next = playFps + (up ? 1 : -1);
+                        playFps = Math.max(1, Math.min(120, next));
+                        setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
+                        showToast(`playback: ${playFps} fps`);
+                        _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
+                        return;
+                    }
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8606,6 +8626,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '0', command: 'zoom.reset' },
             { key: 'R', command: 'roi.cycleMode' },
             { key: 'n', command: 'compare.cycleTarget' },
+            { key: '<', command: 'playback.adjustFps' },
+            { key: '>', command: 'playback.adjustFps' },
         ];
 
         function makeContext(_state) {
@@ -8722,21 +8744,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === '<' || e.key === '>') {
-                if (isPlaying) {
-                    // Multiplicative step so the slider feels continuous rather
-                    // than stairs-y. Floor the change at ±1 so small integers
-                    // don't round back to themselves.
-                    const up = e.key === '>';
-                    let next = up ? playFps * 1.12 : playFps / 1.12;
-                    next = Math.round(next);
-                    if (next === playFps) next = playFps + (up ? 1 : -1);
-                    playFps = Math.max(1, Math.min(120, next));
-                    setStatus(`▶ playing  (Space to stop · < / > fps: ${playFps})`);
-                    showToast(`playback: ${playFps} fps`);
-                    _dimbarFillFlash('fps', (playFps - 1) / (120 - 1));
-                    return;
-                }
             } else if (e.key === '[' || e.key === ']') {
                 const step = e.key === ']' ? 0.05 : -0.05;
                 if (rectRoiMode && _roiShape === 'floodfill') {
