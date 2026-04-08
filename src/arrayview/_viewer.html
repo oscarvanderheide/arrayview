@@ -8713,6 +8713,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'theme.cycle': {
+                title: 'Cycle theme',
+                when: [],
+                run: (ctx, e) => {
+                    applyTheme((themeIdx + 1) % THEMES.length);
+                    drawSlimColorbar(cbMarkerFrac);
+                    showStatus(`theme: ${THEMES[themeIdx]}`);
+                    saveState();
+                },
+            },
             'playback.toggle': {
                 title: 'Play / pause',
                 when: [],
@@ -8860,6 +8870,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'z', command: 'slice.toggleMosaic' },
             { key: ' ', command: 'playback.toggle' },
             { key: 'Spacebar', command: 'playback.toggle' },
+            { key: 'T', command: 'theme.cycle' },
         ];
 
         function makeContext(_state) {
@@ -8965,12 +8976,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'T') {
-                applyTheme((themeIdx + 1) % THEMES.length);
-                drawSlimColorbar(cbMarkerFrac);
-                showStatus(`theme: ${THEMES[themeIdx]}`);
-                saveState();
-            } else if (e.key === 'r') {
+            if (e.key === 'r') {
                 if (_segMode) { _segReset(); return; }
                 if (multiViewActive) {
                     // Global axis swap: swap dim_x and dim_y, rebuild all pane definitions
