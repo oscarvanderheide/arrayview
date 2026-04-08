@@ -1,5 +1,17 @@
 # TODO
 
+- d in mosaic mode causes arrayview to crash.
+- the readme is too technical, i have the docs for that. the readme should make someone
+  coming to my repo interested to try it out. propose me some ideas in different tones. i
+  dont want to brag or do shit with rocket emojis. but something like "do you work with
+  arrays? do you need visualize them? do you think you deserve - in the year 2026 - a viewer
+  thats smooth, responsive, does everything you want and more with a modern feel as opposed
+  to some of those shitty viewers with UI from the 90s? then i get you covered. try it out
+  now, with uvx arrayview you_array.{npy,mat,whatever}" brainstorm with me, propose me
+  ideas. its too boring now.
+- investigate the codebase for legacy/unused code. create a plan to clean it up. check with
+  me first before doing the actual cleanup
+
 ## Refactoring Opportunities (assessed 2026-04-03, swept 2026-04-07)
 
 Items 1, 2, 3 done. Items 4 and 5 deliberately deferred — see notes.
@@ -43,10 +55,10 @@ something, exit, change is lost"; "feature works in mode A but not mode B"):
 - **External research:** [`dev/plans/ui-maturity-external-research.md`](plans/ui-maturity-external-research.md)
 
 Four pillars (do not start a phase before the previous is green):
-1. **Phase 0** — round-trip pytest matrix (safety net, no production changes)
-2. **Phase 1 (Pillar A)** — finish `collectStateSnapshot`; every mode enter/exit symmetric; reconciler called after every state mutation
-3. **Phase 2 (Pillar C)** — command registry + `when` clauses; kill the 1309-line keydown switch
-4. **Phase 3 (Pillar B step 1)** — finish `ColorBar` class migration (multi-view, qMRI)
+1. ~~**Phase 0** — round-trip pytest matrix~~ ✅ done (280809d)
+2. ~~**Phase 1 (Pillar A)** — finish `collectStateSnapshot`; every mode enter/exit symmetric~~ ✅ done (a2f971c, 138307a)
+3. ~~**Phase 2 (Pillar C)** — command registry + `when` clauses; kill the 1309-line keydown switch~~ ✅ done (2026-04-08; ~75 commits, 54 commands migrated, handler 1309→35 lines, help overlay auto-generated, `/` command palette, 90-test reachability matrix)
+4. **Phase 3 (Pillar B step 1)** — finish `ColorBar` class migration (multi-view, qMRI) ← **next**
 5. **Phase 4 (Pillar B step 2)** — collapse 5 scale functions into 1 + layout strategies
 6. **Phase 5 (Pillar D step 3)** — Hypothesis stateful tests; optional Photoshop variant
 
