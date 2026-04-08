@@ -8701,6 +8701,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'compare.toggleFocus': {
+                title: 'Toggle compare focus mode',
+                when: [],
+                run: (ctx, e) => {
+                    if (!compareActive || (diffMode === 0 && !registrationMode && !_wipeActive)) {
+                        showToast('Z: focus available when compare center is active (X to activate)');
+                        return;
+                    }
+                    compareFocusMode = !compareFocusMode;
+                    _reconcileCompareState();
+                    compareScaleCanvases();
+                    positionEggs();
+                    showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8735,6 +8750,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '{', command: 'vfield.adjustLength' },
             { key: '}', command: 'vfield.adjustLength' },
             { key: 'i', command: 'hoverinfo.toggle' },
+            { key: 'Z', command: 'compare.toggleFocus' },
         ];
 
         function makeContext(_state) {
@@ -8851,16 +8867,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'Z') {
-                if (!compareActive || (diffMode === 0 && !registrationMode && !_wipeActive)) {
-                    showToast('Z: focus available when compare center is active (X to activate)');
-                    return;
-                }
-                compareFocusMode = !compareFocusMode;
-                _reconcileCompareState();
-                compareScaleCanvases();
-                positionEggs();
-                showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
             } else if (e.key === 'z') {
                 if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
                 if (multiViewActive) { showStatus('mosaic: not available in multi-view'); return; }
