@@ -8538,6 +8538,39 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                 },
             },
+            'roi.cycleMode': {
+                title: 'Cycle ROI shape',
+                when: [],
+                run: (ctx, e) => {
+                    // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
+                    if (compareActive || multiViewActive || qmriActive) {
+                        showStatus('ROI mode: not available in this mode'); return;
+                    }
+                    // Deactivate SEG if active — modes are mutually exclusive
+                    if (_segMode) {
+                        _segDeactivate();
+                        _islandMorph();
+                    }
+                    if (!rectRoiMode) {
+                        rectRoiMode = true; _roiShape = 'rect';
+                    } else if (_roiShape === 'rect') {
+                        _roiShape = 'circle';
+                    } else if (_roiShape === 'circle') {
+                        _roiShape = 'freehand';
+                    } else if (_roiShape === 'freehand') {
+                        _roiShape = 'floodfill';
+                    } else {
+                        rectRoiMode = false; _roiShape = 'rect';
+                        _rois = []; _roiFreehandPts = [];
+                        _floodFillTolerance = 0.1;
+                        _clearRoiOverlay();
+                    }
+                    canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
+                    const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
+                    showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · R to cycle · ${modeHint}` : 'ROI mode: off');
+                    renderEggs();
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8563,6 +8596,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '=', command: 'zoom.in' },
             { key: '-', command: 'zoom.out' },
             { key: '0', command: 'zoom.reset' },
+            { key: 'R', command: 'roi.cycleMode' },
         ];
 
         function makeContext(_state) {
@@ -8679,34 +8713,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'R') {
-                // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
-                if (compareActive || multiViewActive || qmriActive) {
-                    showStatus('ROI mode: not available in this mode'); return;
-                }
-                // Deactivate SEG if active — modes are mutually exclusive
-                if (_segMode) {
-                    _segDeactivate();
-                    _islandMorph();
-                }
-                if (!rectRoiMode) {
-                    rectRoiMode = true; _roiShape = 'rect';
-                } else if (_roiShape === 'rect') {
-                    _roiShape = 'circle';
-                } else if (_roiShape === 'circle') {
-                    _roiShape = 'freehand';
-                } else if (_roiShape === 'freehand') {
-                    _roiShape = 'floodfill';
-                } else {
-                    rectRoiMode = false; _roiShape = 'rect';
-                    _rois = []; _roiFreehandPts = [];
-                    _floodFillTolerance = 0.1;
-                    _clearRoiOverlay();
-                }
-                canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
-                const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
-                showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · R to cycle · ${modeHint}` : 'ROI mode: off');
-                renderEggs();
             } else if (e.key === 'n') {
                 if (!compareActive) { showStatus('compare: off (use the picker to open 2+ arrays)'); return; }
                 cycleCompareTarget(1);
