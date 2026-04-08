@@ -12,6 +12,7 @@ import json
 import math
 import os
 import threading
+from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import (
@@ -246,6 +247,88 @@ def _composite_overlays(
 
 app = FastAPI()
 
+# Readout-crop workflow state (used by external pipelines, e.g. reconstruction scripts).
+_READOUT_CROP_STATE: dict[str, dict] = {}
+_READOUT_CROP_LOCK = threading.Lock()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitize_crop_path(path: str | None) -> str | None:
+    if path is None:
+        return None
+    s = str(path).strip()
+    return s or None
+
+
+def _clamp_int(value, lo: int, hi: int, fallback: int) -> int:
+    try:
+        v = int(value)
+    except Exception:
+        v = int(fallback)
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
+def _clamp_crop_range(x_start, x_end, nx: int) -> tuple[int, int]:
+    nx = max(1, int(nx))
+    default_start = max(0, nx // 4)
+    default_end = min(nx, (3 * nx) // 4)
+    if default_end <= default_start:
+        default_end = min(nx, default_start + 1)
+    xs = _clamp_int(x_start, 0, nx - 1, default_start)
+    xe = _clamp_int(x_end, 1, nx, default_end)
+    if xe <= xs:
+        xe = min(nx, xs + 1)
+    if xs >= xe:
+        xs = max(0, xe - 1)
+    return int(xs), int(xe)
+
+
+def _load_recent_crop_file(path: str, nx: int) -> dict | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        xs, xe = _clamp_crop_range(data.get("x_start"), data.get("x_end"), nx)
+        out = {"x_start": xs, "x_end": xe}
+        if "viz_z" in data:
+            out["viz_z"] = int(data["viz_z"])
+        if "viz_y" in data:
+            out["viz_y"] = int(data["viz_y"])
+        return out
+    except Exception:
+        return None
+
+
+def _write_recent_crop_file(path: str, state: dict) -> tuple[bool, str | None]:
+    try:
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        payload = {
+            "x_start": int(state["x_start"]),
+            "x_end": int(state["x_end"]),
+            "nx": int(state["nx"]),
+            "readout_dim": int(state.get("readout_dim", -1)),
+            "viz_z": int(state.get("viz_z", -1)),
+            "viz_y": int(state.get("viz_y", -1)),
+            "saved_at": _utc_now_iso(),
+            "sid": state.get("sid"),
+            "name": state.get("name", ""),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
 
 @app.exception_handler(Exception)
 async def _generic_exception_handler(request: Request, exc: Exception):
@@ -316,6 +399,8 @@ async def shell_websocket(ws: WebSocket):
                     ]._mosaic_bytes = 0
                     SESSIONS[sid].data = None
                     del SESSIONS[sid]
+                    with _READOUT_CROP_LOCK:
+                        _READOUT_CROP_STATE.pop(sid, None)
     except Exception:
         pass
     finally:
@@ -3304,6 +3389,166 @@ async def load_bytes_endpoint(request: Request):
     _open_via_signal_file(url)
 
     return {"sid": session.sid, "url": url}
+
+
+# ── Readout Crop Session API ──────────────────────────────────────
+
+
+@app.post("/readout_crop/register")
+async def readout_crop_register(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    session = SESSIONS.get(sid)
+    if not session:
+        return JSONResponse({"error": "session_not_found"}, status_code=404)
+
+    shape = tuple(int(s) for s in session.spatial_shape)
+    ndim = len(shape)
+    readout_dim = _clamp_int(body.get("readout_dim", ndim - 1), 0, max(0, ndim - 1), ndim - 1)
+    nx = int(shape[readout_dim])
+    xs, xe = _clamp_crop_range(body.get("x_start"), body.get("x_end"), nx)
+
+    # For 3D preview volumes (z, y, x) this is expected to be dims 0 and 1.
+    # Keep it generic: pick the first two non-readout dims when available.
+    non_readout_dims = [d for d in range(ndim) if d != readout_dim]
+    default_viz_z_dim = non_readout_dims[0] if non_readout_dims else -1
+    default_viz_y_dim = non_readout_dims[1] if len(non_readout_dims) > 1 else -1
+    viz_z = int(body.get("viz_z", shape[default_viz_z_dim] // 2 if default_viz_z_dim >= 0 else -1))
+    viz_y = int(body.get("viz_y", shape[default_viz_y_dim] // 2 if default_viz_y_dim >= 0 else -1))
+
+    recent_file = _sanitize_crop_path(body.get("recent_file"))
+    loaded_recent = False
+    if recent_file:
+        recent = _load_recent_crop_file(recent_file, nx)
+        if recent is not None:
+            xs, xe = int(recent["x_start"]), int(recent["x_end"])
+            if "viz_z" in recent:
+                viz_z = int(recent["viz_z"])
+            if "viz_y" in recent:
+                viz_y = int(recent["viz_y"])
+            loaded_recent = True
+
+    state = {
+        "sid": sid,
+        "name": str(body.get("name") or session.name or ""),
+        "shape": list(shape),
+        "readout_dim": int(readout_dim),
+        "nx": int(nx),
+        "x_start": int(xs),
+        "x_end": int(xe),
+        "viz_z": int(viz_z),
+        "viz_y": int(viz_y),
+        "confirmed": False,
+        "save_requested": False,
+        "saved_recent": False,
+        "saved_recent_path": None,
+        "recent_file": recent_file,
+        "loaded_recent": bool(loaded_recent),
+        "updated_at": _utc_now_iso(),
+    }
+    with _READOUT_CROP_LOCK:
+        _READOUT_CROP_STATE[sid] = state
+    return JSONResponse(state)
+
+
+@app.get("/readout_crop/state/{sid}")
+def readout_crop_state(sid: str):
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+        return JSONResponse(dict(state))
+
+
+@app.post("/readout_crop/update")
+async def readout_crop_update(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+        xs, xe = _clamp_crop_range(body.get("x_start"), body.get("x_end"), int(state["nx"]))
+        state["x_start"] = int(xs)
+        state["x_end"] = int(xe)
+        if "viz_z" in body:
+            state["viz_z"] = int(body.get("viz_z", state.get("viz_z", -1)))
+        if "viz_y" in body:
+            state["viz_y"] = int(body.get("viz_y", state.get("viz_y", -1)))
+        state["updated_at"] = _utc_now_iso()
+        return JSONResponse(dict(state))
+
+
+@app.post("/readout_crop/load_recent")
+async def readout_crop_load_recent(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+        recent_file = state.get("recent_file")
+        if not recent_file:
+            return JSONResponse({"error": "recent_file_not_configured"}, status_code=400)
+        recent = _load_recent_crop_file(str(recent_file), int(state["nx"]))
+        if recent is None:
+            return JSONResponse({"error": "recent_file_missing_or_invalid"}, status_code=404)
+        state["x_start"] = int(recent["x_start"])
+        state["x_end"] = int(recent["x_end"])
+        if "viz_z" in recent:
+            state["viz_z"] = int(recent["viz_z"])
+        if "viz_y" in recent:
+            state["viz_y"] = int(recent["viz_y"])
+        state["loaded_recent"] = True
+        state["updated_at"] = _utc_now_iso()
+        return JSONResponse(dict(state))
+
+
+@app.post("/readout_crop/confirm")
+async def readout_crop_confirm(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    save_recent = bool(body.get("save_recent", False))
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+
+        state["confirmed"] = True
+        state["save_requested"] = bool(save_recent)
+        state["saved_recent"] = False
+        state["saved_recent_path"] = None
+        state["updated_at"] = _utc_now_iso()
+
+        if save_recent and state.get("recent_file"):
+            ok, err = _write_recent_crop_file(str(state["recent_file"]), state)
+            if ok:
+                state["saved_recent"] = True
+                state["saved_recent_path"] = str(state["recent_file"])
+            else:
+                state["saved_recent"] = False
+                state["save_error"] = err
+
+        return JSONResponse(dict(state))
+
+
+@app.post("/readout_crop/clear")
+async def readout_crop_clear(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    with _READOUT_CROP_LOCK:
+        _READOUT_CROP_STATE.pop(sid, None)
+    return JSONResponse({"ok": True, "sid": sid})
 
 
 # ── Root UI Route ─────────────────────────────────────────────────

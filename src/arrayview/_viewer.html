@@ -236,6 +236,14 @@
         .active-vfield-t { font-weight: bold; }
         .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
+        .oblique-mode-tag {
+            color: #8ec5ff;
+            font-size: 0.86em;
+            letter-spacing: 0.01em;
+        }
+        :root.light .oblique-mode-tag {
+            color: #2563aa;
+        }
         .muted { color: var(--muted); }
         .dim-label {
             cursor: pointer; padding: 1px 5px; margin: 0 -5px;
@@ -553,6 +561,106 @@
             user-select: none; transition: color 0.12s, border-color 0.12s;
         }
         #help-hint:hover { color: var(--text); border-color: var(--muted); }
+        #readout-crop-panel {
+            position: fixed;
+            right: 16px;
+            bottom: 48px;
+            z-index: 7;
+            width: min(330px, 84vw);
+            display: none;
+            background: rgba(24,24,24,0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 11px 12px 10px;
+            box-sizing: border-box;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            color: var(--text);
+        }
+        #readout-crop-panel.visible { display: block; }
+        .rcp-title {
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        .rcp-row {
+            display: grid;
+            grid-template-columns: 54px 1fr 64px;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 7px;
+            font-size: 11px;
+        }
+        .rcp-row label { color: var(--muted); }
+        .rcp-row input[type="range"] {
+            width: 100%;
+            margin: 0;
+            accent-color: var(--active-dim);
+        }
+        .rcp-row input[type="number"] {
+            width: 100%;
+            box-sizing: border-box;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            color: var(--text);
+            padding: 3px 5px;
+            font-family: inherit;
+            font-size: 11px;
+        }
+        #rcp-summary {
+            margin: 3px 0 8px;
+            font-size: 11px;
+            color: var(--text);
+        }
+        #rcp-view-hint {
+            margin: 0 0 8px;
+            font-size: 10px;
+            color: var(--muted);
+        }
+        .rcp-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 6px;
+        }
+        .rcp-actions button {
+            width: 100%;
+            cursor: pointer;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text);
+            font-size: 11px;
+            padding: 5px 8px;
+            font-family: inherit;
+            text-align: center;
+        }
+        .rcp-actions button:hover { border-color: var(--active-dim); }
+        .rcp-actions button.rcp-primary {
+            background: var(--active-dim);
+            border-color: var(--active-dim);
+            color: #111;
+            font-weight: 700;
+        }
+        .rcp-actions button.rcp-toggle-active {
+            border-color: var(--active-dim);
+            box-shadow: inset 0 0 0 1px rgba(245,200,66,0.35);
+        }
+        #rcp-status {
+            min-height: 1.25em;
+            margin-top: 7px;
+            font-size: 10px;
+            color: var(--muted);
+        }
+        #rcp-status.error { color: #f87171; }
+        #rcp-status.ok { color: #86efac; }
+        :root.light #readout-crop-panel {
+            background: rgba(246,246,246,0.95);
+            border-color: rgba(0,0,0,0.1);
+        }
         #dynamic-island {
             position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
@@ -1142,6 +1250,7 @@
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
+                <canvas id="readout-crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="roi-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <div id="roi-hover-tooltip" style="display:none"></div>
                 <canvas id="viewer-fade"></canvas>
@@ -1421,6 +1530,28 @@
             </div>
         </div>
     </div>
+    <div id="readout-crop-panel">
+        <div class="rcp-title">Readout Crop</div>
+        <div class="rcp-row">
+            <label for="rcp-start-range">Start</label>
+            <input id="rcp-start-range" type="range" min="0" max="1" step="1">
+            <input id="rcp-start-num" type="number" min="0" step="1">
+        </div>
+        <div class="rcp-row">
+            <label for="rcp-end-range">End</label>
+            <input id="rcp-end-range" type="range" min="1" max="1" step="1">
+            <input id="rcp-end-num" type="number" min="1" step="1">
+        </div>
+        <div id="rcp-summary"></div>
+        <div id="rcp-view-hint"></div>
+        <div class="rcp-actions">
+            <button id="rcp-confirm-btn" class="rcp-primary">Confirm Crop</button>
+            <button id="rcp-save-btn">Save Crop + Continue</button>
+            <button id="rcp-load-btn">Load Recent Crop</button>
+            <button id="rcp-overlay-btn">Hide Crop Overlay (W)</button>
+        </div>
+        <div id="rcp-status"></div>
+    </div>
     <div id="help-hint">?</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
@@ -1439,8 +1570,8 @@
             <div id="help-panels">
                 <div class="help-panel active" data-help-panel="navigation">
                 <div class="help-panel-title">Navigation</div>
-                <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice</span></div>
-                <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim (shows dim progress briefly)</span></div>
+                <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice; in oblique 3-plane: scroll along hovered pane normal</span></div>
+                <div class="help-row"><span class="key">H / l / ← / →</span><span class="desc">move cursor to prev / next dim (shows dim progress briefly)</span></div>
                 <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index; reverse direction on spatial dims</span></div>
                 <div class="help-row"><span class="key">0–9 + Enter</span><span class="desc">jump to slice index (type number, press Enter)</span></div>
                 <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis (x or y dim); rotate 90° CW when slice dim active; in multiview: swap axes globally across all panes</span></div>
@@ -1451,6 +1582,7 @@
                 <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
                 <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
                 <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">toggle readout-crop highlight (crop mode)</span></div>
                 <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
                 <div class="help-row"><span class="key">Shift+drag</span><span class="desc">Zoom to region (normal mode)</span></div>
                 </div>
@@ -1462,6 +1594,7 @@
                 <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2); in compare mode: rows × 3-planes grid</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims); in compare mode: same as v</span></div>
+                <div class="help-row"><span class="key">Alt+drag line</span><span class="desc">rotate oblique plane (3-plane view)</span></div>
                 <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices / crosshair (3-plane); reset dragged UI (immersive)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact / full view; also works in compare mode (rows × maps grid)</span></div>
                 </div>
@@ -1512,11 +1645,11 @@
                 <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy (→ Downloads)</span></div>
                 <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
                 <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
-                <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
+                <div class="help-row"><span class="key">h / ?</span><span class="desc">toggle this help</span></div>
                 </div>
             </div>
             </div>
-            <div class="help-footer">press <kbd>?</kbd> to close</div>
+            <div class="help-footer">press <kbd>h</kbd> (or <kbd>?</kbd>) to close</div>
         </div>
     </div>
 </div>
@@ -1567,6 +1700,9 @@
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
         const _DEBUG_UI = urlParams.get('debug_ui') === '1';
+        const _readoutCropEnabled = urlParams.get('crop_mode') === '1';
+        const _readoutCropDimParam = parseInt(urlParams.get('crop_dim') || '-1', 10);
+        const _readoutCropDebug = urlParams.get('crop_debug') === '1';
 
         /* ── VS Code postMessage transport plumbing ── */
         let _vscodeApi = null;
@@ -1712,6 +1848,31 @@
         let activeDim = 2;
         let indices = [];
         let _sessionName = ''; // set from metadata; restored when leaving compare mode
+        const _readoutCrop = {
+            enabled: _readoutCropEnabled,
+            ready: false,
+            sid,
+            dim: Number.isInteger(_readoutCropDimParam) ? _readoutCropDimParam : -1,
+            nx: 0,
+            xStart: 0,
+            xEnd: 1,
+            confirmed: false,
+            panel: null,
+            statusEl: null,
+            summaryEl: null,
+            viewHintEl: null,
+            startRangeEl: null,
+            endRangeEl: null,
+            startNumEl: null,
+            endNumEl: null,
+            confirmBtnEl: null,
+            saveBtnEl: null,
+            loadBtnEl: null,
+            overlayBtnEl: null,
+            isApplying: false,
+            nonReadoutDims: [],
+            overlayVisible: true,
+        };
         let colormap_idx = 0;
         let isPlaying = false, playInterval = null, playingVfieldT = false;
         let playingDim = -1;  // -1 = not playing; set to dim index during playback
@@ -1799,6 +1960,8 @@
         let vfieldT = 0;        // current time frame index
         const VFIELD_T_DIM = -2; // sentinel activeDim value for the vfield time dim
         const vfieldCanvas = document.getElementById('vfield-canvas');
+        const readoutCropOverlayCanvas = document.getElementById('readout-crop-overlay');
+        const readoutCropOverlayCtx = readoutCropOverlayCanvas ? readoutCropOverlayCanvas.getContext('2d') : null;
         const roiOverlayCanvas = document.getElementById('roi-overlay');
         const roiOverlayCtx = roiOverlayCanvas ? roiOverlayCanvas.getContext('2d') : null;
         let _vfieldAbort = null;
@@ -2475,6 +2638,7 @@
             positionEggs();
             updateMiniMap();
             if (_fullscreenActive) _positionFullscreenInfo();
+            _rcpRenderMainOverlay();
         }
 
         /** Scale all canvases with a brief CSS size-transition for smooth zoom feel. */
@@ -5814,6 +5978,479 @@
             _watchPollTimer = setTimeout(_doPoll, 1500);
         }
 
+        function _rcpClamp(xs, xe, nx) {
+            nx = Math.max(1, Number(nx) || 1);
+            let s = Number.isFinite(xs) ? Math.round(xs) : Math.floor(nx / 4);
+            let e = Number.isFinite(xe) ? Math.round(xe) : Math.floor((3 * nx) / 4);
+            s = Math.max(0, Math.min(nx - 1, s));
+            e = Math.max(1, Math.min(nx, e));
+            if (e <= s) e = Math.min(nx, s + 1);
+            if (s >= e) s = Math.max(0, e - 1);
+            return [s, e];
+        }
+
+        function _rcpVizDims() {
+            if (!Array.isArray(shape) || !shape.length) return [-1, -1];
+            const non = [];
+            for (let i = 0; i < shape.length; i++) if (i !== _readoutCrop.dim) non.push(i);
+            const vz = non.length > 0 ? non[0] : -1;
+            const vy = non.length > 1 ? non[1] : -1;
+            return [vz, vy];
+        }
+
+        function _rcpSetStatus(msg, cls = '') {
+            if (!_readoutCrop.statusEl) return;
+            _readoutCrop.statusEl.textContent = msg || '';
+            _readoutCrop.statusEl.classList.remove('error', 'ok');
+            if (cls) _readoutCrop.statusEl.classList.add(cls);
+        }
+
+        function _rcpHideMainOverlay() {
+            if (!readoutCropOverlayCanvas || !readoutCropOverlayCtx) return;
+            readoutCropOverlayCanvas.style.display = 'none';
+            readoutCropOverlayCtx.clearRect(0, 0, readoutCropOverlayCanvas.width, readoutCropOverlayCanvas.height);
+        }
+
+        function _getMvReadoutCropOverlay(v) {
+            if (!v) return null;
+            if (v._rcpOverlay) return v._rcpOverlay;
+            const parent = v.canvas ? v.canvas.parentElement : null;
+            if (!parent) return null;
+            const ov = document.createElement('canvas');
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;display:none;z-index:1;';
+            parent.appendChild(ov);
+            v._rcpOverlay = ov;
+            return ov;
+        }
+
+        function _rcpHideMvOverlay(v) {
+            if (!v || !v._rcpOverlay) return;
+            const ov = v._rcpOverlay;
+            const ctx2 = ov.getContext('2d');
+            if (ctx2) ctx2.clearRect(0, 0, ov.width, ov.height);
+            ov.style.display = 'none';
+        }
+
+        function _rcpClipPolyHalfPlane(poly, evalFn) {
+            if (!Array.isArray(poly) || !poly.length) return [];
+            const out = [];
+            for (let i = 0; i < poly.length; i++) {
+                const a = poly[i];
+                const b = poly[(i + 1) % poly.length];
+                const fa = evalFn(a);
+                const fb = evalFn(b);
+                const inA = fa >= 0;
+                const inB = fb >= 0;
+                if (inA && inB) {
+                    out.push(b);
+                } else if (inA && !inB) {
+                    const den = fa - fb;
+                    const t = Math.abs(den) < 1e-12 ? 0 : (fa / den);
+                    out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+                } else if (!inA && inB) {
+                    const den = fa - fb;
+                    const t = Math.abs(den) < 1e-12 ? 0 : (fa / den);
+                    out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+                    out.push(b);
+                }
+            }
+            return out;
+        }
+
+        function _rcpRegionPolygon(imgW, imgH, affine, xStart, xEnd) {
+            if (!affine || !Number.isFinite(imgW) || !Number.isFinite(imgH) || imgW <= 0 || imgH <= 0) return null;
+            let poly = [[0, 0], [imgW, 0], [imgW, imgH], [0, imgH]];
+            poly = _rcpClipPolyHalfPlane(poly, (p) => (affine.a * p[0] + affine.b * p[1] + affine.c) - xStart);
+            if (!poly.length) return null;
+            poly = _rcpClipPolyHalfPlane(poly, (p) => xEnd - (affine.a * p[0] + affine.b * p[1] + affine.c));
+            if (!poly.length) return null;
+            return poly;
+        }
+
+        function _rcpDrawPolygonOnCanvas(targetCanvas, refCanvas, poly) {
+            if (!targetCanvas || !refCanvas || !Array.isArray(poly) || poly.length < 3) {
+                if (targetCanvas) targetCanvas.style.display = 'none';
+                return;
+            }
+            const imgW = refCanvas.width;
+            const imgH = refCanvas.height;
+            if (!imgW || !imgH) {
+                targetCanvas.style.display = 'none';
+                return;
+            }
+            const dispW = parseInt(refCanvas.style.width) || imgW;
+            const dispH = parseInt(refCanvas.style.height) || imgH;
+            targetCanvas.style.width = refCanvas.style.width || `${dispW}px`;
+            targetCanvas.style.height = refCanvas.style.height || `${dispH}px`;
+            if (targetCanvas.width !== dispW || targetCanvas.height !== dispH) {
+                targetCanvas.width = dispW;
+                targetCanvas.height = dispH;
+            }
+            const ctx2 = targetCanvas.getContext('2d');
+            if (!ctx2) {
+                targetCanvas.style.display = 'none';
+                return;
+            }
+            ctx2.clearRect(0, 0, dispW, dispH);
+            const sx = dispW / imgW;
+            const sy = dispH / imgH;
+            ctx2.beginPath();
+            ctx2.moveTo(poly[0][0] * sx, poly[0][1] * sy);
+            for (let i = 1; i < poly.length; i++) {
+                ctx2.lineTo(poly[i][0] * sx, poly[i][1] * sy);
+            }
+            ctx2.closePath();
+            ctx2.fillStyle = 'rgba(245,200,66,0.18)';
+            ctx2.strokeStyle = 'rgba(245,200,66,0.82)';
+            ctx2.lineWidth = 1.25;
+            ctx2.fill();
+            ctx2.stroke();
+            targetCanvas.style.display = '';
+        }
+
+        function _rcpSingleViewAffine() {
+            const rd = _readoutCrop.dim;
+            if (rd < 0 || rd >= shape.length) return null;
+            if (rd === dim_x) {
+                if (flip_x) return { a: -1, b: 0, c: shape[rd] - 1 };
+                return { a: 1, b: 0, c: 0 };
+            }
+            if (rd === dim_y) {
+                if (flip_y) return { a: 0, b: -1, c: shape[rd] - 1 };
+                return { a: 0, b: 1, c: 0 };
+            }
+            return null;
+        }
+
+        function _rcpMvAffine(v) {
+            if (!v || !v.lastW || !v.lastH) return null;
+            const rd = _readoutCrop.dim;
+            if (rd < 0 || rd >= shape.length) return null;
+            if (obliqueVecs) {
+                const i = mvViews.indexOf(v);
+                if (i < 0) return null;
+                const vi = obliqueVecs[i];
+                if (!vi || !Array.isArray(mvDims)) return null;
+                const k = mvDims.indexOf(rd);
+                if (k < 0) return null;
+                const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+                const depthOff = dot3(diff, vi.n);
+                const centerRd = (shape[rd] - 1) / 2 + depthOff * vi.n[k];
+                return {
+                    a: vi.bh[k],
+                    b: vi.bv[k],
+                    c: centerRd - (v.lastW / 2) * vi.bh[k] - (v.lastH / 2) * vi.bv[k],
+                };
+            }
+            if (rd === v.dimX) {
+                const fx = flipDims[v.dimX] || false;
+                if (fx) return { a: -1, b: 0, c: shape[rd] - 1 };
+                return { a: 1, b: 0, c: 0 };
+            }
+            if (rd === v.dimY) {
+                const fy = flipDims[v.dimY] || false;
+                if (fy) return { a: 0, b: -1, c: shape[rd] - 1 };
+                return { a: 0, b: 1, c: 0 };
+            }
+            return null;
+        }
+
+        function _rcpUpdateOverlayButton() {
+            if (!_readoutCrop.overlayBtnEl) return;
+            const on = !!_readoutCrop.overlayVisible;
+            _readoutCrop.overlayBtnEl.textContent = on ? 'Hide Crop Overlay (W)' : 'Show Crop Overlay (W)';
+            _readoutCrop.overlayBtnEl.classList.toggle('rcp-toggle-active', on);
+        }
+
+        function _rcpRenderMainOverlay() {
+            if (!readoutCropOverlayCanvas) return;
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.overlayVisible) {
+                _rcpHideMainOverlay();
+                return;
+            }
+            if (multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive) {
+                _rcpHideMainOverlay();
+                return;
+            }
+            if (!_readoutCrop.nx || (_readoutCrop.xStart <= 0 && _readoutCrop.xEnd >= _readoutCrop.nx)) {
+                _rcpHideMainOverlay();
+                return;
+            }
+            const affine = _rcpSingleViewAffine();
+            if (!affine || !canvas.width || !canvas.height) {
+                _rcpHideMainOverlay();
+                return;
+            }
+            const poly = _rcpRegionPolygon(canvas.width, canvas.height, affine, _readoutCrop.xStart, _readoutCrop.xEnd);
+            _rcpDrawPolygonOnCanvas(readoutCropOverlayCanvas, canvas, poly);
+        }
+
+        function _rcpRenderMvOverlay(v) {
+            const ov = _getMvReadoutCropOverlay(v);
+            if (!ov) return;
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.overlayVisible) {
+                _rcpHideMvOverlay(v);
+                return;
+            }
+            if (!multiViewActive || !_readoutCrop.nx || (_readoutCrop.xStart <= 0 && _readoutCrop.xEnd >= _readoutCrop.nx)) {
+                _rcpHideMvOverlay(v);
+                return;
+            }
+            const affine = _rcpMvAffine(v);
+            if (!affine) {
+                _rcpHideMvOverlay(v);
+                return;
+            }
+            const poly = _rcpRegionPolygon(v.lastW, v.lastH, affine, _readoutCrop.xStart, _readoutCrop.xEnd);
+            _rcpDrawPolygonOnCanvas(ov, v.canvas, poly);
+        }
+
+        function _rcpRenderOverlayAll() {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.overlayVisible) {
+                _rcpHideMainOverlay();
+                mvViews.forEach(v => _rcpHideMvOverlay(v));
+                return;
+            }
+            _rcpRenderMainOverlay();
+            if (multiViewActive) mvViews.forEach(v => _rcpRenderMvOverlay(v));
+            else mvViews.forEach(v => _rcpHideMvOverlay(v));
+        }
+
+        function _rcpSetOverlayVisible(visible, opts = {}) {
+            _readoutCrop.overlayVisible = !!visible;
+            _rcpUpdateOverlayButton();
+            _rcpRenderOverlayAll();
+            if (!opts.quiet) showStatus(_readoutCrop.overlayVisible ? 'crop overlay: on' : 'crop overlay: off', 1200);
+        }
+
+        function _rcpToggleOverlay() {
+            _rcpSetOverlayVisible(!_readoutCrop.overlayVisible);
+        }
+
+        function _rcpRefreshViewHint() {
+            if (!_readoutCrop.enabled || !_readoutCrop.viewHintEl || !_readoutCrop.ready) return;
+            let axisHint = 'readout dim hidden in current plane';
+            if (multiViewActive) {
+                const rd = _readoutCrop.dim;
+                if (obliqueVecs && Array.isArray(mvDims) && mvDims.includes(rd)) axisHint = 'readout dim oblique in multi-view';
+                else if (mvViews.some(v => v && (v.dimX === rd || v.dimY === rd))) axisHint = 'readout dim on x/y in some panes';
+                else axisHint = 'readout dim hidden in multi-view panes';
+            } else {
+                if (dim_x === _readoutCrop.dim) axisHint = 'readout dim on x-axis';
+                else if (dim_y === _readoutCrop.dim) axisHint = 'readout dim on y-axis';
+            }
+            const [vz, vy] = _rcpVizDims();
+            const vzVal = (vz >= 0 && Array.isArray(indices)) ? indices[vz] : -1;
+            const vyVal = (vy >= 0 && Array.isArray(indices)) ? indices[vy] : -1;
+            const sliceTxt = (vz >= 0 && vy >= 0) ? `z=${vzVal}, y=${vyVal}` : 'slice n/a';
+            _readoutCrop.viewHintEl.textContent = `${axisHint} · ${sliceTxt}`;
+            _rcpRenderOverlayAll();
+        }
+
+        function _rcpApplyLocalRange(xs, xe, opts = {}) {
+            const quiet = !!opts.quiet;
+            const [s, e] = _rcpClamp(xs, xe, _readoutCrop.nx);
+            _readoutCrop.xStart = s;
+            _readoutCrop.xEnd = e;
+            if (_readoutCrop.startRangeEl) _readoutCrop.startRangeEl.value = String(s);
+            if (_readoutCrop.endRangeEl) _readoutCrop.endRangeEl.value = String(e);
+            if (_readoutCrop.startNumEl) _readoutCrop.startNumEl.value = String(s);
+            if (_readoutCrop.endNumEl) _readoutCrop.endNumEl.value = String(e);
+            if (_readoutCrop.summaryEl) {
+                const keep = Math.max(1, e - s);
+                const pct = (100 * keep / Math.max(1, _readoutCrop.nx)).toFixed(1);
+                _readoutCrop.summaryEl.textContent = `X[${s}:${e}] · keep ${keep}/${_readoutCrop.nx} (${pct}%)`;
+            }
+            if (!quiet) _rcpRefreshViewHint();
+            else _rcpRenderOverlayAll();
+            return [s, e];
+        }
+
+        async function _rcpPushUpdate() {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
+            const [vzDim, vyDim] = _rcpVizDims();
+            const payload = {
+                sid: _readoutCrop.sid,
+                x_start: _readoutCrop.xStart,
+                x_end: _readoutCrop.xEnd,
+                viz_z: vzDim >= 0 ? indices[vzDim] : -1,
+                viz_y: vyDim >= 0 ? indices[vyDim] : -1,
+            };
+            try {
+                const r = await proxyFetch('/readout_crop/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!r.ok) return;
+                const st = await r.json();
+                _rcpApplyLocalRange(st.x_start, st.x_end, { quiet: true });
+                _rcpRefreshViewHint();
+                if (_readoutCropDebug) _rcpSetStatus(`synced @ ${new Date().toLocaleTimeString()}`);
+            } catch (e) {
+                if (_readoutCropDebug) _rcpSetStatus(`sync failed: ${e?.message || e}`, 'error');
+            }
+        }
+
+        async function _rcpConfirm(saveRecent) {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
+            try {
+                const r = await proxyFetch('/readout_crop/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sid: _readoutCrop.sid,
+                        save_recent: !!saveRecent,
+                    }),
+                });
+                if (!r.ok) {
+                    _rcpSetStatus(`confirm failed (HTTP ${r.status})`, 'error');
+                    return;
+                }
+                const st = await r.json();
+                _readoutCrop.confirmed = !!st.confirmed;
+                if (_readoutCrop.confirmBtnEl) _readoutCrop.confirmBtnEl.disabled = true;
+                if (_readoutCrop.saveBtnEl) _readoutCrop.saveBtnEl.disabled = true;
+                if (_readoutCrop.loadBtnEl) _readoutCrop.loadBtnEl.disabled = true;
+                const msg = saveRecent
+                    ? (st.saved_recent ? 'saved + confirmed' : 'confirmed (save failed)')
+                    : 'confirmed';
+                _rcpSetStatus(msg, st.saved_recent || !saveRecent ? 'ok' : 'error');
+            } catch (e) {
+                _rcpSetStatus(`confirm failed: ${e?.message || e}`, 'error');
+            }
+        }
+
+        async function _rcpLoadRecent() {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
+            try {
+                const r = await proxyFetch('/readout_crop/load_recent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: _readoutCrop.sid }),
+                });
+                if (!r.ok) {
+                    _rcpSetStatus('no recent crop found', 'error');
+                    return;
+                }
+                const st = await r.json();
+                _rcpApplyLocalRange(st.x_start, st.x_end);
+                _rcpSetStatus('loaded recent crop', 'ok');
+                await _rcpPushUpdate();
+            } catch (e) {
+                _rcpSetStatus(`load recent failed: ${e?.message || e}`, 'error');
+            }
+        }
+
+        async function _initReadoutCropPanel() {
+            if (!_readoutCrop.enabled || !sid || !Array.isArray(shape) || shape.length === 0) return;
+            _readoutCrop.panel = document.getElementById('readout-crop-panel');
+            _readoutCrop.summaryEl = document.getElementById('rcp-summary');
+            _readoutCrop.viewHintEl = document.getElementById('rcp-view-hint');
+            _readoutCrop.statusEl = document.getElementById('rcp-status');
+            _readoutCrop.startRangeEl = document.getElementById('rcp-start-range');
+            _readoutCrop.endRangeEl = document.getElementById('rcp-end-range');
+            _readoutCrop.startNumEl = document.getElementById('rcp-start-num');
+            _readoutCrop.endNumEl = document.getElementById('rcp-end-num');
+            _readoutCrop.confirmBtnEl = document.getElementById('rcp-confirm-btn');
+            _readoutCrop.saveBtnEl = document.getElementById('rcp-save-btn');
+            _readoutCrop.loadBtnEl = document.getElementById('rcp-load-btn');
+            _readoutCrop.overlayBtnEl = document.getElementById('rcp-overlay-btn');
+            if (!_readoutCrop.panel) return;
+
+            let rd = Number.isInteger(_readoutCrop.dim) ? _readoutCrop.dim : -1;
+            if (rd < 0 || rd >= shape.length) rd = shape.length - 1;
+            _readoutCrop.dim = rd;
+            _readoutCrop.nx = Math.max(1, Number(shape[rd]) || 1);
+            _readoutCrop.nonReadoutDims = [];
+            for (let i = 0; i < shape.length; i++) if (i !== rd) _readoutCrop.nonReadoutDims.push(i);
+
+            let st = null;
+            try {
+                const r0 = await proxyFetch(`/readout_crop/state/${sid}`);
+                if (r0.ok) st = await r0.json();
+            } catch (_) {
+            }
+            if (!st) {
+                try {
+                    const [vz, vy] = _rcpVizDims();
+                    const rs = await proxyFetch('/readout_crop/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sid,
+                            name: _sessionName || sid,
+                            readout_dim: rd,
+                            x_start: Math.floor(_readoutCrop.nx / 4),
+                            x_end: Math.floor((3 * _readoutCrop.nx) / 4),
+                            viz_z: vz >= 0 ? indices[vz] : -1,
+                            viz_y: vy >= 0 ? indices[vy] : -1,
+                        }),
+                    });
+                    if (rs.ok) st = await rs.json();
+                } catch (_) {
+                }
+            }
+
+            const defaultStart = Math.floor(_readoutCrop.nx / 4);
+            const defaultEnd = Math.floor((3 * _readoutCrop.nx) / 4);
+            const initStart = st && Number.isFinite(st.x_start) ? st.x_start : defaultStart;
+            const initEnd = st && Number.isFinite(st.x_end) ? st.x_end : defaultEnd;
+
+            _readoutCrop.startRangeEl.min = '0';
+            _readoutCrop.startRangeEl.max = String(Math.max(0, _readoutCrop.nx - 1));
+            _readoutCrop.endRangeEl.min = '1';
+            _readoutCrop.endRangeEl.max = String(_readoutCrop.nx);
+            _readoutCrop.startNumEl.min = '0';
+            _readoutCrop.startNumEl.max = String(Math.max(0, _readoutCrop.nx - 1));
+            _readoutCrop.endNumEl.min = '1';
+            _readoutCrop.endNumEl.max = String(_readoutCrop.nx);
+
+            _rcpApplyLocalRange(initStart, initEnd);
+
+            const onInput = () => {
+                _rcpApplyLocalRange(
+                    parseInt(_readoutCrop.startRangeEl.value, 10),
+                    parseInt(_readoutCrop.endRangeEl.value, 10),
+                );
+            };
+            const onNumInput = () => {
+                _rcpApplyLocalRange(
+                    parseInt(_readoutCrop.startNumEl.value, 10),
+                    parseInt(_readoutCrop.endNumEl.value, 10),
+                );
+            };
+            _readoutCrop.startRangeEl.addEventListener('input', onInput);
+            _readoutCrop.endRangeEl.addEventListener('input', onInput);
+            _readoutCrop.startNumEl.addEventListener('input', onNumInput);
+            _readoutCrop.endNumEl.addEventListener('input', onNumInput);
+            _readoutCrop.startRangeEl.addEventListener('change', _rcpPushUpdate);
+            _readoutCrop.endRangeEl.addEventListener('change', _rcpPushUpdate);
+            _readoutCrop.startNumEl.addEventListener('change', _rcpPushUpdate);
+            _readoutCrop.endNumEl.addEventListener('change', _rcpPushUpdate);
+
+            _readoutCrop.confirmBtnEl.addEventListener('click', async () => {
+                await _rcpPushUpdate();
+                await _rcpConfirm(false);
+            });
+            _readoutCrop.saveBtnEl.addEventListener('click', async () => {
+                await _rcpPushUpdate();
+                await _rcpConfirm(true);
+            });
+            _readoutCrop.loadBtnEl.addEventListener('click', _rcpLoadRecent);
+            if (_readoutCrop.overlayBtnEl) {
+                _readoutCrop.overlayBtnEl.addEventListener('click', () => _rcpToggleOverlay());
+            }
+
+            _readoutCrop.ready = true;
+            _readoutCrop.panel.classList.add('visible');
+            _rcpUpdateOverlayButton();
+            _rcpRefreshViewHint();
+            if (st && st.loaded_recent) _rcpSetStatus('loaded recent crop', 'ok');
+            else _rcpSetStatus('set crop and confirm');
+            await _rcpPushUpdate();
+        }
+
         /* ── JS: Initialization and Metadata Fetch ────────────────── */
 
         async function init() {
@@ -5894,6 +6531,7 @@
                 const decodedUrlState = decodeStateParam(stateParam);
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
             }
+            await _initReadoutCropPanel();
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
             initWebSocket();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
@@ -6283,8 +6921,12 @@
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
                 idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
+            if (multiViewActive && obliqueVecs) {
+                idxStr += '<span class="dim-sep"> · </span><span class="oblique-mode-tag">oblique ON · Alt+drag line to rotate · o reset</span>';
+            }
             let text = idxStr;
             document.getElementById('info').innerHTML = text;
+            _rcpRefreshViewHint();
             renderEggs();
         }
 
@@ -8315,7 +8957,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
-            if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
+            if (e.key === 'h' || e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
             if (helpOverlay.classList.contains('visible')) {
                 if (e.key === 'Escape') {
                     setHelpVisible(false);
@@ -8336,6 +8978,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
                 document.getElementById('info-overlay').classList.remove('visible');
+                return;
+            }
+            if ((e.key === 'w' || e.key === 'W') && _readoutCrop.enabled && _readoutCrop.ready) {
+                _rcpToggleOverlay();
                 return;
             }
             if (e.key === '+' || e.key === '=') {
@@ -9243,7 +9889,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     updateView();
                     saveState();
                 }
-            } else if (e.key === 'h' || e.key === 'ArrowLeft') {
+            } else if (e.key === 'H' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 // While colormap strip is visible, cycle colormap backward
                 if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
@@ -10411,9 +11057,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
-                    indices[view.sliceDir] = e.deltaY > 0
-                        ? Math.max(0, indices[view.sliceDir] - 1)
-                        : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
+                    if (obliqueVecs) {
+                        // Oblique mode: scroll along the hovered pane normal.
+                        const i = mvViews.indexOf(view);
+                        if (i >= 0) {
+                            const vi = obliqueVecs[i];
+                            const nn = normalize3(vi.n);
+                            const step = e.deltaY > 0 ? -1 : 1;
+                            const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+                            for (let k = 0; k < 3; k++) {
+                                const d = mvDims[k];
+                                const nv = (shape[d] - 1) / 2 + diff[k] + step * nn[k];
+                                indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
+                            }
+                        }
+                    } else {
+                        indices[view.sliceDir] = e.deltaY > 0
+                            ? Math.max(0, indices[view.sliceDir] - 1)
+                            : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
+                    }
                     activeDim = view.sliceDir;
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
@@ -10428,8 +11090,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
                     const hitJ = mvCrossHairHit(view, px, py);
-                    if (hitJ >= 0) {
+                    // Rotate only on explicit modifier gesture to avoid accidental oblique jumps.
+                    const wantsRotate = hitJ >= 0 && e.altKey;
+                    if (wantsRotate) {
+                        const enteringOblique = (obliqueVecs === null);
                         initObliqueVecs();
+                        if (enteringOblique) {
+                            showStatus('oblique ON · Alt+drag line to rotate · o reset', 2200);
+                        }
                         obliqueDrag = {
                             viewI: mvViews.indexOf(view), viewJ: hitJ,
                             prevX: px, prevY: py,
@@ -10440,6 +11108,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         mvViews.forEach(v => mvRender(v));
                     } else {
                         mvNavDragPrev = { x: px, y: py };
+                        if (obliqueVecs) {
+                            mvNavDragPrev.depthOff = _mvDepthOffsetForView(view);
+                        }
                         mvDraggingView = view;
                         handleMvPointer(view, e);
                     }
@@ -10449,9 +11120,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
-                    // Cursor feedback: grab when hovering over a crosshair line
+                    // Cursor feedback: only show rotate cursor when modifier is held.
                     const hj = mvCrossHairHit(view, px, py);
-                    cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
+                    const wantsRotate = hj >= 0 && e.altKey;
+                    cv.style.cursor = obliqueDrag ? 'grabbing' : (wantsRotate ? 'grab' : 'crosshair');
                     _lastMouseX = e.clientX; _lastMouseY = e.clientY;
                     fetchPixelInfo({
                         event: e,
@@ -12419,6 +13091,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             else if (isPlaying && qmriViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
         }
 
+        function _mvDepthOffsetForView(view) {
+            if (!obliqueVecs) return 0;
+            const i = mvViews.indexOf(view);
+            if (i < 0) return 0;
+            const vi = obliqueVecs[i];
+            if (!vi || !Array.isArray(mvDims) || mvDims.length < 3) return 0;
+            const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+            return dot3(diff, vi.n);
+        }
+
         function handleMvPointer(view, e) {
             if (!view.lastW || !view.lastH) return;
             const rect = view.canvas.getBoundingClientRect();
@@ -12426,15 +13108,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const py = (e.clientY - rect.top) * view.lastH / rect.height;
             if (obliqueVecs) {
                 // Invert the projection to set indices from click position.
-                // The render is at volume center; offset from center → indices.
+                // Preserve current depth along the view normal so click/drag only
+                // moves the in-plane crosshair (no snap back to center slice).
                 const i = mvViews.indexOf(view);
                 if (i < 0) return;
                 const vi = obliqueVecs[i];
+                const depthOff = (mvNavDragPrev && Number.isFinite(mvNavDragPrev.depthOff))
+                    ? mvNavDragPrev.depthOff
+                    : _mvDepthOffsetForView(view);
                 const off_h = px - view.lastW / 2;
                 const off_v = py - view.lastH / 2;
                 for (let k = 0; k < 3; k++) {
                     const d = mvDims[k];
-                    const nv = (shape[d] - 1) / 2 + off_h * vi.bh[k] + off_v * vi.bv[k];
+                    const nv = (shape[d] - 1) / 2 + depthOff * vi.n[k] + off_h * vi.bh[k] + off_v * vi.bv[k];
                     indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
                 }
                 renderInfo();
@@ -12717,7 +13403,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (i < 0) return -1;
             const rect = v.canvas.getBoundingClientRect();
             const cssPxPerCanvasPx = v.lastW ? rect.width / v.lastW : 1;
-            const thr = 10 / cssPxPerCanvasPx; // 10 CSS-px hit zone in canvas pixels
+            const thr = 7 / cssPxPerCanvasPx; // tighter hit zone (CSS px) to reduce accidental rotate grabs
             if (obliqueVecs) {
                 const vi = obliqueVecs[i];
                 const diff = mvDims.map(d => indices[d] - (shape[d] - 1) / 2);
@@ -12803,7 +13489,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const parent = v.canvas.parentElement;
             if (!parent) return null;
             const ov = document.createElement('canvas');
-            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;';
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;z-index:2;';
             parent.appendChild(ov);
             v._chOverlay = ov;
             return ov;
@@ -12884,6 +13570,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 } // end if (_chAlpha > 0.005)
             }
+            _rcpRenderMvOverlay(v);
             drawMvOrientation();
         }
 
@@ -13004,6 +13691,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             fixWrapperAlignment();
             positionEggs();
+            if (_readoutCrop.enabled && _readoutCrop.ready) {
+                mvViews.forEach(v => _rcpRenderMvOverlay(v));
+            }
             return requestedT > absMaxT ? 'max' : null;
         }
 
@@ -13426,6 +14116,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _fadeCanvas.style.width = canvas.style.width || '';
                 _fadeCanvas.style.height = canvas.style.height || '';
             }
+            _rcpRenderMainOverlay();
         }
 
         // ── 2. Zen / focus mode ───────────────────────────────────────
