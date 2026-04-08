@@ -8658,9 +8658,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             'vfield.adjustLength': {
                 title: 'Adjust vector field arrow length',
-                when: [],
+                when: ['hasVectorfield', '!compareActive'],
                 run: (ctx, e) => {
-                    if (!(hasVectorfield && !compareActive)) return;
                     vfLengthLevel = Math.max(-5, Math.min(5, vfLengthLevel + (e.key === '}' ? 1 : -1)));
                     if (multiViewActive) mvDrawAllVectorOverlays();
                     else drawVectorOverlay();
@@ -8759,6 +8758,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 rgbMode: rgbMode,
                 arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
                 isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
+                hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
             };
         }
 
