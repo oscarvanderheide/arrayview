@@ -9758,6 +9758,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'M', command: 'alpha.cycleLevel' },
             { key: 'L', command: 'logscale.toggle' },
             { key: 'p', command: 'projection.cycle' },
+            { key: 'I', command: 'info.toggle' },
         ];
 
         function makeContext(_state) {
@@ -9863,25 +9864,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'I') {
-                const overlay = document.getElementById('info-overlay');
-                if (overlay.classList.contains('visible')) {
-                    overlay.classList.remove('visible');
-                } else {
-                    proxyFetch(`/info/${sid}`).then(r => r.json()).then(d => {
-                        const rows = [
-                            ['Shape', `[${d.shape.join(', ')}]`],
-                            ['Dtype', d.dtype],
-                            ['Elements', d.total_elements.toLocaleString()],
-                            ['Size', d.size_mb !== null ? d.size_mb + ' MB' : 'unknown'],
-                        ];
-                        if (d.recommended_colormap_reason) rows.push(['Colormap', d.recommended_colormap_reason]);
-                        if (d.filepath) rows.push(['File', d.filepath]);
-                        if (d.fft_axes) rows.push(['FFT axes', `[${d.fft_axes.join(', ')}]`]);
-                        showDataInfo(rows);
-                    });
-                }
-            } else if (e.key === 'e') {
+            if (e.key === 'e') {
                 const reusableUrl = buildReusableUrl();
                 navigator.clipboard.writeText(reusableUrl).then(() => {
                     showStatus('Reusable URL copied');
