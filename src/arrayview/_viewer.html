@@ -8713,6 +8713,51 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
+            'overlay.cycleVisibility': {
+                title: 'Cycle overlay visibility',
+                when: ['hasOverlay'],
+                run: (ctx, e) => {
+                    // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
+                    const sids = overlay_sid.split(',');
+                    const nMasks = sids.length;
+                    if (_overlayVisibility === 'all') {
+                        _overlayVisibility = 'none';
+                    } else if (_overlayVisibility === 'none') {
+                        _overlayVisibility = nMasks > 1 ? 0 : 'all';
+                    } else {
+                        // Currently showing individual mask
+                        const next = _overlayVisibility + 1;
+                        _overlayVisibility = next >= nMasks ? 'all' : next;
+                    }
+                    // Status message
+                    if (_overlayVisibility === 'all') {
+                        showStatus('overlays: all');
+                    } else if (_overlayVisibility === 'none') {
+                        showStatus('overlays: off');
+                    } else {
+                        const colors = (overlay_colors || '').split(',');
+                        const colorHex = colors[_overlayVisibility] || '';
+                        const colorTag = colorHex ? ` (#${colorHex})` : '';
+                        showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
+                    }
+                    updateView();
+                },
+            },
+            'overlay.openPicker': {
+                title: 'Open array picker',
+                when: [],
+                run: async (ctx, e) => {
+                    if (isInlineEmbed) return;
+                    const result = await showUnifiedPicker('open');
+                    if (!result) return;
+                    if (result.action === 'compare' && result.sids && result.sids.length >= 2) {
+                        await enterCompareModeByMultipleSids(result.sids);
+                    } else if (result.action === 'compare' && result.sids && result.sids.length === 1) {
+                        await enterCompareModeBySid(result.sids[0], result.names[0] || '');
+                    }
+                    // For 'open' action, navigation already happened in the picker
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8748,6 +8793,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '}', command: 'vfield.adjustLength' },
             { key: 'i', command: 'hoverinfo.toggle' },
             { key: 'Z', command: 'compare.toggleFocus' },
+            // Order matters: cycleVisibility must come before openPicker
+            // so Shift+O (with an overlay loaded) cycles instead of opening.
+            { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
+            { key: 'O', shift: true, command: 'overlay.openPicker' },
+            { key: 'o', mod: true, command: 'overlay.openPicker' },
+            { key: 'O', mod: true, command: 'overlay.openPicker' },
         ];
 
         function makeContext(_state) {
@@ -8759,6 +8810,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
                 isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
                 hasVectorfield: (typeof hasVectorfield !== 'undefined') ? hasVectorfield : false,
+                hasOverlay: (typeof overlay_sid !== 'undefined') ? !!overlay_sid : false,
             };
         }
 
@@ -8852,42 +8904,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'O' && e.shiftKey && !modKey && overlay_sid) {
-                // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
-                const sids = overlay_sid.split(',');
-                const nMasks = sids.length;
-                if (_overlayVisibility === 'all') {
-                    _overlayVisibility = 'none';
-                } else if (_overlayVisibility === 'none') {
-                    _overlayVisibility = nMasks > 1 ? 0 : 'all';
-                } else {
-                    // Currently showing individual mask
-                    const next = _overlayVisibility + 1;
-                    _overlayVisibility = next >= nMasks ? 'all' : next;
-                }
-                // Status message
-                if (_overlayVisibility === 'all') {
-                    showStatus('overlays: all');
-                } else if (_overlayVisibility === 'none') {
-                    showStatus('overlays: off');
-                } else {
-                    const colors = (overlay_colors || '').split(',');
-                    const colorHex = colors[_overlayVisibility] || '';
-                    const colorTag = colorHex ? ` (#${colorHex})` : '';
-                    showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
-                }
-                updateView();
-            } else if (((e.key === 'o' || e.key === 'O') && modKey) || (e.key === 'O' && e.shiftKey && !modKey)) {
-                if (isInlineEmbed) return;
-                const result = await showUnifiedPicker('open');
-                if (!result) return;
-                if (result.action === 'compare' && result.sids && result.sids.length >= 2) {
-                    await enterCompareModeByMultipleSids(result.sids);
-                } else if (result.action === 'compare' && result.sids && result.sids.length === 1) {
-                    await enterCompareModeBySid(result.sids[0], result.names[0] || '');
-                }
-                // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'z') {
+            if (e.key === 'z') {
                 if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; }
                 if (multiViewActive) { showStatus('mosaic: not available in multi-view'); return; }
                 if (qmriActive) {
