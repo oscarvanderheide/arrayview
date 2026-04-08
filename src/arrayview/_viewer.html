@@ -8670,6 +8670,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _dimbarFillFlash('length', (vfLengthLevel + 5) / 10);
                 },
             },
+            'hoverinfo.toggle': {
+                title: 'Toggle hover pixel info',
+                when: [],
+                run: (ctx, e) => {
+                    _pixelInfoVisible = !_pixelInfoVisible;
+                    if (!_pixelInfoVisible) {
+                        hideAllPixelInfo();
+                        const axEl = document.getElementById('main-axes-svg');
+                        if (axEl) {
+                            axEl.querySelector('.axes-lbl-x').textContent = 'x';
+                            axEl.querySelector('.axes-lbl-y').textContent = 'y';
+                        }
+                        // Restore multiview per-pane axes labels
+                        if (multiViewActive) mvViews.forEach(v => {
+                            if (v.axesSvg) {
+                                v.axesSvg.querySelector('.axes-lbl-x').textContent = v.axLblX;
+                                v.axesSvg.querySelector('.axes-lbl-y').textContent = v.axLblY;
+                            }
+                        });
+                        document.querySelectorAll('.axes-indicator').forEach(el => {
+                            el.style.transition = 'opacity 0.6s ease';
+                            el.style.opacity = '0';
+                        });
+                    } else {
+                        flashAxesIndicators();
+                        canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
+                    }
+                    showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
+                    saveState();
+                },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -8703,6 +8734,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: ']', command: 'ui.adjustBracket' },
             { key: '{', command: 'vfield.adjustLength' },
             { key: '}', command: 'vfield.adjustLength' },
+            { key: 'i', command: 'hoverinfo.toggle' },
         ];
 
         function makeContext(_state) {
@@ -8819,32 +8851,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     await enterCompareModeBySid(result.sids[0], result.names[0] || '');
                 }
                 // For 'open' action, navigation already happened in the picker
-            } else if (e.key === 'i') {
-                _pixelInfoVisible = !_pixelInfoVisible;
-                if (!_pixelInfoVisible) {
-                    hideAllPixelInfo();
-                    const axEl = document.getElementById('main-axes-svg');
-                    if (axEl) {
-                        axEl.querySelector('.axes-lbl-x').textContent = 'x';
-                        axEl.querySelector('.axes-lbl-y').textContent = 'y';
-                    }
-                    // Restore multiview per-pane axes labels
-                    if (multiViewActive) mvViews.forEach(v => {
-                        if (v.axesSvg) {
-                            v.axesSvg.querySelector('.axes-lbl-x').textContent = v.axLblX;
-                            v.axesSvg.querySelector('.axes-lbl-y').textContent = v.axLblY;
-                        }
-                    });
-                    document.querySelectorAll('.axes-indicator').forEach(el => {
-                        el.style.transition = 'opacity 0.6s ease';
-                        el.style.opacity = '0';
-                    });
-                } else {
-                    flashAxesIndicators();
-                    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
-                }
-                showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
-                saveState();
             } else if (e.key === 'Z') {
                 if (!compareActive || (diffMode === 0 && !registrationMode && !_wipeActive)) {
                     showToast('Z: focus available when compare center is active (X to activate)');
