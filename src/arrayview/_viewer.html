@@ -12358,21 +12358,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">${_axY}</text>`;
                     cvBox.appendChild(axDiv);
                     cvWrap.appendChild(cvBox);
-                    const cbCv = document.createElement('canvas');
-                    cbCv.className = 'qv-cb';
-                    const cbLabels = document.createElement('div');
-                    cbLabels.className = 'qv-cb-labels';
-                    const cbIsland = document.createElement('div');
-                    cbIsland.className = 'cb-island qv-cb-island';
-                    const cbVmin = document.createElement('span');
-                    cbVmin.className = 'qv-cb-val';
-                    const cbVmax = document.createElement('span');
-                    cbVmax.className = 'qv-cb-val';
-                    cbIsland.appendChild(cbVmin);
-                    cbIsland.appendChild(cbCv);
-                    cbIsland.appendChild(cbVmax);
-                    cbIsland.appendChild(cbLabels);
-                    cvWrap.appendChild(cbIsland);
                     const piEl = document.createElement('div');
                     piEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(piEl);
@@ -12383,11 +12368,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         sid: sidVal,
                         dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        cbCanvas: cbCv, cbLabels, cbVmin, cbVmax, pixelInfoEl: piEl,
+                        cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: piEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
+                        _colorBar: null,
                     };
+                    // Create ColorBar instance for this compare-mv view (independent window/level)
+                    const _cmvCb = new ColorBar({
+                        container: cvWrap,
+                        id: 'cmv-' + si + '-' + pi,
+                        orientation: 'horizontal',
+                        interactive: true,
+                        getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
+                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
+                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        fetchHistogram: () => _fetchHistogramCompare(),
+                        onWindowChange: () => { compareMvRender(view); },
+                        onAnimFrame: () => { compareMvScaleAllCanvases(); },
+                    });
+                    _cmvCb.wrap.classList.add('qv-cb-island');
+                    view._colorBar = _cmvCb;
+                    view.cbCanvas = _cmvCb.canvas;
+                    view.cbVmin = _cmvCb.vminLabel;
+                    view.cbVmax = _cmvCb.vmaxLabel;
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = e.deltaY > 0 ? -1 : 1;
