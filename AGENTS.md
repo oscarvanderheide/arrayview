@@ -24,6 +24,7 @@ Load the relevant skill before touching the corresponding area.
 - For visual/animation features, propose 2-3 options BEFORE implementing
 - UI visibility changes go through reconcilers (`_reconcileUI`/`_reconcileLayout`/`_reconcileCompareState`/`_reconcileCbVisibility`), not inline `style.display` or `classList` toggles in mode functions
 - All colorbar state (animation, window/level, hover, drag) flows through `primaryCb` ColorBar instance — never read/write legacy globals. Multiview colorbars sync via `primaryCb`.
+- Keybinds flow through the command registry (`commands` / `keybinds` in `_viewer.html`), not inline keydown branches. The help overlay auto-generates from command `title` fields — do not hand-edit it.
 
 ## Execution
 
@@ -32,9 +33,11 @@ Always use **subagent-driven development** for implementation. Commit completed 
 ## Testing
 
 ```bash
-uv run pytest tests/test_api.py -v       # HTTP API
-uv run pytest tests/test_browser.py -v   # Playwright
-uv run python tests/visual_smoke.py      # screenshots
+uv run pytest tests/test_api.py -v                    # HTTP API
+uv run pytest tests/test_browser.py -v                # Playwright
+uv run pytest tests/test_mode_roundtrip.py -v         # mode state round-trip
+uv run pytest tests/test_command_reachability.py -v   # command when-clause matrix
+uv run python tests/visual_smoke.py                   # screenshots
 ```
 
 After any UI change, use `/ui-consistency-audit` to verify across all modes.

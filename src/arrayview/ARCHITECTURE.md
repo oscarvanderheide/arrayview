@@ -52,7 +52,7 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_stdio_server.py` | 791 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
 | `_torch.py` | 217 | PyTorch integration: `view_batch()`, `TrainingMonitor` (lazy torch import) |
 | `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, shared-memory IPC, browser opening |
-| `_viewer.html` | 14480 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
+| `_viewer.html` | 15600 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
 | `_shell.html` | 174 | Tab-bar shell for native pywebview — wraps viewer iframes, manages multi-tab sessions |
 
 ## Frontend (_viewer.html)
@@ -89,7 +89,7 @@ The frontend is a single self-contained HTML file (~15k lines). No build step, n
 | Rendering Pipeline | `updateView()`, play/animate, screenshot capture |
 | ROI and Selection Modes | Rectangle/ellipse ROI drawing, statistics computation |
 | nnInteractive Segmentation | Click-to-segment UI, mask overlay, undo stack |
-| Keyboard Shortcuts | All hotkey bindings — single master switch/case block |
+| Keyboard Shortcuts | Command registry (`commands` / `keybinds` / `makeContext` / `evalWhen` / `dispatchCommand`) + `/`-triggered command palette. Keydown handler is a thin dispatcher prefix |
 | Mode Transitions | Compare/multiview/qMRI enter/exit, crosshair animation |
 | Scroll, Zoom, and Pan | Mouse wheel slice scroll, pinch zoom, scroll-to-zoom |
 | Immersive Mode, Cross-Fade, and Visual Effects | Zen mode, fullscreen (K), animated transitions |
@@ -136,6 +136,9 @@ Pill-shaped badges below the canvas showing active visualization transforms. **C
 ### Dynamic Islands
 Floating UI panels that appear/disappear based on context: ROI statistics, segmentation controls, colorbar hover, dimension sliders. Must be tested across all viewing modes (normal, immersive, multiview, compare).
 
+### Command Registry
+All keybinds flow through a VS Code-style command registry in `_viewer.html`. Three tables: `commands` (id → `{title, when, run}`), `keybinds` (key+modifiers → command id), and `makeContext(state)` (mode/state flag bag). `dispatchCommand(e)` is wired as a prefix to the keydown handler; on a match it evaluates `when` against the context and runs the command, otherwise falls through. The help overlay is auto-generated from command `title` fields — never hand-edit it. A `/`-triggered command palette fuzzy-searches all commands. Cross-mode enablement is guarded by `tests/test_command_reachability.py`.
+
 ### Reconcilers
 Functions in the "UI Validation and Reconciliation" section (~line 13666) that enforce consistent UI state. When mode changes happen, reconcilers update visibility of containers, colorbars, dynamic islands, and compare sub-mode UI. There are four:
 1. **Unified UI reconciler** — master state enforcer
@@ -155,6 +158,9 @@ A dedicated daemon thread (`_session.py`) runs all CPU-heavy rendering off the a
 
 ### Dynamic Islands
 Must verify island positioning and visibility across normal, immersive, multiview, and compare modes. Islands use absolute/fixed positioning that breaks if parent containers change.
+
+### Keybind Changes
+Keybinds live in the `commands` + `keybinds` tables, not in the keydown handler. Adding or changing a keybind means editing those tables and (if needed) extending `makeContext` / `evalWhen`. The help overlay regenerates itself from command `title` fields — do not edit overlay HTML directly.
 
 ### Layout Debugging
 When debugging layout issues: identify the root cause (which scale function, which reconciler, which CSS rule) before applying fixes. Symptoms in one mode often originate from shared code affecting all modes.
