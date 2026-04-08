@@ -52,19 +52,24 @@ def _exit_multiview(page):
     _wait(page, 300)
 
 
-# --- compare (handled separately; enter needs a picker) ---
+# --- compare ---
+# The B keybind was retired; compare is now opened either via the unified
+# picker (Ctrl/Cmd+O) or programmatically via enterCompareModeBySid. For
+# round-trip testing we exercise the JS entry point directly — it's the same
+# function URL-param loads and the picker both call, and avoids needing to
+# drive a modal picker in headless mode.
+# The partner sid is stashed on `window._rtripCompareSid` by the test body.
 def _enter_compare(page):
-    page.keyboard.press("B")
-    # The picker should appear.
-    page.wait_for_selector("#compare-picker.visible", timeout=3_000)
-    page.locator(".cp-item:not(.cp-item-current)").first.click()
+    page.evaluate(
+        "async () => { await enterCompareModeBySid(window._rtripCompareSid); }"
+    )
     page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
-    _wait(page, 300)
+    _wait(page, 400)
 
 
 def _exit_compare(page):
-    page.keyboard.press("B")
-    _wait(page, 350)
+    page.evaluate("() => exitCompareMode()")
+    _wait(page, 400)
 
 
 # --- qmri (needs 4D) ---
@@ -126,9 +131,11 @@ def _enter_projection(page):
 
 
 def _exit_projection(page):
-    # Projection cycles: off -> MAX -> MIN -> MEAN -> STD -> SOS -> off
-    # We entered at MAX; need 5 more presses to wrap to off.
-    for _ in range(5):
+    # Projection cycles: off -> MAX -> MIN -> MEAN -> STD -> SOS -> SUM -> off
+    # We entered at mode=1; read PROJECTION_LABELS.length from the page so we
+    # don't drift when modes are added, and press `p` enough times to wrap.
+    n_labels = page.evaluate("() => PROJECTION_LABELS.length")
+    for _ in range(n_labels):  # 1 + n_labels presses total → wraps to 0
         page.keyboard.press("p")
         _wait(page, 100)
     _wait(page, 200)
@@ -200,7 +207,37 @@ HANGING_COMBOS = {
 # Fields allowed to differ in every diff (timing/internal, not user-facing state).
 IGNORED_FIELDS_GLOBAL: set[str] = set()
 
-# Additional fields allowed to differ in specific (mode, perturbation) cases.
+# Fields each perturbation is DELIBERATELY supposed to change. These are the
+# user-visible side-effects of the key press itself; preserving them across
+# a mode round-trip is the *correct* behavior. Without these entries, the
+# round-trip test would falsely flag every successful perturbation as a bug.
+#
+# Example: pressing `c` cycles the colormap. Entering compare, pressing `c`,
+# and exiting compare should leave the new colormap in place. That's not a
+# state-corruption bug — it's the whole point.
+PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
+    "cycle_colormap":      {"colormap_idx", "customColormap"},
+    "cycle_dynamic_range": {"manualVmin", "manualVmax"},
+    # toggle_log changes logScale AND recomputes vmin/vmax for the new scale
+    "toggle_log":          {"logScale", "manualVmin", "manualVmax"},
+    "toggle_pixel_info":   {"_pixelInfoVisible"},
+    # `l` is a navigation key: may change indices, activeDim, current_slice_dim
+    # depending on which mode it fires in. All three are navigation state.
+    "change_slice":        {"indices", "activeDim", "current_slice_dim"},
+}
+
+# Fields that are intentionally sticky across mode exit (not bugs — design).
+# Example: after exiting compare, compareSid/compareName/compareSidList are
+# deliberately kept so the user can quickly re-enter compare with the same
+# partner (see enterCompareModeBySid call in _fullRestore flow at ~line 5883
+# and the toggleRegistrationMode fallback at ~line 10210). These are
+# remembered state, not leaked state.
+IGNORED_FIELDS_PER_MODE: dict[str, set[str]] = {
+    "compare": {"compareSid", "compareName", "compareSidList"},
+}
+
+# Additional per-case ignores for genuine mode-specific quirks (empty for now;
+# any entry here MUST be documented with *why* it's an allowed exception).
 IGNORED_FIELDS_PER_CASE: dict[tuple[str, str], set[str]] = {}
 
 
@@ -264,13 +301,20 @@ def test_round_trip(
             np.random.default_rng(11).standard_normal((20, 64, 64)).astype(np.float32),
             axis=0,
         )
-        register_array(client, second, tmp_path, "arr3d_rtrip_compare")
+        compare_partner_sid = register_array(
+            client, second, tmp_path, "arr3d_rtrip_compare"
+        )
     else:
         raise RuntimeError(f"unknown arr kind {arr_kind!r}")
 
     page = loaded_viewer(sid)
     _focus(page)
     _wait(page, 350)
+
+    if arr_kind == "3d-compare":
+        page.evaluate(
+            f"() => {{ window._rtripCompareSid = {compare_partner_sid!r}; }}"
+        )
 
     # Sanity: the snapshot function must exist and work before we enter the mode.
     before = _snapshot(page)
@@ -289,8 +333,11 @@ def test_round_trip(
 
     after = _snapshot(page)
 
-    ignore = IGNORED_FIELDS_GLOBAL | IGNORED_FIELDS_PER_CASE.get(
-        (mode_id, perturb_id), set()
+    ignore = (
+        IGNORED_FIELDS_GLOBAL
+        | PERTURBATION_EXPECTED_CHANGES.get(perturb_id, set())
+        | IGNORED_FIELDS_PER_MODE.get(mode_id, set())
+        | IGNORED_FIELDS_PER_CASE.get((mode_id, perturb_id), set())
     )
     diff = _diff(before, after, ignore)
     assert not diff, (

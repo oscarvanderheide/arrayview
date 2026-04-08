@@ -8457,7 +8457,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (e.key === 'X') {
                 const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
                 if (!compareActive || cmpCount !== 2) {
-                    showToast('compare mode picker: only in 2-pane compare (B)');
+                    showToast('center-mode cycle: only available in 2-pane compare');
                     return;
                 }
                 // Cycle 1→2→...→7→0 (off). From off, go to 1 (skip showing "off" as a stop).
@@ -8495,7 +8495,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · R to cycle · ${modeHint}` : 'ROI mode: off');
                 renderEggs();
             } else if (e.key === 'n') {
-                if (!compareActive) { showStatus('compare: off (press B to enter)'); return; }
+                if (!compareActive) { showStatus('compare: off (use the picker to open 2+ arrays)'); return; }
                 cycleCompareTarget(1);
             } else if (e.key === '<' || e.key === '>') {
                 if (isPlaying) {

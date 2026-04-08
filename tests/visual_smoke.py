@@ -91,7 +91,7 @@ AXES INDICATOR (edge labels)
   axes color reflects active colormap       ✓ 50 (style.color checked after h press)
   axes visible in mosaic mode (z key)       ✓ 50 (mosaic mode flash)
   axes visible in multiview (v key)         ✓ 50 (multiview flash)
-  axes visible in compare mode (B key)      ✗ (requires interactive picker)
+  axes visible in compare mode (picker)     ✗ (requires interactive picker)
 
 COMPARE MODE
   drag title to reorder panes               ✓ 56 (drag left title → right title swaps pane order)
