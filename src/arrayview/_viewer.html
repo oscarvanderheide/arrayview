@@ -9531,6 +9531,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'multiview.togglePrompt': {
+                title: 'Toggle multi-view (prompt for planes)',
+                when: [],
+                run: (ctx, e) => {
+                    if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
+                    if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                    crossfade(() => {
+                        if (qmriActive) exitQmri();
+                        if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
+                    });
+                },
+            },
             'axis.assignY': {
                 title: 'Assign active dim to Y axis',
                 when: [],
@@ -9793,6 +9805,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'x', command: 'axis.assignX' },
             { key: 'y', command: 'axis.assignY' },
             { key: 'v', command: 'multiview.toggle' },
+            { key: 'V', command: 'multiview.togglePrompt' },
         ];
 
         function makeContext(_state) {
@@ -9898,14 +9911,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'V') {
-                if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
-                if (compareActive) { crossfade(() => enterCompareMv()); return; }
-                crossfade(() => {
-                    if (qmriActive) exitQmri();
-                    if (multiViewActive) exitMultiView(); else enterMultiViewPrompt();
-                });
-            } else if (e.key === 'o' || e.key === 'O') {
+            if (e.key === 'o' || e.key === 'O') {
                 if (_fullscreenActive && !multiViewActive) {
                     _infoDragPos = null;
                     _cbDragPos = null;
