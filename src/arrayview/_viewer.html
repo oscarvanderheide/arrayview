@@ -3287,47 +3287,9 @@
                 _diffCenterCb.updateLabels();
                 return;
             }
-            if (!diffPaneCb) return;
-            const diffCanvas = document.getElementById('compare-diff-canvas');
-            if (!diffCanvas) return;
-            // Clamp to viewport width so colorbar doesn't overflow when zoomed
-            const diffInner = diffCanvas.closest('.compare-canvas-inner');
-            const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
-            const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
-            const diffCbIsland = diffPaneCb.closest('.cb-island');
-            const diffCbVmin = document.getElementById('compare-diff-pane-cb-vmin');
-            const diffCbVmax = document.getElementById('compare-diff-pane-cb-vmax');
-            if (!colorbarVisible() || !cssW || cssW < 10) {
-                diffPaneCb.style.display = 'none';
-                if (diffCbVmin) diffCbVmin.style.display = 'none';
-                if (diffCbVmax) diffCbVmax.style.display = 'none';
-                if (diffCbIsland) diffCbIsland.style.display = 'none';
-                return;
-            }
-            const stops = _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'];
-            if (!stops) return;
-            const stripH = CB_COLLAPSED_H;
-            const dpr = window.devicePixelRatio || 1;
-            diffPaneCb.style.width = '';
-            diffPaneCb.style.display = 'block';
-            const diffIslandW2 = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
-            if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW2 + 'px'; }
-            const actualDiffCbW = diffPaneCb.clientWidth || diffIslandW2;
-            diffPaneCb.width = Math.round(actualDiffCbW * dpr);
-            diffPaneCb.height = Math.round(stripH * dpr);
-            const ctx2 = diffPaneCb.getContext('2d');
-            ctx2.save(); ctx2.scale(dpr, dpr);
-            const grad = ctx2.createLinearGradient(0, 0, actualDiffCbW, 0);
-            const n = stops.length;
-            for (let i = 0; i < n; i++) {
-                const t = n <= 1 ? 0 : i / (n - 1);
-                const rgb = stops[i];
-                grad.addColorStop(t, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-            }
-            ctx2.fillStyle = grad; ctx2.fillRect(0, 0, cssW, stripH);
-            ctx2.restore();
-            if (diffCbVmin) { diffCbVmin.style.display = ''; diffCbVmin.innerHTML = _cbFmt(vmin); }
-            if (diffCbVmax) { diffCbVmax.style.display = ''; diffCbVmax.innerHTML = _cbFmt(vmax); }
+            // Silent no-op if diff ColorBar somehow wasn't created — restore path
+            // now guarantees _createDiffColorBars() runs when diffMode > 0.
+            if (!_diffCenterCb) return;
         }
 
         function drawAllComparePaneCbs() {
