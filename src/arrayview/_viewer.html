@@ -1468,80 +1468,15 @@
             <div id="help-panels">
                 <div class="help-panel active" data-help-panel="navigation">
                 <div class="help-panel-title">Navigation</div>
-                <div class="help-row"><span class="key">scroll</span><span class="desc">prev / next slice</span></div>
-                <div class="help-row"><span class="key">h / l / ← / →</span><span class="desc">move cursor to prev / next dim (shows dim progress briefly)</span></div>
-                <div class="help-row"><span class="key">j / k / ↓ / ↑</span><span class="desc">prev / next index; reverse direction on spatial dims</span></div>
-                <div class="help-row"><span class="key">0–9 + Enter</span><span class="desc">jump to slice index (type number, press Enter)</span></div>
-                <div class="help-row"><span class="key">r</span><span class="desc">reverse active axis (x or y dim); rotate 90° CW when slice dim active; in multiview: swap axes globally across all panes</span></div>
-                <div class="help-row"><span class="key">R</span><span class="desc">cycle ROI: rect → circle → freehand → flood fill → off · [ ] tolerance</span></div>
-                <div class="help-row"><span class="key">Space</span><span class="desc">toggle auto-play</span></div>
-                <div class="help-row"><span class="key">= / +</span><span class="desc">immersive mode (first press), then zoom in</span></div>
-                <div class="help-row"><span class="key">-</span><span class="desc">zoom out (exits immersive at fit level)</span></div>
-                <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
-                <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
-                <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
-                <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
-                <div class="help-row"><span class="key">Shift+drag</span><span class="desc">Zoom to region (normal mode)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="axes">
                 <div class="help-panel-title">Axes &amp; Views</div>
-                <div class="help-row"><span class="key">x</span><span class="desc">swap horizontal dim with slice dim</span></div>
-                <div class="help-row"><span class="key">y</span><span class="desc">swap vertical dim with slice dim</span></div>
-                <div class="help-row"><span class="key">t</span><span class="desc">transpose x and y axes</span></div>
-                <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
-                <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2); in compare mode: rows × 3-planes grid</span></div>
-                <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims); in compare mode: same as v</span></div>
-                <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices / crosshair (3-plane); reset dragged UI (immersive)</span></div>
-                <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact / full view; also works in compare mode (rows × maps grid)</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="display">
                 <div class="help-panel-title">Display</div>
-                <div class="help-row"><span class="key">b</span><span class="desc">toggle canvas border</span></div>
-                <div class="help-row"><span class="key">a</span><span class="desc">stretch panes to square box (all modes; auto-on in 3-plane view)</span></div>
-                 <div class="help-row"><span class="key">A</span><span class="desc">toggle alpha (transparent below vmin)</span></div>
-                 <div class="help-row"><span class="key">S</span><span class="desc">nnInteractive segmentation: cycle click → circle → scribble → lasso → off · shift = exclude · r reset · enter accept</span></div>
-                <div class="help-row"><span class="key">c</span><span class="desc">cycle colormap</span></div>
-                <div class="help-row"><span class="key">C</span><span class="desc">enter matplotlib colormap name</span></div>
-                <div class="help-row"><span class="key">d</span><span class="desc">cycle dynamic range</span></div>
-                <div class="help-row"><span class="key">D</span><span class="desc">set vmin / vmax manually (locked until next d)</span></div>
-                <div class="help-row"><span class="key">colorbar drag</span><span class="desc">shift window level left / right</span></div>
-                <div class="help-row"><span class="key">colorbar scroll</span><span class="desc">zoom window (narrow / widen range)</span></div>
-                <div class="help-row"><span class="key">colorbar dblclick</span><span class="desc">toggle histogram mode (pixel highlight)</span></div>
-                <div class="help-row"><span class="key">⌘⇧+scroll</span><span class="desc">brightness / contrast (trackpad)</span></div>
-                <div class="help-row"><span class="key">Alt+drag / mid-drag</span><span class="desc">brightness / contrast on canvas</span></div>
-                                <div class="help-row"><span class="key" id="open-shortcut-help">Cmd+O</span><span class="desc">open picker (also Ctrl+O) — instance sidebar with thumbnails when multiple arrays loaded; RAM guard blocks oversized .pt/.tif/.mat files; Space selects, Enter opens (1 sel) or compares (2–4 sel)</span></div>
-                <div class="help-row"><span class="key">Shift+O</span><span class="desc">cycle overlay visibility: all → off → individual masks (when overlays active)</span></div>
-                <div class="help-row"><span class="key">X</span><span class="desc">cycle center pane: off → A−B → |A−B| → |A−B|/|A| → overlay → wipe → flicker → checker</span></div>
-                <div class="help-row"><span class="key">&lt; / &gt;</span><span class="desc">movie: fps (during playback)</span></div>
-                <div class="help-row"><span class="key">[ / ]</span><span class="desc">flicker: rate · checker: tile size · overlay/wipe/reg blend · arrow density</span></div>
-                <div class="help-row"><span class="key">{ / }</span><span class="desc">arrow length shorter / longer (vector field mode)</span></div>
-                <div class="help-row"><span class="key">U</span><span class="desc">toggle vector arrows</span></div>
-                 <div class="help-row"><span class="key">n</span><span class="desc">cycle compare target session</span></div>
-                  <div class="help-row"><span class="key">G</span><span class="desc">cycle compare layout: horizontal → vertical → grid (3–4 panes) (compare mode)</span></div>
-                  <div class="help-row"><span class="key">panel title drag</span><span class="desc">drag a compare panel title to swap pane order</span></div>
-                <div class="help-row"><span class="key">shift+drag</span><span class="desc">move dimbar / colorbar in immersive mode (resets on exit)</span></div>
-                <div class="help-row"><span class="key">Z</span><span class="desc">focus center pane (when compare center is active — X to activate)</span></div>
-                <div class="help-row"><span class="key">L</span><span class="desc">toggle log scale</span></div>
-                <div class="help-row"><span class="key">p</span><span class="desc">cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM; in multiview: toggle 3-D MIP volume renderer</span></div>
-                <div class="help-row"><span class="key">m</span><span class="desc">cycle complex mode (mag / phase / real / imag)</span></div>
-                <div class="help-row"><span class="key">f</span><span class="desc">toggle centred FFT (prompts for axes)</span></div>
-                <div class="help-row"><span class="key">M</span><span class="desc">toggle alpha transparency</span></div>
-                <div class="help-row"><span class="key">T</span><span class="desc">cycle theme: dark / light / solarized / nord</span></div>
-                <div class="help-row"><span class="key">F</span><span class="desc">zen mode — hide chrome &amp; go fullscreen; move mouse to reveal briefly</span></div>
-                <div class="help-row"><span class="key">u</span><span class="desc">ruler — click two points to measure pixel distance; u again to exit</span></div>
                 </div>
                 <div class="help-panel" data-help-panel="info">
                 <div class="help-panel-title">Info &amp; Export</div>
-                <div class="help-row"><span class="key">hover</span><span class="desc">show pixel value on colorbar</span></div>
-                <div class="help-row"><span class="key">click</span><span class="desc">copy pixel value to clipboard</span></div>
-                <div class="help-row"><span class="key">i</span><span class="desc">toggle pixel hover tooltip</span></div>
-                <div class="help-row"><span class="key">I</span><span class="desc">show data info overlay</span></div>
-                <div class="help-row"><span class="key">s</span><span class="desc">save screenshot (PNG → Downloads + gallery)</span></div>
-                <div class="help-row"><span class="key">G</span><span class="desc">toggle snapshot gallery (normal mode)</span></div>
-                <div class="help-row"><span class="key">N</span><span class="desc">export current slice as .npy (→ Downloads)</span></div>
-                <div class="help-row"><span class="key">g</span><span class="desc">save GIF of current slice dim</span></div>
-                <div class="help-row"><span class="key">e</span><span class="desc">copy reusable URL</span></div>
-                <div class="help-row"><span class="key">?</span><span class="desc">toggle this help</span></div>
                 </div>
             </div>
             </div>
@@ -7285,6 +7220,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             setTimeout(() => setStatus(''), 2000);
         }
 
+        let paletteOpen = false;
         const helpOverlay = document.getElementById('help-overlay');
         const helpTabs = Array.from(document.querySelectorAll('.help-tab'));
         const helpPanels = Array.from(document.querySelectorAll('.help-panel'));
@@ -7305,7 +7241,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         }
 
+        let _helpBuilt = false;
         function setHelpVisible(visible) {
+            if (visible && !_helpBuilt && typeof commands !== 'undefined' && typeof keybinds !== 'undefined') {
+                try { buildHelpOverlay(); _helpBuilt = true; } catch (err) { console.warn('help build failed', err); }
+            }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
             sink.focus();
@@ -10010,7 +9950,79 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mipActive: (typeof mipActive !== 'undefined') ? !!mipActive : false,
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
+                paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
             };
+        }
+
+        // Palette + help overlay category routing -----------------------------
+        // Command-ID prefix (before the dot) routes into one of the existing
+        // 4 help panels. Unknown prefixes fall into 'display' as a safe default.
+        const CATEGORY_TO_PANEL = {
+            zoom: 'navigation', slice: 'navigation', dim: 'navigation',
+            playback: 'navigation', roi: 'navigation', view: 'navigation',
+            axis: 'axes', multiview: 'axes', qmri: 'axes',
+            colormap: 'display', range: 'display', logscale: 'display',
+            alpha: 'display', theme: 'display', borders: 'display',
+            histogram: 'display', projection: 'display', complex: 'display',
+            fft: 'display', vfield: 'display', overlay: 'display',
+            segmentation: 'display', seg: 'display', compare: 'display',
+            mode: 'display', palette: 'display', ui: 'display',
+            info: 'info', hoverinfo: 'info', screenshot: 'info',
+            gif: 'info', url: 'info', ruler: 'info',
+        };
+
+        function formatKeybind(b) {
+            const parts = [];
+            if (b.mod) parts.push('Cmd');
+            else {
+                if (b.ctrl) parts.push('Ctrl');
+                if (b.meta) parts.push('Cmd');
+            }
+            if (b.alt) parts.push('Alt');
+            if (b.shift === true) parts.push('Shift');
+            let k = b.key;
+            if (k === ' ') k = 'Space';
+            parts.push(k);
+            return parts.join('+');
+        }
+
+        function buildHelpOverlay() {
+            // Group bindings by command id
+            const bindsByCmd = {};
+            for (const b of keybinds) {
+                (bindsByCmd[b.command] = bindsByCmd[b.command] || []).push(b);
+            }
+            // Clear existing rows from each panel (keep title element)
+            const panelsByName = {};
+            for (const p of document.querySelectorAll('#help-panels .help-panel')) {
+                panelsByName[p.dataset.helpPanel] = p;
+                for (const row of Array.from(p.querySelectorAll('.help-row'))) row.remove();
+            }
+            const ids = Object.keys(commands).sort();
+            for (const id of ids) {
+                const cmd = commands[id];
+                const title = cmd.title || id;
+                if (!title) continue;
+                const category = id.split('.')[0];
+                const panelName = CATEGORY_TO_PANEL[category] || 'display';
+                const panel = panelsByName[panelName];
+                if (!panel) continue;
+                const binds = bindsByCmd[id] || [];
+                const keyStr = binds.length
+                    ? binds.map(formatKeybind).join(', ')
+                    : '—';
+                const row = document.createElement('div');
+                row.className = 'help-row';
+                const ks = document.createElement('span');
+                ks.className = 'key';
+                ks.textContent = keyStr;
+                const ds = document.createElement('span');
+                ds.className = 'desc';
+                ds.textContent = title;
+                row.appendChild(ks);
+                row.appendChild(ds);
+                panel.appendChild(row);
+            }
         }
 
         function evalWhen(whenArr, ctx) {
