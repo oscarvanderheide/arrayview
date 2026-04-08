@@ -1,14 +1,6 @@
 # TODO
 
 - d in mosaic mode causes arrayview to crash.
-- the readme is too technical, i have the docs for that. the readme should make someone
-  coming to my repo interested to try it out. propose me some ideas in different tones. i
-  dont want to brag or do shit with rocket emojis. but something like "do you work with
-  arrays? do you need visualize them? do you think you deserve - in the year 2026 - a viewer
-  thats smooth, responsive, does everything you want and more with a modern feel as opposed
-  to some of those shitty viewers with UI from the 90s? then i get you covered. try it out
-  now, with uvx arrayview you_array.{npy,mat,whatever}" brainstorm with me, propose me
-  ideas. its too boring now.
 - investigate the codebase for legacy/unused code. create a plan to clean it up. check with
   me first before doing the actual cleanup
 - we need to brainstorm on zooming with ctrl or shift and trackpad (and whatever it is on

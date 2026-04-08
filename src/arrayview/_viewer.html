@@ -13029,12 +13029,32 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 userZoom = 1.0;
             }
             const atMax = scaledMin > absMaxScale + 0.001;
+            // Per-pane geometry routed through the shared _scalePane primitive.
+            // qMRI non-mosaic has no per-pane pan or viewport clipping: each canvas
+            // is sized directly to fit. userZoom clamping + auto-fit are handled by
+            // the pre-loop logic above, so updateAutoFit / allowOverflowRecalc are
+            // both false. baseScale is cappedScale/userZoom so _scalePane's
+            // finalScale = baseScale*userZoom reproduces cappedScale exactly.
+            // squareStretch is hardcoded false — qMRI panes are not square-stretched
+            // regardless of the global toggle. viewport:null and a stub pan skip the
+            // clip/pan machinery entirely.
+            const _qvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
+            const qvBaseScale = cappedScale / Math.max(0.0001, userZoom);
             for (const v of ready) {
-                const cssW = Math.round(v.lastW * cappedScale);
-                v.canvas.style.width  = cssW + 'px';
-                v.canvas.style.height = Math.round(v.lastH * cappedScale) + 'px';
+                _scalePane(
+                    { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _qvPanStub },
+                    null,
+                    {
+                        maxW: Math.round(v.lastW * cappedScale),
+                        maxH: Math.round(v.lastH * cappedScale),
+                        baseScale: qvBaseScale,
+                        squareStretch: false,
+                        updateAutoFit: false,
+                        allowOverflowRecalc: false,
+                    }
+                );
                 // Keep colorbar island width in sync with canvas width
-                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = cssW + 'px';
+                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = v.canvas.style.width;
             }
             // For n=5: size the invisible placeholder to match a real pane so rows are equal width
             if (n === 5) {

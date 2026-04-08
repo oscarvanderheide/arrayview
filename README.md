@@ -17,14 +17,6 @@ Minimal on purpose. Press `?` to find the rest.
 - Browser / native
 - SSH / tunnels
 
-## CLI
-
-```bash
-uvx arrayview scan.nii.gz
-uvx arrayview --window browser scan.npy
-uvx arrayview                            # demo
-```
-
 ## Python
 
 ```python
