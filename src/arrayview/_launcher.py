@@ -1654,10 +1654,10 @@ def _serve_daemon(
     ).start()
 
     def _load():
-        from arrayview._io import load_data
+        from arrayview._io import load_data, load_data_with_meta
 
         try:
-            data = load_data(filepath)
+            data, spatial_meta = load_data_with_meta(filepath)
             if cleanup:
                 try:
                     os.unlink(filepath)
@@ -1667,6 +1667,9 @@ def _serve_daemon(
                 data, filepath=None if cleanup else filepath, name=name
             )
             session.sid = sid
+            session.spatial_meta = spatial_meta
+            if spatial_meta is not None:
+                session.original_volume = data
             if rgb:
                 from arrayview._render import _setup_rgb
 

@@ -744,7 +744,7 @@ async def get_metadata(sid: str):
     if not session:
         return Response(status_code=404)
     try:
-        return {
+        meta_dict = {
             "shape": [
                 int(s)
                 for s in (
@@ -759,6 +759,17 @@ async def get_metadata(sid: str):
             "vfield_n_times": _vfield_n_times(session),
             "is_rgb": session.rgb_axis is not None,
         }
+        if getattr(session, "spatial_meta", None) is not None:
+            sm = session.spatial_meta
+            meta_dict["spatial_meta"] = {
+                "voxel_sizes": list(sm["voxel_sizes"]),
+                "axis_labels": list(sm["axis_labels"]),
+                "is_oblique": bool(sm["is_oblique"]),
+            }
+            meta_dict["ras_resample_active"] = bool(
+                getattr(session, "ras_resample_active", False)
+            )
+        return meta_dict
     except Exception as e:
         import traceback
 
@@ -2124,7 +2135,114 @@ def get_info(sid: str, session: "Session" = Depends(get_session_or_404)):
         info["recommended_colormap_reason"] = None
     if session.fft_axes is not None:
         info["fft_axes"] = list(session.fft_axes)
+    if getattr(session, "spatial_meta", None) is not None:
+        sm = session.spatial_meta
+        info["spatial_meta"] = {
+            "voxel_sizes": list(sm["voxel_sizes"]),
+            "axis_labels": list(sm["axis_labels"]),
+            "is_oblique": bool(sm["is_oblique"]),
+        }
+        info["ras_resample_active"] = bool(getattr(session, "ras_resample_active", False))
     return info
+
+
+@app.post("/resample_ras/{sid}")
+async def resample_ras(sid: str, request: Request):
+    """Toggle RAS resample for a NIfTI session.
+
+    Body: {"enabled": true/false}
+    Returns:
+      - {"skipped": true, "reason": "axis_aligned"} if scan needs no resample
+      - {"skipped": true, "reason": "not_nifti"} if no spatial_meta
+      - {"ok": true, "shape": [...], "elapsed_ms": ...}  on success
+    """
+    import time
+
+    session = SESSIONS.get(sid)
+    if session is None:
+        return {"error": "session not found"}
+    body = await request.json()
+    enabled = bool(body.get("enabled", False))
+    sm = getattr(session, "spatial_meta", None)
+    if sm is None or session.original_volume is None:
+        return {"skipped": True, "reason": "not_nifti"}
+
+    if enabled:
+        if not sm["is_oblique"]:
+            return {"skipped": True, "reason": "axis_aligned"}
+        t0 = time.time()
+        if session.resampled_volume is None:
+            try:
+                from scipy.ndimage import affine_transform
+            except ImportError:
+                return {"error": "scipy not available"}
+            vol = session.original_volume
+            # Only resample the leading 3 spatial axes; pass higher dims through
+            # by resampling per-frame would be expensive — for v1 require ndim==3.
+            if vol.ndim != 3:
+                return {"skipped": True, "reason": "ndim_not_3"}
+            affine_canonical = sm["affine_canonical"]
+            rot = np.asarray(affine_canonical[:3, :3], dtype=np.float64)
+            iso = float(min(sm["voxel_sizes"]))
+            # Map all 8 input-volume corners to RAS to find output bounding box.
+            shp = vol.shape
+            corners_idx = np.array(
+                [[i, j, k]
+                 for i in (0, shp[0] - 1)
+                 for j in (0, shp[1] - 1)
+                 for k in (0, shp[2] - 1)],
+                dtype=np.float64,
+            )
+            origin = np.asarray(affine_canonical[:3, 3], dtype=np.float64)
+            ras = corners_idx @ rot.T + origin
+            ras_min = ras.min(axis=0)
+            ras_max = ras.max(axis=0)
+            out_shape = tuple(
+                int(np.ceil((ras_max[i] - ras_min[i]) / iso)) + 1 for i in range(3)
+            )
+            # Output index -> RAS: ras_min + idx * iso
+            # RAS -> input voxel: inv(rot) @ (ras - origin)
+            inv_rot = np.linalg.inv(rot)
+            matrix = inv_rot * iso  # output index -> input voxel (linear part)
+            offset = inv_rot @ (ras_min - origin)
+            try:
+                resampled = affine_transform(
+                    np.asarray(vol),
+                    matrix=matrix,
+                    offset=offset,
+                    output_shape=out_shape,
+                    order=1,
+                    cval=0.0,
+                    prefilter=False,
+                )
+            except Exception as exc:
+                return {"error": f"resample failed: {exc}"}
+            session.resampled_volume = resampled
+        session.data = session.resampled_volume
+        session.shape = session.resampled_volume.shape
+        if session.rgb_axis is None:
+            session.spatial_shape = session.shape
+        session.ras_resample_active = True
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        return {
+            "ok": True,
+            "shape": list(session.shape),
+            "elapsed_ms": int((time.time() - t0) * 1000),
+        }
+    else:
+        session.data = session.original_volume
+        session.shape = session.original_volume.shape
+        if session.rgb_axis is None:
+            session.spatial_shape = session.shape
+        session.ras_resample_active = False
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session._raw_bytes = session._rgba_bytes = session._mosaic_bytes = 0
+        return {"ok": True, "shape": list(session.shape)}
 
 
 @app.post("/fft/{sid}")

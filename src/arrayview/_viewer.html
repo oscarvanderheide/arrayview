@@ -1851,6 +1851,8 @@
         const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS', 'SUM'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
+        let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
+        let rasResampleActive = false;
         let multiViewActive = false;
         let mipActive = false;
         let mvViews = [];
@@ -5832,6 +5834,8 @@
             vfieldT = 0;
             if (!hasVectorfield) vfieldVisible = true;
             rgbMode = data.is_rgb || false;
+            spatialMeta = data.spatial_meta || null;
+            rasResampleActive = !!data.ras_resample_active;
             if (rgbMode) cbVisible = false;
             if (data.name) {
                 _sessionName = data.name;
@@ -8690,21 +8694,44 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
-            'alpha.toggle': {
-                title: 'Toggle alpha (transparent below vmin)',
+            'nifti.toggleRasResample': {
+                title: 'Toggle RAS resample (NIfTI oblique scans)',
                 when: [],
                 run: (ctx, e) => {
-                    // Toggle alpha (transparent below vmin)
-                    alphaLevel = alphaLevel ? 0 : 1;
-                    _eggsVisible = true;
-                    proxyFetch(`/alpha/${sid}`, {
+                    if (compareActive || qmriActive) {
+                        showStatus('RAS resample not supported in compare/qMRI mode');
+                        return;
+                    }
+                    if (!spatialMeta) {
+                        showStatus('RAS resample: not a NIfTI scan');
+                        return;
+                    }
+                    if (!spatialMeta.is_oblique) {
+                        showStatus('scan is axis-aligned — no resampling needed');
+                        return;
+                    }
+                    const wantOn = !rasResampleActive;
+                    showStatus(wantOn ? 'resampling to RAS...' : 'reverting to original orientation...');
+                    proxyFetch(`/resample_ras/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ level: alphaLevel }),
+                        body: JSON.stringify({ enabled: wantOn }),
                     }).then(r => r.json()).then(d => {
-                        if (d.error) { showStatus('alpha error: ' + d.error); return; }
-                        updateView(); triggerPreload();
-                        renderEggs();
+                        if (d.error) { showStatus('RAS resample error: ' + d.error); return; }
+                        if (d.skipped) { showStatus('RAS resample skipped: ' + d.reason); return; }
+                        rasResampleActive = wantOn;
+                        // Refresh shape from /info
+                        proxyFetch(`/info/${sid}`).then(r => r.json()).then(info => {
+                            if (info && info.shape) {
+                                shape = info.shape;
+                            }
+                            proxyFetch(`/clearcache/${sid}`).then(() => {
+                                updateView(); triggerPreload(); renderInfo();
+                            });
+                        });
+                        showStatus('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
+                    }).catch(err => {
+                        showStatus('RAS resample failed: ' + err);
                     });
                 },
             },
@@ -9933,7 +9960,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 't', command: 'view.transpose' },
             { key: 'b', command: 'borders.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
-            { key: 'A', command: 'alpha.toggle' },
+            { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'screenshot.save' },
             { key: 'S', command: 'segmentation.cycle' },
             { key: 'N', command: 'slice.exportNpy' },

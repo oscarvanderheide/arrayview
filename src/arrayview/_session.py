@@ -173,12 +173,30 @@ class Session:
         self.vfield_time_dim = None  # optional time axis in the raw vfield array
         self.vfield_spatial_axes = None  # image spatial dim -> vfield axis mapping
 
+        # Spatial metadata for NIfTI files (None for other formats).
+        # Set externally after construction by the loader.
+        self.spatial_meta = None
+        # RAS resample (tier 2 of NIfTI orientation feature).
+        # original_volume holds the canonical-reoriented array; resampled_volume
+        # caches the RAS-resampled volume after first computation. active_volume
+        # is None when the original is in use.
+        self.original_volume = None
+        self.resampled_volume = None
+        self.ras_resample_active = False
+
     def reset_caches(self):
         """Clear all three render caches and reset their byte counters to 0."""
         self.raw_cache.clear()
         self.rgba_cache.clear()
         self.mosaic_cache.clear()
         self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
+        # Drop the cached RAS-resampled volume; revert to original.
+        if self.original_volume is not None and self.ras_resample_active:
+            self.data = self.original_volume
+            self.shape = self.original_volume.shape
+            self.spatial_shape = self.shape if self.rgb_axis is None else self.spatial_shape
+        self.resampled_volume = None
+        self.ras_resample_active = False
 
     def _estimate_memory(self):
         """Estimate memory footprint in bytes (array data + cache budgets)."""

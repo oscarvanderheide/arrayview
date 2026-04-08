@@ -22,7 +22,7 @@ import uuid
 
 import numpy as np
 
-from arrayview._io import load_data
+from arrayview._io import load_data, load_data_with_meta
 from arrayview._render import (
     _composite_overlay_mask,
     _extract_overlay_mask,
@@ -236,8 +236,11 @@ def _handle_register(msg: dict) -> None:
     name = msg.get("name") or __import__("os").path.basename(file_path)
     options = msg.get("options", {})
 
-    data = load_data(file_path)
+    data, spatial_meta = load_data_with_meta(file_path)
     session = Session(data=data, filepath=file_path, name=name)
+    session.spatial_meta = spatial_meta
+    if spatial_meta is not None:
+        session.original_volume = data
 
     if options.get("rgb"):
         _setup_rgb(session)
