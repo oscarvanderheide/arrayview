@@ -11,6 +11,14 @@
   ideas. its too boring now.
 - investigate the codebase for legacy/unused code. create a plan to clean it up. check with
   me first before doing the actual cleanup
+- we need to brainstorm on zooming with ctrl or shift and trackpad (and whatever it is on
+  other OSes). like two weeks ago i dont remember it was so fast that i asked to make it
+  less sensitive. not its behaviour feels really sluggish and weird.
+- when i press i to get value at current mouse position, it feels a bit laggy and also lags
+  behind when i move around with mouse cursos
+- when i hover over colorbar with mouse, the value should be shown in similar
+  letters/style/colors as the value seen when pressing i for hover mode and hovering over
+  the array.
 
 ## Refactoring Opportunities (assessed 2026-04-03, swept 2026-04-07)
 

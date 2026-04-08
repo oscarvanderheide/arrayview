@@ -8702,23 +8702,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 // volume shows its middle slice on each axis.
                                 indices = shape.map(s => Math.floor(s / 2));
                             }
-                            proxyFetch(`/clearcache/${sid}`).then(() => {
-                                if (multiViewActive) {
-                                    // Bump seq and force a fresh fetch + redraw
-                                    // on every pane — mirrors the transpose/
-                                    // rotateOrFlip refresh pattern.
-                                    mvViews.forEach(v => {
-                                        v.seq++;
-                                        v.lastImageData = null;
-                                        v.lastW = 0; v.lastH = 0;
-                                        v.rendering = false; v.pending = false;
-                                    });
-                                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                                } else {
-                                    updateView(); triggerPreload();
-                                }
-                                renderInfo();
-                            });
+                            // Note: /resample_ras already clears render caches
+                            // server-side. Do NOT call /clearcache here — that
+                            // triggers Session.reset_caches() which must not
+                            // touch RAS state, but historically did.
+                            if (multiViewActive) {
+                                // Bump seq and force a fresh fetch + redraw
+                                // on every pane — mirrors the transpose/
+                                // rotateOrFlip refresh pattern.
+                                mvViews.forEach(v => {
+                                    v.seq++;
+                                    v.lastImageData = null;
+                                    v.lastW = 0; v.lastH = 0;
+                                    v.rendering = false; v.pending = false;
+                                });
+                                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                            } else {
+                                updateView(); triggerPreload();
+                            }
+                            renderInfo();
                         });
                         showToast('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
                     }).catch(err => {

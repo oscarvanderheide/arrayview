@@ -2,6 +2,9 @@ Read `src/arrayview/ARCHITECTURE.md` for codebase orientation.
 
 # ArrayView
 
+I haven't written or read a single line of code in src so when you ask me questions/input,
+keep it simple with some simple examples.
+
 ## Skills
 
 Load the relevant skill before touching the corresponding area.
