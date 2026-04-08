@@ -8699,26 +8699,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (compareActive || qmriActive) {
-                        showStatus('RAS resample not supported in compare/qMRI mode');
+                        showToast('RAS resample not supported in compare/qMRI mode');
                         return;
                     }
                     if (!spatialMeta) {
-                        showStatus('RAS resample: not a NIfTI scan');
+                        showToast('RAS resample: not a NIfTI scan');
                         return;
                     }
                     if (!spatialMeta.is_oblique) {
-                        showStatus('scan is axis-aligned — no resampling needed');
+                        const labels = (spatialMeta.axis_labels || []).join('');
+                        showToast(`already in canonical RAS (${labels || 'axis-aligned'}) — no resample needed`);
                         return;
                     }
                     const wantOn = !rasResampleActive;
-                    showStatus(wantOn ? 'resampling to RAS...' : 'reverting to original orientation...');
+                    showToast(wantOn ? 'resampling to RAS...' : 'reverting to original orientation...');
                     proxyFetch(`/resample_ras/${sid}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ enabled: wantOn }),
                     }).then(r => r.json()).then(d => {
-                        if (d.error) { showStatus('RAS resample error: ' + d.error); return; }
-                        if (d.skipped) { showStatus('RAS resample skipped: ' + d.reason); return; }
+                        if (d.error) { showToast('RAS resample error: ' + d.error); return; }
+                        if (d.skipped) { showToast('RAS resample skipped: ' + d.reason); return; }
                         rasResampleActive = wantOn;
                         // Refresh shape from /info
                         proxyFetch(`/info/${sid}`).then(r => r.json()).then(info => {
@@ -8729,9 +8730,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 updateView(); triggerPreload(); renderInfo();
                             });
                         });
-                        showStatus('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
+                        showToast('RAS resample: ' + (wantOn ? 'on' : 'off') + (d.elapsed_ms ? ` (${d.elapsed_ms}ms)` : ''));
                     }).catch(err => {
-                        showStatus('RAS resample failed: ' + err);
+                        showToast('RAS resample failed: ' + err);
                     });
                 },
             },

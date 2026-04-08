@@ -3292,10 +3292,14 @@ async def load_file(request: Request):
             except ImportError:
                 pass  # psutil not available — skip guard
     try:
-        data = await asyncio.to_thread(load_data, filepath)
+        from ._io import load_data_with_meta
+        data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath)
     except Exception as e:
         return {"error": str(e)}
     session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)
+    if spatial_meta is not None:
+        session.spatial_meta = spatial_meta
+        session.original_volume = data
     if body.get("rgb"):
         try:
             await asyncio.to_thread(_setup_rgb, session)
