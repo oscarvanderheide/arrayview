@@ -9531,6 +9531,32 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                 },
             },
+            'view.resetOrigin': {
+                title: 'Reset UI positions / multi-view origin',
+                when: [],
+                run: (ctx, e) => {
+                    if (_fullscreenActive && !multiViewActive) {
+                        _infoDragPos = null;
+                        _cbDragPos = null;
+                        _islandDragPos = null;
+                        _positionFullscreenChrome();
+                        const island = document.getElementById('dynamic-island');
+                        if (island) { island.style.left = ''; island.style.top = ''; island.style.transform = ''; }
+                        showStatus('UI positions reset');
+                        return;
+                    }
+                    if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; } // kept inline: emits toast
+                    // Reset crosshair to volume center and clear any oblique rotation
+                    mvDims.forEach(d => { indices[d] = Math.floor((shape[d] - 1) / 2); });
+                    obliqueVecs = null; obliqueDrag = null; mvNavDragPrev = null;
+                    mvViews.forEach(v => {
+                        v.lockedVmin = null; v.lockedVmax = null;
+                        v.rendering = false; v.pending = false; v.seq++;
+                    });
+                    mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    showStatus('origin reset');
+                },
+            },
             'multiview.togglePrompt': {
                 title: 'Toggle multi-view (prompt for planes)',
                 when: [],
@@ -9806,6 +9832,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'y', command: 'axis.assignY' },
             { key: 'v', command: 'multiview.toggle' },
             { key: 'V', command: 'multiview.togglePrompt' },
+            { key: 'o', command: 'view.resetOrigin' },
         ];
 
         function makeContext(_state) {
@@ -9911,28 +9938,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'o' || e.key === 'O') {
-                if (_fullscreenActive && !multiViewActive) {
-                    _infoDragPos = null;
-                    _cbDragPos = null;
-                    _islandDragPos = null;
-                    _positionFullscreenChrome();
-                    const island = document.getElementById('dynamic-island');
-                    if (island) { island.style.left = ''; island.style.top = ''; island.style.transform = ''; }
-                    showStatus('UI positions reset');
-                    return;
-                }
-                if (!multiViewActive) { showStatus('3-plane view: off (press v)'); return; }
-                // Reset crosshair to volume center and clear any oblique rotation
-                mvDims.forEach(d => { indices[d] = Math.floor((shape[d] - 1) / 2); });
-                obliqueVecs = null; obliqueDrag = null; mvNavDragPrev = null;
-                mvViews.forEach(v => {
-                    v.lockedVmin = null; v.lockedVmax = null;
-                    v.rendering = false; v.pending = false; v.seq++;
-                });
-                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
-                showStatus('origin reset');
-            } else if (e.key === 'q') {
+            if (e.key === 'q') {
                 crossfade(() => {
                     if (compareQmriActive) {
                         const n = shape[compareQmriDim];
