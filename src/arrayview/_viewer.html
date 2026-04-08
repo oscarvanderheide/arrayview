@@ -8361,11 +8361,64 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
         });
 
+        /* ── JS: Command Registry (Pillar C Phase 1) ──────────────── */
+        // Prefix dispatcher for the keydown handler below. Empty tables =
+        // zero behavior change; commands are migrated off the if/else
+        // chain one at a time. See docs/superpowers/specs/2026-04-08-
+        // pillar-c-phase-1-design.md.
+
+        const commands = {};
+        const keybinds = [];
+
+        function makeContext(_state) {
+            return {
+                qmriActive: qmriActive,
+                compareQmriActive: compareQmriActive,
+                compareActive: compareActive,
+                rgbMode: rgbMode,
+                arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
+            };
+        }
+
+        function evalWhen(whenArr, ctx) {
+            if (!whenArr || whenArr.length === 0) return true;
+            for (const cond of whenArr) {
+                const geIdx = cond.indexOf('>=');
+                if (geIdx !== -1) {
+                    const key = cond.slice(0, geIdx).trim();
+                    const n = Number(cond.slice(geIdx + 2).trim());
+                    if (!(Number(ctx[key]) >= n)) return false;
+                    continue;
+                }
+                if (cond.charAt(0) === '!') {
+                    if (ctx[cond.slice(1)]) return false;
+                    continue;
+                }
+                if (!ctx[cond]) return false;
+            }
+            return true;
+        }
+
+        function dispatchCommand(e) {
+            const matching = keybinds.filter(b => b.key === e.key);
+            if (matching.length === 0) return false;
+            const ctx = makeContext(null);
+            for (const b of matching) {
+                if (evalWhen(commands[b.command].when, ctx)) {
+                    commands[b.command].run(ctx, e);
+                    return true;
+                }
+            }
+            console.debug('[cmd] key', e.key, 'had bindings but no when matched', ctx);
+            return true;
+        }
+
         /* ── JS: Keyboard Shortcuts ───────────────────────────────── */
 
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
+            if (dispatchCommand(e)) return;
             // Forward Cmd/Ctrl+Shift+[/] to shell for tab cycling
             const modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
             if (modKey && e.shiftKey && (e.key === '[' || e.key === ']')) {
