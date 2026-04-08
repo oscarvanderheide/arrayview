@@ -9607,6 +9607,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'ArrowUp', command: 'slice.next' },
             { key: 'h', command: 'dim.prev' },
             { key: 'ArrowLeft', command: 'dim.prev' },
+            { key: 'l', command: 'dim.next' },
+            { key: 'ArrowRight', command: 'dim.next' },
         ];
 
         function makeContext(_state) {
@@ -9712,54 +9714,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if (e.key === 'l' || e.key === 'ArrowRight') {
-                e.preventDefault();
-                // While colormap strip is visible, cycle colormap forward
-                if ((_cmapStrip && _cmapStrip.classList.contains('visible')) && !qmriActive && !compareQmriActive && !rgbMode) {
-                    if (_cmapStripMode === 'diff-center') {
-                        const pool = (diffMode === 1) ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
-                        const idx = pool.indexOf(_diffCenterColormap);
-                        _diffCenterColormap = pool[(idx + 1) % pool.length];
-                        _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
-                        fetchAndDrawDiff();
-                        const diffCbIsland = diffPaneCb ? diffPaneCb.closest('.cb-island') : null;
-                        showColormapStrip(_diffCenterColormap, pool, diffCbIsland);
-                    } else if (_cmapStripMode === 'diff-side') {
-                        customColormap = null; customGradientStops = null;
-                        colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                        refreshAxesColor();
-                        const leftCbIsland = comparePaneCbs[0] ? comparePaneCbs[0].closest('.cb-island') : null;
-                        const rightCbIsland = comparePaneCbs[1] ? comparePaneCbs[1].closest('.cb-island') : null;
-                        showColormapStrip(null, null, leftCbIsland, [rightCbIsland]);
-                        saveState();
-                    } else {
-                        customColormap = null; customGradientStops = null;
-                        colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
-                        proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
-                        refreshAxesColor(); showColormapStrip(); saveState();
-                    }
-                    return;
-                }
-                if (multiViewActive) {
-                    activeDim = (activeDim + 1) % shape.length;
-                    flashAxesIndicators();
-                    renderInfo();
-                } else {
-                    if (activeDim === shape.length - 1 && vfieldNTimes > 1) {
-                        activeDim = VFIELD_T_DIM;
-                    } else if (activeDim === VFIELD_T_DIM) {
-                        activeDim = 0;
-                    } else {
-                        activeDim = (activeDim + 1) % shape.length;
-                    }
-                    if (activeDim !== VFIELD_T_DIM && activeDim !== dim_x && activeDim !== dim_y && activeDim !== dim_z) {
-                        current_slice_dim = activeDim; _invalidateVolHistCache(); triggerPreload();
-                    }
-                    flashAxesIndicators();
-                    renderInfo();
-                }
-            } else if (e.key === 'M') {
+            if (e.key === 'M') {
                 alphaLevel = alphaLevel ? 0 : 1;
                 _eggsVisible = true;
                 proxyFetch(`/alpha/${sid}`, {
