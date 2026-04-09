@@ -6412,10 +6412,11 @@
             if (xEl) { xEl.textContent = '/' + shape[dim_x]; xEl.className = 'dim-size'; }
             if (yEl) { yEl.textContent = '/' + shape[dim_y]; yEl.className = 'dim-size'; }
             if (zEl && dim_z >= 0) { zEl.textContent = '/' + shape[dim_z]; zEl.className = 'dim-size'; }
-            // Multiview: reset all spatial dim labels
-            if (multiViewActive && mvDims) {
+            // Multiview / compare-multiview: reset all spatial dim labels
+            const activeMvDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : null);
+            if (activeMvDims) {
                 const labels = ['x','y','z'];
-                mvDims.forEach((di, pos) => {
+                activeMvDims.forEach((di, pos) => {
                     const el = document.getElementById('dim-' + (labels[pos] || 'x') + '-size');
                     if (el) { el.textContent = '/' + shape[di]; el.className = 'dim-size'; }
                 });
@@ -12023,6 +12024,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             imgH: view.lastH,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
+                                if (_pixelInfoVisible) _updateDimbarHover(px, py);
                                 // Fetch for all other qmri views at same pixel
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
@@ -12052,6 +12054,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                     cv.addEventListener('mouseleave', () => {
                         qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        if (_pixelInfoVisible) _resetDimbarHover();
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
@@ -12243,6 +12246,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     const av = Math.abs(d.value);
                                     const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
                                     showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
+                                    if (_pixelInfoVisible) _updateDimbarHover(ipx, ipy);
                                 } else if (view.pixelInfoEl) {
                                     view.pixelInfoEl.style.display = 'none';
                                 }
@@ -12250,6 +12254,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     });
                     cv.addEventListener('mouseleave', () => {
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
+                        if (_pixelInfoVisible) _resetDimbarHover();
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
@@ -12600,12 +12605,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             imgW: view.lastW,
                             imgH: view.lastH,
                             displayEl: view.pixelInfoEl,
+                            onResult: (d, px, py) => {
+                                if (_pixelInfoVisible) {
+                                    const labels = ['x','y','z'];
+                                    const activeDims = compareMvDims || [];
+                                    const posX = activeDims.indexOf(view.dimX);
+                                    const posY = activeDims.indexOf(view.dimY);
+                                    const lblX = labels[posX] || 'x';
+                                    const lblY = labels[posY] || 'y';
+                                    const elX = document.getElementById('dim-' + lblX + '-size');
+                                    const elY = document.getElementById('dim-' + lblY + '-size');
+                                    if (elX) { elX.textContent = '/' + px; elX.className = 'dim-hover-idx'; }
+                                    if (elY) { elY.textContent = '/' + py; elY.className = 'dim-hover-idx'; }
+                                }
+                            },
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
                         if (!cmvDraggingView) {
                             compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         }
+                        if (_pixelInfoVisible) _resetDimbarHover();
                     });
                     // Click-to-copy: compare-multiview canvases
                     let _cmvClickDown = null;
