@@ -3722,9 +3722,19 @@
                 this._winVminTarget = 0;
                 this._winVmaxTarget = 1;
                 this._winTransStart = 0;        // performance.now() when transition began
-                this._winTransDur = 200;        // transition duration in ms
+                this._winTransDur = 300;        // transition duration in ms
                 this._winVminFrom = 0;          // start value for vmin transition
                 this._winVmaxFrom = 1;          // start value for vmax transition
+
+                // Label value animation (number ticker)
+                this._labelVmin = null;         // current displayed vmin
+                this._labelVmax = null;         // current displayed vmax
+                this._labelVminTarget = null;   // target vmin
+                this._labelVmaxTarget = null;   // target vmax
+                this._labelVminFrom = null;     // start value
+                this._labelVmaxFrom = null;
+                this._labelTransStart = 0;
+                this._labelTransDur = 300;
 
                 // Hover / drag state
                 this._hoverFrac = -1;
@@ -3911,6 +3921,37 @@
                 ctx.save();
                 ctx.scale(dpr, dpr);
 
+                // Compute animated window fractions (same logic as horizontal draw)
+                let vminFrac = 0, vmaxFrac = 1;
+                if (this._histData) {
+                    const { vmin: dmin, vmax: dmax } = this._histData;
+                    const range = dmax - dmin || 1;
+                    const win = this.opts.getWindow();
+                    vminFrac = (win.vmin - dmin) / range;
+                    vmaxFrac = (win.vmax - dmin) / range;
+                }
+                if (this._dragActive) {
+                    this._winVminF = vminFrac;
+                    this._winVmaxF = vmaxFrac;
+                    this._winVminTarget = vminFrac;
+                    this._winVmaxTarget = vmaxFrac;
+                } else {
+                    if (vminFrac !== this._winVminTarget || vmaxFrac !== this._winVmaxTarget) {
+                        this._winVminFrom = this._winVminF;
+                        this._winVmaxFrom = this._winVmaxF;
+                        this._winVminTarget = vminFrac;
+                        this._winVmaxTarget = vmaxFrac;
+                        this._winTransStart = performance.now();
+                    }
+                    const elapsed = performance.now() - this._winTransStart;
+                    const rawT = Math.min(1, elapsed / this._winTransDur);
+                    const t = 1 - Math.pow(1 - rawT, 3);
+                    this._winVminF = this._winVminFrom + (this._winVminTarget - this._winVminFrom) * t;
+                    this._winVmaxF = this._winVmaxFrom + (this._winVmaxTarget - this._winVmaxFrom) * t;
+                }
+                const effVmin = this._winVminF * aT;
+                const effVmax = 1 - (1 - this._winVmaxF) * aT;
+
                 // Build colormap LUT
                 const cmSz = 256;
                 const cmLut = new Uint8Array(cmSz * 3);
@@ -3929,11 +3970,23 @@
                 };
 
                 const hasKDE = this._kdeSmooth && aT > 0;
+                const isDark = !document.documentElement.classList.contains('light')
+                            && !document.documentElement.classList.contains('solarized');
 
                 // For each row (py from top to bottom)
                 for (let py = 0; py < cssH; py++) {
                     const t = 1 - py / cssH;  // top=1 (vmax), bottom=0 (vmin)
-                    const [r, g, b] = cmAt(t);
+                    const inRange = t >= effVmin && t <= effVmax;
+
+                    let r, g, b;
+                    if (inRange) {
+                        [r, g, b] = cmAt(t);
+                    } else {
+                        const [cr, cg, cb_] = cmAt(t);
+                        r = Math.round(cr + (60 - cr) * aT);
+                        g = Math.round(cg + (60 - cg) * aT);
+                        b = Math.round(cb_ + (60 - cb_) * aT);
+                    }
 
                     let rowW;
                     if (hasKDE) {
@@ -3943,8 +3996,27 @@
                         rowW = cssW;
                     }
 
+                    const alpha = inRange ? 1 : (1 - 0.65 * aT);
+                    ctx.globalAlpha = alpha;
                     ctx.fillStyle = `rgb(${r},${g},${b})`;
                     ctx.fillRect(0, py, rowW, 1);
+                }
+                ctx.globalAlpha = 1;
+
+                // Draw horizontal indicator lines at vmin/vmax positions
+                if (aT > 0.1) {
+                    ctx.globalAlpha = aT;
+                    const isFullRange = vminFrac <= 0.005 && vmaxFrac >= 0.995;
+                    if (!isFullRange) [effVmin, effVmax].forEach(f => {
+                        const y = Math.max(2, Math.min(cssH - 2, Math.round((1 - f) * cssH)));
+                        const coreColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)';
+                        const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+                        ctx.fillStyle = outlineColor;
+                        ctx.fillRect(0, y - 2, cssW, 4);
+                        ctx.fillStyle = coreColor;
+                        ctx.fillRect(0, y - 1, cssW, 2);
+                    });
+                    ctx.globalAlpha = 1;
                 }
 
                 ctx.restore();
@@ -4191,12 +4263,32 @@
             /** Update vmin/vmax flanking labels from opts.getRange(). */
             updateLabels() {
                 const range = this.opts.getRange();
+                const vmin = range.vmin, vmax = range.vmax;
+
+                // If targets changed, start a ticker animation from current displayed value
+                if (vmin !== this._labelVminTarget || vmax !== this._labelVmaxTarget) {
+                    this._labelVminFrom = this._labelVmin ?? vmin;
+                    this._labelVmaxFrom = this._labelVmax ?? vmax;
+                    this._labelVminTarget = vmin;
+                    this._labelVmaxTarget = vmax;
+                    this._labelTransStart = performance.now();
+                }
+
+                // Interpolate current label values
+                const elapsed = performance.now() - this._labelTransStart;
+                const rawT = Math.min(1, elapsed / this._labelTransDur);
+                const t = 1 - Math.pow(1 - rawT, 3);  // ease-out cubic
+                this._labelVmin = this._labelVminFrom != null
+                    ? this._labelVminFrom + (this._labelVminTarget - this._labelVminFrom) * t : vmin;
+                this._labelVmax = this._labelVmaxFrom != null
+                    ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
+
                 if (this.vminLabel) {
-                    this.vminLabel.innerHTML = _cbFmt(range.vmin);
+                    this.vminLabel.innerHTML = _cbFmt(this._labelVmin);
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    this.vmaxLabel.innerHTML = _cbFmt(range.vmax);
+                    this.vmaxLabel.innerHTML = _cbFmt(this._labelVmax);
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -4226,11 +4318,15 @@
                 this._animT = this._animFrom + (this._animTarget - this._animFrom) * easedT;
                 if (this.wrap) this.wrap.classList.toggle('cb-expanded', this._animT > 0.05);
                 this.draw();
+                this.updateLabels();
                 if (this.opts.onAnimFrame) this.opts.onAnimFrame(this);
                 const morphDone = rawT >= 1;
                 const winDone = Math.abs(this._winVminF - this._winVminTarget) < 0.002
                              && Math.abs(this._winVmaxF - this._winVmaxTarget) < 0.002;
-                if (morphDone && winDone) {
+                const labelDone = this._labelVminTarget == null ||
+                    (Math.abs((this._labelVmin ?? 0) - this._labelVminTarget) < Math.abs(this._labelVminTarget) * 0.001 + 1e-10
+                  && Math.abs((this._labelVmax ?? 0) - this._labelVmaxTarget) < Math.abs(this._labelVmaxTarget) * 0.001 + 1e-10);
+                if (morphDone && winDone && labelDone) {
                     this._animating = false;
                     return;
                 }
@@ -9175,6 +9271,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _diffManualVmin = q.vmin;
                                     _diffManualVmax = q.vmax;
                                     _diffCenterCb.draw();
+                                    _diffCenterCb.ensureAnimating();
                                     fetchAndDrawDiff();
                                     showStatus(`diff histogram: ${q.label}`);
                                 }
@@ -9195,6 +9292,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
                                     cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
                                     _cmpLeftCb.draw(); _cmpRightCb?.draw();
+                                    _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
                                     compareRender();
                                     showStatus(`histogram: ${q.label}`);
                                 }
@@ -9219,6 +9317,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
                                 hv.seq++; hv.rendering = false; hv.pending = false;
                                 qvRender(hv);
+                                cb.ensureAnimating();
                                 const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
                                 showStatus(`${paneLabel}: ${q.label}`);
                             }
@@ -9237,7 +9336,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             for (const v of qmriViews) {
                                 if (!v._colorBar) continue;
                                 const q = v._colorBar.cycleQuantile();
-                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating(); }
                                 v._colorBar.startAutoDismiss();
                             }
                             if (label) showStatus(`range: ${label}`);
@@ -9255,7 +9354,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             for (const v of qmriViews) {
                                 if (!v._mosaicColorBar) continue;
                                 const q = v._mosaicColorBar.cycleQuantile();
-                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); }
+                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating(); }
                                 v._mosaicColorBar.startAutoDismiss();
                             }
                             if (label) showStatus(`range: ${label}`);
