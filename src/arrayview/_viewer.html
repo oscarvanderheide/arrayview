@@ -283,12 +283,12 @@
             -webkit-text-fill-color: transparent !important;
         }
         #status { display: none !important; }
-        #toast  { position: fixed; bottom: 42px; left: 50%; transform: translateX(-50%);
-                  font-size: 14px; color: var(--muted); background: rgba(0,0,0,0.65);
+        #toast  { position: fixed; bottom: 20px; left: 20px;
+                  font-size: 12px; color: var(--muted); background: rgba(0,0,0,0.65);
                   padding: 6px 12px; border-radius: 6px; white-space: nowrap;
                   pointer-events: none; z-index: 20; max-width: 80vw; overflow: hidden;
-                  text-overflow: ellipsis; }
-        #toast:empty { display: none; }
+                  text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s ease; }
+        #toast.visible { opacity: 1; }
         body.zen-mode #toast { display: none; }
         #pixel-info { display: none; } /* replaced by .cv-pixel-info per-canvas overlays */
         .cv-pixel-info {
@@ -299,8 +299,7 @@
             display: none;
             text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg);
         }
-        #preload-status { position: fixed; bottom: 20px; left: 20px;
-                          font-size: 12px; color: var(--subtle); pointer-events: none; z-index: 5; }
+        #preload-status { display: none !important; } /* merged into #toast */
         #array-name {
             font-size: 13px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
@@ -870,7 +869,7 @@
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
         body.zen-mode #help-hint, body.zen-mode #status,
-        body.zen-mode #preload-status { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+        body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
         /* ── CSS: Immersive, Fullscreen, and Compact Mode ─────────── */
@@ -3362,10 +3361,35 @@
             }, 150);
         }
 
+        let _toastTimer = null;
+        let _preloadMsg = null; // stashed preload message (restored after regular toast)
         function showToast(msg) {
             showStatus(msg);
             const t = document.getElementById('toast');
-            if (t) { t.textContent = msg; setTimeout(() => { if (t.textContent === msg) t.textContent = ''; }, 3000); }
+            if (!t) return;
+            clearTimeout(_toastTimer);
+            t.textContent = msg;
+            t.classList.add('visible');
+            _toastTimer = setTimeout(() => {
+                if (t.textContent !== msg) return;
+                // If preload is active, restore it instead of hiding
+                if (_preloadMsg) { t.textContent = _preloadMsg; return; }
+                t.classList.remove('visible');
+            }, 3000);
+        }
+        function _showPreloadToast(msg) {
+            _preloadMsg = msg || null;
+            const t = document.getElementById('toast');
+            if (!t) return;
+            // Don't overwrite a regular toast that's currently showing
+            if (_toastTimer && t.textContent !== _preloadMsg) return;
+            if (msg) {
+                t.textContent = msg;
+                t.classList.add('visible');
+            } else {
+                t.classList.remove('visible');
+                _preloadMsg = null;
+            }
         }
 
         let cbHovered = false;
@@ -5731,18 +5755,18 @@
 
         function pollPreloadStatus() {
             proxyFetch(`/preload_status/${sid}`).then(r => r.json()).then(data => {
-                const el = document.getElementById('preload-status');
                 if (data.skipped) {
-                    el.textContent = 'Array too large for full preload (>500 MB).';
+                    _showPreloadToast('Array too large for full preload (>500 MB).');
                     clearInterval(preloadPolling); preloadPolling = null;
                 } else if (data.total > 0 && data.done >= data.total) {
-                    el.textContent = '';
+                    _showPreloadToast(null);
                     clearInterval(preloadPolling); preloadPolling = null;
                 } else if (data.total > 0) {
                     const pct = Math.round(data.done / data.total * 100);
-                    el.textContent = `Preloading dim ${preloadActiveDim}: ${data.done}/${data.total} (${pct}%)`;
+                    _showPreloadToast(`Preloading dim ${preloadActiveDim}: ${data.done}/${data.total} (${pct}%)`);
                 }
             }).catch(() => {
+                _showPreloadToast(null);
                 clearInterval(preloadPolling); preloadPolling = null;
             });
         }
