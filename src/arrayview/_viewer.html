@@ -476,40 +476,11 @@
         #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
-        #help-box, #info-box {
+        #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
             max-height: 88vh; max-width: 92vw; overflow: auto; box-sizing: border-box;
             color: var(--text);
-        }
-        #help-box {
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 13px;
-            display: flex;
-            flex-direction: column;
-            gap: 0;
-            width: min(860px, 92vw);
-            height: min(560px, 88vh);
-            overflow: hidden;
-        }
-        .help-main {
-            display: flex;
-            gap: 18px;
-            align-items: stretch;
-            flex: 1;
-            min-height: 0;
-            overflow: hidden;
-        }
-        .help-footer {
-            flex-shrink: 0;
-            border-top: 1px solid var(--border);
-            margin-top: 14px;
-            padding-top: 10px;
-            text-align: right;
-            font-size: 11px;
-            color: var(--muted);
-            letter-spacing: 0.04em;
         }
         .mode-badge {
             display: inline-block; font-size: 0.62em; font-weight: 600;
@@ -548,65 +519,100 @@
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
 
-        .help-footer kbd {
-            display: inline-block;
+        /* ── help-box ── */
+        #help-box {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+            padding: 20px 24px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
+            display: flex; flex-direction: column;
+            width: min(820px, 92vw); height: min(520px, 86vh);
+            overflow: hidden;
+        }
+        .help-topbar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 14px; flex-shrink: 0;
+        }
+        .help-mode-label {
+            font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+            padding: 5px 12px; border-radius: 6px;
+            background: var(--surface-2); color: var(--text);
             border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 0px 5px;
+        }
+        .help-mode-hint {
+            font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
+        }
+        .help-mode-hint kbd, .help-footer kbd {
+            display: inline-block; border: 1px solid var(--border);
+            border-radius: 4px; padding: 0px 5px;
             font-family: 'SF Mono', ui-monospace, monospace;
-            font-size: 11px;
-            color: var(--help-key);
-            background: var(--surface-2);
+            font-size: 11px; color: var(--help-key); background: var(--surface-2);
         }
         #help-tabs {
-            flex-shrink: 0;
-            width: 188px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            border-right: 1px solid var(--border);
-            padding-right: 14px;
+            display: flex; gap: 2px; flex-shrink: 0;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 16px; overflow-x: auto;
         }
         .help-tab {
-            appearance: none;
-            border: 1px solid transparent;
-            border-radius: 8px;
-            padding: 8px 10px;
-            text-align: left;
-            font-size: 12px;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            color: var(--muted);
-            background: transparent;
-            cursor: pointer;
+            appearance: none; border: none; border-bottom: 2px solid transparent;
+            background: transparent; cursor: pointer;
+            padding: 7px 12px; margin-bottom: -1px;
+            font-size: 11.5px; white-space: nowrap;
+            color: var(--muted); font-family: inherit;
         }
-        .help-tab:hover { border-color: var(--border); color: var(--text); }
+        .help-tab:hover { color: var(--text); }
         .help-tab.active {
             color: var(--text);
-            background: var(--surface-2);
+            border-bottom-color: var(--help-key);
         }
-        #help-panels { flex: 1; min-width: 0; min-height: 0; display: flex; }
-        .help-panel { display: none; width: 100%; height: 100%; overflow: auto; box-sizing: border-box; padding-right: 4px; }
-        .help-panel.active { display: block; }
-        .help-panel-title {
-            font-size: 10px;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin: 0 0 8px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid var(--border);
+        #help-content {
+            flex: 1; min-height: 0; overflow-y: auto;
+            padding-right: 4px;
         }
-        .help-row { display: flex; align-items: baseline; line-height: 2.1; }
-        .help-row .key {
-            flex-shrink: 0; width: 130px; color: var(--help-key); font-weight: 600;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; font-size: 12px;
+        .help-tab-desc {
+            color: var(--muted); font-size: 12.5px; line-height: 1.6;
+            margin-bottom: 16px; max-width: 600px;
         }
-        .help-row .desc { color: var(--text); }
+        .help-section-title {
+            font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--help-key); opacity: 0.7;
+            margin-bottom: 8px; padding-bottom: 4px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .help-section { margin-bottom: 18px; }
+        .help-columns { display: flex; gap: 28px; }
+        .help-column { flex: 1; min-width: 0; }
+        .help-entry { margin-bottom: 8px; }
+        .help-entry-row { display: flex; align-items: baseline; }
+        .help-entry-key {
+            flex-shrink: 0; width: 88px;
+            color: var(--help-key); font-weight: 600;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            font-size: 12px;
+        }
+        .help-entry-action { color: var(--text); font-size: 12.5px; }
+        .help-entry-hint {
+            color: var(--muted); font-size: 11px;
+            margin-left: 88px; margin-top: 1px;
+        }
+        .help-footer {
+            flex-shrink: 0; border-top: 1px solid var(--border-subtle);
+            margin-top: 14px; padding-top: 10px;
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
+        }
+        .help-footer-nav kbd { margin-right: 2px; }
+        .help-footer-link {
+            color: var(--muted); text-decoration: none;
+            font-size: 11px; letter-spacing: 0.04em;
+        }
+        .help-footer-link:hover { color: var(--text); }
         @media (max-width: 760px) {
-            #help-box { width: min(96vw, 560px); max-height: min(86vh, 640px); }
-            #help-tabs { width: 132px; }
-            .help-row .key { width: 102px; }
+            #help-box { width: min(96vw, 560px); }
+            .help-columns { flex-direction: column; gap: 0; }
+            .help-entry-key { width: 76px; }
+            .help-entry-hint { margin-left: 76px; }
         }
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
@@ -1496,29 +1502,16 @@
     </div>
     <div id="help-overlay">
         <div id="help-box">
-            <div class="help-main">
-            <div id="help-tabs">
-                <button type="button" class="help-tab active" data-help-panel="navigation">Navigation</button>
-                <button type="button" class="help-tab" data-help-panel="axes">Axes &amp; Views</button>
-                <button type="button" class="help-tab" data-help-panel="display">Display</button>
-                <button type="button" class="help-tab" data-help-panel="info">Info &amp; Export</button>
+            <div class="help-topbar">
+                <span class="help-mode-label">Guide</span>
+                <span class="help-mode-hint">press <kbd>?</kbd> to close</span>
             </div>
-            <div id="help-panels">
-                <div class="help-panel active" data-help-panel="navigation">
-                <div class="help-panel-title">Navigation</div>
-                </div>
-                <div class="help-panel" data-help-panel="axes">
-                <div class="help-panel-title">Axes &amp; Views</div>
-                </div>
-                <div class="help-panel" data-help-panel="display">
-                <div class="help-panel-title">Display</div>
-                </div>
-                <div class="help-panel" data-help-panel="info">
-                <div class="help-panel-title">Info &amp; Export</div>
-                </div>
+            <div id="help-tabs"></div>
+            <div id="help-content"></div>
+            <div class="help-footer">
+                <span class="help-footer-nav"><kbd>j</kbd><kbd>k</kbd> switch tabs</span>
+                <a class="help-footer-link" href="https://github.com/brainhack-school2024/arrayview#keybindings" target="_blank" rel="noopener">Full reference →</a>
             </div>
-            </div>
-            <div class="help-footer">press <kbd>?</kbd> to close</div>
         </div>
     </div>
 </div>
@@ -7442,41 +7435,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         let paletteOpen = false;
         const helpOverlay = document.getElementById('help-overlay');
-        const helpTabs = Array.from(document.querySelectorAll('.help-tab'));
-        const helpPanels = Array.from(document.querySelectorAll('.help-panel'));
-        let helpTabIdx = Math.max(0, helpTabs.findIndex(tab => tab.classList.contains('active')));
-
-        /* ── JS: Help Overlay ─────────────────────────────────────── */
+        let helpTabIdx = 0;
 
         function setHelpTab(index) {
-            if (!helpTabs.length) return;
-            helpTabIdx = (index + helpTabs.length) % helpTabs.length;
-            const activePanel = helpTabs[helpTabIdx].dataset.helpPanel;
-            for (let i = 0; i < helpTabs.length; i++) {
-                const active = i === helpTabIdx;
-                helpTabs[i].classList.toggle('active', active);
+            const tabs = Array.from(document.querySelectorAll('#help-tabs .help-tab'));
+            const panels = Array.from(document.querySelectorAll('#help-content .help-panel'));
+            if (!tabs.length) return;
+            helpTabIdx = ((index % tabs.length) + tabs.length) % tabs.length;
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].classList.toggle('active', i === helpTabIdx);
             }
-            for (const panel of helpPanels) {
-                panel.classList.toggle('active', panel.dataset.helpPanel === activePanel);
+            for (let i = 0; i < panels.length; i++) {
+                panels[i].style.display = i === helpTabIdx ? 'block' : 'none';
             }
         }
 
         let _helpBuilt = false;
         function setHelpVisible(visible) {
-            if (visible && !_helpBuilt && typeof commands !== 'undefined' && typeof keybinds !== 'undefined') {
+            if (visible && !_helpBuilt) {
                 try { buildHelpOverlay(); _helpBuilt = true; } catch (err) { console.warn('help build failed', err); }
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
             sink.focus();
-        }
-
-        for (const [idx, tab] of helpTabs.entries()) {
-            tab.addEventListener('click', (e) => {
-                e.preventDefault();
-                setHelpTab(idx);
-                sink.focus();
-            });
         }
 
         // Canvas mouse handling: click to focus, drag to draw circular ROI or rect ROI
@@ -10225,23 +10206,187 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             };
         }
 
-        // Palette + help overlay category routing -----------------------------
-        // Command-ID prefix (before the dot) routes into one of the existing
-        // 4 help panels. Unknown prefixes fall into 'display' as a safe default.
-        const CATEGORY_TO_PANEL = {
-            zoom: 'navigation', slice: 'navigation', dim: 'navigation',
-            playback: 'navigation', roi: 'navigation', view: 'navigation',
-            axis: 'axes', multiview: 'axes', qmri: 'axes',
-            colormap: 'display', range: 'display', logscale: 'display',
-            alpha: 'display', theme: 'display', borders: 'display',
-            histogram: 'display', projection: 'display', complex: 'display',
-            fft: 'display', vfield: 'display', overlay: 'display',
-            segmentation: 'display', seg: 'display', compare: 'display',
-            mode: 'display', palette: 'display', ui: 'display',
-            info: 'info', hoverinfo: 'info', screenshot: 'info',
-            gif: 'info', url: 'info', ruler: 'info',
-        };
+        // ── Guide overlay: curated help content ──────────────────
+        const GUIDE_TABS = [
+            {
+                id: 'basics', label: 'Basics',
+                desc: 'The essentials for navigating and adjusting any array. Start here.',
+                columns: 2,
+                sections: [
+                    {
+                        title: 'Navigation',
+                        entries: [
+                            { key: '← → ↑ ↓', action: 'Navigate slices', hint: 'Step through your volume one slice at a time' },
+                            { key: 'Scroll', action: 'Zoom in / out', hint: 'Pinch-to-zoom on trackpad' },
+                            { key: '0', action: 'Reset zoom to fit', hint: 'Recenters the image in the viewport' },
+                            { key: 'Space', action: 'Play / pause', hint: 'Animate through slices on the current axis' },
+                            { key: 'Drag', action: 'Pan', hint: 'Click and drag to move the image around' },
+                        ]
+                    },
+                    {
+                        title: 'Display',
+                        entries: [
+                            { key: 'R', action: 'Cycle intensity range', hint: 'Quick presets when image looks too dark or bright' },
+                            { key: 'C', action: 'Cycle colormap', hint: 'Switch between grayscale, viridis, turbo, etc.' },
+                            { key: 'D', action: 'Toggle histogram', hint: 'See the intensity distribution of the current slice' },
+                            { key: '/', action: 'Command palette', hint: 'Search all commands — the fastest way to find anything' },
+                            { key: 'I', action: 'Info panel', hint: 'Array shape, dtype, memory layout, and more' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'ortho', label: 'Ortho View',
+                desc: 'Three synchronized panels showing axial, sagittal, and coronal views of a 3D volume. Crosshairs link the views so clicking in one updates the others.',
+                sections: [
+                    {
+                        entries: [
+                            { key: 'V', action: 'Toggle ortho view', hint: 'Enter or exit the three-panel layout' },
+                            { key: 'Click', action: 'Set crosshair position', hint: 'Click any panel to jump all views to that point' },
+                            { key: '← → ↑ ↓', action: 'Move crosshair', hint: 'Fine-tune position with arrow keys' },
+                            { key: 'Scroll', action: 'Zoom focused panel', hint: 'Zoom applies to the panel under the cursor' },
+                            { key: 'X Y Z', action: 'Switch axis', hint: 'View the volume from a different orientation' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'roi', label: 'ROI',
+                desc: 'Draw a region of interest to see local statistics (mean, std, min, max) and restrict the histogram to that region.',
+                sections: [
+                    {
+                        entries: [
+                            { key: 'Shift+R', action: 'Toggle ROI mode', hint: 'Enter or exit ROI drawing mode' },
+                            { key: 'Drag', action: 'Draw ROI rectangle', hint: 'Click and drag on the image to select a region' },
+                            { key: 'R', action: 'Cycle ROI shape', hint: 'Switch between rectangle, ellipse, and freehand' },
+                            { key: 'Esc', action: 'Clear ROI', hint: 'Remove the current selection and exit ROI mode' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'seg', label: 'Segmentation',
+                desc: 'Overlay label maps on your image. Load a segmentation array and toggle visibility, adjust opacity, or pick labels interactively.',
+                sections: [
+                    {
+                        entries: [
+                            { key: 'S', action: 'Cycle segmentation mode', hint: 'Toggle through available segmentation overlays' },
+                            { key: 'M', action: 'Toggle mask / adjust alpha', hint: 'Control overlay transparency' },
+                            { key: 'Click', action: 'Pick label', hint: 'Click on the image to identify a segmentation label' },
+                            { key: 'Esc', action: 'Exit segmentation mode' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'compare', label: 'Compare',
+                desc: 'View two arrays side by side, overlay them, or compute a difference map. Useful for checking registration, model outputs, or before/after changes.',
+                sections: [
+                    {
+                        entries: [
+                            { key: 'N', action: 'Cycle compare target', hint: 'Switch which array you\'re comparing against' },
+                            { key: 'G', action: 'Cycle compare layout', hint: 'Side-by-side, overlay, checkerboard, or diff' },
+                            { key: 'Z', action: 'Toggle focus mode', hint: 'Zoom into the comparison view' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'qmri', label: 'qMRI',
+                desc: 'Quantitative MRI mode for parameter maps (T1, T2, FA, etc.). Displays voxel values with proper units and provides tissue-specific presets.',
+                sections: [
+                    {
+                        entries: [
+                            { key: 'Q', action: 'Enter / cycle / exit qMRI', hint: 'Step through available qMRI parameter modes' },
+                            { key: 'Z', action: 'Toggle qMRI mosaic', hint: 'See all parameter maps in a grid' },
+                            { key: 'R', action: 'Cycle range preset', hint: 'Tissue-specific intensity ranges for each parameter' },
+                        ]
+                    }
+                ]
+            }
+        ];
 
+        function buildHelpOverlay() {
+            const tabsEl = document.getElementById('help-tabs');
+            const contentEl = document.getElementById('help-content');
+            tabsEl.innerHTML = '';
+            contentEl.innerHTML = '';
+
+            for (const [i, tab] of GUIDE_TABS.entries()) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'help-tab' + (i === 0 ? ' active' : '');
+                btn.dataset.helpTab = tab.id;
+                btn.textContent = tab.label;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    setHelpTab(i);
+                    sink.focus();
+                });
+                tabsEl.appendChild(btn);
+
+                const panel = document.createElement('div');
+                panel.className = 'help-panel';
+                panel.dataset.helpTab = tab.id;
+                panel.style.display = i === 0 ? 'block' : 'none';
+
+                const desc = document.createElement('div');
+                desc.className = 'help-tab-desc';
+                desc.textContent = tab.desc;
+                panel.appendChild(desc);
+
+                const wrapper = document.createElement('div');
+                if (tab.columns === 2) wrapper.className = 'help-columns';
+
+                for (const section of tab.sections) {
+                    const col = document.createElement('div');
+                    if (tab.columns === 2) col.className = 'help-column';
+
+                    if (section.title) {
+                        const titleEl = document.createElement('div');
+                        titleEl.className = 'help-section-title';
+                        titleEl.textContent = section.title;
+                        col.appendChild(titleEl);
+                    }
+
+                    for (const entry of section.entries) {
+                        const entryEl = document.createElement('div');
+                        entryEl.className = 'help-entry';
+
+                        const row = document.createElement('div');
+                        row.className = 'help-entry-row';
+
+                        const keyEl = document.createElement('span');
+                        keyEl.className = 'help-entry-key';
+                        keyEl.textContent = entry.key;
+
+                        const actionEl = document.createElement('span');
+                        actionEl.className = 'help-entry-action';
+                        actionEl.textContent = entry.action;
+
+                        row.appendChild(keyEl);
+                        row.appendChild(actionEl);
+                        entryEl.appendChild(row);
+
+                        if (entry.hint) {
+                            const hintEl = document.createElement('div');
+                            hintEl.className = 'help-entry-hint';
+                            hintEl.textContent = entry.hint;
+                            entryEl.appendChild(hintEl);
+                        }
+
+                        col.appendChild(entryEl);
+                    }
+
+                    wrapper.appendChild(col);
+                }
+
+                panel.appendChild(wrapper);
+                contentEl.appendChild(panel);
+            }
+        }
+
+        // Command palette -----------------------------------------------------
         function formatKeybind(b) {
             const parts = [];
             if (b.mod) parts.push('Cmd');
@@ -10257,46 +10402,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return parts.join('+');
         }
 
-        function buildHelpOverlay() {
-            // Group bindings by command id
-            const bindsByCmd = {};
-            for (const b of keybinds) {
-                (bindsByCmd[b.command] = bindsByCmd[b.command] || []).push(b);
-            }
-            // Clear existing rows from each panel (keep title element)
-            const panelsByName = {};
-            for (const p of document.querySelectorAll('#help-panels .help-panel')) {
-                panelsByName[p.dataset.helpPanel] = p;
-                for (const row of Array.from(p.querySelectorAll('.help-row'))) row.remove();
-            }
-            const ids = Object.keys(commands).sort();
-            for (const id of ids) {
-                const cmd = commands[id];
-                const title = cmd.title || id;
-                if (!title) continue;
-                const category = id.split('.')[0];
-                const panelName = CATEGORY_TO_PANEL[category] || 'display';
-                const panel = panelsByName[panelName];
-                if (!panel) continue;
-                const binds = bindsByCmd[id] || [];
-                const keyStr = binds.length
-                    ? binds.map(formatKeybind).join(', ')
-                    : '—';
-                const row = document.createElement('div');
-                row.className = 'help-row';
-                const ks = document.createElement('span');
-                ks.className = 'key';
-                ks.textContent = keyStr;
-                const ds = document.createElement('span');
-                ds.className = 'desc';
-                ds.textContent = title;
-                row.appendChild(ks);
-                row.appendChild(ds);
-                panel.appendChild(row);
-            }
-        }
-
-        // Command palette -----------------------------------------------------
         let _paletteBuilt = false;
         let _paletteEntries = []; // [{id, title, category, keyStr, li}]
         let _paletteVisible = []; // filtered indices into _paletteEntries (enabled only)
