@@ -1831,8 +1831,9 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
-        let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier (user-adjustable)
+        let _zoomSensitivity = 0.01; // scroll-zoom exponent multiplier (halved for crossfade debugging)
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
+        let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
@@ -2367,8 +2368,8 @@
         // const MAX_CANVAS_FIT_PX = 600;
 
         function uiReserveV() {
-            if (_fullscreenActive) {
-                // In fullscreen mode: chrome is overlaid, so minimal reserve
+            if (_fullscreenActive && _crossfadeP <= 0) {
+                // In fullscreen mode (not crossfading): chrome is overlaid, so no reserve
                 return 0;
             }
             let h = 30; // wrapper padding
@@ -2379,12 +2380,13 @@
                     h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
                 }
             }
-            // During crossfade, interpolate reserve toward 0 so the pane grows
-            // smoothly instead of jumping 130px when fullscreen-mode toggles on.
-            // The max(130,h) floor would otherwise prevent the reserve from
-            // decreasing even as chrome collapses via maxHeight.
-            if (_crossfadeCollapseP > 0) {
-                return h * (1 - _crossfadeCollapseP);
+            // During crossfade, interpolate from the floored reserve to 0 over the
+            // full p range. Using Math.max(130, h) ensures we start from the same
+            // value the function returns outside crossfade, avoiding a jump at p→0+.
+            // Using raw p (not collapseP which saturates at p=0.5) spreads the
+            // reserve decrease over the entire crossfade range.
+            if (_crossfadeP > 0) {
+                return Math.max(130, h) * (1 - _crossfadeP);
             }
             return Math.max(130, h);
         }
@@ -2538,11 +2540,13 @@
         }
 
         function scaleCanvas(w, h) {
-            const bottomReserve = _fullscreenActive ? 0 : 80 * (1 - _crossfadeCollapseP);
             const immersivePad = 12;
-            const sidePad = _fullscreenActive ? immersivePad * 2 : 80 * (1 - _crossfadeCollapseP);
+            const cP = _crossfadeCollapseP;
+            const bottomReserve = _fullscreenActive ? 0 : 80 * (1 - cP);
+            const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
+            const sidePad = _fullscreenActive ? immersivePad * 2 : (80 * (1 - cP) + immersivePad * 2 * cP);
             const maxW = Math.max(100, window.innerWidth - sidePad);
-            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - (_fullscreenActive ? immersivePad * 2 : 0));
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - immPadV);
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
             const effectiveMaxH = Math.min(maxH, welcomeCapH);
@@ -2654,9 +2658,11 @@
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
             const immersivePad = 12;
-            const uiReserveH = _fullscreenActive ? 0 : (uiReserveV() + 40 * (1 - _crossfadeCollapseP));
-            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80 * (1 - _crossfadeCollapseP)));
-            const totalH = Math.max(100, window.innerHeight - uiReserveH - (_fullscreenActive ? immersivePad * 2 : 0));
+            const cP = _crossfadeCollapseP;
+            const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
+            const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (80 * (1 - cP) + immersivePad * 2 * cP)));
+            const totalH = Math.max(100, window.innerHeight - uiReserveH - immPadV);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
             // Maximum viewport size (how large the clipping container can be)
@@ -14405,11 +14411,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             const immersivePad = 12;
             const bottomReserve = forImmersive ? 0 : 80;
-            const uiReserve = forImmersive ? 0 : uiReserveV(); // immersive target: no reserve
+            const uiReserve = forImmersive ? 0 : uiReserveV();
             const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : 80));
             const maxH = Math.max(50,  window.innerHeight - uiReserve - bottomReserve
                                                           - (forImmersive ? immersivePad * 2 : 0));
-            const baseScale = getBaseScale(w, h);
+            // For immersive, compute baseScale assuming uiReserve=0 to match what
+            // scaleCanvas will actually use when _fullscreenActive=true.
+            // Using getBaseScale() here would use the current (possibly non-zero)
+            // uiReserveV(), producing an immFit that overshoots after toggle.
+            // NOTE: mirrors getBaseScale() logic — keep in sync if that changes.
+            const baseScale = forImmersive
+                ? Math.min(Math.max(100, window.innerWidth - 80) / w,
+                           Math.max(100, window.innerHeight) / h) * 0.80
+                : getBaseScale(w, h);
             const capScale  = Math.min(maxW / w, maxH / h);
             return Math.max(1.0, capScale / baseScale);
         }
@@ -14484,13 +14498,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_shouldEnterImmersive()) {
                 if (_crossfadePrev > 0) _crossfadeCleanup();
                 _crossfadeCollapseP = 0;
+                _crossfadeP = 0;
                 _crossfadePrev = -1;
                 return;
             }
 
             const immFit = _calcAutoFitZoom(w, h, true);
             const normFit = _normalFitZoom;
-            if (immFit <= normFit) { _crossfadeCollapseP = 0; return; }
+            if (immFit <= normFit) { _crossfadeCollapseP = 0; _crossfadeP = 0; return; }
             const p = Math.max(0, Math.min(1, (userZoom - normFit) / (immFit - normFit)));
 
             if (Math.abs(p - _crossfadePrev) < 0.003 && p > 0 && p < 1) return;
@@ -14499,10 +14514,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // collapseP: 0→1 during first half (chrome collapses + fades out)
             const collapseP = Math.min(1, p * 2);
             // fadeIn: 0→1 during last 15% (chrome fades in once pane is nearly full size)
-            const fadeIn = Math.max(0, (p - 0.85) / 0.15);
+            const fadeIn = Math.max(0, (p - 0.9) / 0.1);
 
             // Set global for scale functions
             _crossfadeCollapseP = collapseP;
+            _crossfadeP = p;
 
             // Cache natural heights when crossfade starts
             if (p > 0 && _crossfadeTitleH === 0) {
@@ -14525,6 +14541,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (infoEl) { infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; infoEl.style.opacity = ''; }
                 if (cbWrap) { cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; cbWrap.style.opacity = ''; }
                 _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
+                _crossfadeP = 0;
             } else if (!_fullscreenActive) {
                 // Crossfading in normal layout: collapse heights + fade
                 const remainH = 1 - collapseP;
@@ -14620,6 +14637,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _crossfadeCleanup() {
             _crossfadeCollapseP = 0;
+            _crossfadeP = 0;
             const titleEl = document.getElementById('array-name');
             const infoEl = document.getElementById('info');
             const cbWrap = document.getElementById('slim-cb-wrap');
