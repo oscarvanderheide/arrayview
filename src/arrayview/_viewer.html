@@ -7012,6 +7012,8 @@
                         });
                     } else if (compareMvActive) {
                         compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
+                    } else if (compareActive) {
+                        compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
                     }
                 }
             }
@@ -8829,6 +8831,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             });
                         } else if (compareMvActive) {
                             compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
+                        } else if (compareActive) {
+                            compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
                         }
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
@@ -14211,27 +14215,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!cvSid) return;
                 // Crosshair sync across all active compare panes
                 updateCompareCrosshairs(i, e);
-                if (comparePixelPending) return;
-                comparePixelPending = true;
-                setTimeout(() => { comparePixelPending = false; }, 60);
-                const rect = cv.getBoundingClientRect();
-                const ipx = Math.floor((e.clientX - rect.left) * cv.width / rect.width);
-                const ipy = Math.floor((e.clientY - rect.top) * cv.height / rect.height);
-                const _mx = e.clientX, _my = e.clientY;
-                proxyFetch(`/pixel/${cvSid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                    .then(r => r.json()).then(d => {
-                        if (d.value !== undefined && isFinite(d.value)) {
-                            const av = Math.abs(d.value);
-                            const fmt = v => (av >= 1e4 || (av < 1e-2 && av > 0)) ? v.toExponential(3) : parseFloat(v.toPrecision(4)).toString();
-                            showPixelInfo(piEl, fmt(d.value), _mx, _my);
-                        } else if (piEl) {
-                            piEl.style.display = 'none';
-                        }
-                    });
+                fetchPixelInfo({
+                    event: e,
+                    canvas: cv,
+                    sid: cvSid,
+                    dimX: dim_x,
+                    dimY: dim_y,
+                    indices: indices,
+                    imgW: cv.width,
+                    imgH: cv.height,
+                    displayEl: piEl,
+                    onResult: (d, px, py) => {
+                        if (_pixelInfoVisible) _updateDimbarHover(px, py);
+                    },
+                });
             });
             cv.addEventListener('mouseleave', () => {
                 if (piEl) piEl.style.display = 'none';
                 hideCompareCrosshairs();
+                if (_pixelInfoVisible) _resetDimbarHover();
             });
          });
         // Click-to-copy: compare canvases
@@ -14509,16 +14511,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         }
 
-        // ── Animated immersive entry / exit ───────────────────────────────
-        let _immersiveAnimating = false;
-
         // ── Zoom-driven immersive crossfade ────────────────────────────
         // Computes progress p ∈ [0,1] from userZoom and drives chrome
         // opacity + fullscreen-mode layout switch.  Stateless: called on
         // every zoom update, no timers or animation ids.
         let _crossfadePrev = 0; // track previous p to avoid redundant DOM writes
         function _applyImmersiveCrossfade() {
-            if (_immersiveAnimating) return; // legacy animations still running
             const w = lastImgW || canvas.width;
             const h = lastImgH || canvas.height;
             if (!w || !h) return;
