@@ -8596,29 +8596,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (_fullscreenActive) {
-                        // One press exits immersive → normal fit (reverse of =).
-                        // Must NOT use _scaleAllWithAnim — the animation calls
-                        // _applyImmersiveCrossfade each frame which re-enters
-                        // fullscreen while userZoom is still high (animating down).
-                        _fullscreenActive = false;
-                        document.body.classList.remove('fullscreen-mode');
-                        _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
-                        const wrap = document.getElementById('slim-cb-wrap');
-                        if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                        const infoEl = document.getElementById('info');
-                        if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                        if (wrap) { wrap.style.top = ''; wrap.style.bottom = ''; wrap.style.right = ''; }
-                        if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                        const wrapper = document.getElementById('wrapper');
-                        if (wrapper) wrapper.style.paddingTop = '';
-                        _reconcileCbVisibility({ animPhase: 'exit-3' });
-                        _crossfadeCleanup();
-                        userZoom = 1.0;
-                        _zoomAdjustedByUser = false;
-                        mainPan.reset();
-                        mosaicPan.reset();
-                        ModeRegistry.scaleAllAutoFit();
-                        showStatus('zoom: fit');
+                        const w = lastImgW || canvas.width;
+                        const h = lastImgH || canvas.height;
+                        const immFitTarget = _calcAutoFitZoom(w, h, true) * 1.03;
+                        const newZoom = userZoom / 1.1;
+                        if (newZoom > immFitTarget) {
+                            // Still in overflow — just zoom out 10%
+                            userZoom = newZoom;
+                            _zoomAdjustedByUser = true;
+                            _scaleAllWithAnim();
+                            showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
+                        } else {
+                            // At or below immersive fit — exit to normal fit.
+                            // Must NOT use _scaleAllWithAnim — the animation
+                            // re-enters fullscreen while userZoom animates down.
+                            _fullscreenActive = false;
+                            document.body.classList.remove('fullscreen-mode');
+                            _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
+                            const wrap = document.getElementById('slim-cb-wrap');
+                            if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
+                            const infoEl = document.getElementById('info');
+                            if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
+                            if (wrap) { wrap.style.top = ''; wrap.style.bottom = ''; wrap.style.right = ''; }
+                            if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
+                            const wrapper = document.getElementById('wrapper');
+                            if (wrapper) wrapper.style.paddingTop = '';
+                            _reconcileCbVisibility({ animPhase: 'exit-3' });
+                            _crossfadeCleanup();
+                            userZoom = 1.0;
+                            _zoomAdjustedByUser = false;
+                            mainPan.reset();
+                            mosaicPan.reset();
+                            ModeRegistry.scaleAllAutoFit();
+                            showStatus('zoom: fit');
+                        }
                     } else {
                         userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
                         if (!_snapZoomToFit()) {
