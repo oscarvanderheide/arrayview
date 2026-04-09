@@ -1965,11 +1965,12 @@
                 return null;
             },
             scaleAll() {
+                _applyImmersiveCrossfade();
                 const scaler = this.getScaler();
-                if (scaler) return scaler();
-                if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
-                if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
-                _reconcileCbVisibility();
+                if (scaler) scaler();
+                else if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
+                else if (canvas.width && canvas.height) scaleCanvas(canvas.width, canvas.height);
+                else _reconcileCbVisibility();
             },
             scaleAllAutoFit() {
                 const scaler = this.getScaler();
@@ -14407,6 +14408,176 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (wrapper) { wrapper.style.paddingTop = ''; }
                 _reconcileUI();
             }
+        }
+
+        // ── Zoom-driven immersive crossfade ────────────────────────────
+        // Progressively collapses chrome and grows the pane as zoom increases
+        // from normalFit to immersiveFit.  The slice always fills the pane.
+        let _crossfadePrev = -1;
+        let _crossfadeTitleH = 0;  // cached natural heights
+        let _crossfadeInfoH = 0;
+        let _crossfadeCbH = 0;
+        function _applyImmersiveCrossfade() {
+            if (_immersiveAnimating) return;
+            const w = lastImgW || canvas.width;
+            const h = lastImgH || canvas.height;
+            if (!w || !h) return;
+            if (!_shouldEnterImmersive()) {
+                if (_crossfadePrev > 0) _crossfadeCleanup();
+                _crossfadeCollapseP = 0;
+                _crossfadePrev = -1;
+                return;
+            }
+
+            const immFit = _calcAutoFitZoom(w, h, true);
+            const normFit = _normalFitZoom;
+            if (immFit <= normFit) { _crossfadeCollapseP = 0; return; }
+            const p = Math.max(0, Math.min(1, (userZoom - normFit) / (immFit - normFit)));
+
+            if (Math.abs(p - _crossfadePrev) < 0.003 && p > 0 && p < 1) return;
+            _crossfadePrev = p;
+
+            // collapseP: 0→1 during first half (chrome collapses + fades out)
+            const collapseP = Math.min(1, p * 2);
+            // fadeIn: 0→1 during second half (chrome fades in at immersive positions)
+            const fadeIn = Math.max(0, (p - 0.5) * 2);
+
+            // Set global for scale functions
+            _crossfadeCollapseP = collapseP;
+
+            // Cache natural heights when crossfade starts
+            if (p > 0 && _crossfadeTitleH === 0) {
+                const t = document.getElementById('array-name');
+                const i = document.getElementById('info');
+                const c = document.getElementById('slim-cb-wrap');
+                _crossfadeTitleH = t ? t.offsetHeight : 30;
+                _crossfadeInfoH = i ? i.offsetHeight : 30;
+                _crossfadeCbH = c ? c.offsetHeight : 30;
+            }
+
+            // ── Collapse chrome heights (first half) ──────────────────
+            const titleEl = document.getElementById('array-name');
+            const infoEl = document.getElementById('info');
+            const cbWrap = document.getElementById('slim-cb-wrap');
+
+            if (p === 0) {
+                // Fully normal: clear all inline styles
+                if (titleEl) { titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.opacity = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
+                if (infoEl) { infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; infoEl.style.opacity = ''; }
+                if (cbWrap) { cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; cbWrap.style.opacity = ''; }
+                _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
+            } else if (!_fullscreenActive) {
+                // Crossfading in normal layout: collapse heights + fade
+                const remainH = 1 - collapseP;
+                if (titleEl) {
+                    titleEl.style.maxHeight = (_crossfadeTitleH * remainH) + 'px';
+                    titleEl.style.overflow = 'hidden';
+                    titleEl.style.opacity = remainH;
+                }
+                if (infoEl) {
+                    infoEl.style.maxHeight = (_crossfadeInfoH * remainH) + 'px';
+                    infoEl.style.overflow = 'hidden';
+                    infoEl.style.opacity = remainH;
+                }
+                if (cbWrap) {
+                    cbWrap.style.maxHeight = (_crossfadeCbH * remainH) + 'px';
+                    cbWrap.style.overflow = 'hidden';
+                    cbWrap.style.opacity = remainH;
+                }
+            }
+
+            // ── Layout switch at p=0.5 (chrome invisible + collapsed) ─
+            const shouldBeFullscreen = p >= 0.5;
+            if (shouldBeFullscreen !== _fullscreenActive) {
+                if (shouldBeFullscreen) {
+                    // Enter: chrome already collapsed via inline styles above
+                    _fullscreenActive = true;
+                    document.body.classList.add('fullscreen-mode');
+                    _reconcileCbVisibility({ animPhase: 'enter-2' });
+                    if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
+                        const centerIsland = document.getElementById('compare-center-island');
+                        if (centerIsland) {
+                            const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
+                            centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
+                        }
+                    }
+                    // Clear inline collapse styles — fullscreen-mode CSS handles it now
+                    if (titleEl) { titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
+                    if (infoEl) { infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; }
+                    if (cbWrap) { cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; }
+                } else {
+                    // Exit: restore normal layout, re-apply collapse inline styles
+                    _fullscreenActive = false;
+                    document.body.classList.remove('fullscreen-mode');
+                    _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
+                    const wrap = document.getElementById('slim-cb-wrap');
+                    if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
+                    if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
+                    if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; cbWrap.style.right = ''; }
+                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
+                    const wrapper = document.getElementById('wrapper');
+                    if (wrapper) wrapper.style.paddingTop = '';
+                    _reconcileCbVisibility({ animPhase: 'exit-3' });
+                    // Re-apply collapse for the shrinking second half → first half
+                    const remainH = 1 - collapseP;
+                    if (titleEl) { titleEl.style.maxHeight = (_crossfadeTitleH * remainH) + 'px'; titleEl.style.overflow = 'hidden'; }
+                    if (infoEl) { infoEl.style.maxHeight = (_crossfadeInfoH * remainH) + 'px'; infoEl.style.overflow = 'hidden'; }
+                    if (cbWrap) { cbWrap.style.maxHeight = (_crossfadeCbH * remainH) + 'px'; cbWrap.style.overflow = 'hidden'; }
+                }
+            }
+
+            // ── Opacity for second half (fade in at immersive positions) ─
+            if (_fullscreenActive) {
+                if (titleEl) titleEl.style.opacity = '0'; // title stays hidden in immersive
+                if (infoEl) infoEl.style.opacity = fadeIn || '';
+                if (cbWrap) cbWrap.style.opacity = fadeIn || '';
+                if (fadeIn > 0) _positionFullscreenChrome();
+            }
+
+            // Compare/multiview/qMRI chrome
+            if (compareActive) {
+                const cmpFade = _fullscreenActive ? fadeIn : (1 - collapseP);
+                document.querySelectorAll('.compare-title').forEach(el => {
+                    el.style.opacity = (p === 0) ? '' : (_fullscreenActive ? '0' : (1 - collapseP));
+                });
+                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
+                    el.style.opacity = (p === 0) ? '' : cmpFade || '';
+                });
+            }
+            const mvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
+            if (mvCb) {
+                if (p === 0) { mvCb.style.opacity = ''; }
+                else { mvCb.style.opacity = _fullscreenActive ? (fadeIn || '') : (1 - collapseP); }
+            }
+            const qmriCbs = qmriActive ? document.querySelectorAll('#qmri-view-wrap .qv-cb-island') : [];
+            qmriCbs.forEach(el => {
+                if (p === 0) { el.style.opacity = ''; }
+                else { el.style.opacity = _fullscreenActive ? (fadeIn || '') : (1 - collapseP); }
+            });
+
+            // Update _fitZoom
+            if (p >= 1) _fitZoom = immFit;
+        }
+
+        function _crossfadeCleanup() {
+            _crossfadeCollapseP = 0;
+            const titleEl = document.getElementById('array-name');
+            const infoEl = document.getElementById('info');
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            for (const el of [titleEl, infoEl, cbWrap]) {
+                if (el) { el.style.opacity = ''; el.style.transition = ''; el.style.maxHeight = ''; el.style.overflow = ''; el.style.margin = ''; el.style.padding = ''; }
+            }
+            document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
+                el.style.opacity = ''; el.style.transition = '';
+            });
+            const mvCb = document.getElementById('mv-cb-wrap');
+            if (mvCb) { mvCb.style.opacity = ''; mvCb.style.transition = ''; }
+            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
+                el.style.opacity = ''; el.style.transition = '';
+            });
+            const wrapper = document.getElementById('wrapper');
+            if (wrapper) { wrapper.style.padding = ''; wrapper.style.margin = ''; }
+            _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
         }
 
         // ── Animated immersive entry / exit ───────────────────────────────
