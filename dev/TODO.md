@@ -1,6 +1,6 @@
 # TODO
 
-- d in mosaic mode causes arrayview to crash.
+- ~~d in mosaic mode causes arrayview to crash.~~ ✅ fixed
 - investigate the codebase for legacy/unused code. create a plan to clean it up. check with
   me first before doing the actual cleanup
 - we need to brainstorm on zooming with ctrl or shift and trackpad (and whatever it is on
@@ -11,6 +11,14 @@
 - when i hover over colorbar with mouse, the value should be shown in similar
   letters/style/colors as the value seen when pressing i for hover mode and hovering over
   the array.
+
+- the help menu (?) is difficult to read for me. im not sure if its the combination of
+  background and foreground colors (black and yellow), the font, or the font size, or the
+  fact that its just a long list of keymaps. can we brainstorm on how to improve this? keep
+  in mind that its mainly for exploration by new users. the viewer is designed to be
+  keyboard centric and once users know the keybinds they need to use, they shouldnt really
+  have to look at the help menu anymore. it feels a bit like a reference list rather than a
+  guide at the moment. maybe i need both
 
 ## Refactoring Opportunities (assessed 2026-04-03, swept 2026-04-07)
 

@@ -200,7 +200,6 @@ INTENTIONALLY_NOOP = {
 # to grow a deterministic completion path before they can be exercised. Marked
 # xfail with strict=False so they show up but don't block the diagnostic run.
 HANGING_COMBOS = {
-    ("mosaic", "cycle_dynamic_range"): "d-key opens histogram with await on server fetch",
 }
 
 

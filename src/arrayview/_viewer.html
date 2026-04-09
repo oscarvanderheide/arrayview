@@ -4754,7 +4754,8 @@
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
-            const sd = useMv ? mvDims[2] : current_slice_dim;
+            // In mosaic mode, _volHistSpatialOpts uses dim_z as scrollDim
+            const sd = useMv ? mvDims[2] : (dim_z >= 0 ? dim_z : current_slice_dim);
             const parts = [];
             for (let i = 0; i < shape.length; i++) {
                 if (i === dx || i === dy || i === sd) continue;
