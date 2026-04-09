@@ -8614,12 +8614,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Zoom out / exit immersive',
                 when: [],
                 run: (ctx, e) => {
-                    userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
-                    if (!_snapZoomToFit()) {
-                        _zoomAdjustedByUser = true;
+                    if (_fullscreenActive && _zoomAdjustedByUser) {
+                        // One press exits immersive → normal fit (reverse of =)
+                        _crossfadeCleanup();
+                        userZoom = _normalFitZoom;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        mosaicPan.reset();
+                        _scaleAllWithAnim();
+                        showStatus('zoom: fit');
+                    } else {
+                        userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
+                        if (!_snapZoomToFit()) {
+                            _zoomAdjustedByUser = true;
+                        }
+                        _scaleAllWithAnim();
+                        showStatus(userZoom <= _normalFitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                     }
-                    _scaleAllWithAnim();
-                    showStatus(userZoom <= _normalFitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                     saveState();
                 },
             },
@@ -8633,35 +8644,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         sliceJumpTimeout = setTimeout(() => { sliceJumpBuffer = ''; showStatus(''); }, 2000);
                         showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                     } else {
-                        const now = performance.now();
-                        const isDoubleTap = _fullscreenActive && (now - _lastZeroPress < 500);
-                        _lastZeroPress = now;
-                        if (isDoubleTap) {
-                            _crossfadeCleanup();
-                            userZoom = 1.0;
-                            _zoomAdjustedByUser = false;
-                            mainPan.reset();
-                            mosaicPan.reset();
-                            ModeRegistry.scaleAllAutoFit();
-                            showStatus('zoom: fit');
-                        } else if (_fullscreenActive) {
-                            const w = lastImgW || canvas.width;
-                            const h = lastImgH || canvas.height;
-                            userZoom = _calcAutoFitZoom(w, h, true);
-                            _fitZoom = userZoom;
-                            _zoomAdjustedByUser = false;
-                            mainPan.reset();
-                            ModeRegistry.scaleAll();
-                            showStatus('immersive · press 0 again to exit');
-                        } else {
-                            _crossfadeCleanup();
-                            userZoom = 1.0;
-                            _zoomAdjustedByUser = false;
-                            mainPan.reset();
-                            mosaicPan.reset();
-                            ModeRegistry.scaleAllAutoFit();
-                            showStatus('zoom: fit');
-                        }
+                        // Reset to normal fit from anywhere (including immersive)
+                        _crossfadeCleanup();
+                        userZoom = 1.0;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        mosaicPan.reset();
+                        ModeRegistry.scaleAllAutoFit();
+                        showStatus('zoom: fit');
                         saveState();
                     }
                 },
