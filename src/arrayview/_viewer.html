@@ -11,7 +11,7 @@
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(180,180,180,0.35);
             --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
-            --help-key: #f5c842; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
+            --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
         }
         :root.light {
@@ -20,7 +20,7 @@
             --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
             --highlight: #000; --canvas-border: rgba(180,180,180,0.35);
             --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
-            --help-key: #c47d00; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
+            --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
         }
         :root.solarized {
@@ -29,7 +29,7 @@
             --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
             --highlight: #073642; --canvas-border: rgba(180,180,180,0.35);
             --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
-            --help-key: #b58900; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
+            --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
         }
         :root.nord {
@@ -38,7 +38,7 @@
             --text: #d8dee9; --muted: #616e88; --subtle: #3b4252;
             --highlight: #eceff4; --canvas-border: rgba(180,180,180,0.35);
             --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
-            --help-key: #ebcb8b; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
+            --help-key: #88c0d0; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
             --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
         }
         html, body {
@@ -1050,7 +1050,7 @@
         .cmap-thumb { display:flex; flex-direction:column; align-items:center; gap:2px; opacity:0.5; transition:opacity 0.15s ease; }
         .cmap-thumb.active { opacity:1; }
         .cmap-thumb canvas { display:block; width:60px; height:10px; border-radius:3px; border:1px solid rgba(255,255,255,0.1); }
-        .cmap-thumb.active canvas { border-color: var(--help-key); height:12px; width:72px; }
+        .cmap-thumb.active canvas { border-color: var(--active-dim); height:12px; width:72px; }
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--fg); }
 
@@ -8614,6 +8614,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Zoom out / exit immersive',
                 when: [],
                 run: (ctx, e) => {
+                    console.log('[zoom.out]', { _fullscreenActive, userZoom, _normalFitZoom, _zoomAdjustedByUser, _crossfadeP, _crossfadeCollapseP });
                     if (_fullscreenActive) {
                         // One press exits immersive → normal fit (reverse of =)
                         _fullscreenActive = false;
@@ -8650,6 +8651,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Reset zoom / slice-jump digit',
                 when: [],
                 run: (ctx, e) => {
+                    console.log('[zoom.reset]', { _fullscreenActive, userZoom, _normalFitZoom, sliceJumpBuffer: sliceJumpBuffer.length, key: e.key });
                     if (sliceJumpBuffer.length > 0) {
                         sliceJumpBuffer += e.key;
                         if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
