@@ -4431,7 +4431,8 @@
                 const label = preset.label;
                 if (preset.lo === 0 && preset.hi === 1) {
                     if (this._syncWith) this._syncWith._quantileIdx = this._quantileIdx;
-                    return { vmin: null, vmax: null, label };
+                    // Use histogram's true data range instead of null (which falls back to per-slice 1-99%)
+                    return { vmin: this._histData.vmin, vmax: this._histData.vmax, label };
                 }
                 const { counts, edges } = this._histData;
                 const total = counts.reduce((s, c) => s + c, 0) || 1;
@@ -9392,7 +9393,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
                         const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
                         if (preset.lo === 0 && preset.hi === 1) {
-                            manualVmin = null; manualVmax = null;
+                            // Use histogram's true data range, not null (which falls back to per-slice 1-99%)
+                            manualVmin = _histData.vmin; manualVmax = _histData.vmax;
                         } else {
                             const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
                             const total = counts.reduce((a, b) => a + b, 0);
@@ -9477,7 +9479,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
                             const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
                             if (preset.lo === 0 && preset.hi === 1) {
-                                manualVmin = null; manualVmax = null;
+                                // Use histogram's true data range, not null (which falls back to per-slice 1-99%)
+                                if (_histData) { manualVmin = _histData.vmin; manualVmax = _histData.vmax; }
+                                else { manualVmin = null; manualVmax = null; }
                             } else if (_histData && _histData.counts) {
                                 const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
                                 const total = counts.reduce((a, b) => a + b, 0);
