@@ -211,10 +211,12 @@
         }
         .cb-tri-zone.expanded { /* triangles overlay on canvas — no height change */ }
         .cb-tooltip {
-            position: absolute; top: 0; left: 0; font-size: 10px;
-            color: var(--fg); background: var(--bg);
-            padding: 1px 4px; border-radius: 2px;
+            position: absolute; top: 0; left: 0;
+            font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+            color: var(--active-dim); background: none; border: none;
+            padding: 2px 7px; border-radius: 5px;
             pointer-events: none; white-space: nowrap; z-index: 3;
+            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg);
         }
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
@@ -255,7 +257,7 @@
         :root.solarized .cb-val-popup .cb-val-label { color: rgba(88,110,117,0.5); }
         :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); }
         :root.nord .cb-val-popup .cb-val-label { color: rgba(216,222,233,0.4); }
-        #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 10px; color: var(--fg); background: var(--bg); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; }
+        #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
@@ -4407,6 +4409,7 @@
                     if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
                         this.draw();
+                        if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
                     if (this._autoDismissPending && !this._dragActive) {
@@ -4507,6 +4510,15 @@
                         const hit = this._hitTest(x);
                         this.canvas.style.cursor = hit ? 'ew-resize' : 'crosshair';
                         this.draw();
+                        // Show floating tooltip with value
+                        if (this.tooltip && this._histData) {
+                            const { vmin: dmin, vmax: dmax } = this._histData;
+                            const hoverVal = dmin + frac * (dmax - dmin);
+                            this.tooltip.textContent = _cbFmtPlain(hoverVal);
+                            this.tooltip.style.display = '';
+                            this.tooltip.style.left = (x - this.tooltip.offsetWidth / 2) + 'px';
+                            this.tooltip.style.top = (-this.tooltip.offsetHeight - 4) + 'px';
+                        }
                         if (this._onBinHover && this._histData && this._hoverFrac >= 0) {
                             const nBins = this._histData.counts?.length || 64;
                             const binIdx = Math.min(nBins - 1, Math.max(0, Math.floor(this._hoverFrac * nBins)));
@@ -4516,6 +4528,7 @@
                         this._hoverFrac = -1;
                         this.canvas.style.cursor = '';
                         this.draw();
+                        if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
                     }
                 } else if (this._hoverFrac >= 0) {
@@ -13989,18 +14002,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }, 200);
                 return;
             }
-            // Ctrl / Cmd + scroll → zoom
+            // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly)
             if ((e.ctrlKey || e.metaKey) && !_immersiveAnimating) {
-                // Use deltaY magnitude to scale zoom — small trackpad pinch
-                // gestures get small zoom steps, big scroll wheel clicks get bigger ones
-                const absDelta = Math.min(Math.abs(e.deltaY), 50);
-                const zoomFactor = 1 + absDelta * 0.004; // ~1.02 for small pinch, ~1.2 for big scroll
-                userZoom = e.deltaY > 0
-                    ? Math.max(userZoom / zoomFactor, _normalFitZoom)
-                    : Math.min(userZoom * zoomFactor, 10.0);
+                const clamped = Math.max(-10, Math.min(10, e.deltaY));
+                const factor = Math.pow(2, -clamped * 0.1);
+                userZoom = Math.max(_normalFitZoom, Math.min(10.0, userZoom * factor));
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
-                    // Auto-exit immersive on scroll zoom out to fit level
                     if (_fullscreenActive && userZoom <= _fitZoom) {
                         _exitImmersive();
                         showStatus('zoom: fit');
@@ -14008,7 +14016,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         return;
                     }
                 }
-                _scaleAllWithAnim();
+                ModeRegistry.scaleAll();
                 saveState();
                 return;
             }
