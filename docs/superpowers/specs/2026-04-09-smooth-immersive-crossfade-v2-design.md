@@ -70,24 +70,32 @@ el.style.opacity = 1 - collapseP;
 
 Cache `naturalH` (element's natural height) when the crossfade starts (p transitions from 0 to >0) so it doesn't change during the crossfade.
 
-### Bottom reserve interpolation
+### Bottom reserve interpolation — all modes
 
-`scaleCanvas` uses `bottomReserve = _fullscreenActive ? 0 : 80`. During the crossfade, this needs to interpolate. Introduce `_crossfadeBottomReserve`:
+Every scale function uses `uiReserveV()` (which auto-adjusts as we collapse title + dimbar) PLUS a mode-specific bottom reserve for colorbar/eggs/padding. These bottom reserves are currently hardcoded. During the first half of the crossfade, they must interpolate to 0.
+
+Introduce a global `_crossfadeCollapseP` variable (0 outside crossfade, 0→1 during first half):
 
 ```javascript
-// In scaleCanvas:
-const bottomReserve = _fullscreenActive ? 0 : _crossfadeBottomReserve ?? 80;
+let _crossfadeCollapseP = 0; // set by _applyImmersiveCrossfade
+
+// Each scale function multiplies its bottom reserve:
+const bottomReserve = fullReserve * (1 - _crossfadeCollapseP);
 ```
 
-The crossfade function sets `_crossfadeBottomReserve`:
-```javascript
-const collapseP = Math.min(1, p * 2);
-_crossfadeBottomReserve = 80 * (1 - collapseP);  // 80→0 during first half
-```
+Affected scale functions and their reserves:
+- `scaleCanvas`: `bottomReserve = 80` → `80 * (1 - _crossfadeCollapseP)`
+- `compareScaleCanvases`: `uiReserveH = uiReserveV() + 40` → the `40` part → `40 * (1 - _crossfadeCollapseP)`
+- `compareQmriScaleAllCanvases`: `cbRows * cbH + bottomPad` → multiply by `(1 - _crossfadeCollapseP)`
+- `compareMvScaleAllCanvases`: same pattern as compareQmri
+- `qvScaleAllCanvases`: `bottomPad = 24` → `24 * (1 - _crossfadeCollapseP)`
+- `mvScaleAllCanvases`: `cbH + labelH` added to `uiReserveV()` → multiply extra by `(1 - _crossfadeCollapseP)`
+
+This is a small change in each function — multiply the non-`uiReserveV()` vertical reserve by `(1 - _crossfadeCollapseP)`.
 
 ### Colorbar collapse
 
-The colorbar (`#slim-cb-wrap`) is below the pane. It needs to physically collapse during the first half, same as title/dimbar. However, its space is accounted for by `bottomReserve`, not `uiReserveV()`. The `_crossfadeBottomReserve` interpolation handles the space calculation. The colorbar's visual collapse (height + opacity) matches.
+The colorbar (`#slim-cb-wrap`) is below the pane. It physically collapses during the first half (same maxHeight technique as title/dimbar). Its space is accounted for by the bottom reserve interpolation above.
 
 ### Call site
 
