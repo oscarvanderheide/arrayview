@@ -8592,7 +8592,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _shouldEnterImmersive()) {
                         const w = lastImgW || canvas.width;
                         const h = lastImgH || canvas.height;
-                        userZoom = _calcAutoFitZoom(w, h, true);
+                        // 1.03× past immFit so chrome is fully faded in (fadeIn
+                        // reaches 1.0 at immFit*1.03) but overflow hasn't started.
+                        userZoom = _calcAutoFitZoom(w, h, true) * 1.03;
                         _zoomAdjustedByUser = true;
                         _scaleAllWithAnim();
                         showStatus('immersive');
