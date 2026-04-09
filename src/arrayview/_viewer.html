@@ -6378,9 +6378,10 @@
                         const pos = activeDims.indexOf(i);
                         const labels = ['x','y','z'];
                         const label = labels[pos] || 'x';
+                        const sizeId = label === 'x' ? ' id="dim-x-size"' : label === 'y' ? ' id="dim-y-size"' : label === 'z' ? ' id="dim-z-size"' : '';
                         const prefix = flipDims[i] ? '-' : '';
                         const cls = (active || playing) ? `${dimCls} dim-label` : 'spatial-dim dim-label';
-                        return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size">/${shape[i]}</span></span>`;
+                        return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size"${sizeId}>/${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
@@ -6463,17 +6464,18 @@
             document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
         }
 
-        function _updateDimbarHover(px, py) {
-            const xEl = document.getElementById('dim-x-size');
-            const yEl = document.getElementById('dim-y-size');
+        function _updateDimbarHover(px, py, xLabel, yLabel) {
+            // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
+            const xId = 'dim-' + (xLabel || 'x') + '-size';
+            const yId = 'dim-' + (yLabel || 'y') + '-size';
+            const xEl = document.getElementById(xId);
+            const yEl = document.getElementById(yId);
             if (xEl) { xEl.textContent = '/' + px; xEl.className = 'dim-hover-idx'; }
             if (yEl) { yEl.textContent = '/' + py; yEl.className = 'dim-hover-idx'; }
         }
         function _resetDimbarHover() {
-            const xEl = document.getElementById('dim-x-size');
-            const yEl = document.getElementById('dim-y-size');
-            if (xEl) { xEl.textContent = '/' + shape[dim_x]; xEl.className = 'dim-size'; }
-            if (yEl) { yEl.textContent = '/' + shape[dim_y]; yEl.className = 'dim-size'; }
+            // Re-render dimbar to restore correct max sizes for all modes
+            renderInfo();
         }
 
         function flashAxesIndicators() {
@@ -11481,7 +11483,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         displayEl: view.pixelInfoEl,
                         onResult: (d, px, py) => {
                             if (_pixelInfoVisible) {
-                                _updateDimbarHover(px, py);
+                                _updateDimbarHover(px, py, view.axLblX, view.axLblY);
                                 if (view.axesSvg) {
                                     view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${px}`;
                                     view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${py}`;
