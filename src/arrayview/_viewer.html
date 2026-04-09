@@ -1971,10 +1971,11 @@
             },
             scaleAll() {
                 const scaler = this.getScaler();
-                if (scaler) return scaler();
-                if (lastImgW && lastImgH) return scaleCanvas(lastImgW, lastImgH);
-                if (canvas.width && canvas.height) return scaleCanvas(canvas.width, canvas.height);
-                _reconcileCbVisibility();
+                if (scaler) scaler();
+                else if (lastImgW && lastImgH) scaleCanvas(lastImgW, lastImgH);
+                else if (canvas.width && canvas.height) scaleCanvas(canvas.width, canvas.height);
+                else _reconcileCbVisibility();
+                _applyImmersiveCrossfade();
             },
             scaleAllAutoFit() {
                 const scaler = this.getScaler();
