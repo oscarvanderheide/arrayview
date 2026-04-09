@@ -404,6 +404,8 @@ async def websocket_endpoint(ws: WebSocket, sid: str):
                         complex_mode,
                         log_scale,
                         mosaic_cols=mosaic_cols,
+                        vmin_override=vmin_override,
+                        vmax_override=vmax_override,
                     ),
                 )
                 h, w = rgba.shape[:2]

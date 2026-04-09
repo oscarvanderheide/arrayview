@@ -12844,6 +12844,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
             };
             if (qmriMosaicActive) _qmMsg.mosaic_cols = shape[_qmriMosaicZDim];
+            if (v.lockedVmin != null) _qmMsg.vmin_override = v.lockedVmin;
+            if (v.lockedVmax != null) _qmMsg.vmax_override = v.lockedVmax;
             v.ws.send(JSON.stringify(_qmMsg));
         }
 
@@ -12867,6 +12869,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     slice_dim: String(current_slice_dim),
                 });
                 if (qmriMosaicActive) params.set('mosaic_cols', String(shape[_qmriMosaicZDim]));
+                if (v.lockedVmin != null) params.set('vmin_override', String(v.lockedVmin));
+                if (v.lockedVmax != null) params.set('vmax_override', String(v.lockedVmax));
                 if (projectionMode > 0) {
                     params.set('projection_mode', String(projectionMode));
                     params.set('projection_dim', String(projectionDim));
