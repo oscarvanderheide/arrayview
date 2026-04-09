@@ -8606,20 +8606,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Zoom out / exit immersive',
                 when: [],
                 run: (ctx, e) => {
-                    if (_immersiveAnimating) return; // ignore zoom keys during immersive transition
                     userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
                     if (!_snapZoomToFit()) {
                         _zoomAdjustedByUser = true;
-                        // Auto-exit immersive mode when zooming back to fit
-                        if (_fullscreenActive && userZoom <= _fitZoom) {
-                            _exitImmersive();
-                            showStatus('zoom: fit');
-                            saveState();
-                            return; // _exitImmersive handles layout; skip _scaleAllWithAnim
-                        }
                     }
                     _scaleAllWithAnim();
-                    showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                    showStatus(userZoom <= _normalFitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
                     saveState();
                 },
             },
