@@ -2500,6 +2500,32 @@
             return { finalScale, cssW, cssH, vpW, vpH, capScale };
         }
 
+        /**
+         * Shared zoom-clamp preamble for multi-pane scale functions.
+         *
+         * Every grid-based mode (multi-view, qMRI, compare-qMRI, compare-mv)
+         * needs to: (1) find the tightest scale that fits ALL views in the
+         * available layout space, (2) clamp userZoom so zoom-in can't exceed
+         * that fit scale, and (3) report whether we're already at max.
+         *
+         * Centralising this means zoom-clamp / auto-fit policy changes
+         * propagate to all grid modes automatically.
+         *
+         * @param {number} absMax  – tightest absolute scale (or tile size)
+         *                           that fits every view at userZoom=1
+         * @returns {{ capped: number, atMax: boolean }}
+         *   capped  – effective scale/size after applying + clamping userZoom
+         *   atMax   – true when userZoom was clamped (caller may want to
+         *             return 'max' or reset animation state)
+         */
+        function _clampUniformZoom(absMax) {
+            const requested = Math.max(0.01, absMax * userZoom);
+            const capped = Math.min(requested, Math.max(0.01, absMax));
+            const atMax = requested > absMax + 0.001;
+            if (atMax) userZoom = 1.0;
+            return { capped, atMax };
+        }
+
         function scaleCanvas(w, h) {
             const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
             const immersivePad = 12; // breathing room on each side in immersive mode
@@ -12248,18 +12274,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
-            const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
-            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
-            if (scaledMin > absMaxScale + 0.001) {
-                userZoom = 1.0;
-            }
+            const { capped: cappedScale, atMax: _cqAtMax } = _clampUniformZoom(absMaxScale);
             // Per-pane geometry routed through the shared _scalePane primitive.
             // compare-qMRI has no pan state and no per-pane viewport element —
             // _scalePane just sets canvas cssW/cssH. baseScale = absMaxScale
             // (global min across all views) so finalScale = baseScale * userZoom
             // = cappedScale, giving every pane the same uniform scale factor.
-            // userZoom is pre-clamped above, so updateAutoFit and
+            // userZoom is pre-clamped by _clampUniformZoom, so updateAutoFit and
             // allowOverflowRecalc are both false. squareStretch is not used in
             // compare-qMRI (non-square parameter maps). The colorbar wrap width
             // is still synced to the canvas cssW after _scalePane returns.
@@ -12296,7 +12317,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     positionEggs();
                 }
             });
-            return scaledMin > absMaxScale + 0.001 ? 'max' : null;
+            return _cqAtMax ? 'max' : null;
         }
 
         function compareQmriOnMessage(v, event) {
@@ -12686,22 +12707,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const absMaxScaleH = Math.max(10, totalH / nRows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
-            const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
-            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
-            if (scaledMin > absMaxScale + 0.001) {
-                userZoom = 1.0;
-            }
+            const { capped: cappedScale, atMax: _cmvAtMax } = _clampUniformZoom(absMaxScale);
             // Per-pane geometry routed through the shared _scalePane primitive.
             // compare-multiview has no pan state (no clip wrappers) and no
             // per-pane viewport element to size — _scalePane just needs to set
             // canvas cssW/cssH. baseScale = absMaxScale (global min across all
             // views) so finalScale = baseScale * userZoom = cappedScale, giving
             // every pane the same uniform scale factor. userZoom is pre-clamped
-            // above, so updateAutoFit / allowOverflowRecalc are both false.
-            // squareStretch uses default per-pane max(cssW,cssH) (not a shared
-            // forceViewport square), matching the pre-refactor behavior where
-            // each view's square was sized from its own max(w,h)*cappedScale.
+            // by _clampUniformZoom, so updateAutoFit / allowOverflowRecalc are
+            // both false. squareStretch uses default per-pane max(cssW,cssH)
+            // (not a shared forceViewport square), matching the pre-refactor
+            // behavior where each view's square was sized from its own
+            // max(w,h)*cappedScale.
             const _cmvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
                 _scalePane(
@@ -12734,7 +12751,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     positionEggs();
                 }
             });
-            return scaledMin > absMaxScale + 0.001 ? 'max' : null;
+            return _cmvAtMax ? 'max' : null;
         }
 
         function compareMvOnMessage(v, event) {
@@ -13061,17 +13078,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
                 Math.min(absMaxScaleW / v.lastW, absMaxScaleH / v.lastH)));
-            const scaledMin = Math.max(0.01, absMaxScale * userZoom);
-            const cappedScale = Math.min(scaledMin, Math.max(0.01, absMaxScale));
-            // Clamp userZoom so pressing + repeatedly doesn't inflate the percentage past max
-            if (scaledMin > absMaxScale + 0.001) {
-                userZoom = 1.0;
-            }
-            const atMax = scaledMin > absMaxScale + 0.001;
+            const { capped: cappedScale, atMax } = _clampUniformZoom(absMaxScale);
             // Per-pane geometry routed through the shared _scalePane primitive.
             // qMRI non-mosaic has no per-pane pan or viewport clipping: each canvas
             // is sized directly to fit. userZoom clamping + auto-fit are handled by
-            // the pre-loop logic above, so updateAutoFit / allowOverflowRecalc are
+            // _clampUniformZoom above, so updateAutoFit / allowOverflowRecalc are
             // both false. baseScale is cappedScale/userZoom so _scalePane's
             // finalScale = baseScale*userZoom reproduces cappedScale exactly.
             // squareStretch is hardcoded false — qMRI panes are not square-stretched
@@ -13685,14 +13696,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 Math.max(50, window.innerHeight - uiReserveH),
                 Math.max(50, (window.innerWidth - 80 - gap * 2) / 3)
             );
-            const requestedT = Math.max(50, Math.floor(absMaxT * userZoom));
-            const T = Math.min(requestedT, absMaxT);
-            // Clamp userZoom so pressing + repeatedly doesn't overshoot the visual max
-            if (requestedT > absMaxT) {
-                userZoom = 1.0;
+            const { atMax: _mvAtMax } = _clampUniformZoom(absMaxT);
+            if (_mvAtMax) {
                 _zoomRendered = 1.0;
                 if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             }
+            const T = Math.min(Math.max(50, Math.floor(absMaxT * userZoom)), absMaxT);
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
             // userZoom is already baked into T above (T = absMaxT * userZoom, then
@@ -13734,7 +13743,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             fixWrapperAlignment();
             positionEggs();
-            return requestedT > absMaxT ? 'max' : null;
+            return _mvAtMax ? 'max' : null;
         }
 
         // Multi-view drag: continue tracking even when mouse leaves the canvas
