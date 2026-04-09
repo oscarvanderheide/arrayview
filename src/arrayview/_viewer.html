@@ -14294,25 +14294,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return Math.max(1.0, capScale / baseScale);
         }
 
-        // Fade `els` from opacity `from` to `to` over `duration` ms via rAF.
-        // Disables CSS opacity transitions on elements during the animation so they
-        // cannot lag behind the JS-driven values. Calls `done` on completion.
-        function _animOpacity(els, from, to, duration, done) {
-            for (const el of els) if (el) { el.style.transition = 'opacity 0s'; el.style.opacity = from; }
-            const t0 = performance.now();
-            function step(now) {
-                const p = Math.min((now - t0) / duration, 1);
-                for (const el of els) if (el) el.style.opacity = from + (to - from) * p;
-                if (p < 1) {
-                    requestAnimationFrame(step);
-                } else {
-                    for (const el of els) if (el) el.style.opacity = to;
-                    if (done) done();
-                }
-            }
-            requestAnimationFrame(step);
-        }
-
         function _shouldEnterImmersive() {
             // Only enter immersive when height is the binding constraint —
             // i.e. the vertical space limits fit-zoom more than horizontal.
@@ -14377,7 +14358,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _crossfadeInfoH = 0;
         let _crossfadeCbH = 0;
         function _applyImmersiveCrossfade() {
-            if (_immersiveAnimating) return;
             const w = lastImgW || canvas.width;
             const h = lastImgH || canvas.height;
             if (!w || !h) return;
@@ -14537,193 +14517,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrapper = document.getElementById('wrapper');
             if (wrapper) { wrapper.style.padding = ''; wrapper.style.margin = ''; }
             _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
-        }
-
-        // ── Animated immersive entry / exit ───────────────────────────────
-        let _immersiveAnimating = false;
-
-        function _enterImmersive() {
-            if (_fullscreenActive || _immersiveAnimating) return;
-            _immersiveAnimating = true;
-
-            const infoEl = document.getElementById('info');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            const nameEl = document.getElementById('array-name');
-            // In compare mode, also fade out titles and per-pane colorbars
-            const cmpTitles = compareActive ? Array.from(document.querySelectorAll('.compare-title')) : [];
-            const cmpCbIslands = compareActive ? Array.from(document.querySelectorAll('.compare-pane-cb-island')) : [];
-            const mvCbWrap = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
-            const qmriCbEls = qmriActive ? Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island')) : [];
-            const fadeOutEls = [infoEl, cbWrap, nameEl, ...cmpTitles, ...cmpCbIslands, mvCbWrap, ...qmriCbEls].filter(Boolean);
-            const FADE_OUT = 150, GROW = 160, FADE_IN = 150;
-
-            // Phase 1: fade out non-immersive chrome
-            _animOpacity(fadeOutEls, 1, 0, FADE_OUT, () => {
-                if (!_immersiveAnimating) return;
-
-                // Phase 2: switch to immersive layout, animate canvas grow
-                const w = lastImgW || canvas.width;
-                const h = lastImgH || canvas.height;
-                const fromZoom   = _fitZoom;
-                const newFitZoom = _calcAutoFitZoom(w, h, true);
-
-                _fullscreenActive = true;
-                document.body.classList.add('fullscreen-mode');
-
-                // Reconcile CB visibility for enter-immersive Phase 2
-                // (also populates center island content if in center mode)
-                if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                    const centerIsland = document.getElementById('compare-center-island');
-                    if (centerIsland) {
-                        const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
-                        centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
-                    }
-                }
-                _reconcileCbVisibility({ animPhase: 'enter-2' });
-
-                // Render canvas at fromZoom in immersive layout (no auto-fit flash)
-                _autoFitPending = false;
-                userZoom = fromZoom;
-                ModeRegistry.scaleAll();
-
-                // Animate fromZoom → newFitZoom. _positionFullscreenChrome runs
-                // on every frame so islands are at correct positions by phase 3.
-                userZoom      = newFitZoom;
-                _fitZoom      = newFitZoom;
-                _zoomRendered = fromZoom;
-                _scaleAllWithAnim();
-
-                // Phase 3: fade in islands (already positioned correctly)
-                setTimeout(() => {
-                    if (!_immersiveAnimating) return;
-                    _animOpacity([infoEl, cbWrap, mvCbWrap, ...qmriCbEls].filter(Boolean), 0, 1, FADE_IN, () => {
-                        _immersiveAnimating = false;
-                        for (const el of [infoEl, cbWrap, nameEl, mvCbWrap]) {
-                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                        }
-                        // Clear inline opacity on compare/multiview/qMRI elements
-                        for (const el of [...cmpTitles, ...cmpCbIslands, ...qmriCbEls]) {
-                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                        }
-                    });
-                }, GROW);
-            });
-        }
-
-        function _exitImmersive() {
-            if (!_fullscreenActive && !_immersiveAnimating) return;
-
-            // Cancel any in-progress enter/exit animation — snap to non-immersive
-            if (_immersiveAnimating) {
-                _immersiveAnimating = false;
-                if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
-                const infoEl = document.getElementById('info');
-                const cbWrap = document.getElementById('slim-cb-wrap');
-                const nameEl = document.getElementById('array-name');
-                for (const el of [infoEl, cbWrap, nameEl]) {
-                    if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                }
-                // Clear compare/multiview/qMRI element inline styles
-                document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
-                    el.style.transition = ''; el.style.opacity = '';
-                });
-                const _mvCb = document.getElementById('mv-cb-wrap');
-                if (_mvCb) { _mvCb.style.transition = ''; _mvCb.style.opacity = ''; }
-                document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                    el.style.transition = ''; el.style.opacity = '';
-                });
-                if (_fullscreenActive) {
-                    _fullscreenActive = false;
-                    _infoDragPos = null;
-                    _cbDragPos = null;
-                    _islandDragPos = null;
-                    document.body.classList.remove('fullscreen-mode');
-                    const wrap = document.getElementById('slim-cb-wrap');
-                    if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                    if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                    if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; cbWrap.style.right = ''; }
-                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                    const wrapper = document.getElementById('wrapper');
-                    if (wrapper) wrapper.style.paddingTop = '';
-                }
-                userZoom = _calcAutoFitZoom(lastImgW || canvas.width, lastImgH || canvas.height, false);
-                _zoomRendered = userZoom;
-                _fitZoom = userZoom;
-                _zoomAdjustedByUser = false;
-                mainPan.reset();
-                _autoFitPending = false;
-                ModeRegistry.scaleAll();
-                _reconcileUI();
-                _validateUIState();
-                return;
-            }
-
-            if (!_fullscreenActive) return;
-
-            _immersiveAnimating = true;
-            const infoEl = document.getElementById('info');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            const nameEl = document.getElementById('array-name');
-            const _exitMvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
-            const _exitQmriCbs = qmriActive ? Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island')) : [];
-            const FADE_OUT = 150, FADE_IN = 150;
-
-            // Phase 1: fade out islands (still in immersive layout so positions are correct)
-            _animOpacity([infoEl, cbWrap, _exitMvCb, ..._exitQmriCbs].filter(Boolean), 1, 0, FADE_OUT, () => {
-                if (!_immersiveAnimating) return;
-
-                // Phase 2: still fullscreen, animate canvas from immersive fit → normal fit.
-                // Shrinking inside the immersive layout keeps the canvas within viewport bounds
-                // (normal fit zoom < immersive fit zoom) — no clipping, no minimap flicker.
-                // Uses ease-in (slow start → fast end): natural for a collapsing motion.
-                const w = lastImgW || canvas.width;
-                const h = lastImgH || canvas.height;
-                const fromZoom = _fitZoom; // immersive fit zoom
-                const toZoom = _calcAutoFitZoom(w, h, false); // non-immersive fit zoom
-
-                // Pin nameEl at opacity 0 so it doesn't flash when we remove fullscreen class
-                if (nameEl) { nameEl.style.transition = 'opacity 0s'; nameEl.style.opacity = '0'; }
-
-                userZoom = toZoom;
-                _fitZoom  = toZoom;
-                _zoomRendered = fromZoom;
-                // Use onDone callback so Phase 3 fires exactly when animation ends,
-                // not on a fixed timer (rAF frame boundaries can shift the actual end time).
-                _scaleAllWithAnim(() => {
-                    if (!_immersiveAnimating) return;
-
-                    // Phase 3: switch to normal layout and fade in chrome
-                    _fullscreenActive = false;
-                    _infoDragPos = null;
-                    _cbDragPos = null;
-                    _islandDragPos = null;
-                    document.body.classList.remove('fullscreen-mode');
-                    const wrap = document.getElementById('slim-cb-wrap');
-                    if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                    if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                    if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; cbWrap.style.right = ''; }
-                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                    const wrapper = document.getElementById('wrapper');
-                    if (wrapper) wrapper.style.paddingTop = '';
-
-                    _zoomAdjustedByUser = false;
-                    mainPan.reset();
-                    _autoFitPending = false;
-                    ModeRegistry.scaleAll(); // settles layout at toZoom in normal mode
-
-                    _reconcileCbVisibility({ animPhase: 'exit-3' });
-                    const cmpEls = Array.from(document.querySelectorAll('.compare-title, .compare-pane-cb-island'));
-                    const mvCb = document.getElementById('mv-cb-wrap');
-                    const qmriCbs = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island'));
-                    _animOpacity([infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs].filter(Boolean), 0, 1, FADE_IN, () => {
-                        _immersiveAnimating = false;
-                        for (const el of [infoEl, cbWrap, nameEl, mvCb, ...cmpEls, ...qmriCbs]) {
-                            if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                        }
-                        _validateUIState();
-                    });
-                }, true); // true = easeIn: slow start → fast end (natural for shrinking)
-            });
         }
 
         function _positionFullscreenChrome() {
@@ -14886,14 +14679,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             // Rule 16 — Drag positions cleared when not fullscreen
-            if (!_fullscreenActive && !_immersiveAnimating) {
+            if (!_fullscreenActive) {
                 if (_infoDragPos !== null) w.push('Rule 16: _infoDragPos is not null outside fullscreen');
                 if (_cbDragPos !== null) w.push('Rule 16: _cbDragPos is not null outside fullscreen');
                 if (_islandDragPos !== null) w.push('Rule 16: _islandDragPos is not null outside fullscreen');
             }
 
             // Rule 17 — fs-overlay cleanup when not fullscreen
-            if (!_fullscreenActive && !_immersiveAnimating && !document.body.classList.contains('fullscreen-mode')) {
+            if (!_fullscreenActive && !document.body.classList.contains('fullscreen-mode')) {
                 const _vFsOverlays = document.querySelectorAll('.fs-overlay');
                 if (_vFsOverlays.length > 0) {
                     w.push(`Rule 17: ${_vFsOverlays.length} .fs-overlay elements exist outside fullscreen`);
@@ -14921,7 +14714,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // Rule 25 — Reconciler invariant: center island visibility matches expected
             const _vCenterIsland = document.getElementById('compare-center-island');
-            if (_vCenterIsland && !_immersiveAnimating) {
+            if (_vCenterIsland) {
                 const _vIsCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
                 const expectedVisible = compareActive && _vIsCenter && _fullscreenActive;
                 const actuallyVisible = _vCenterIsland.style.display !== 'none';
@@ -14931,7 +14724,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             // Rule 26 — Reconciler invariant: qMRI fs-overlay only when fullscreen
-            if (!_fullscreenActive && !_immersiveAnimating) {
+            if (!_fullscreenActive) {
                 const _vQmriFs = document.querySelectorAll('#qmri-view-wrap .qv-cb-island.fs-overlay');
                 if (_vQmriFs.length > 0) {
                     w.push(`Rule 26: ${_vQmriFs.length} qv-cb-island.fs-overlay elements exist outside fullscreen`);
@@ -14973,7 +14766,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // Rule 31 — Compare state: diff pane visibility
             const _vDiffPane = document.getElementById('compare-diff-pane');
-            if (_vDiffPane && !_immersiveAnimating) {
+            if (_vDiffPane) {
                 const _vExpDiff = compareActive && (diffMode > 0 || registrationMode);
                 const _vActDiff = _vDiffPane.style.display !== 'none';
                 if (_vActDiff !== _vExpDiff) {
@@ -14982,12 +14775,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             // Rule 32 — Compare state: focus classes consistency
-            if (!_immersiveAnimating) {
-                const _vHasFocusDiff = compareWrap.classList.contains('focus-diff');
-                const _vExpFocusDiff = compareActive && compareFocusMode && diffMode > 0;
-                if (_vHasFocusDiff !== _vExpFocusDiff) {
-                    w.push(`Rule 32: focus-diff=${_vHasFocusDiff} but expected=${_vExpFocusDiff}`);
-                }
+            const _vHasFocusDiff = compareWrap.classList.contains('focus-diff');
+            const _vExpFocusDiff = compareActive && compareFocusMode && diffMode > 0;
+            if (_vHasFocusDiff !== _vExpFocusDiff) {
+                w.push(`Rule 32: focus-diff=${_vHasFocusDiff} but expected=${_vExpFocusDiff}`);
             }
 
             if (w.length) console.warn('[UI INVARIANT]', w.join('\n  '));
@@ -15514,7 +15305,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
             const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
             const compareShouldShow = compareActive && comparePan.overflows && compareFrame && !multiViewActive && !qmriActive;
-            const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive && !_immersiveAnimating;
+            const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive;
 
             // ── Per-pane minimaps in compare mode ──
             if (compareShouldShow) {
