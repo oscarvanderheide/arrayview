@@ -534,12 +534,6 @@
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 14px; flex-shrink: 0;
         }
-        .help-mode-label {
-            font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
-            padding: 5px 12px; border-radius: 6px;
-            background: var(--surface-2); color: var(--text);
-            border: 1px solid var(--border);
-        }
         .help-mode-hint {
             font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
         }
@@ -1503,13 +1497,12 @@
     <div id="help-overlay">
         <div id="help-box">
             <div class="help-topbar">
-                <span class="help-mode-label">Guide</span>
                 <span class="help-mode-hint">press <kbd>?</kbd> to close</span>
             </div>
             <div id="help-tabs"></div>
             <div id="help-content"></div>
             <div class="help-footer">
-                <span class="help-footer-nav"><kbd>j</kbd><kbd>k</kbd> switch tabs</span>
+                <span class="help-footer-nav"><kbd>h</kbd><kbd>l</kbd> / <kbd>← →</kbd> switch tabs</span>
                 <a class="help-footer-link" href="https://github.com/brainhack-school2024/arrayview#keybindings" target="_blank" rel="noopener">Full reference →</a>
             </div>
         </div>
@@ -10209,27 +10202,28 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const GUIDE_TABS = [
             {
                 id: 'basics', label: 'Basics',
-                desc: 'The essentials for navigating and adjusting any array. Start here.',
+                desc: 'The essentials for navigating and adjusting any array.',
                 columns: 2,
                 sections: [
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: '← → ↑ ↓', action: 'Navigate slices', hint: 'Step through your volume one slice at a time' },
-                            { key: 'Scroll', action: 'Zoom in / out', hint: 'Pinch-to-zoom on trackpad' },
-                            { key: '0', action: 'Reset zoom to fit', hint: 'Recenters the image in the viewport' },
-                            { key: 'Space', action: 'Play / pause', hint: 'Animate through slices on the current axis' },
-                            { key: 'Drag', action: 'Pan', hint: 'Click and drag to move the image around' },
+                            { key: '← → ↑ ↓', action: 'navigate slices', hint: 'step through the volume one slice at a time' },
+                            { key: 'x / y', action: 'change viewing dimension', hint: 'choose which axes map to screen x and y' },
+                            { key: 'z', action: 'toggle mosaic', hint: 'tile all slices of the current axis in a grid' },
+                            { key: 'scroll', action: 'zoom in / out', hint: 'pinch-to-zoom on trackpad' },
+                            { key: '0', action: 'reset zoom to fit' },
+                            { key: 'space', action: 'play / pause', hint: '< > adjust playback speed' },
                         ]
                     },
                     {
                         title: 'Display',
                         entries: [
-                            { key: 'R', action: 'Cycle intensity range', hint: 'Quick presets when image looks too dark or bright' },
-                            { key: 'C', action: 'Cycle colormap', hint: 'Switch between grayscale, viridis, turbo, etc.' },
-                            { key: 'D', action: 'Toggle histogram', hint: 'See the intensity distribution of the current slice' },
-                            { key: '/', action: 'Command palette', hint: 'Search all commands — the fastest way to find anything' },
-                            { key: 'I', action: 'Info panel', hint: 'Array shape, dtype, memory layout, and more' },
+                            { key: 'i', action: 'toggle hover pixel info', hint: 'show coordinates and value under cursor' },
+                            { key: 'c', action: 'cycle colormap', hint: 'grayscale, viridis, turbo, etc.' },
+                            { key: 'd', action: 'open histogram / cycle quantiles', hint: 'press repeatedly to tighten the intensity range' },
+                            { key: 'I', action: 'info panel', hint: 'array shape, dtype, memory layout' },
+                            { key: '/', action: 'command palette', hint: 'search all commands' },
                         ]
                     }
                 ]
@@ -10283,7 +10277,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 sections: [
                     {
                         entries: [
-                            { key: 'N', action: 'Cycle compare target', hint: 'Switch which array you\'re comparing against' },
+                            { key: 'n', action: 'cycle compare target', hint: 'switch which array you\'re comparing against' },
                             { key: 'G', action: 'Cycle compare layout', hint: 'Side-by-side, overlay, checkerboard, or diff' },
                             { key: 'Z', action: 'Toggle focus mode', hint: 'Zoom into the comparison view' },
                         ]
@@ -10296,7 +10290,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 sections: [
                     {
                         entries: [
-                            { key: 'Q', action: 'Enter / cycle / exit qMRI', hint: 'Step through available qMRI parameter modes' },
+                            { key: 'q', action: 'enter / cycle / exit qMRI', hint: 'step through available qMRI parameter modes' },
                             { key: 'Z', action: 'Toggle qMRI mosaic', hint: 'See all parameter maps in a grid' },
                             { key: 'R', action: 'Cycle range preset', hint: 'Tissue-specific intensity ranges for each parameter' },
                         ]
@@ -10576,6 +10570,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
+            if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
+            if (helpOverlay.classList.contains('visible')) {
+                if (e.key === 'Escape') {
+                    setHelpVisible(false);
+                    document.getElementById('info-overlay').classList.remove('visible');
+                    return;
+                }
+                if (e.key === 'l' || e.key === 'ArrowRight') {
+                    setHelpTab(helpTabIdx + 1);
+                    return;
+                }
+                if (e.key === 'h' || e.key === 'ArrowLeft') {
+                    setHelpTab(helpTabIdx - 1);
+                    return;
+                }
+                return;
+            }
             if (dispatchCommand(e)) return;
             // Forward Cmd/Ctrl+Shift+[/] to shell for tab cycling
             const modKey = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
@@ -10584,23 +10595,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             const isSpaceKey = e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
-            if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
-            if (helpOverlay.classList.contains('visible')) {
-                if (e.key === 'Escape') {
-                    setHelpVisible(false);
-                    document.getElementById('info-overlay').classList.remove('visible');
-                    return;
-                }
-                if (e.key === 'j' || e.key === 'ArrowDown') {
-                    setHelpTab(helpTabIdx + 1);
-                    return;
-                }
-                if (e.key === 'k' || e.key === 'ArrowUp') {
-                    setHelpTab(helpTabIdx - 1);
-                    return;
-                }
-                return;
-            }
             if (e.key === 'Escape') {
                 if (mipActive) { exitMipMode(); return; }
                 helpOverlay.classList.remove('visible');
