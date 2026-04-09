@@ -8595,9 +8595,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Zoom out / exit immersive',
                 when: [],
                 run: (ctx, e) => {
-                    console.log('[zoom.out]', { _fullscreenActive, userZoom, _normalFitZoom, _zoomAdjustedByUser, _crossfadeP, _crossfadeCollapseP });
                     if (_fullscreenActive) {
-                        // One press exits immersive → normal fit (reverse of =)
+                        // One press exits immersive → normal fit (reverse of =).
+                        // Must NOT use _scaleAllWithAnim — the animation calls
+                        // _applyImmersiveCrossfade each frame which re-enters
+                        // fullscreen while userZoom is still high (animating down).
                         _fullscreenActive = false;
                         document.body.classList.remove('fullscreen-mode');
                         _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
@@ -8611,11 +8613,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (wrapper) wrapper.style.paddingTop = '';
                         _reconcileCbVisibility({ animPhase: 'exit-3' });
                         _crossfadeCleanup();
-                        userZoom = _normalFitZoom;
+                        userZoom = 1.0;
                         _zoomAdjustedByUser = false;
                         mainPan.reset();
                         mosaicPan.reset();
-                        _scaleAllWithAnim();
+                        ModeRegistry.scaleAllAutoFit();
                         showStatus('zoom: fit');
                     } else {
                         userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
@@ -8632,7 +8634,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Reset zoom / slice-jump digit',
                 when: [],
                 run: (ctx, e) => {
-                    console.log('[zoom.reset]', { _fullscreenActive, userZoom, _normalFitZoom, sliceJumpBuffer: sliceJumpBuffer.length, key: e.key });
                     if (sliceJumpBuffer.length > 0) {
                         sliceJumpBuffer += e.key;
                         if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
