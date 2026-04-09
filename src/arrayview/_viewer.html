@@ -6296,7 +6296,7 @@
                 if (i === dim_z) {
                     const inner = `z<span class="dim-size">/${shape[i]}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
-                                  : `<span class="dim-label" ${d}>${inner}</span>`;
+                                  : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                 const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
