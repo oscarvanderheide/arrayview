@@ -6538,7 +6538,7 @@
             if (yEl) { yEl.innerHTML = _dimHoverPadded(py, yMax); yEl.className = 'dim-hover-idx'; }
             if (zEl && pz != null) {
                 const zMax = dim_z >= 0 ? shape[dim_z] : 1;
-                zEl.innerHTML = _dimHoverPadded(pz, zMax); zEl.className = 'dim-hover-idx';
+                zEl.innerHTML = _dimHoverPadded(pz + 1, zMax); zEl.className = 'dim-hover-idx';
             }
         }
         function _resetDimbarHover() {
@@ -8243,22 +8243,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const localY = my - row * cellH;
                 const zIdx = row * g.cols + col;
                 if (zIdx < 0 || zIdx >= g.n || localX >= g.tileW || localY >= g.tileH || localX < 0 || localY < 0) return;
+                // Direct cache lookup for this tile's slice
                 const tileIndices = [...indices];
                 tileIndices[dim_z] = zIdx;
-                fetchPixelInfo({
-                    event: e,
-                    canvas: canvas,
-                    sid: sid,
-                    dimX: dim_x,
-                    dimY: dim_y,
-                    indices: tileIndices,
-                    imgW: canvas.width,
-                    imgH: canvas.height,
-                    displayEl: document.getElementById('main-pixel-info'),
-                    onResult: (d, px, py) => {
-                        _updateDimbarHover(localX, localY, null, null, zIdx);
-                    },
-                });
+                const ver = tileIndices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
+                const hkey = sid + ':' + ver;
+                const cached = _hoverSliceCache[hkey];
+                if (cached && cached.w > 0 && cached.h > 0) {
+                    const rawX = flip_x ? (cached.w - 1 - localX) : localX;
+                    const rawY = flip_y ? (cached.h - 1 - localY) : localY;
+                    if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
+                        const val = cached.slice[rawY * cached.w + rawX];
+                        if (Number.isFinite(val)) {
+                            showPixelInfo(document.getElementById('main-pixel-info'), _pixelFmt(val), e.clientX, e.clientY);
+                        }
+                    }
+                } else if (!_pixelHoverThrottle) {
+                    // Fallback: direct server fetch with tile-local coordinates
+                    _pixelHoverThrottle = true;
+                    setTimeout(() => { _pixelHoverThrottle = false; }, 50);
+                    const params = new URLSearchParams({
+                        dim_x: String(dim_x), dim_y: String(dim_y),
+                        indices: tileIndices.join(','),
+                        px: String(localX), py: String(localY),
+                        complex_mode: complexMode,
+                    });
+                    if (logScale) params.set('log_scale', '1');
+                    proxyFetch('/pixel/' + sid + '?' + params)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            if (!d) return;
+                            showPixelInfo(document.getElementById('main-pixel-info'), _pixelFmt(d.value), e.clientX, e.clientY);
+                        }).catch(() => {});
+                }
+                _updateDimbarHover(localX, localY, null, null, zIdx);
                 return;
             }
 
@@ -11668,6 +11686,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
             renderInfo();
             flashAxesIndicators(); // Show axes indicators in multi-view mode
+            if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
             showStatus('3-plane view — press v to exit', 3000);
         }
@@ -12372,6 +12391,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qmriViews.forEach(v => qvRender(v));
             }
             renderInfo();
+            if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
