@@ -14538,26 +14538,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cbWrap = document.getElementById('slim-cb-wrap');
 
             if (p === 0) {
-                // Fully normal: clear all inline styles
-                if (titleEl) { titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.opacity = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
-                if (infoEl) { infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; infoEl.style.opacity = ''; }
-                if (cbWrap) { cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; cbWrap.style.opacity = ''; }
+                // Fully normal: clear all inline styles (including transition override)
+                if (titleEl) { titleEl.style.transition = ''; titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.opacity = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
+                if (infoEl) { infoEl.style.transition = ''; infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; infoEl.style.opacity = ''; }
+                if (cbWrap) { cbWrap.style.transition = ''; cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; cbWrap.style.opacity = ''; }
                 _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
                 _crossfadeP = 0;
             } else if (!_fullscreenActive) {
                 // Crossfading in normal layout: collapse heights + fade
                 const remainH = 1 - collapseP;
                 if (titleEl) {
+                    titleEl.style.transition = 'none';
                     titleEl.style.maxHeight = (_crossfadeTitleH * remainH) + 'px';
                     titleEl.style.overflow = 'hidden';
                     titleEl.style.opacity = remainH;
                 }
                 if (infoEl) {
+                    infoEl.style.transition = 'none';
                     infoEl.style.maxHeight = (_crossfadeInfoH * remainH) + 'px';
                     infoEl.style.overflow = 'hidden';
                     infoEl.style.opacity = remainH;
                 }
                 if (cbWrap) {
+                    cbWrap.style.transition = 'none';
                     cbWrap.style.maxHeight = (_crossfadeCbH * remainH) + 'px';
                     cbWrap.style.overflow = 'hidden';
                     cbWrap.style.opacity = remainH;
@@ -14607,10 +14610,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // ── Opacity for second half (fade in at immersive positions) ─
             // Use numeric fadeIn (not `fadeIn || ''`) so that fadeIn=0 sets
             // opacity="0" (hidden), not "" (clears style → fully visible).
+            // Disable CSS transitions during crossfade so opacity changes are
+            // instant — the CSS transition: opacity 0.3s would otherwise
+            // animate from the old value, causing a visible flash at the toggle.
             if (_fullscreenActive) {
-                if (titleEl) titleEl.style.opacity = '0'; // title stays hidden in immersive
-                if (infoEl) infoEl.style.opacity = fadeIn;
-                if (cbWrap) cbWrap.style.opacity = fadeIn;
+                if (titleEl) { titleEl.style.transition = 'none'; titleEl.style.opacity = '0'; }
+                if (infoEl) { infoEl.style.transition = 'none'; infoEl.style.opacity = fadeIn; }
+                if (cbWrap) { cbWrap.style.transition = 'none'; cbWrap.style.opacity = fadeIn; }
                 if (fadeIn > 0) _positionFullscreenChrome();
             }
 
