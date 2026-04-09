@@ -8573,9 +8573,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _shouldEnterImmersive()) {
                         const w = lastImgW || canvas.width;
                         const h = lastImgH || canvas.height;
-                        // 1.03× past immFit so chrome is fully faded in (fadeIn
-                        // reaches 1.0 at immFit*1.03) but overflow hasn't started.
-                        userZoom = _calcAutoFitZoom(w, h, true) * 1.03;
+                        // 0.5% past immFit: chrome fully faded in, <1px overflow
+                        userZoom = _calcAutoFitZoom(w, h, true) * 1.005;
                         _zoomAdjustedByUser = true;
                         _scaleAllWithAnim();
                         showStatus('immersive');
@@ -8598,16 +8597,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (_fullscreenActive) {
                         const w = lastImgW || canvas.width;
                         const h = lastImgH || canvas.height;
-                        const immFitTarget = _calcAutoFitZoom(w, h, true) * 1.03;
+                        const immFit = _calcAutoFitZoom(w, h, true);
+                        const immTarget = immFit * 1.005; // matches zoom.in landing
                         const newZoom = userZoom / 1.1;
-                        if (newZoom > immFitTarget) {
-                            // Still in overflow — just zoom out 10%
-                            userZoom = newZoom;
+                        if (newZoom > immFit) {
+                            // Still in overflow — zoom out 10%, snap to immTarget if close
+                            userZoom = Math.max(newZoom, immTarget);
                             _zoomAdjustedByUser = true;
                             _scaleAllWithAnim();
-                            showStatus(`zoom: ${Math.round(userZoom * 100)}%`);
+                            showStatus(userZoom <= immTarget + 0.001 ? 'immersive' : `zoom: ${Math.round(userZoom * 100)}%`);
                         } else {
-                            // At or below immersive fit — exit to normal fit.
+                            // At immersive fit or below — exit to normal fit.
                             // Must NOT use _scaleAllWithAnim — the animation
                             // re-enters fullscreen while userZoom animates down.
                             _fullscreenActive = false;
@@ -14653,7 +14653,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // fadeIn: 0→1 only AFTER pane reaches final size (userZoom past immFit).
             // This prevents chrome from appearing while the pane is still growing,
             // which would cause annoying positional drift of the floating elements.
-            const fadeIn = Math.min(1, Math.max(0, (userZoom - immFit) / (immFit * 0.03)));
+            // 0.5% zoom range past immFit — matches the 1.005 margin in zoom.in
+            const fadeIn = Math.min(1, Math.max(0, (userZoom - immFit) / (immFit * 0.005)));
 
             // Set global for scale functions
             _crossfadeCollapseP = collapseP;
