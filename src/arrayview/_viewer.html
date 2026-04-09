@@ -6341,6 +6341,8 @@
         }
 
         function flashAxesIndicators() {
+            // When hover info is active, dimbar shows coordinates — don't flash arrows
+            if (_pixelInfoVisible) return;
             refreshAxesColor();
             document.querySelectorAll('.axes-indicator').forEach(el => {
                 el.style.transition = 'none';  // snap to visible immediately
@@ -6348,7 +6350,7 @@
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
             // In multi-view or compare-mv mode, keep axes indicators always visible
-            if (_pixelInfoVisible || multiViewActive || compareMvActive) return;
+            if (multiViewActive || compareMvActive) return;
             axesFlashTimer = setTimeout(() => {
                 document.querySelectorAll('.axes-indicator').forEach(el => {
                     el.style.transition = 'opacity 0.6s ease';
