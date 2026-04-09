@@ -9285,7 +9285,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _diffCenterCb.draw();
                                     _diffCenterCb.ensureAnimating();
                                     fetchAndDrawDiff();
-                                    showStatus(`diff ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
+                                    showToast(`diff ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
                                 }
                                 _diffCenterCb.startAutoDismiss();
                             }
@@ -9306,7 +9306,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _cmpLeftCb.draw(); _cmpRightCb?.draw();
                                     _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
                                     compareRender();
-                                    showStatus(_rangeStatusStr(q.label, q.vmin, q.vmax));
+                                    showToast(_rangeStatusStr(q.label, q.vmin, q.vmax));
                                 }
                                 for (const cb of cbs) cb.startAutoDismiss();
                             }
@@ -9331,7 +9331,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 qvRender(hv);
                                 cb.ensureAnimating();
                                 const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
-                                showStatus(`${paneLabel}: ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
+                                showToast(`${paneLabel}: ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
                             }
                             cb.startAutoDismiss();
                         }
@@ -9351,7 +9351,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating(); }
                                 v._colorBar.startAutoDismiss();
                             }
-                            if (label) showStatus(_rangeStatusStr(label, null, null));
+                            if (label) showToast(_rangeStatusStr(label, null, null));
                         }
                         return;
                     }
@@ -9369,7 +9369,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating(); }
                                 v._mosaicColorBar.startAutoDismiss();
                             }
-                            if (label) showStatus(_rangeStatusStr(label, null, null));
+                            if (label) showToast(_rangeStatusStr(label, null, null));
                         }
                         return;
                     }
@@ -9414,7 +9414,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                         proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                         primaryCb.ensureAnimating();
-                        showStatus(_rangeStatusStr(preset.label, manualVmin, manualVmax));
+                        showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                     } else {
                         // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
                         if (!primaryCb._expanded) {
@@ -9498,7 +9498,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                             proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                             primaryCb.ensureAnimating();
-                            showStatus(_rangeStatusStr(preset.label, manualVmin, manualVmax));
+                            showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                             // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
                             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                             _histAutoDismissTimer = setTimeout(() => {
