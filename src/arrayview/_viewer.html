@@ -14605,10 +14605,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             // ── Opacity for second half (fade in at immersive positions) ─
+            // Use numeric fadeIn (not `fadeIn || ''`) so that fadeIn=0 sets
+            // opacity="0" (hidden), not "" (clears style → fully visible).
             if (_fullscreenActive) {
                 if (titleEl) titleEl.style.opacity = '0'; // title stays hidden in immersive
-                if (infoEl) infoEl.style.opacity = fadeIn || '';
-                if (cbWrap) cbWrap.style.opacity = fadeIn || '';
+                if (infoEl) infoEl.style.opacity = fadeIn;
+                if (cbWrap) cbWrap.style.opacity = fadeIn;
                 if (fadeIn > 0) _positionFullscreenChrome();
             }
 
@@ -14619,18 +14621,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     el.style.opacity = (p === 0) ? '' : (_fullscreenActive ? '0' : (1 - collapseP));
                 });
                 document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.style.opacity = (p === 0) ? '' : cmpFade || '';
+                    el.style.opacity = (p === 0) ? '' : cmpFade;
                 });
             }
             const mvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
             if (mvCb) {
                 if (p === 0) { mvCb.style.opacity = ''; }
-                else { mvCb.style.opacity = _fullscreenActive ? (fadeIn || '') : (1 - collapseP); }
+                else { mvCb.style.opacity = _fullscreenActive ? fadeIn : (1 - collapseP); }
             }
             const qmriCbs = qmriActive ? document.querySelectorAll('#qmri-view-wrap .qv-cb-island') : [];
             qmriCbs.forEach(el => {
                 if (p === 0) { el.style.opacity = ''; }
-                else { el.style.opacity = _fullscreenActive ? (fadeIn || '') : (1 - collapseP); }
+                else { el.style.opacity = _fullscreenActive ? fadeIn : (1 - collapseP); }
             });
 
             // Update _fitZoom
