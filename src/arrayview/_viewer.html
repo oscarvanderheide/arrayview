@@ -1546,8 +1546,11 @@
         <div id="rcp-view-hint"></div>
         <div class="rcp-actions">
             <button id="rcp-confirm-btn" class="rcp-primary">Confirm Crop</button>
-            <button id="rcp-save-btn">Save Crop + Continue</button>
+            <button id="rcp-save-btn">Save Crop</button>
             <button id="rcp-load-btn">Load Recent Crop</button>
+            <button id="rcp-save-oblique-btn">Save Oblique Preset</button>
+            <button id="rcp-load-oblique-btn">Load Recent Oblique</button>
+            <button id="rcp-oblique-ortho-btn">Oblique 90° Lock: ON</button>
             <button id="rcp-overlay-btn">Hide Crop Overlay (W)</button>
         </div>
         <div id="rcp-status"></div>
@@ -1594,7 +1597,7 @@
                 <div class="help-row"><span class="key">z</span><span class="desc">claim dim as z (grid), scroll through next dim</span></div>
                 <div class="help-row"><span class="key">v</span><span class="desc">toggle 3-plane view (dims 0,1,2); in compare mode: rows × 3-planes grid</span></div>
                 <div class="help-row"><span class="key">V</span><span class="desc">toggle 3-plane view (custom dims); in compare mode: same as v</span></div>
-                <div class="help-row"><span class="key">Alt+drag line</span><span class="desc">rotate oblique plane (3-plane view)</span></div>
+                <div class="help-row"><span class="key">Alt+drag line</span><span class="desc">rotate oblique plane (3-plane view); with Oblique 90° Lock ON, planes stay orthogonal</span></div>
                 <div class="help-row"><span class="key">o</span><span class="desc">reset oblique slices / crosshair (3-plane); reset dragged UI (immersive)</span></div>
                 <div class="help-row"><span class="key">q</span><span class="desc">qMRI mode — toggle compact / full view; also works in compare mode (rows × maps grid)</span></div>
                 </div>
@@ -1868,6 +1871,9 @@
             confirmBtnEl: null,
             saveBtnEl: null,
             loadBtnEl: null,
+            saveObliqueBtnEl: null,
+            loadObliqueBtnEl: null,
+            obliqueOrthoBtnEl: null,
             overlayBtnEl: null,
             isApplying: false,
             nonReadoutDims: [],
@@ -2019,6 +2025,7 @@
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
+        let obliqueOrthoLock = true; // keep oblique triad orthogonal (90° crosshairs)
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = false; // toggled by 'b' key
@@ -5313,6 +5320,66 @@
             const vk = dot3(v, k), vc = cross3(k, v);
             return v.map((vi, i) => vi*ct + vc[i]*st + k[i]*vk*(1-ct));
         }
+        function sub3(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+        function scale3(a, s) { return [a[0]*s, a[1]*s, a[2]*s]; }
+        function projOut3(v, n) { return sub3(v, scale3(n, dot3(v, n))); }
+        function fallbackPerp3(n) {
+            const cands = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+            let best = [1, 0, 0];
+            let bestAbsDot = Infinity;
+            cands.forEach((c) => {
+                const ad = Math.abs(dot3(c, n));
+                if (ad < bestAbsDot) {
+                    bestAbsDot = ad;
+                    best = c;
+                }
+            });
+            const p = projOut3(best, n);
+            return norm3(p) > 1e-8 ? normalize3(p) : [0, 1, 0];
+        }
+        function normalizeObliquePlane(ov, nTarget = null) {
+            if (!ov) return;
+            let n = normalize3(Array.isArray(nTarget) ? nTarget : (Array.isArray(ov.n) ? ov.n : [1, 0, 0]));
+            const bh0 = Array.isArray(ov.bh) ? ov.bh : [1, 0, 0];
+            const bv0 = Array.isArray(ov.bv) ? ov.bv : [0, 1, 0];
+            let bh = projOut3(bh0, n);
+            if (norm3(bh) < 1e-8) bh = projOut3(bv0, n);
+            if (norm3(bh) < 1e-8) bh = fallbackPerp3(n);
+            bh = normalize3(bh);
+            let bv = normalize3(cross3(n, bh));
+            if (dot3(bv, bv0) < 0) {
+                bh = scale3(bh, -1);
+                bv = scale3(bv, -1);
+            }
+            n = normalize3(cross3(bh, bv));
+            ov.bh = bh;
+            ov.bv = bv;
+            ov.n = n;
+        }
+        function enforceObliqueOrthogonality(anchorIndex = 0) {
+            if (!Array.isArray(obliqueVecs) || obliqueVecs.length !== 3) return;
+            const ids = [0, 1, 2];
+            const i = Number.isInteger(anchorIndex) && anchorIndex >= 0 && anchorIndex < 3 ? anchorIndex : 0;
+            const rest = ids.filter((x) => x !== i);
+            const j = rest[0];
+            const k = rest[1];
+
+            normalizeObliquePlane(obliqueVecs[i]);
+            let nI = normalize3(obliqueVecs[i].n);
+            let nJ = projOut3(Array.isArray(obliqueVecs[j]?.n) ? obliqueVecs[j].n : [1, 0, 0], nI);
+            if (norm3(nJ) < 1e-8) nJ = projOut3(Array.isArray(obliqueVecs[j]?.bh) ? obliqueVecs[j].bh : [0, 1, 0], nI);
+            if (norm3(nJ) < 1e-8) nJ = fallbackPerp3(nI);
+            nJ = normalize3(nJ);
+            let nK = normalize3(cross3(nI, nJ));
+            const nKRef = Array.isArray(obliqueVecs[k]?.n) ? normalize3(obliqueVecs[k].n) : nK;
+            if (dot3(nK, nKRef) < 0) {
+                nJ = scale3(nJ, -1);
+                nK = scale3(nK, -1);
+            }
+
+            const nTargets = { [i]: nI, [j]: nJ, [k]: nK };
+            ids.forEach((idx) => normalizeObliquePlane(obliqueVecs[idx], nTargets[idx]));
+        }
 
         function _drawArrow(ctx, x1, y1, x2, y2) {
             const dx = x2 - x1, dy = y2 - y1;
@@ -6162,6 +6229,28 @@
             _readoutCrop.overlayBtnEl.classList.toggle('rcp-toggle-active', on);
         }
 
+        function _rcpUpdateObliqueOrthoButton() {
+            if (!_readoutCrop.obliqueOrthoBtnEl) return;
+            const on = !!obliqueOrthoLock;
+            _readoutCrop.obliqueOrthoBtnEl.textContent = on ? 'Oblique 90° Lock: ON' : 'Oblique 90° Lock: OFF';
+            _readoutCrop.obliqueOrthoBtnEl.classList.toggle('rcp-toggle-active', on);
+        }
+
+        function _rcpToggleObliqueOrthoLock(forceValue = null) {
+            obliqueOrthoLock = forceValue === null ? !obliqueOrthoLock : !!forceValue;
+            if (obliqueOrthoLock && obliqueVecs) {
+                enforceObliqueOrthogonality(obliqueDrag?.viewI ?? 0);
+                mvViews.forEach((v) => mvDrawFrame(v));
+                mvViews.forEach((v) => mvRender(v));
+            } else if (obliqueVecs) {
+                mvViews.forEach((v) => mvDrawFrame(v));
+            }
+            _rcpUpdateObliqueOrthoButton();
+            const msg = obliqueOrthoLock ? 'oblique lock ON (crosshairs stay 90°)' : 'oblique lock OFF (free rotation)';
+            showStatus(msg, 1800);
+            if (_readoutCrop.enabled && _readoutCrop.ready) _rcpSetStatus(msg, obliqueOrthoLock ? 'ok' : '');
+        }
+
         function _rcpRenderMainOverlay() {
             if (!readoutCropOverlayCanvas) return;
             if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.overlayVisible) {
@@ -6292,6 +6381,161 @@
             }
         }
 
+        function _rcpAxisAlignedObliqueVecs(dims) {
+            if (!Array.isArray(dims) || dims.length !== 3) return null;
+            const defs = [
+                { dimX: dims[1], dimY: dims[0] },
+                { dimX: dims[2], dimY: dims[0] },
+                { dimX: dims[2], dimY: dims[1] },
+            ];
+            return defs.map((def) => {
+                const bh = [0, 0, 0];
+                const bv = [0, 0, 0];
+                const kx = dims.indexOf(def.dimX);
+                const ky = dims.indexOf(def.dimY);
+                if (kx < 0 || ky < 0) return null;
+                bh[kx] = (flipDims[def.dimX] || false) ? -1 : 1;
+                bv[ky] = (flipDims[def.dimY] || false) ? -1 : 1;
+                const n = normalize3(cross3(bh, bv));
+                return { bh: [...bh], bv: [...bv], n: [...n] };
+            });
+        }
+
+        function _rcpBuildObliquePresetPayload() {
+            if (!Array.isArray(shape) || shape.length < 3 || !Array.isArray(indices) || indices.length !== shape.length) {
+                return null;
+            }
+            const dims = (multiViewActive && Array.isArray(mvDims) && mvDims.length === 3)
+                ? mvDims.map((d) => parseInt(d, 10))
+                : defaultMultiViewDims();
+            if (!Array.isArray(dims) || dims.length !== 3 || dims.some((d) => !Number.isInteger(d))) {
+                return null;
+            }
+
+            let vecs = null;
+            if (obliqueVecs && Array.isArray(obliqueVecs) && obliqueVecs.length === 3) {
+                vecs = obliqueVecs.map((v) => ({
+                    bh: [Number(v.bh?.[0] ?? 0), Number(v.bh?.[1] ?? 0), Number(v.bh?.[2] ?? 0)],
+                    bv: [Number(v.bv?.[0] ?? 0), Number(v.bv?.[1] ?? 0), Number(v.bv?.[2] ?? 0)],
+                    n: [Number(v.n?.[0] ?? 0), Number(v.n?.[1] ?? 0), Number(v.n?.[2] ?? 0)],
+                }));
+            } else {
+                vecs = _rcpAxisAlignedObliqueVecs(dims);
+            }
+            if (!Array.isArray(vecs) || vecs.length !== 3 || vecs.some((v) => !v)) return null;
+
+            const paneLabels = [
+                `Pane 1 (slice dim ${dims[2]})`,
+                `Pane 2 (slice dim ${dims[1]})`,
+                `Pane 3 (slice dim ${dims[0]})`,
+            ];
+            const paneDefs = (multiViewActive && Array.isArray(mvViews) && mvViews.length === 3)
+                ? mvViews.map((v) => ({
+                    dim_x: parseInt(v.dimX, 10),
+                    dim_y: parseInt(v.dimY, 10),
+                    slice_dir: parseInt(v.sliceDir, 10),
+                }))
+                : [
+                    { dim_x: dims[1], dim_y: dims[0], slice_dir: dims[2] },
+                    { dim_x: dims[2], dim_y: dims[0], slice_dir: dims[1] },
+                    { dim_x: dims[2], dim_y: dims[1], slice_dir: dims[0] },
+                ];
+
+            return {
+                version: 1,
+                shape: shape.map((s) => parseInt(s, 10)),
+                mv_dims: dims,
+                indices: indices.map((i, d) => {
+                    const n = Math.max(1, parseInt(shape[d], 10) || 1);
+                    const v = parseInt(i, 10);
+                    if (!Number.isFinite(v)) return Math.floor(n / 2);
+                    return Math.max(0, Math.min(n - 1, v));
+                }),
+                oblique_vecs: vecs,
+                pane_labels: paneLabels,
+                pane_defs: paneDefs,
+            };
+        }
+
+        function _rcpApplyObliquePreset(preset, opts = {}) {
+            if (!preset || typeof preset !== 'object') throw new Error('invalid preset');
+            const dims = Array.isArray(preset.mv_dims) ? preset.mv_dims.map((d) => parseInt(d, 10)) : null;
+            if (!dims || dims.length !== 3 || dims.some((d) => !Number.isInteger(d) || d < 0 || d >= shape.length)) {
+                throw new Error('invalid mv_dims in preset');
+            }
+            const vecsIn = Array.isArray(preset.oblique_vecs) ? preset.oblique_vecs : null;
+            if (!vecsIn || vecsIn.length !== 3) throw new Error('invalid oblique_vecs in preset');
+            const vecs = vecsIn.map((v) => ({
+                bh: [Number(v?.bh?.[0] ?? 0), Number(v?.bh?.[1] ?? 0), Number(v?.bh?.[2] ?? 0)],
+                bv: [Number(v?.bv?.[0] ?? 0), Number(v?.bv?.[1] ?? 0), Number(v?.bv?.[2] ?? 0)],
+                n: normalize3([Number(v?.n?.[0] ?? 0), Number(v?.n?.[1] ?? 0), Number(v?.n?.[2] ?? 0)]),
+            }));
+
+            if (!multiViewActive || !Array.isArray(mvDims) || mvDims.length !== 3 || mvDims.some((d, i) => d !== dims[i])) {
+                enterMultiView(dims);
+            }
+
+            if (Array.isArray(preset.indices) && preset.indices.length === shape.length) {
+                for (let d = 0; d < shape.length; d++) {
+                    const n = Math.max(1, parseInt(shape[d], 10) || 1);
+                    const v = parseInt(preset.indices[d], 10);
+                    indices[d] = Number.isFinite(v) ? Math.max(0, Math.min(n - 1, v)) : Math.floor(n / 2);
+                }
+            }
+
+            obliqueVecs = vecs;
+            if (obliqueOrthoLock) enforceObliqueOrthogonality(0);
+            obliqueDrag = null;
+            mvNavDragPrev = null;
+            _rcpRefreshViewHint();
+            updateView();
+            triggerPreload();
+            if (!opts.quiet) showStatus('oblique preset loaded', 1600);
+        }
+
+        async function _rcpSaveObliquePreset() {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
+            const preset = _rcpBuildObliquePresetPayload();
+            if (!preset) {
+                _rcpSetStatus('could not build oblique preset (enter 3-pane view first)', 'error');
+                return;
+            }
+            try {
+                const r = await proxyFetch('/readout_crop/oblique/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: _readoutCrop.sid, preset }),
+                });
+                if (!r.ok) {
+                    _rcpSetStatus(`save oblique failed (HTTP ${r.status})`, 'error');
+                    return;
+                }
+                _rcpSetStatus('saved oblique preset', 'ok');
+            } catch (e) {
+                _rcpSetStatus(`save oblique failed: ${e?.message || e}`, 'error');
+            }
+        }
+
+        async function _rcpLoadRecentOblique() {
+            if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
+            try {
+                const r = await proxyFetch('/readout_crop/oblique/load_recent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: _readoutCrop.sid }),
+                });
+                if (!r.ok) {
+                    _rcpSetStatus('no recent oblique preset found', 'error');
+                    return;
+                }
+                const out = await r.json();
+                _rcpApplyObliquePreset(out?.preset);
+                _rcpSetStatus('loaded recent oblique preset', 'ok');
+            } catch (e) {
+                _rcpSetStatus(`load oblique failed: ${e?.message || e}`, 'error');
+            }
+        }
+
         async function _rcpConfirm(saveRecent) {
             if (!_readoutCrop.enabled || !_readoutCrop.ready || !_readoutCrop.sid) return;
             try {
@@ -6312,6 +6556,9 @@
                 if (_readoutCrop.confirmBtnEl) _readoutCrop.confirmBtnEl.disabled = true;
                 if (_readoutCrop.saveBtnEl) _readoutCrop.saveBtnEl.disabled = true;
                 if (_readoutCrop.loadBtnEl) _readoutCrop.loadBtnEl.disabled = true;
+                if (_readoutCrop.saveObliqueBtnEl) _readoutCrop.saveObliqueBtnEl.disabled = true;
+                if (_readoutCrop.loadObliqueBtnEl) _readoutCrop.loadObliqueBtnEl.disabled = true;
+                if (_readoutCrop.obliqueOrthoBtnEl) _readoutCrop.obliqueOrthoBtnEl.disabled = true;
                 const msg = saveRecent
                     ? (st.saved_recent ? 'saved + confirmed' : 'confirmed (save failed)')
                     : 'confirmed';
@@ -6355,6 +6602,9 @@
             _readoutCrop.confirmBtnEl = document.getElementById('rcp-confirm-btn');
             _readoutCrop.saveBtnEl = document.getElementById('rcp-save-btn');
             _readoutCrop.loadBtnEl = document.getElementById('rcp-load-btn');
+            _readoutCrop.saveObliqueBtnEl = document.getElementById('rcp-save-oblique-btn');
+            _readoutCrop.loadObliqueBtnEl = document.getElementById('rcp-load-oblique-btn');
+            _readoutCrop.obliqueOrthoBtnEl = document.getElementById('rcp-oblique-ortho-btn');
             _readoutCrop.overlayBtnEl = document.getElementById('rcp-overlay-btn');
             if (!_readoutCrop.panel) return;
 
@@ -6438,13 +6688,23 @@
                 await _rcpConfirm(true);
             });
             _readoutCrop.loadBtnEl.addEventListener('click', _rcpLoadRecent);
+            if (_readoutCrop.saveObliqueBtnEl) {
+                _readoutCrop.saveObliqueBtnEl.addEventListener('click', _rcpSaveObliquePreset);
+            }
+            if (_readoutCrop.loadObliqueBtnEl) {
+                _readoutCrop.loadObliqueBtnEl.addEventListener('click', _rcpLoadRecentOblique);
+            }
             if (_readoutCrop.overlayBtnEl) {
                 _readoutCrop.overlayBtnEl.addEventListener('click', () => _rcpToggleOverlay());
+            }
+            if (_readoutCrop.obliqueOrthoBtnEl) {
+                _readoutCrop.obliqueOrthoBtnEl.addEventListener('click', () => _rcpToggleObliqueOrthoLock());
             }
 
             _readoutCrop.ready = true;
             _readoutCrop.panel.classList.add('visible');
             _rcpUpdateOverlayButton();
+            _rcpUpdateObliqueOrthoButton();
             _rcpRefreshViewHint();
             if (st && st.loaded_recent) _rcpSetStatus('loaded recent crop', 'ok');
             else _rcpSetStatus('set crop and confirm');
@@ -13440,6 +13700,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 bvec[mvDims.indexOf(v.dimY)] = flipDims[v.dimY] ? -1 : 1;
                 return { bh, bv: bvec, n: cross3(bh, bvec) };
             });
+            if (obliqueOrthoLock) enforceObliqueOrthogonality(0);
         }
 
         // Crosshair colors match the miniview plane colors (red, green, blue).
@@ -13711,10 +13972,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const dAngle = Math.atan2(py - cy, px - cx) - Math.atan2(prevY - cy, prevX - cx);
                 if (Math.abs(dAngle) > 0.001) {
                     const vi = obliqueVecs[obliqueDrag.viewI];
-                    const vj = obliqueVecs[viewJ];
-                    vj.bh = rodrigues(vj.bh, vi.n, dAngle);
-                    vj.bv = rodrigues(vj.bv, vi.n, dAngle);
-                    vj.n  = rodrigues(vj.n,  vi.n, dAngle);
+                    const axis = normalize3(vi.n);
+                    if (obliqueOrthoLock) {
+                        for (let idx = 0; idx < obliqueVecs.length; idx++) {
+                            if (idx === obliqueDrag.viewI) continue;
+                            const vv = obliqueVecs[idx];
+                            vv.bh = rodrigues(vv.bh, axis, dAngle);
+                            vv.bv = rodrigues(vv.bv, axis, dAngle);
+                            vv.n  = rodrigues(vv.n,  axis, dAngle);
+                        }
+                        enforceObliqueOrthogonality(obliqueDrag.viewI);
+                    } else {
+                        const vj = obliqueVecs[viewJ];
+                        vj.bh = rodrigues(vj.bh, axis, dAngle);
+                        vj.bv = rodrigues(vj.bv, axis, dAngle);
+                        vj.n  = rodrigues(vj.n,  axis, dAngle);
+                        normalizeObliquePlane(vj);
+                    }
                     obliqueDrag.prevX = px; obliqueDrag.prevY = py;
                     mvViews.forEach(v2 => mvDrawFrame(v2));
                     if (!obliqueDrag._renderTimer) {

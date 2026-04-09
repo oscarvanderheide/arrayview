@@ -263,6 +263,13 @@ def _sanitize_crop_path(path: str | None) -> str | None:
     return s or None
 
 
+def _sanitize_oblique_path(path: str | None) -> str | None:
+    if path is None:
+        return None
+    s = str(path).strip()
+    return s or None
+
+
 def _clamp_int(value, lo: int, hi: int, fallback: int) -> int:
     try:
         v = int(value)
@@ -323,6 +330,131 @@ def _write_recent_crop_file(path: str, state: dict) -> tuple[bool, str | None]:
             "sid": state.get("sid"),
             "name": state.get("name", ""),
         }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _normalize_oblique_preset(
+    preset: dict | None,
+    *,
+    ndim: int,
+    shape: tuple[int, ...],
+) -> dict | None:
+    if not isinstance(preset, dict):
+        return None
+    try:
+        shape_out = [int(v) for v in preset.get("shape", list(shape))]
+    except Exception:
+        return None
+    if len(shape_out) != ndim:
+        return None
+    if any(int(v) <= 0 for v in shape_out):
+        return None
+
+    try:
+        mv_dims = [int(v) for v in preset.get("mv_dims", [])]
+    except Exception:
+        return None
+    if len(mv_dims) != 3 or len(set(mv_dims)) != 3:
+        return None
+    if any((d < 0 or d >= ndim) for d in mv_dims):
+        return None
+
+    try:
+        indices = [int(v) for v in preset.get("indices", [])]
+    except Exception:
+        return None
+    if len(indices) != ndim:
+        return None
+    for d in range(ndim):
+        n = max(1, int(shape_out[d]))
+        indices[d] = _clamp_int(indices[d], 0, n - 1, n // 2)
+
+    vecs_raw = preset.get("oblique_vecs")
+    if not isinstance(vecs_raw, list) or len(vecs_raw) != 3:
+        return None
+    vecs_out: list[dict[str, list[float]]] = []
+    for item in vecs_raw:
+        if not isinstance(item, dict):
+            return None
+        try:
+            bh = [float(v) for v in item.get("bh", [])]
+            bv = [float(v) for v in item.get("bv", [])]
+            nn = [float(v) for v in item.get("n", [])]
+        except Exception:
+            return None
+        if len(bh) != 3 or len(bv) != 3 or len(nn) != 3:
+            return None
+        vecs_out.append({"bh": bh, "bv": bv, "n": nn})
+
+    pane_labels = preset.get("pane_labels")
+    if not isinstance(pane_labels, list) or len(pane_labels) != 3:
+        pane_labels = ["Oblique A", "Oblique B", "Oblique C"]
+    pane_labels = [str(v) for v in pane_labels]
+
+    pane_defs_raw = preset.get("pane_defs")
+    pane_defs_out = None
+    if isinstance(pane_defs_raw, list) and len(pane_defs_raw) == 3:
+        tmp_defs: list[dict[str, int]] = []
+        ok_defs = True
+        for pd in pane_defs_raw:
+            if not isinstance(pd, dict):
+                ok_defs = False
+                break
+            try:
+                dx = int(pd.get("dim_x"))
+                dy = int(pd.get("dim_y"))
+                sd = int(pd.get("slice_dir"))
+            except Exception:
+                ok_defs = False
+                break
+            if any((d < 0 or d >= ndim) for d in (dx, dy, sd)):
+                ok_defs = False
+                break
+            if len({dx, dy, sd}) != 3:
+                ok_defs = False
+                break
+            tmp_defs.append({"dim_x": dx, "dim_y": dy, "slice_dir": sd})
+        if ok_defs:
+            pane_defs_out = tmp_defs
+
+    out = {
+        "version": int(preset.get("version", 1)),
+        "shape": shape_out,
+        "mv_dims": mv_dims,
+        "indices": indices,
+        "oblique_vecs": vecs_out,
+        "pane_labels": pane_labels,
+    }
+    if pane_defs_out is not None:
+        out["pane_defs"] = pane_defs_out
+    return out
+
+
+def _load_recent_oblique_file(path: str, *, ndim: int, shape: tuple[int, ...]) -> dict | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    return _normalize_oblique_preset(data, ndim=ndim, shape=shape)
+
+
+def _write_recent_oblique_file(path: str, state: dict, preset: dict) -> tuple[bool, str | None]:
+    try:
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        payload = dict(preset)
+        payload["saved_at"] = _utc_now_iso()
+        payload["sid"] = state.get("sid")
+        payload["name"] = state.get("name", "")
+        payload["readout_dim"] = int(state.get("readout_dim", -1))
+        payload["crop_x_start"] = int(state.get("x_start", 0))
+        payload["crop_x_end"] = int(state.get("x_end", 1))
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
         return True, None
@@ -3419,6 +3551,7 @@ async def readout_crop_register(request: Request):
     viz_y = int(body.get("viz_y", shape[default_viz_y_dim] // 2 if default_viz_y_dim >= 0 else -1))
 
     recent_file = _sanitize_crop_path(body.get("recent_file"))
+    oblique_recent_file = _sanitize_oblique_path(body.get("oblique_recent_file"))
     loaded_recent = False
     if recent_file:
         recent = _load_recent_crop_file(recent_file, nx)
@@ -3446,6 +3579,10 @@ async def readout_crop_register(request: Request):
         "saved_recent_path": None,
         "recent_file": recent_file,
         "loaded_recent": bool(loaded_recent),
+        "oblique_recent_file": oblique_recent_file,
+        "saved_oblique_recent": False,
+        "saved_oblique_recent_path": None,
+        "loaded_oblique_recent": False,
         "updated_at": _utc_now_iso(),
     }
     with _READOUT_CROP_LOCK:
@@ -3508,6 +3645,78 @@ async def readout_crop_load_recent(request: Request):
         state["loaded_recent"] = True
         state["updated_at"] = _utc_now_iso()
         return JSONResponse(dict(state))
+
+
+@app.post("/readout_crop/oblique/save")
+async def readout_crop_oblique_save(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+        recent_file = state.get("oblique_recent_file")
+        if not recent_file:
+            return JSONResponse({"error": "oblique_recent_file_not_configured"}, status_code=400)
+        shape = tuple(int(v) for v in state.get("shape", []))
+        ndim = len(shape)
+        if ndim <= 0:
+            return JSONResponse({"error": "invalid_state_shape"}, status_code=500)
+        preset = _normalize_oblique_preset(body.get("preset"), ndim=ndim, shape=shape)
+        if preset is None:
+            return JSONResponse({"error": "invalid_oblique_preset"}, status_code=400)
+        ok, err = _write_recent_oblique_file(str(recent_file), state, preset)
+        state["saved_oblique_recent"] = bool(ok)
+        state["saved_oblique_recent_path"] = str(recent_file) if ok else None
+        state["loaded_oblique_recent"] = False
+        state["updated_at"] = _utc_now_iso()
+        if not ok:
+            state["oblique_save_error"] = err
+            return JSONResponse({"error": "oblique_save_failed", "detail": str(err)}, status_code=500)
+        return JSONResponse(
+            {
+                "ok": True,
+                "sid": sid,
+                "saved_oblique_recent": True,
+                "saved_oblique_recent_path": str(recent_file),
+                "preset": preset,
+            }
+        )
+
+
+@app.post("/readout_crop/oblique/load_recent")
+async def readout_crop_oblique_load_recent(request: Request):
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    with _READOUT_CROP_LOCK:
+        state = _READOUT_CROP_STATE.get(sid)
+        if state is None:
+            return JSONResponse({"error": "crop_session_not_found"}, status_code=404)
+        recent_file = state.get("oblique_recent_file")
+        if not recent_file:
+            return JSONResponse({"error": "oblique_recent_file_not_configured"}, status_code=400)
+        shape = tuple(int(v) for v in state.get("shape", []))
+        ndim = len(shape)
+        if ndim <= 0:
+            return JSONResponse({"error": "invalid_state_shape"}, status_code=500)
+        preset = _load_recent_oblique_file(str(recent_file), ndim=ndim, shape=shape)
+        if preset is None:
+            return JSONResponse({"error": "oblique_recent_file_missing_or_invalid"}, status_code=404)
+        state["loaded_oblique_recent"] = True
+        state["updated_at"] = _utc_now_iso()
+        return JSONResponse(
+            {
+                "ok": True,
+                "sid": sid,
+                "loaded_oblique_recent": True,
+                "oblique_recent_file": str(recent_file),
+                "preset": preset,
+            }
+        )
 
 
 @app.post("/readout_crop/confirm")
