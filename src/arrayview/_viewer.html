@@ -6257,7 +6257,7 @@
                         const label = labels[pos] || 'x';
                         const prefix = flipDims[i] ? '-' : '';
                         const cls = (active || playing) ? `${dimCls} dim-label` : 'spatial-dim dim-label';
-                        return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size">/${shape[i]}</span></span>`;
+                        return `<span class="${cls}" ${d}>${prefix}${label}<span class="dim-size" id="dim-${label}-size">/${shape[i]}</span></span>`;
                     }
                     const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                     const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
@@ -6279,7 +6279,7 @@
                 if (i === dim_z) {
                     const inner = `z<span class="dim-size" id="dim-z-size">/${shape[i]}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
-                                  : `<span class="dim-label" ${d}>${inner}</span>`;
+                                  : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 const pct = Math.round(indices[i] / Math.max(1, shape[i] - 1) * 100);
                 const padded = String(v+1).padStart(String(shape[i]).length, '\u2007');
@@ -6397,17 +6397,29 @@
             }
         }
 
-        function _updateDimbarHover(px, py) {
+        function _updateDimbarHover(px, py, pz) {
             const xEl = document.getElementById('dim-x-size');
             const yEl = document.getElementById('dim-y-size');
+            const zEl = document.getElementById('dim-z-size');
             if (xEl) { xEl.textContent = '/' + px; xEl.className = 'dim-hover-idx'; }
             if (yEl) { yEl.textContent = '/' + py; yEl.className = 'dim-hover-idx'; }
+            if (zEl && pz != null) { zEl.textContent = '/' + pz; zEl.className = 'dim-hover-idx'; }
         }
         function _resetDimbarHover() {
             const xEl = document.getElementById('dim-x-size');
             const yEl = document.getElementById('dim-y-size');
+            const zEl = document.getElementById('dim-z-size');
             if (xEl) { xEl.textContent = '/' + shape[dim_x]; xEl.className = 'dim-size'; }
             if (yEl) { yEl.textContent = '/' + shape[dim_y]; yEl.className = 'dim-size'; }
+            if (zEl && dim_z >= 0) { zEl.textContent = '/' + shape[dim_z]; zEl.className = 'dim-size'; }
+            // Multiview: reset all spatial dim labels
+            if (multiViewActive && mvDims) {
+                const labels = ['x','y','z'];
+                mvDims.forEach((di, pos) => {
+                    const el = document.getElementById('dim-' + (labels[pos] || 'x') + '-size');
+                    if (el) { el.textContent = '/' + shape[di]; el.className = 'dim-size'; }
+                });
+            }
         }
 
         let _pixelHoverThrottle = false;
@@ -8022,10 +8034,59 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sink.focus();
         });
 
+        /** Compute mosaic grid layout matching server's mosaic_shape(). */
+        function _mosaicGridInfo() {
+            const n = shape[dim_z];
+            let rows = Math.floor(Math.sqrt(n));
+            let cols = Math.floor(n / rows);
+            while (rows * cols < n) cols++;
+            if ((rows - 1) * (cols + 1) === n) { rows--; cols++; }
+            const tileW = shape[dim_x < dim_y ? dim_y : dim_x];
+            const tileH = shape[dim_x < dim_y ? dim_x : dim_y];
+            const GAP = 2;
+            return { rows, cols, tileW, tileH, GAP, n };
+        }
+
         canvas.addEventListener('mousemove', (e) => {
-            if (dim_z >= 0) return;
             if (rgbMode) return;
             _lastMouseX = e.clientX; _lastMouseY = e.clientY;
+
+            // Mosaic mode: compute tile and local coordinates
+            if (dim_z >= 0) {
+                if (!_pixelInfoVisible) return;
+                const rect = canvas.getBoundingClientRect();
+                const mx = Math.floor((e.clientX - rect.left) * canvas.width / rect.width);
+                const my = Math.floor((e.clientY - rect.top) * canvas.height / rect.height);
+                const g = _mosaicGridInfo();
+                const cellW = g.tileW + g.GAP;
+                const cellH = g.tileH + g.GAP;
+                const col = Math.floor(mx / cellW);
+                const row = Math.floor(my / cellH);
+                const localX = mx - col * cellW;
+                const localY = my - row * cellH;
+                const zIdx = row * g.cols + col;
+                if (zIdx < 0 || zIdx >= g.n || localX >= g.tileW || localY >= g.tileH || localX < 0 || localY < 0) return;
+                // Use lebesgue data if available — need per-tile lookup
+                // For mosaic, fall back to server fetch with the specific tile's indices
+                const tileIndices = [...indices];
+                tileIndices[dim_z] = zIdx;
+                fetchPixelInfo({
+                    event: e,
+                    canvas: canvas,
+                    sid: sid,
+                    dimX: dim_x,
+                    dimY: dim_y,
+                    indices: tileIndices,
+                    imgW: canvas.width,
+                    imgH: canvas.height,
+                    displayEl: document.getElementById('main-pixel-info'),
+                    onResult: (d, px, py) => {
+                        _updateDimbarHover(localX, localY, zIdx);
+                    },
+                });
+                return;
+            }
+
             fetchPixelInfo({
                 event: e,
                 canvas: canvas,
@@ -11249,19 +11310,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         imgH: view.lastH,
                         displayEl: view.pixelInfoEl,
                         onResult: (d, px, py) => {
-                            if (_pixelInfoVisible && view.axesSvg) {
-                                view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${px}`;
-                                view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${py}`;
+                            if (_pixelInfoVisible) {
+                                // Map pane dims to dimbar x/y/z labels
+                                const labels = ['x','y','z'];
+                                const activeDims = multiViewActive ? mvDims : (compareMvActive ? compareMvDims : []);
+                                const posX = activeDims.indexOf(view.dimX);
+                                const posY = activeDims.indexOf(view.dimY);
+                                const lblX = labels[posX] || 'x';
+                                const lblY = labels[posY] || 'y';
+                                const elX = document.getElementById('dim-' + lblX + '-size');
+                                const elY = document.getElementById('dim-' + lblY + '-size');
+                                if (elX) { elX.textContent = '/' + px; elX.className = 'dim-hover-idx'; }
+                                if (elY) { elY.textContent = '/' + py; elY.className = 'dim-hover-idx'; }
                             }
                         },
                     });
                 });
                 cv.addEventListener('mouseleave', () => {
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
-                    if (view.axesSvg) {
-                        view.axesSvg.querySelector('.axes-lbl-x').textContent = view.axLblX;
-                        view.axesSvg.querySelector('.axes-lbl-y').textContent = view.axLblY;
-                    }
+                    if (_pixelInfoVisible) _resetDimbarHover();
                 });
                 // Click-to-copy: multiview canvases
                 let _mvClickDown = null;
