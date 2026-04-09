@@ -1551,7 +1551,7 @@
             <button id="rcp-save-oblique-btn">Save Oblique Preset</button>
             <button id="rcp-load-oblique-btn">Load Recent Oblique</button>
             <button id="rcp-oblique-ortho-btn">Oblique 90° Lock: ON</button>
-            <button id="rcp-overlay-btn">Hide Crop Overlay (W)</button>
+            <button id="rcp-overlay-btn">Show Crop Overlay (w)</button>
         </div>
         <div id="rcp-status"></div>
     </div>
@@ -1585,7 +1585,8 @@
                 <div class="help-row"><span class="key">Ctrl+scroll</span><span class="desc">zoom in / out (pinch on touchscreen)</span></div>
                 <div class="help-row"><span class="key">right-drag</span><span class="desc">drag to scrub slices (fit) or pan image (zoomed)</span></div>
                 <div class="help-row"><span class="key">left-drag</span><span class="desc">pan image when zoomed in (not in ROI mode)</span></div>
-                <div class="help-row"><span class="key">w</span><span class="desc">toggle readout-crop highlight (crop mode)</span></div>
+                <div class="help-row"><span class="key">W</span><span class="desc">toggle readout-crop panel visibility (crop mode)</span></div>
+                <div class="help-row"><span class="key">w</span><span class="desc">toggle readout-crop highlight overlay (crop mode)</span></div>
                 <div class="help-row"><span class="key">0</span><span class="desc">reset zoom (fit to window)</span></div>
                 <div class="help-row"><span class="key">Shift+drag</span><span class="desc">Zoom to region (normal mode)</span></div>
                 </div>
@@ -1877,7 +1878,8 @@
             overlayBtnEl: null,
             isApplying: false,
             nonReadoutDims: [],
-            overlayVisible: true,
+            overlayVisible: false,
+            panelVisible: false,
         };
         let colormap_idx = 0;
         let isPlaying = false, playInterval = null, playingVfieldT = false;
@@ -6225,7 +6227,7 @@
         function _rcpUpdateOverlayButton() {
             if (!_readoutCrop.overlayBtnEl) return;
             const on = !!_readoutCrop.overlayVisible;
-            _readoutCrop.overlayBtnEl.textContent = on ? 'Hide Crop Overlay (W)' : 'Show Crop Overlay (W)';
+            _readoutCrop.overlayBtnEl.textContent = on ? 'Hide Crop Overlay (w)' : 'Show Crop Overlay (w)';
             _readoutCrop.overlayBtnEl.classList.toggle('rcp-toggle-active', on);
         }
 
@@ -6314,6 +6316,20 @@
 
         function _rcpToggleOverlay() {
             _rcpSetOverlayVisible(!_readoutCrop.overlayVisible);
+        }
+
+        function _rcpSetPanelVisible(visible, opts = {}) {
+            _readoutCrop.panelVisible = !!visible;
+            if (_readoutCrop.panel) {
+                _readoutCrop.panel.classList.toggle('visible', _readoutCrop.panelVisible);
+            }
+            if (!opts.quiet) {
+                showStatus(_readoutCrop.panelVisible ? 'readout crop panel: on' : 'readout crop panel: off', 1200);
+            }
+        }
+
+        function _rcpTogglePanelVisibility() {
+            _rcpSetPanelVisible(!_readoutCrop.panelVisible);
         }
 
         function _rcpRefreshViewHint() {
@@ -6702,13 +6718,14 @@
             }
 
             _readoutCrop.ready = true;
-            _readoutCrop.panel.classList.add('visible');
+            _rcpSetPanelVisible(false, { quiet: true });
             _rcpUpdateOverlayButton();
             _rcpUpdateObliqueOrthoButton();
             _rcpRefreshViewHint();
             if (st && st.loaded_recent) _rcpSetStatus('loaded recent crop', 'ok');
             else _rcpSetStatus('set crop and confirm');
             await _rcpPushUpdate();
+            showStatus('readout crop ready · press W to show panel', 1800);
         }
 
         /* ── JS: Initialization and Metadata Fetch ────────────────── */
@@ -9240,7 +9257,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
-            if ((e.key === 'w' || e.key === 'W') && _readoutCrop.enabled && _readoutCrop.ready) {
+            if (e.key === 'W' && _readoutCrop.enabled && _readoutCrop.ready) {
+                _rcpTogglePanelVisibility();
+                return;
+            }
+            if (e.key === 'w' && _readoutCrop.enabled && _readoutCrop.ready) {
                 _rcpToggleOverlay();
                 return;
             }
