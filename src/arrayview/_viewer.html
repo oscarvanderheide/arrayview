@@ -6464,14 +6464,26 @@
             document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
         }
 
+        function _dimHoverPadded(val, maxVal) {
+            const maxStr = String(maxVal);
+            const valStr = String(val);
+            const padLen = maxStr.length - valStr.length;
+            if (padLen <= 0) return '/' + valStr;
+            return '/<span class="dim-size">' + '0'.repeat(padLen) + '</span>' + valStr;
+        }
         function _updateDimbarHover(px, py, xLabel, yLabel) {
             // xLabel/yLabel: 'x','y','z' — which dimbar label to update (default x,y)
-            const xId = 'dim-' + (xLabel || 'x') + '-size';
-            const yId = 'dim-' + (yLabel || 'y') + '-size';
-            const xEl = document.getElementById(xId);
-            const yEl = document.getElementById(yId);
-            if (xEl) { xEl.textContent = '/' + px; xEl.className = 'dim-hover-idx'; }
-            if (yEl) { yEl.textContent = '/' + py; yEl.className = 'dim-hover-idx'; }
+            const xl = xLabel || 'x', yl = yLabel || 'y';
+            const xEl = document.getElementById('dim-' + xl + '-size');
+            const yEl = document.getElementById('dim-' + yl + '-size');
+            // Resolve label to shape dim index for padding width
+            const labelToDim = (multiViewActive || compareMvActive)
+                ? { x: (multiViewActive ? mvDims : compareMvDims)[0], y: (multiViewActive ? mvDims : compareMvDims)[1], z: (multiViewActive ? mvDims : compareMvDims)[2] }
+                : { x: dim_x, y: dim_y, z: dim_z };
+            const xMax = labelToDim[xl] >= 0 ? shape[labelToDim[xl]] : 1;
+            const yMax = labelToDim[yl] >= 0 ? shape[labelToDim[yl]] : 1;
+            if (xEl) { xEl.innerHTML = _dimHoverPadded(px, xMax); xEl.className = 'dim-hover-idx'; }
+            if (yEl) { yEl.innerHTML = _dimHoverPadded(py, yMax); yEl.className = 'dim-hover-idx'; }
         }
         function _resetDimbarHover() {
             // Re-render dimbar to restore correct max sizes for all modes
