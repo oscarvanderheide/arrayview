@@ -14539,109 +14539,88 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             const immFit = _calcAutoFitZoom(w, h, true);
             const normFit = _normalFitZoom;
-            if (immFit <= normFit) return; // no room to crossfade
+            if (immFit <= normFit) return;
             const p = Math.max(0, Math.min(1, (userZoom - normFit) / (immFit - normFit)));
 
-            // Skip DOM writes if p hasn't changed meaningfully
-            if (Math.abs(p - _crossfadePrev) < 0.005 && (p > 0 && p < 1)) return;
+            if (Math.abs(p - _crossfadePrev) < 0.003 && p > 0 && p < 1) return;
             _crossfadePrev = p;
 
-            const fadeOut = Math.max(0, 1 - p * 2);       // 1→0 over first half
-            const fadeIn  = Math.max(0, (p - 0.5) * 2);   // 0→1 over second half
+            // ── Layout toggle at BOUNDARIES only ──────────────────────
+            // Toggle fullscreen-mode ONLY when all chrome is at opacity 0
+            // so the layout change (title collapse, padding, positioning)
+            // is invisible.  No layout changes during 0 < p < 1.
 
-            // Layout switch at midpoint
-            const shouldBeFullscreen = p >= 0.5;
-            if (shouldBeFullscreen !== _fullscreenActive) {
-                // Pre-collapse/restore layout-affecting elements BEFORE class
-                // toggle so the toggle itself is layout-neutral.  All of this
-                // runs synchronously in one JS task — browser only renders the
-                // final state, so there is no intermediate flicker.
-                const titleEl2 = document.getElementById('array-name');
-                const wrapper2 = document.getElementById('wrapper');
-                if (shouldBeFullscreen) {
-                    // Collapse title & padding before adding fullscreen-mode
-                    if (titleEl2) {
-                        titleEl2.style.maxHeight = '0'; titleEl2.style.height = '0';
-                        titleEl2.style.minHeight = '0'; titleEl2.style.overflow = 'hidden';
-                        titleEl2.style.margin = '0'; titleEl2.style.padding = '0';
+            // Enter immersive layout at p=1
+            if (p >= 1 && !_fullscreenActive) {
+                _fullscreenActive = true;
+                document.body.classList.add('fullscreen-mode');
+                _reconcileCbVisibility({ animPhase: 'enter-2' });
+                if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
+                    const centerIsland = document.getElementById('compare-center-island');
+                    if (centerIsland) {
+                        const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
+                        centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
                     }
-                    if (wrapper2) { wrapper2.style.padding = '0'; wrapper2.style.margin = '0'; }
                 }
-                _fullscreenActive = shouldBeFullscreen;
-                document.body.classList.toggle('fullscreen-mode', shouldBeFullscreen);
-                if (shouldBeFullscreen) {
-                    _reconcileCbVisibility({ animPhase: 'enter-2' });
-                    // Reconcile compare center island
-                    if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                        const centerIsland = document.getElementById('compare-center-island');
-                        if (centerIsland) {
-                            const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
-                            centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
-                        }
-                    }
-                } else {
-                    _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
-                    const wrap = document.getElementById('slim-cb-wrap');
-                    if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                    const infoEl = document.getElementById('info');
-                    if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                    const cbWrap = document.getElementById('slim-cb-wrap');
-                    if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; cbWrap.style.right = ''; }
-                    if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                    const wrapper = document.getElementById('wrapper');
-                    if (wrapper) wrapper.style.paddingTop = '';
-                    _reconcileCbVisibility({ animPhase: 'exit-3' });
-                }
+                _fitZoom = immFit;
+            }
+            // Exit immersive layout when p drops below 1
+            if (p < 1 && _fullscreenActive) {
+                _fullscreenActive = false;
+                document.body.classList.remove('fullscreen-mode');
+                _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
+                const wrap = document.getElementById('slim-cb-wrap');
+                if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
+                const infoEl2 = document.getElementById('info');
+                if (infoEl2) { infoEl2.style.top = ''; infoEl2.style.left = ''; infoEl2.style.transform = ''; }
+                const cbWrap2 = document.getElementById('slim-cb-wrap');
+                if (cbWrap2) { cbWrap2.style.top = ''; cbWrap2.style.bottom = ''; cbWrap2.style.right = ''; }
+                if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
+                const wrapper = document.getElementById('wrapper');
+                if (wrapper) wrapper.style.paddingTop = '';
+                _reconcileCbVisibility({ animPhase: 'exit-3' });
             }
 
-            // Apply opacities and title layout
+            // ── Opacity (no layout changes) ───────────────────────────
             const titleEl = document.getElementById('array-name');
             const infoEl  = document.getElementById('info');
             const cbWrap  = document.getElementById('slim-cb-wrap');
 
-            if (titleEl) {
-                if (p === 0) {
-                    // Fully normal: restore title to flow
-                    titleEl.style.opacity = '';
-                    titleEl.style.maxHeight = ''; titleEl.style.height = '';
-                    titleEl.style.minHeight = ''; titleEl.style.overflow = '';
-                    titleEl.style.margin = ''; titleEl.style.padding = '';
-                } else {
-                    titleEl.style.opacity = fadeOut;
-                    // Keep title collapsed from flow during crossfade
-                    // (prevents layout jump when fullscreen-mode toggles)
-                    titleEl.style.maxHeight = '0'; titleEl.style.height = '0';
-                    titleEl.style.minHeight = '0'; titleEl.style.overflow = 'hidden';
-                    titleEl.style.margin = '0'; titleEl.style.padding = '0';
-                }
+            if (p === 0) {
+                // Fully normal — clear all inline styles
+                if (titleEl) titleEl.style.opacity = '';
+                if (infoEl) infoEl.style.opacity = '';
+                if (cbWrap) cbWrap.style.opacity = '';
+            } else if (p >= 1) {
+                // Fully immersive — chrome visible at immersive positions
+                if (titleEl) titleEl.style.opacity = '0';
+                if (infoEl) infoEl.style.opacity = '';
+                if (cbWrap) cbWrap.style.opacity = '';
+                if (_fullscreenActive) _positionFullscreenChrome();
+            } else {
+                // Crossfading (0 < p < 1): fade all chrome out, opacity only
+                const fade = Math.max(0, 1 - p);
+                if (titleEl) titleEl.style.opacity = fade;
+                if (infoEl) infoEl.style.opacity = fade;
+                if (cbWrap) cbWrap.style.opacity = fade;
             }
-            if (infoEl)  infoEl.style.opacity  = (p === 0) ? '' : (shouldBeFullscreen ? fadeIn : fadeOut);
-            if (cbWrap)  cbWrap.style.opacity   = (p === 0) ? '' : (shouldBeFullscreen ? fadeIn : fadeOut);
 
             // Compare/multiview/qMRI chrome
             if (compareActive) {
+                const cmpFade = (p === 0 || p >= 1) ? '' : Math.max(0, 1 - p);
                 document.querySelectorAll('.compare-title').forEach(el => {
-                    el.style.opacity = (p === 0) ? '' : fadeOut;
+                    el.style.opacity = p >= 1 ? '0' : cmpFade;
                 });
                 document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.style.opacity = (p === 0) ? '' : (shouldBeFullscreen ? fadeIn : fadeOut);
+                    el.style.opacity = cmpFade;
                 });
             }
             const mvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
-            if (mvCb) mvCb.style.opacity = (p === 0) ? '' : (shouldBeFullscreen ? fadeIn : fadeOut);
+            if (mvCb) mvCb.style.opacity = (p === 0 || p >= 1) ? '' : Math.max(0, 1 - p);
             const qmriCbs = qmriActive ? document.querySelectorAll('#qmri-view-wrap .qv-cb-island') : [];
             qmriCbs.forEach(el => {
-                el.style.opacity = (p === 0) ? '' : (shouldBeFullscreen ? fadeIn : fadeOut);
+                el.style.opacity = (p === 0 || p >= 1) ? '' : Math.max(0, 1 - p);
             });
-
-            // Position floating chrome when in fullscreen
-            if (shouldBeFullscreen) _positionFullscreenChrome();
-
-            // Update _fitZoom so status bar shows correct state
-            if (p >= 1) {
-                _fitZoom = immFit;
-                if (!_fullscreenActive) _normalFitZoom = userZoom;
-            }
         }
 
         function _clearCrossfadeOpacity() {
@@ -14651,15 +14630,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (const el of [titleEl, infoEl, cbWrap]) {
                 if (el) { el.style.opacity = ''; el.style.transition = ''; }
             }
-            // Restore title layout
-            if (titleEl) {
-                titleEl.style.maxHeight = ''; titleEl.style.height = '';
-                titleEl.style.minHeight = ''; titleEl.style.overflow = '';
-                titleEl.style.margin = ''; titleEl.style.padding = '';
-            }
-            // Restore wrapper padding
-            const wrapper = document.getElementById('wrapper');
-            if (wrapper) { wrapper.style.padding = ''; wrapper.style.margin = ''; }
             document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
                 el.style.opacity = ''; el.style.transition = '';
             });
