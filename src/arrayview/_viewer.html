@@ -2379,6 +2379,13 @@
                     h += el.offsetHeight + parseFloat(s.marginTop) + parseFloat(s.marginBottom);
                 }
             }
+            // During crossfade, interpolate reserve toward 0 so the pane grows
+            // smoothly instead of jumping 130px when fullscreen-mode toggles on.
+            // The max(130,h) floor would otherwise prevent the reserve from
+            // decreasing even as chrome collapses via maxHeight.
+            if (_crossfadeCollapseP > 0) {
+                return h * (1 - _crossfadeCollapseP);
+            }
             return Math.max(130, h);
         }
 
@@ -3418,6 +3425,10 @@
             }
             return m + '<span class="exp">e' + exp + '</span>';
         };
+        const _rangeStatusStr = (label, lo, hi) => {
+            if (lo == null || hi == null) return `range: ${label}`;
+            return `range: ${label}  [${_cbFmtPlain(lo)} … ${_cbFmtPlain(hi)}]`;
+        };
         const _cbFmtPlain = v => {
             const av = Math.abs(v);
             if (av === 0) return '0';
@@ -4262,8 +4273,9 @@
 
             /** Update vmin/vmax flanking labels from opts.getRange(). */
             updateLabels() {
+                const win = this.opts.getWindow();
                 const range = this.opts.getRange();
-                const vmin = range.vmin, vmax = range.vmax;
+                const vmin = win.vmin ?? range.vmin, vmax = win.vmax ?? range.vmax;
 
                 // If targets changed, start a ticker animation from current displayed value
                 if (vmin !== this._labelVminTarget || vmax !== this._labelVmaxTarget) {
@@ -9273,7 +9285,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _diffCenterCb.draw();
                                     _diffCenterCb.ensureAnimating();
                                     fetchAndDrawDiff();
-                                    showStatus(`diff histogram: ${q.label}`);
+                                    showStatus(`diff ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
                                 }
                                 _diffCenterCb.startAutoDismiss();
                             }
@@ -9294,7 +9306,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     _cmpLeftCb.draw(); _cmpRightCb?.draw();
                                     _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
                                     compareRender();
-                                    showStatus(`histogram: ${q.label}`);
+                                    showStatus(_rangeStatusStr(q.label, q.vmin, q.vmax));
                                 }
                                 for (const cb of cbs) cb.startAutoDismiss();
                             }
@@ -9319,7 +9331,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 qvRender(hv);
                                 cb.ensureAnimating();
                                 const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
-                                showStatus(`${paneLabel}: ${q.label}`);
+                                showStatus(`${paneLabel}: ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
                             }
                             cb.startAutoDismiss();
                         }
@@ -9339,7 +9351,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating(); }
                                 v._colorBar.startAutoDismiss();
                             }
-                            if (label) showStatus(`range: ${label}`);
+                            if (label) showStatus(_rangeStatusStr(label, null, null));
                         }
                         return;
                     }
@@ -9357,7 +9369,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating(); }
                                 v._mosaicColorBar.startAutoDismiss();
                             }
-                            if (label) showStatus(`range: ${label}`);
+                            if (label) showStatus(_rangeStatusStr(label, null, null));
                         }
                         return;
                     }
@@ -9402,7 +9414,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                         proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                         primaryCb.ensureAnimating();
-                        showStatus(`range: ${preset.label}`);
+                        showStatus(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                     } else {
                         // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
                         if (!primaryCb._expanded) {
@@ -9486,7 +9498,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
                             proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
                             primaryCb.ensureAnimating();
-                            showStatus(`range: ${preset.label}`);
+                            showStatus(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                             // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
                             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
                             _histAutoDismissTimer = setTimeout(() => {
@@ -14389,8 +14401,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             const immersivePad = 12;
             const bottomReserve = forImmersive ? 0 : 80;
+            const uiReserve = forImmersive ? 0 : uiReserveV(); // immersive target: no reserve
             const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : 80));
-            const maxH = Math.max(50,  window.innerHeight - uiReserveV() - bottomReserve
+            const maxH = Math.max(50,  window.innerHeight - uiReserve - bottomReserve
                                                           - (forImmersive ? immersivePad * 2 : 0));
             const baseScale = getBaseScale(w, h);
             const capScale  = Math.min(maxW / w, maxH / h);
@@ -14481,8 +14494,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // collapseP: 0→1 during first half (chrome collapses + fades out)
             const collapseP = Math.min(1, p * 2);
-            // fadeIn: 0→1 during second half (chrome fades in at immersive positions)
-            const fadeIn = Math.max(0, (p - 0.5) * 2);
+            // fadeIn: 0→1 during last 15% (chrome fades in once pane is nearly full size)
+            const fadeIn = Math.max(0, (p - 0.85) / 0.15);
 
             // Set global for scale functions
             _crossfadeCollapseP = collapseP;
