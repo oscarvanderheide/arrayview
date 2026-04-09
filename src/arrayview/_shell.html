@@ -130,8 +130,6 @@
             if (e.data.phase === 'tab-cycle') cycleTab(e.data.detail?.dir ?? 1);
         });
 
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
         // Mark this window as the native shell so embedded viewer iframes
         // can distinguish themselves from Jupyter embeds and enable the picker.
         window.__arrayviewShell = true;
@@ -141,14 +139,34 @@
         // the web content area already starts below the native title bar and
         // window.innerHeight reflects the usable height.  No padding needed.
 
-        ws.onmessage = (e) => {
-            const msg = JSON.parse(e.data);
-            if (msg.action === 'new_tab') {
-                // Close the welcome placeholder tab when a real array arrives
-                if (tabs['__welcome__']) closeTab('__welcome__');
-                addTab(msg.sid, msg.name, msg.url);
-            }
-        };
+        // Shell WebSocket with keepalive + auto-reconnect.
+        // macOS WebKit (pywebview) drops idle WebSocket connections after ~30-60s.
+        // Without this, tab injection via _notify_shells() fails on the second
+        // `arrayview` CLI call because SHELL_SOCKETS is empty on the server.
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let ws = null;
+        let heartbeatId = null;
+        function connectShellWS() {
+            ws = new WebSocket(`${proto}//${location.host}/ws/shell`);
+            ws.onopen = () => {
+                clearInterval(heartbeatId);
+                heartbeatId = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) ws.send('{"action":"ping"}');
+                }, 15000);
+            };
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.action === 'new_tab') {
+                    if (tabs['__welcome__']) closeTab('__welcome__');
+                    addTab(msg.sid, msg.name, msg.url);
+                }
+            };
+            ws.onclose = () => {
+                clearInterval(heartbeatId);
+                setTimeout(connectShellWS, 1000);
+            };
+        }
+        connectShellWS();
 
         const params = new URLSearchParams(window.location.search);
         const initSid = params.get('init_sid');
