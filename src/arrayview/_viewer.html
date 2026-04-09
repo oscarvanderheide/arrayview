@@ -8510,7 +8510,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Reset zoom / slice-jump digit',
                 when: [],
                 run: (ctx, e) => {
-                    // If there's buffered input, '0' is part of slice jump; otherwise it's zoom reset
                     if (sliceJumpBuffer.length > 0) {
                         sliceJumpBuffer += e.key;
                         if (sliceJumpTimeout) clearTimeout(sliceJumpTimeout);
@@ -8520,34 +8519,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const now = performance.now();
                         const isDoubleTap = _fullscreenActive && (now - _lastZeroPress < 500);
                         _lastZeroPress = now;
-                        // Cancel any in-progress immersive animation before snapping
-                        if (_immersiveAnimating) {
-                            _immersiveAnimating = false;
-                            if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
-                            for (const el of [document.getElementById('info'), document.getElementById('slim-cb-wrap'), document.getElementById('array-name')]) {
-                                if (el) { el.style.transition = ''; el.style.opacity = ''; }
-                            }
-                            // Clean up compare/multiview/qMRI element styles
-                            document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
-                                el.style.transition = ''; el.style.opacity = '';
-                            });
-                            const _zMvCb = document.getElementById('mv-cb-wrap');
-                            if (_zMvCb) { _zMvCb.style.transition = ''; _zMvCb.style.opacity = ''; }
-                            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                                el.style.transition = ''; el.style.opacity = '';
-                            });
-                            _reconcileUI();
-                        }
                         if (isDoubleTap) {
-                            // Double-tap 0: exit immersive + full reset
-                            if (_fullscreenActive) setFullscreenMode(false);
-                            // Clean up mode-specific immersive artifacts
-                            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                                el.style.transition = ''; el.style.opacity = '';
-                            });
-                            _reconcileUI();
-                            const _dtMvCb = document.getElementById('mv-cb-wrap');
-                            if (_dtMvCb) { _dtMvCb.style.transition = ''; _dtMvCb.style.opacity = ''; }
+                            _crossfadeCleanup();
                             userZoom = 1.0;
                             _zoomAdjustedByUser = false;
                             mainPan.reset();
@@ -8555,7 +8528,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             ModeRegistry.scaleAllAutoFit();
                             showStatus('zoom: fit');
                         } else if (_fullscreenActive) {
-                            // First tap in immersive: reset to immersive-fit level
                             const w = lastImgW || canvas.width;
                             const h = lastImgH || canvas.height;
                             userZoom = _calcAutoFitZoom(w, h, true);
@@ -8565,7 +8537,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             ModeRegistry.scaleAll();
                             showStatus('immersive · press 0 again to exit');
                         } else {
-                            // Not in immersive: reset to normal fit
+                            _crossfadeCleanup();
                             userZoom = 1.0;
                             _zoomAdjustedByUser = false;
                             mainPan.reset();
