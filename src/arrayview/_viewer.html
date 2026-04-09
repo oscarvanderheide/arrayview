@@ -1832,6 +1832,7 @@
 
         let userZoom = 1.0;
         let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier (user-adjustable)
+        let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
@@ -2529,9 +2530,10 @@
         }
 
         function scaleCanvas(w, h) {
-            const bottomReserve = _fullscreenActive ? 0 : 80; // fullscreen: overlaid; normal: colorbar + eggs + gaps
-            const immersivePad = 12; // breathing room on each side in immersive mode
-            const maxW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80));
+            const bottomReserve = _fullscreenActive ? 0 : 80 * (1 - _crossfadeCollapseP);
+            const immersivePad = 12;
+            const sidePad = _fullscreenActive ? immersivePad * 2 : 80 * (1 - _crossfadeCollapseP);
+            const maxW = Math.max(100, window.innerWidth - sidePad);
             const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - (_fullscreenActive ? immersivePad * 2 : 0));
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
@@ -2617,14 +2619,14 @@
             }
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
-            const titleReserve = _fullscreenActive ? 0 : 28;
-            const panePadX = _fullscreenActive ? 0 : 16;
+            const titleReserve = _fullscreenActive ? 0 : 28 * (1 - _crossfadeCollapseP);
+            const panePadX = _fullscreenActive ? 0 : 16 * (1 - _crossfadeCollapseP);
             // .compare-canvas-area vertical padding; reserve colorbar height whenever any
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             // In immersive, per-pane colorbars are overlaid (absolute), so no space reservation needed
-            const cbExtra = (_anyCenter && !_fullscreenActive) ? (10 + CB_COLLAPSED_H + 4) : 0;
-            const panePadY = (_fullscreenActive ? 0 : 12) + cbExtra;
+            const cbExtra = (_anyCenter && !_fullscreenActive) ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP) : 0;
+            const panePadY = (_fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP)) + cbExtra;
             const fitSlack = _fullscreenActive ? 1.0 : 0.96;
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
@@ -2644,8 +2646,8 @@
             // and the shared compare pan state, so the panes themselves must keep
             // stable slot widths instead of shrinking and wrapping.
             const immersivePad = 12;
-            const uiReserveH = _fullscreenActive ? 0 : (uiReserveV() + 40);
-            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80));
+            const uiReserveH = _fullscreenActive ? 0 : (uiReserveV() + 40 * (1 - _crossfadeCollapseP));
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : 80 * (1 - _crossfadeCollapseP)));
             const totalH = Math.max(100, window.innerHeight - uiReserveH - (_fullscreenActive ? immersivePad * 2 : 0));
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
@@ -12336,10 +12338,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cbRows = rows >= 2 ? 1 : rows;
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
-                         - labelH
-                         - cbRows * cbH
+                         - labelH * (1 - _crossfadeCollapseP)
+                         - cbRows * cbH * (1 - _crossfadeCollapseP)
                          - (rows - 1) * rowGap
-                         - bottomPad;
+                         - bottomPad * (1 - _crossfadeCollapseP);
             const absMaxScaleW = (window.innerWidth - sidePad - (cols - 1) * colGap) / cols;
             const absMaxScaleH = Math.max(10, totalH / rows);
             const absMaxScale = Math.min(...ready.map(v =>
@@ -12769,10 +12771,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cbRows = nRows >= 2 ? 1 : nRows;
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
-                         - labelH
-                         - cbRows * cbH
+                         - labelH * (1 - _crossfadeCollapseP)
+                         - cbRows * cbH * (1 - _crossfadeCollapseP)
                          - (nRows - 1) * rowGap
-                         - bottomPad;
+                         - bottomPad * (1 - _crossfadeCollapseP);
             const absMaxScaleW = (window.innerWidth - sidePad - (nCols - 1) * colGap) / nCols;
             const absMaxScaleH = Math.max(10, totalH / nRows);
             const absMaxScale = Math.min(...ready.map(v =>
@@ -13078,7 +13080,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const vcbTotalW = vcbW + 4 + 30; // vcb + margin + labels
                 const bottomPad = 24;
                 const totalH = window.innerHeight - uiReserveV()
-                             - (n - 1) * rowGap - bottomPad;
+                             - (n - 1) * rowGap - bottomPad * (1 - _crossfadeCollapseP);
                 const maxCanvasW = window.innerWidth - labelW - vcbTotalW - 40;
                 const maxCanvasH = Math.max(10, totalH / n);
                 // Scale that fits everything in the viewport
@@ -13760,7 +13762,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
-            const uiReserveH = uiReserveV() + cbH + labelH;
+            const uiReserveH = uiReserveV() + (cbH + labelH) * (1 - _crossfadeCollapseP);
             const gap = 16;
             const absMaxT = Math.min(
                 Math.max(50, window.innerHeight - uiReserveH),
