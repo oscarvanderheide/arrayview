@@ -6366,15 +6366,39 @@
         }
 
         let _pixelHoverThrottle = false;
+        const _pixelFmt = v => {
+            const av = Math.abs(v);
+            if (av === 0) return '0';
+            if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(3);
+            return parseFloat(v.toPrecision(4)).toString();
+        };
         function fetchPixelInfo(opts) {
             if (_pixelHoverThrottle) return false;
-            _pixelHoverThrottle = true;
-            setTimeout(() => { _pixelHoverThrottle = false; }, 50);
 
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
             const py = Math.floor((opts.event.clientY - rect.top) * opts.imgH / rect.height);
             if (px < 0 || px >= opts.imgW || py < 0 || py >= opts.imgH) return false;
+
+            // Fast path: use cached raw slice for instant local lookup
+            const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale;
+            if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
+                // Un-flip canvas coordinates to raw array coordinates
+                const rawX = flip_x ? (_lebesgueSliceW - 1 - Math.floor(px * _lebesgueSliceW / opts.imgW)) : Math.floor(px * _lebesgueSliceW / opts.imgW);
+                const rawY = flip_y ? (_lebesgueSliceH - 1 - Math.floor(py * _lebesgueSliceH / opts.imgH)) : Math.floor(py * _lebesgueSliceH / opts.imgH);
+                if (rawX >= 0 && rawX < _lebesgueSliceW && rawY >= 0 && rawY < _lebesgueSliceH) {
+                    const val = _lebesgueSlice[rawY * _lebesgueSliceW + rawX];
+                    if (Number.isFinite(val)) {
+                        showPixelInfo(opts.displayEl, _pixelFmt(val), opts.event.clientX, opts.event.clientY);
+                        if (opts.onResult) opts.onResult({ value: val }, rawX, rawY);
+                        return true;
+                    }
+                }
+            }
+
+            // Slow path: server fetch (throttled)
+            _pixelHoverThrottle = true;
+            setTimeout(() => { _pixelHoverThrottle = false; }, 50);
 
             const params = new URLSearchParams({
                 dim_x: String(opts.dimX),
@@ -6390,13 +6414,7 @@
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    const fmt = v => {
-                        const av = Math.abs(v);
-                        if (av === 0) return '0';
-                        if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(3);
-                        return parseFloat(v.toPrecision(4)).toString();
-                    };
-                    showPixelInfo(opts.displayEl, fmt(d.value), opts.event.clientX, opts.event.clientY);
+                    showPixelInfo(opts.displayEl, _pixelFmt(d.value), opts.event.clientX, opts.event.clientY);
                     if (opts.onResult) opts.onResult(d, px, py);
                 })
                 .catch(() => {});
@@ -6881,8 +6899,8 @@
             // Invalidate and clear Lebesgue overlay (slice changed)
             _lebesgueVersion = null;
             Object.keys(_lebesguePerSession).forEach(k => delete _lebesguePerSession[k]);
-            if (lebesgueMode) {
-                _clearLebesgueOverlay();
+            if (lebesgueMode || _pixelInfoVisible) {
+                if (lebesgueMode) _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
             }
             if (compareQmriActive) {
@@ -8671,6 +8689,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         });
                     } else {
                         flashAxesIndicators();
+                        // Pre-fetch raw slice for instant local lookups
+                        if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
+                            _fetchLebesgueSlice();
+                        }
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
                     showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
