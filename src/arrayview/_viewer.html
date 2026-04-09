@@ -1832,6 +1832,7 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
+        let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier (user-adjustable)
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
@@ -6584,6 +6585,7 @@
                 flip_y,
                 flipDims: {...flipDims},
                 userZoom,
+                _zoomSensitivity,
                 customColormap,
                 themeIdx,
                 _pixelInfoVisible,
@@ -6647,6 +6649,7 @@
             flip_y = s.flip_y ?? false;
             flipDims = s.flipDims ?? {};
             userZoom = s.userZoom ?? 1.0;
+            if (Number.isFinite(s._zoomSensitivity) && s._zoomSensitivity > 0) _zoomSensitivity = s._zoomSensitivity;
             _zoomAdjustedByUser = false;
             if (s.userZoom !== undefined) _autoFitPending = false; // don't override explicitly saved zoom
             if (s.themeIdx !== undefined) applyTheme(s.themeIdx);
@@ -11754,7 +11757,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _mipOnWheel(e) {
             e.preventDefault(); e.stopPropagation();
             const clamped = Math.max(-10, Math.min(10, e.deltaY));
-            _mipZoom = Math.max(0.5, Math.min(10.0, _mipZoom * Math.pow(2, -clamped * 0.1)));
+            _mipZoom = Math.max(0.5, Math.min(10.0, _mipZoom * Math.pow(2, -clamped * _zoomSensitivity)));
             _mipRender();
         }
         // Touch events
@@ -14012,7 +14015,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly)
             if ((e.ctrlKey || e.metaKey) && !_immersiveAnimating) {
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
-                const factor = Math.pow(2, -clamped * 0.1);
+                const factor = Math.pow(2, -clamped * _zoomSensitivity);
                 userZoom = Math.max(_normalFitZoom, Math.min(10.0, userZoom * factor));
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
