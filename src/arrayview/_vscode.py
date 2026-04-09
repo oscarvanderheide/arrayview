@@ -481,13 +481,24 @@ def _find_arrayview_window_id() -> str | None:
     if val:
         return val
 
-    # Walk ancestors looking for ARRAYVIEW_WINDOW_ID in /proc/<pid>/environ
+    # Walk ancestors looking for ARRAYVIEW_WINDOW_ID (uv run strips env vars).
+    # Mirrors the approach in _platform._find_vscode_ipc_hook() for cross-platform support.
     def _ppid(pid: int) -> int:
         try:
             with open(f"/proc/{pid}/status") as fh:
                 for line in fh:
                     if line.startswith("PPid:"):
                         return int(line.split()[1])
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "ppid="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return int(r.stdout.strip())
         except Exception:
             pass
         return -1
@@ -497,11 +508,25 @@ def _find_arrayview_window_id() -> str | None:
         pid = _ppid(pid)
         if pid <= 1:
             break
+        # Linux: /proc/<pid>/environ (null-separated KEY=VALUE pairs)
         try:
             with open(f"/proc/{pid}/environ", "rb") as fh:
                 for entry in fh.read().split(b"\0"):
                     if entry.startswith(b"ARRAYVIEW_WINDOW_ID="):
                         return entry[len(b"ARRAYVIEW_WINDOW_ID="):].decode()
+        except Exception:
+            pass
+        # macOS: ps ewwww (env vars appended after command arguments)
+        try:
+            r = subprocess.run(
+                ["ps", "ewwww", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            for token in r.stdout.split():
+                if token.startswith("ARRAYVIEW_WINDOW_ID="):
+                    return token[len("ARRAYVIEW_WINDOW_ID="):]
         except Exception:
             pass
     return None
@@ -660,26 +685,25 @@ def _schedule_remote_open_retries(
 def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = False) -> bool:
     """Write a versioned control payload for the VS Code opener extension.
 
-    Signal-file targeting strategy:
+    Signal-file targeting strategy (in priority order):
 
-    LOCAL VS Code (not remote):
-      When VSCODE_IPC_HOOK_CLI can be found (directly or via parent-process
-      walk), Python computes hookTag = SHA-256(ipc_hook)[:16] and writes *only*
-      to the per-window targeted file
-      ``~/.arrayview/open-request-ipc-<hookTag>.json``.  The extension in the
-      correct VS Code window checks that same file and claims it exclusively.
-      This prevents multi-window races.
+    1. ARRAYVIEW_WINDOW_ID (all platforms):
+       The extension injects this env var into every terminal.  It uniquely
+       identifies the VS Code window even on macOS where IPC hook recovery
+       fails.  If found and the window is still registered, we write directly
+       to that window's targeted signal file.
 
-    REMOTE / TUNNEL VS Code:
-      The terminal and extension host have *different* IPC hooks (different
-      process trees), so hookTag matching can't work directly.  Instead,
-      Python uses PID ancestry matching (``_find_current_vscode_window_id``)
-      to identify which extension host's window spawned this terminal, then
-      writes to that extension's targeted signal file.  Falls back to the
-      shared signal file only when no window match is found.
+    2. LOCAL VS Code (hookTag):
+       When VSCODE_IPC_HOOK_CLI can be found, compute hookTag and write to
+       ``~/.arrayview/open-request-ipc-<hookTag>.json``.
 
-    Falls back to the shared signal file when ipc_hook is not found at all
-    (e.g. non-VS Code environment or fully-stripped env).
+    3. LOCAL VS Code (PID ancestry):
+       Match ancestor PIDs to find which window spawned this terminal.
+
+    4. REMOTE / TUNNEL:
+       Fall back to ARRAYVIEW_WINDOW_ID → PID ancestry → shared file.
+
+    Falls back to the shared signal file when no targeting succeeds.
     """
     import hashlib
     from arrayview._platform import _find_vscode_ipc_hook
@@ -694,8 +718,32 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
         data.setdefault("maxAgeMs", _VSCODE_SIGNAL_MAX_AGE_MS)
         data.setdefault("requestId", uuid.uuid4().hex)
 
-        ipc_hook = _find_vscode_ipc_hook()
-        if ipc_hook and not _is_vscode_remote():
+        # --- Primary: ARRAYVIEW_WINDOW_ID (all platforms) ---
+        # The extension injects this env var into every terminal via
+        # EnvironmentVariableCollection.  It uniquely identifies the VS Code
+        # window even on macOS where IPC hook recovery fails.
+        env_wid = _find_arrayview_window_id()
+        targeted_via_env = False
+        if env_wid:
+            reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
+            if os.path.isfile(reg_file):
+                try:
+                    with open(reg_file) as _rf:
+                        _reg_data = json.load(_rf)
+                    uses_pid = _reg_data.get("fallbackId", False)
+                except Exception:
+                    uses_pid = env_wid.isdigit()
+                _prefix = "pid" if uses_pid else "ipc"
+                filenames = (f"open-request-{_prefix}-{env_wid}.json",)
+                targeted_via_env = True
+                _vprint(
+                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} → {filenames[0]}",
+                    flush=True,
+                )
+
+        if targeted_via_env:
+            pass  # filenames already set — skip to write logic below
+        elif (ipc_hook := _find_vscode_ipc_hook()) and not _is_vscode_remote():
             own_tag = hashlib.sha256(ipc_hook.encode()).hexdigest()[:16]
             data["hookTag"] = own_tag
 
@@ -814,8 +862,15 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                 # Verify the window is still registered
                 reg_file = os.path.join(signal_dir, f"window-{env_wid}.json")
                 if os.path.isfile(reg_file):
-                    _vprint(f"[ArrayView] signal: env window match → ipc-{env_wid}", flush=True)
-                    filenames = (f"open-request-ipc-{env_wid}.json",)
+                    try:
+                        with open(reg_file) as _rf:
+                            _reg_data = json.load(_rf)
+                        _uses_pid = _reg_data.get("fallbackId", False)
+                    except Exception:
+                        _uses_pid = env_wid.isdigit()
+                    _prefix = "pid" if _uses_pid else "ipc"
+                    _vprint(f"[ArrayView] signal: env window match → {_prefix}-{env_wid}", flush=True)
+                    filenames = (f"open-request-{_prefix}-{env_wid}.json",)
                 else:
                     _vprint(f"[ArrayView] signal: env window {env_wid} not registered, falling back", flush=True)
                     env_wid = None
