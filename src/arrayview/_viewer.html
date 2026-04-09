@@ -4861,6 +4861,29 @@
         // Per-session Lebesgue slice cache for compare mode
         // { [sid]: { slice: Float32Array, w: int, h: int, version: string } }
         const _lebesguePerSession = {};
+        // Per-view hover slice cache keyed by "sid:indices:dimX:dimY:complex:log"
+        const _hoverSliceCache = {};
+
+        async function _fetchHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
+            const key = fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+            if (_hoverSliceCache[key]) return _hoverSliceCache[key];
+            const params = new URLSearchParams({
+                dim_x: fetchDimX, dim_y: fetchDimY,
+                indices: fetchIndices.join(','),
+                complex_mode: complexMode,
+                log_scale: logScale,
+            });
+            try {
+                const resp = await proxyFetch(`/lebesgue/${fetchSid}?${params}`);
+                if (!resp.ok) return null;
+                const w = parseInt(resp.headers.get('X-ArrayView-Width')) || 0;
+                const h = parseInt(resp.headers.get('X-ArrayView-Height')) || 0;
+                const buf = await resp.arrayBuffer();
+                const entry = { slice: new Float32Array(buf), w, h };
+                _hoverSliceCache[key] = entry;
+                return entry;
+            } catch (_) { return null; }
+        }
 
         async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY) {
             const params = new URLSearchParams({
@@ -6440,12 +6463,21 @@
 
             // Fast path: use cached raw slice for instant local lookup
             const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale;
+            // Check global cache first, then per-view hover cache
+            let _fpSlice = null, _fpW = 0, _fpH = 0;
             if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
+                _fpSlice = _lebesgueSlice; _fpW = _lebesgueSliceW; _fpH = _lebesgueSliceH;
+            } else {
+                const hkey = (opts.sid || sid) + ':' + ver;
+                const cached = _hoverSliceCache[hkey];
+                if (cached && cached.w > 0 && cached.h > 0) { _fpSlice = cached.slice; _fpW = cached.w; _fpH = cached.h; }
+            }
+            if (_fpSlice) {
                 // Un-flip canvas coordinates to raw array coordinates
-                const rawX = flip_x ? (_lebesgueSliceW - 1 - Math.floor(px * _lebesgueSliceW / opts.imgW)) : Math.floor(px * _lebesgueSliceW / opts.imgW);
-                const rawY = flip_y ? (_lebesgueSliceH - 1 - Math.floor(py * _lebesgueSliceH / opts.imgH)) : Math.floor(py * _lebesgueSliceH / opts.imgH);
-                if (rawX >= 0 && rawX < _lebesgueSliceW && rawY >= 0 && rawY < _lebesgueSliceH) {
-                    const val = _lebesgueSlice[rawY * _lebesgueSliceW + rawX];
+                const rawX = flip_x ? (_fpW - 1 - Math.floor(px * _fpW / opts.imgW)) : Math.floor(px * _fpW / opts.imgW);
+                const rawY = flip_y ? (_fpH - 1 - Math.floor(py * _fpH / opts.imgH)) : Math.floor(py * _fpH / opts.imgH);
+                if (rawX >= 0 && rawX < _fpW && rawY >= 0 && rawY < _fpH) {
+                    const val = _fpSlice[rawY * _fpW + rawX];
                     if (Number.isFinite(val)) {
                         showPixelInfo(opts.displayEl, _pixelFmt(val), opts.event.clientX, opts.event.clientY);
                         if (opts.onResult) opts.onResult({ value: val }, rawX, rawY);
@@ -6959,9 +6991,28 @@
             // Invalidate and clear Lebesgue overlay (slice changed)
             _lebesgueVersion = null;
             Object.keys(_lebesguePerSession).forEach(k => delete _lebesguePerSession[k]);
+            Object.keys(_hoverSliceCache).forEach(k => delete _hoverSliceCache[k]);
             if (lebesgueMode || _pixelInfoVisible) {
                 if (lebesgueMode) _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
+                // Re-fetch per-view hover slices for multi-pane modes
+                if (_pixelInfoVisible) {
+                    if (qmriActive) {
+                        qmriViews.forEach(v => {
+                            const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
+                            _fetchHoverSlice(sid, dim_x, dim_y, qi);
+                        });
+                    } else if (multiViewActive) {
+                        mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
+                    } else if (compareQmriActive) {
+                        compareQmriViews.forEach(v => {
+                            const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
+                            _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
+                        });
+                    } else if (compareMvActive) {
+                        compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
+                    }
+                }
             }
             if (compareQmriActive) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
@@ -8789,9 +8840,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             el.style.opacity = '0';
                         });
                     } else {
-                        // Pre-fetch raw slice for instant local lookups
+                        // Pre-fetch raw slice(s) for instant local lookups
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
                             _fetchLebesgueSlice();
+                        }
+                        // Pre-fetch per-view slices for multi-pane modes
+                        if (qmriActive) {
+                            qmriViews.forEach(v => {
+                                const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
+                                _fetchHoverSlice(sid, dim_x, dim_y, qi);
+                            });
+                        } else if (multiViewActive) {
+                            mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
+                        } else if (compareQmriActive) {
+                            compareQmriViews.forEach(v => {
+                                const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
+                                _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
+                            });
+                        } else if (compareMvActive) {
+                            compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
                         }
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
@@ -12024,8 +12091,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             imgH: view.lastH,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
-                                if (_pixelInfoVisible) _updateDimbarHover(px, py);
-                                // Fetch for all other qmri views at same pixel
+                                if (_pixelInfoVisible) {
+                                    _updateDimbarHover(px, py);
+                                    return; // hover mode: only show hovered pane's value
+                                }
+                                // Non-hover: fetch for all other qmri views at same pixel
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
                                     const qIndices = [...indices];
@@ -12040,13 +12110,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                     proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
                                             if (!rd) return;
-                                            const fmt = val => {
-                                                const av = Math.abs(val);
-                                                if (av === 0) return '0';
-                                                if (av >= 1e4 || (av < 1e-2 && av > 0)) return val.toExponential(3);
-                                                return parseFloat(val.toPrecision(4)).toString();
-                                            };
-                                            showPixelInfo(v.pixelInfoEl, fmt(rd.value), e.clientX, e.clientY);
+                                            showPixelInfo(v.pixelInfoEl, _pixelFmt(rd.value), e.clientX, e.clientY);
                                         });
                                 });
                             },
@@ -12228,29 +12292,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         compareQmriViews.forEach(v => compareQmriRender(v));
                         saveState();
                     }, { passive: false });
-                    let cqPixelPending = false;
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
-                        if (cqPixelPending) return;
-                        cqPixelPending = true;
-                        setTimeout(() => { cqPixelPending = false; }, 60);
-                        const rect = cv.getBoundingClientRect();
-                        const ipx = Math.floor((e.clientX - rect.left) * view.lastW / rect.width);
-                        const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
-                        const _mx = e.clientX, _my = e.clientY;
                         const qIndices = [...indices];
                         qIndices[compareQmriDim] = view.qmriIdx;
-                        proxyFetch(`/pixel/${view.sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${qIndices.join(',')}&px=${ipx}&py=${ipy}&complex_mode=${complexMode}`)
-                            .then(r => r.json()).then(d => {
-                                if (d.value !== undefined && isFinite(d.value)) {
-                                    const av = Math.abs(d.value);
-                                    const fmt = val => (av >= 1e4 || (av < 1e-2 && av > 0)) ? val.toExponential(3) : parseFloat(val.toPrecision(4)).toString();
-                                    showPixelInfo(view.pixelInfoEl, fmt(d.value), _mx, _my);
-                                    if (_pixelInfoVisible) _updateDimbarHover(ipx, ipy);
-                                } else if (view.pixelInfoEl) {
-                                    view.pixelInfoEl.style.display = 'none';
-                                }
-                            });
+                        fetchPixelInfo({
+                            event: e,
+                            canvas: cv,
+                            sid: view.sid,
+                            dimX: dim_x,
+                            dimY: dim_y,
+                            indices: qIndices,
+                            imgW: view.lastW,
+                            imgH: view.lastH,
+                            displayEl: view.pixelInfoEl,
+                            onResult: (d, px, py) => {
+                                if (_pixelInfoVisible) _updateDimbarHover(px, py);
+                            },
+                        });
                     });
                     cv.addEventListener('mouseleave', () => {
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
