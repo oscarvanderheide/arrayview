@@ -4886,6 +4886,33 @@
             } catch (_) { return null; }
         }
 
+        function _prefetchHoverSlices() {
+            if (qmriActive) {
+                qmriViews.forEach(v => {
+                    const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
+                    _fetchHoverSlice(sid, dim_x, dim_y, qi);
+                });
+            } else if (multiViewActive) {
+                mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
+            } else if (compareQmriActive) {
+                compareQmriViews.forEach(v => {
+                    const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
+                    _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
+                });
+            } else if (compareMvActive) {
+                compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
+            } else if (compareActive) {
+                compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
+            } else if (dim_z >= 0) {
+                // Mosaic: pre-fetch each z-tile slice
+                const n = shape[dim_z];
+                for (let z = 0; z < n; z++) {
+                    const ti = [...indices]; ti[dim_z] = z;
+                    _fetchHoverSlice(sid, dim_x, dim_y, ti);
+                }
+            }
+        }
+
         async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY) {
             const params = new URLSearchParams({
                 dim_x: fetchDimX, dim_y: fetchDimY,
@@ -6455,16 +6482,13 @@
             return parseFloat(v.toPrecision(4)).toString();
         };
         function fetchPixelInfo(opts) {
-            if (_pixelHoverThrottle) return false;
-
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
             const py = Math.floor((opts.event.clientY - rect.top) * opts.imgH / rect.height);
             if (px < 0 || px >= opts.imgW || py < 0 || py >= opts.imgH) return false;
 
-            // Fast path: use cached raw slice for instant local lookup
+            // Fast path: use cached raw slice for instant local lookup (never throttled)
             const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale;
-            // Check global cache first, then per-view hover cache
             let _fpSlice = null, _fpW = 0, _fpH = 0;
             if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
                 _fpSlice = _lebesgueSlice; _fpW = _lebesgueSliceW; _fpH = _lebesgueSliceH;
@@ -6474,7 +6498,6 @@
                 if (cached && cached.w > 0 && cached.h > 0) { _fpSlice = cached.slice; _fpW = cached.w; _fpH = cached.h; }
             }
             if (_fpSlice) {
-                // Un-flip canvas coordinates to raw array coordinates
                 const rawX = flip_x ? (_fpW - 1 - Math.floor(px * _fpW / opts.imgW)) : Math.floor(px * _fpW / opts.imgW);
                 const rawY = flip_y ? (_fpH - 1 - Math.floor(py * _fpH / opts.imgH)) : Math.floor(py * _fpH / opts.imgH);
                 if (rawX >= 0 && rawX < _fpW && rawY >= 0 && rawY < _fpH) {
@@ -6487,7 +6510,8 @@
                 }
             }
 
-            // Slow path: server fetch (throttled)
+            // Slow path: server fetch (throttled — only gates the network call, not the fast path above)
+            if (_pixelHoverThrottle) return false;
             _pixelHoverThrottle = true;
             setTimeout(() => { _pixelHoverThrottle = false; }, 50);
 
@@ -6996,26 +7020,7 @@
             if (lebesgueMode || _pixelInfoVisible) {
                 if (lebesgueMode) _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
-                // Re-fetch per-view hover slices for multi-pane modes
-                if (_pixelInfoVisible) {
-                    if (qmriActive) {
-                        qmriViews.forEach(v => {
-                            const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
-                            _fetchHoverSlice(sid, dim_x, dim_y, qi);
-                        });
-                    } else if (multiViewActive) {
-                        mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
-                    } else if (compareQmriActive) {
-                        compareQmriViews.forEach(v => {
-                            const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
-                            _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
-                        });
-                    } else if (compareMvActive) {
-                        compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
-                    } else if (compareActive) {
-                        compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
-                    }
-                }
+                if (_pixelInfoVisible) _prefetchHoverSlices();
             }
             if (compareQmriActive) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
@@ -8816,24 +8821,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
                             _fetchLebesgueSlice();
                         }
-                        // Pre-fetch per-view slices for multi-pane modes
-                        if (qmriActive) {
-                            qmriViews.forEach(v => {
-                                const qi = [...indices]; qi[qmriDim] = v.qmriIdx;
-                                _fetchHoverSlice(sid, dim_x, dim_y, qi);
-                            });
-                        } else if (multiViewActive) {
-                            mvViews.forEach(v => _fetchHoverSlice(sid, v.dimX, v.dimY, indices));
-                        } else if (compareQmriActive) {
-                            compareQmriViews.forEach(v => {
-                                const qi = [...indices]; qi[compareQmriDim] = v.qmriIdx;
-                                _fetchHoverSlice(v.sid, dim_x, dim_y, qi);
-                            });
-                        } else if (compareMvActive) {
-                            compareMvViews.forEach(v => _fetchHoverSlice(v.sid, v.dimX, v.dimY, indices));
-                        } else if (compareActive) {
-                            compareDisplaySids.forEach(s => { if (s) _fetchHoverSlice(s, dim_x, dim_y, indices); });
-                        }
+                        _prefetchHoverSlices();
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
                     showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
@@ -14207,13 +14195,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const xh = document.createElement('div'); xh.className = 'cmp-xhair-h'; inner.appendChild(xh);
             const xv = document.createElement('div'); xv.className = 'cmp-xhair-v'; inner.appendChild(xv);
         });
+        // Collect per-pane pixel-info elements for cross-pane hover lookup
+        const _comparePiEls = [];
         compareCanvases.forEach((cv, i) => {
             const piEl = cv.parentElement ? cv.parentElement.querySelector('.cv-pixel-info') : null;
+            _comparePiEls.push(piEl);
             cv.addEventListener('mousemove', (e) => {
                 if (!compareActive || comparePan.dragging) return;
                 const cvSid = compareDisplaySids[i];
                 if (!cvSid) return;
-                // Crosshair sync across all active compare panes
                 updateCompareCrosshairs(i, e);
                 fetchPixelInfo({
                     event: e,
@@ -14226,12 +14216,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     imgH: cv.height,
                     displayEl: piEl,
                     onResult: (d, px, py) => {
-                        if (_pixelInfoVisible) _updateDimbarHover(px, py);
+                        if (!_pixelInfoVisible) return;
+                        _updateDimbarHover(px, py);
+                        // Show value on other compare panes at the same pixel
+                        const ver = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
+                        compareCanvases.forEach((ocv, j) => {
+                            if (j === i) return;
+                            const oSid = compareDisplaySids[j];
+                            if (!oSid) return;
+                            const oPi = _comparePiEls[j];
+                            if (!oPi) return;
+                            const hkey = oSid + ':' + ver;
+                            const cached = _hoverSliceCache[hkey];
+                            if (!cached || !cached.w || !cached.h) return;
+                            const rawX = flip_x ? (cached.w - 1 - Math.floor(px * cached.w / cv.width)) : Math.floor(px * cached.w / cv.width);
+                            const rawY = flip_y ? (cached.h - 1 - Math.floor(py * cached.h / cv.height)) : Math.floor(py * cached.h / cv.height);
+                            if (rawX < 0 || rawX >= cached.w || rawY < 0 || rawY >= cached.h) return;
+                            const val = cached.slice[rawY * cached.w + rawX];
+                            if (!Number.isFinite(val)) return;
+                            // Position tooltip at corresponding spot on the other canvas
+                            const oRect = ocv.getBoundingClientRect();
+                            const sx = oRect.left + (px + 0.5) * oRect.width / ocv.width;
+                            const sy = oRect.top + (py + 0.5) * oRect.height / ocv.height;
+                            showPixelInfo(oPi, _pixelFmt(val), sx, sy);
+                        });
                     },
                 });
             });
             cv.addEventListener('mouseleave', () => {
-                if (piEl) piEl.style.display = 'none';
+                _comparePiEls.forEach(p => { if (p) p.style.display = 'none'; });
                 hideCompareCrosshairs();
                 if (_pixelInfoVisible) _resetDimbarHover();
             });
