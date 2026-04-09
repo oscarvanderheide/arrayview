@@ -2396,26 +2396,31 @@ def get_slice(
             complex_mode,
             log_scale,
             mosaic_cols=mosaic_cols,
+            vmin_override=vmin_override,
+            vmax_override=vmax_override,
         )
-        idx_norm = list(idx_tuple)
-        idx_norm[dim_z] = 0
-        frames_raw = [
-            extract_slice(
-                session,
-                dim_x,
-                dim_y,
-                [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
-            )
-            for i in range(session.shape[dim_z])
-        ]
-        frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
-        if log_scale:
-            frames = [np.log1p(np.abs(frame)).astype(np.float32) for frame in frames]
-            all_data = np.stack(frames)
-            vmin = float(np.percentile(all_data, 1))
-            vmax = float(np.percentile(all_data, 99))
+        if vmin_override is not None and vmax_override is not None:
+            vmin, vmax = float(vmin_override), float(vmax_override)
         else:
-            vmin, vmax = _compute_vmin_vmax(session, np.stack(frames), dr, complex_mode)
+            idx_norm = list(idx_tuple)
+            idx_norm[dim_z] = 0
+            frames_raw = [
+                extract_slice(
+                    session,
+                    dim_x,
+                    dim_y,
+                    [i if j == dim_z else idx_tuple[j] for j in range(len(session.shape))],
+                )
+                for i in range(session.shape[dim_z])
+            ]
+            frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
+            if log_scale:
+                frames = [np.log1p(np.abs(frame)).astype(np.float32) for frame in frames]
+                all_data = np.stack(frames)
+                vmin = float(np.percentile(all_data, 1))
+                vmax = float(np.percentile(all_data, 99))
+            else:
+                vmin, vmax = _compute_vmin_vmax(session, np.stack(frames), dr, complex_mode)
     else:
         if session.rgb_axis is not None:
             rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))

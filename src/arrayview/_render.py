@@ -667,10 +667,12 @@ def render_mosaic(
     complex_mode=0,
     log_scale=False,
     mosaic_cols=None,
+    vmin_override=None,
+    vmax_override=None,
 ):
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
-    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols)
+    key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override)
     if key in session.mosaic_cache:
         session.mosaic_cache.move_to_end(key)
         return session.mosaic_cache[key]
@@ -690,7 +692,9 @@ def render_mosaic(
         frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
     all_data = np.stack(frames)
 
-    if complex_mode == 1 and np.iscomplexobj(session.data):
+    if vmin_override is not None and vmax_override is not None:
+        vmin, vmax = float(vmin_override), float(vmax_override)
+    elif complex_mode == 1 and np.iscomplexobj(session.data):
         vmin, vmax = -float(np.pi), float(np.pi)
     else:
         vmin = float(np.percentile(all_data, 1))
