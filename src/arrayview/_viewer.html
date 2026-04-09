@@ -13,6 +13,7 @@
             --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
             --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
+            --dim-hover: #777;
         }
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
@@ -22,6 +23,7 @@
             --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
             --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
+            --dim-hover: #888;
         }
         :root.solarized {
             --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
@@ -31,6 +33,7 @@
             --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
             --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
+            --dim-hover: #8a8a7a;
         }
         :root.nord {
             --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
@@ -40,6 +43,7 @@
             --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #88c0d0; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
             --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
+            --dim-hover: #7a8594;
         }
         html, body {
             background: var(--bg); margin: 0; padding: 0;
@@ -261,6 +265,7 @@
         #mv-cb { border: none; }
         .highlight { color: var(--highlight); font-weight: bold; }
         .dim-size { opacity: 0.28; font-size: 0.68em; font-weight: normal; }
+        .dim-hover-idx { font-size: 0.68em; font-weight: normal; color: var(--dim-hover, #777); opacity: 1; }
         .active-dim { color: var(--active-dim); font-weight: bold; }
         .playing-dim { color: var(--playing-dim); font-weight: bold; }
         .vfield-t-dim { color: var(--vfield-t-dim); }
@@ -1817,7 +1822,7 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
-        let _zoomSensitivity = 0.01; // scroll-zoom exponent multiplier (halved for crossfade debugging)
+        let _zoomSensitivity = 0.002; // scroll-zoom exponent multiplier (halved for crossfade debugging)
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
@@ -6385,17 +6390,17 @@
                     return `<span class="dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_x) {
-                    const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-size">/${shape[i]}</span>`;
+                    const inner = (flip_x ? '<span class="muted">-</span>' : '') + 'x' + `<span class="dim-size" id="dim-x-size">/${shape[i]}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_y) {
-                    const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y' + `<span class="dim-size">/${shape[i]}</span>`;
+                    const inner = (flip_y ? '<span class="muted">-</span>' : '') + 'y' + `<span class="dim-size" id="dim-y-size">/${shape[i]}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
                 if (i === dim_z) {
-                    const inner = `z<span class="dim-size">/${shape[i]}</span>`;
+                    const inner = `z<span class="dim-size" id="dim-z-size">/${shape[i]}</span>`;
                     return (active || playing) ? `<span class="${dimCls} dim-label" ${d}>${inner}</span>`
                                   : `<span class="spatial-dim dim-label" ${d}>${inner}</span>`;
                 }
@@ -6458,7 +6463,22 @@
             document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
         }
 
+        function _updateDimbarHover(px, py) {
+            const xEl = document.getElementById('dim-x-size');
+            const yEl = document.getElementById('dim-y-size');
+            if (xEl) { xEl.textContent = '/' + px; xEl.className = 'dim-hover-idx'; }
+            if (yEl) { yEl.textContent = '/' + py; yEl.className = 'dim-hover-idx'; }
+        }
+        function _resetDimbarHover() {
+            const xEl = document.getElementById('dim-x-size');
+            const yEl = document.getElementById('dim-y-size');
+            if (xEl) { xEl.textContent = '/' + shape[dim_x]; xEl.className = 'dim-size'; }
+            if (yEl) { yEl.textContent = '/' + shape[dim_y]; yEl.className = 'dim-size'; }
+        }
+
         function flashAxesIndicators() {
+            // When hover info is active, dimbar shows coordinates — don't flash arrows
+            if (_pixelInfoVisible) return;
             refreshAxesColor();
             document.querySelectorAll('.axes-indicator').forEach(el => {
                 el.style.transition = 'none';  // snap to visible immediately
@@ -6466,7 +6486,7 @@
             });
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
             // In multi-view or compare-mv mode, keep axes indicators always visible
-            if (_pixelInfoVisible || multiViewActive || compareMvActive) return;
+            if (multiViewActive || compareMvActive) return;
             axesFlashTimer = setTimeout(() => {
                 document.querySelectorAll('.axes-indicator').forEach(el => {
                     el.style.transition = 'opacity 0.6s ease';
@@ -8129,11 +8149,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 displayEl: document.getElementById('main-pixel-info'),
                 onResult: (d, px, py) => {
                     if (_pixelInfoVisible && !multiViewActive && !compareActive) {
-                        const axEl = document.getElementById('main-axes-svg');
-                        if (axEl) {
-                            axEl.querySelector('.axes-lbl-x').textContent = `x ${px}`;
-                            axEl.querySelector('.axes-lbl-y').textContent = `y ${py}`;
-                        }
+                        _updateDimbarHover(px, py);
                     }
                 },
             });
@@ -8793,6 +8809,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _pixelInfoVisible = !_pixelInfoVisible;
                     if (!_pixelInfoVisible) {
                         hideAllPixelInfo();
+                        _resetDimbarHover();
                         const axEl = document.getElementById('main-axes-svg');
                         if (axEl) {
                             axEl.querySelector('.axes-lbl-x').textContent = 'x';
@@ -8810,7 +8827,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             el.style.opacity = '0';
                         });
                     } else {
-                        flashAxesIndicators();
                         // Pre-fetch raw slice for instant local lookups
                         if (!_lebesgueSlice || _lebesgueVersion !== (indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale)) {
                             _fetchLebesgueSlice();
@@ -11464,9 +11480,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         imgH: view.lastH,
                         displayEl: view.pixelInfoEl,
                         onResult: (d, px, py) => {
-                            if (_pixelInfoVisible && view.axesSvg) {
-                                view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${px}`;
-                                view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${py}`;
+                            if (_pixelInfoVisible) {
+                                _updateDimbarHover(px, py);
+                                if (view.axesSvg) {
+                                    view.axesSvg.querySelector('.axes-lbl-x').textContent = `${view.axLblX} ${px}`;
+                                    view.axesSvg.querySelector('.axes-lbl-y').textContent = `${view.axLblY} ${py}`;
+                                }
                             }
                         },
                     });
@@ -12171,6 +12190,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             imgH: view.lastH,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
+                                if (_pixelInfoVisible) _updateDimbarHover(px, py);
                                 // Fetch for all other qmri views at same pixel
                                 qmriViews.forEach(v => {
                                     if (v === view) return;
