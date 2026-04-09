@@ -15658,8 +15658,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.touches.length === 2 && _pinchDist0 !== null) {
                 e.preventDefault();
                 const d = _pinchDist(e.touches);
-                // Dampen with ^0.35 to avoid over-sensitive zoom on small pinch movements
-                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * Math.pow(d / _pinchDist0, 0.35)));
+                // Direct ratio — touch events are smoothly sampled, no dampening needed
+                userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * (d / _pinchDist0)));
                 _zoomAdjustedByUser = true;
                 ModeRegistry.scaleAll();
             }
