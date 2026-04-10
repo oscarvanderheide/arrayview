@@ -7,6 +7,7 @@ set -euo pipefail
 
 BUMP="minor"
 DRY_RUN=true
+NO_AI=false
 
 usage() {
     cat <<EOF
@@ -15,6 +16,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --bump {major,minor,patch}   Version bump type (default: minor)
   --execute                    Actually run (default is dry-run)
+  --no-ai                      Skip AI release notes, use GitHub's --generate-notes
   -h, --help                   Show this help
 EOF
 }
@@ -23,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --bump)   BUMP="$2"; shift 2 ;;
         --execute) DRY_RUN=false; shift ;;
+        --no-ai)  NO_AI=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -60,16 +63,71 @@ run() {
     "$@"
 }
 
+# --- Generate release notes ---
+CLAUDE_BIN="${CLAUDE_BIN:-/Users/oscar/.local/bin/claude}"
+PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+NOTES=""
+
+if [[ -n "$PREV_TAG" ]]; then
+    COMMITS=$(git log "${PREV_TAG}..HEAD" --oneline)
+else
+    COMMITS=$(git log --oneline -20)
+fi
+
+if [[ "$NO_AI" == false ]] && command -v "$CLAUDE_BIN" &>/dev/null; then
+    echo "Generating release notes with Claude..."
+    NOTES=$("$CLAUDE_BIN" -p "You are writing release notes for arrayview $TAG (a Python array/image viewer).
+
+Here are the commits since the last release ($PREV_TAG):
+
+$COMMITS
+
+Write concise, user-friendly release notes in this exact format:
+
+## What's new in $TAG
+
+- **Feature name**: one-sentence description
+
+Rules:
+- 5-10 bullet points max — group related commits into one bullet
+- Write for end-users, not developers (no commit hashes, no file names)
+- Use past tense (\"added\", \"fixed\", \"improved\")
+- Skip pure refactors/docs unless they affect user experience
+- Bold the feature name, keep the description to one sentence" 2>/dev/null) || true
+fi
+
+if [[ -z "$NOTES" ]]; then
+    if [[ "$NO_AI" == false ]]; then
+        echo "AI notes unavailable, falling back to --generate-notes"
+    fi
+fi
+
+if [[ "$DRY_RUN" == true && -n "$NOTES" ]]; then
+    echo ""
+    echo "--- Release notes preview ---"
+    echo "$NOTES"
+    echo "-----------------------------"
+    echo ""
+fi
+
 # --- Commit, tag, push, release ---
 run git add pyproject.toml
 run git commit -m "release: $TAG"
 run git push origin main
 run git tag "$TAG"
 run git push origin "$TAG"
-run gh release create "$TAG" \
-    --title "[Pre-release] $TAG" \
-    --generate-notes \
-    --prerelease
+
+if [[ -n "$NOTES" ]]; then
+    run gh release create "$TAG" \
+        --title "$TAG" \
+        --notes "$NOTES" \
+        --prerelease
+else
+    run gh release create "$TAG" \
+        --title "$TAG" \
+        --generate-notes \
+        --prerelease
+fi
 
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
