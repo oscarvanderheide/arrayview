@@ -1750,6 +1750,7 @@
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
         let _lebesgueVersion = null;    // version key for cached _lebesgueSlice
         let _lebesgueFetchCtrl = null;  // AbortController for in-flight Lebesgue fetch
+        let _hoverPrefetchTimer = null; // debounce for hover prefetch during rapid scrolling
         let _lastLebesgueBin = -1;      // tracks which histogram bin is currently highlighted
         let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
@@ -7158,8 +7159,13 @@
             if (_lpsKeys.length > 32) _lpsKeys.slice(0, _lpsKeys.length - 16).forEach(k => delete _lebesguePerSession[k]);
             if (lebesgueMode || _pixelInfoVisible) {
                 if (lebesgueMode) _clearLebesgueOverlay();
-                _fetchLebesgueSlice();
-                if (_pixelInfoVisible) _prefetchHoverSlices();
+                // Debounce the fetch so rapid trackpad scrolling doesn't
+                // keep aborting in-flight requests before they complete.
+                clearTimeout(_hoverPrefetchTimer);
+                _hoverPrefetchTimer = setTimeout(() => {
+                    _fetchLebesgueSlice();
+                    if (_pixelInfoVisible) _prefetchHoverSlices();
+                }, 80);
             }
             if (compareQmriActive) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
