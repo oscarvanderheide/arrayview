@@ -29,6 +29,12 @@ Load the relevant skill before touching the corresponding area.
 - All colorbar state (animation, window/level, hover, drag) flows through `primaryCb` ColorBar instance — never read/write legacy globals. Multiview colorbars sync via `primaryCb`.
 - Keybinds flow through the command registry (`commands` / `keybinds` in `_viewer.html`), not inline keydown branches. The help overlay auto-generates from command `title` fields — do not hand-edit it.
 
+## Contributing
+
+Before creating a PR or making user-facing changes, read `CONTRIBUTING.md`. It defines the design
+language, keybinding conventions, overlay/popup patterns, and testing requirements. All PRs that
+touch the viewer must follow it.
+
 ## Execution
 
 Always use **subagent-driven development** for implementation. Commit completed work automatically.
