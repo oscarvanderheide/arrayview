@@ -10091,6 +10091,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         v.rendering = false; v.pending = false; v.seq++;
                     });
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    _debouncedHoverPrefetch();
                     showStatus('origin reset');
                 },
             },
@@ -13170,6 +13171,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 fy ? shape[view.dimY] - 1 - Math.floor(py) : Math.floor(py)));
             renderInfo();
             compareMvViews.forEach(v => { compareMvDrawFrame(v); compareMvRender(v); });
+            _debouncedHoverPrefetch();
         }
 
         function exitCompareMv() {
