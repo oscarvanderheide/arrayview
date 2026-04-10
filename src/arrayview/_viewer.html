@@ -13816,6 +13816,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 renderInfo();
                 mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
             }
+            _debouncedHoverPrefetch();
         }
 
         async function mvRenderOblique(v) {
