@@ -66,7 +66,7 @@ run() {
 }
 
 # --- Generate release notes ---
-CLAUDE_BIN="${CLAUDE_BIN:-/Users/oscar/.local/bin/claude}"
+CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || echo claude)}"
 PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
 NOTES=""
 
