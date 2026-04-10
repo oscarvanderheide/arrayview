@@ -733,11 +733,48 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                     uses_pid = _reg_data.get("fallbackId", False)
                 except Exception:
                     uses_pid = env_wid.isdigit()
+
+                # Guard against stale ARRAYVIEW_WINDOW_ID: when the extension
+                # host restarts (e.g. tunnel reconnection), the old process may
+                # still be alive but is no longer connected to a VS Code client.
+                # Detect this by looking for a newer registration from the same
+                # server (same first ppid — the tunnel/server parent process).
+                _env_ts = _reg_data.get("ts", 0)
+                _env_ppids = _reg_data.get("ppids", [])
+                try:
+                    for _fname in os.listdir(signal_dir):
+                        if not (_fname.startswith("window-") and _fname.endswith(".json")):
+                            continue
+                        _other_wid = _fname[7:-5]
+                        if _other_wid == env_wid:
+                            continue
+                        with open(os.path.join(signal_dir, _fname)) as _f:
+                            _other = json.load(_f)
+                        _other_ts = _other.get("ts", 0)
+                        _other_ppids = _other.get("ppids", [])
+                        if (
+                            _other_ts > _env_ts
+                            and len(_env_ppids) >= 1
+                            and len(_other_ppids) >= 1
+                            and _env_ppids[0] == _other_ppids[0]
+                        ):
+                            _vprint(
+                                f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} is stale "
+                                f"(newer registration {_other_wid} found), redirecting",
+                                flush=True,
+                            )
+                            env_wid = _other_wid
+                            _reg_data = _other
+                            uses_pid = _other.get("fallbackId", False)
+                            _env_ts = _other_ts
+                except Exception:
+                    pass
+
                 _prefix = "pid" if uses_pid else "ipc"
                 filenames = (f"open-request-{_prefix}-{env_wid}.json",)
                 targeted_via_env = True
                 _vprint(
-                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} → {filenames[0]}",
+                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID → {filenames[0]}",
                     flush=True,
                 )
 
@@ -868,6 +905,39 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                         _uses_pid = _reg_data.get("fallbackId", False)
                     except Exception:
                         _uses_pid = env_wid.isdigit()
+
+                    # Same stale-env guard as the primary check above.
+                    _env_ts = _reg_data.get("ts", 0)
+                    _env_ppids = _reg_data.get("ppids", [])
+                    try:
+                        for _fname in os.listdir(signal_dir):
+                            if not (_fname.startswith("window-") and _fname.endswith(".json")):
+                                continue
+                            _other_wid = _fname[7:-5]
+                            if _other_wid == env_wid:
+                                continue
+                            with open(os.path.join(signal_dir, _fname)) as _f:
+                                _other = json.load(_f)
+                            _other_ts = _other.get("ts", 0)
+                            _other_ppids = _other.get("ppids", [])
+                            if (
+                                _other_ts > _env_ts
+                                and len(_env_ppids) >= 1
+                                and len(_other_ppids) >= 1
+                                and _env_ppids[0] == _other_ppids[0]
+                            ):
+                                _vprint(
+                                    f"[ArrayView] signal: remote env {env_wid} is stale "
+                                    f"(newer {_other_wid}), redirecting",
+                                    flush=True,
+                                )
+                                env_wid = _other_wid
+                                _reg_data = _other
+                                _uses_pid = _other.get("fallbackId", False)
+                                _env_ts = _other_ts
+                    except Exception:
+                        pass
+
                     _prefix = "pid" if _uses_pid else "ipc"
                     _vprint(f"[ArrayView] signal: env window match → {_prefix}-{env_wid}", flush=True)
                     filenames = (f"open-request-{_prefix}-{env_wid}.json",)

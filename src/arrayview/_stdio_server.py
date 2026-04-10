@@ -637,7 +637,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
     """Return the rendered viewer HTML with template substitutions."""
     from importlib.resources import files as _pkg_files
 
-    from arrayview._config import get_viewer_colormaps
+    from arrayview._config import get_viewer_colormaps, get_viewer_theme
     from arrayview._render import COLORMAP_GRADIENT_STOPS, COMPLEX_MODES, REAL_MODES
     from arrayview._session import COLORMAPS
 
@@ -650,12 +650,17 @@ def _handle_get_viewer_html(msg: dict) -> None:
 
     query_val = json.dumps(f"?sid={sid}&transport=postMessage") if sid else "null"
 
+    _theme_names = ["dark", "light", "solarized", "nord"]
+    _cfg_theme = get_viewer_theme()
+    _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
+
     html = (
         template.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
         .replace("__COMPLEX_MODES__", str(COMPLEX_MODES))
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
+        .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
     )
 
     _write_json({"html": html})
