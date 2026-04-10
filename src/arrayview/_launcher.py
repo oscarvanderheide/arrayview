@@ -2102,24 +2102,67 @@ def arrayview():
             from arrayview._io import load_data
             from arrayview._session import SESSIONS, Session
 
-            for file_path in args.files:
-                data = load_data(file_path)
-                session = Session(
-                    data=data,
-                    filepath=file_path,
-                    name=_Path(file_path).name,
+            # First file is the main array
+            base_path = args.files[0]
+            data = load_data(base_path)
+            session = Session(
+                data=data,
+                filepath=base_path,
+                name=_Path(base_path).name,
+            )
+            if getattr(args, "rgb", False):
+                _setup_rgb(session)
+
+            # Attach vector field if provided
+            if getattr(args, "vectorfield", None):
+                from arrayview._server import _configure_vectorfield
+
+                vf_data = load_data(args.vectorfield)
+                _configure_vectorfield(
+                    session, vf_data,
+                    getattr(args, "vectorfield_components_dim", None),
                 )
-                if getattr(args, "rgb", False):
-                    _setup_rgb(session)
-                SESSIONS[session.sid] = session
-                info = json.dumps(
-                    {
-                        "sid": session.sid,
-                        "name": session.name,
-                        "shape": [int(s) for s in session.shape],
-                    }
+
+            SESSIONS[session.sid] = session
+
+            # Load overlay as a separate session
+            overlay_sid = None
+            if getattr(args, "overlay", None):
+                ov_data = load_data(args.overlay)
+                ov_session = Session(
+                    data=ov_data,
+                    filepath=args.overlay,
+                    name="overlay",
                 )
-                print(f"SESSION:{info}", file=sys.stderr)
+                SESSIONS[ov_session.sid] = ov_session
+                overlay_sid = ov_session.sid
+
+            # Load compare files (additional positional args + --compare)
+            compare_sids = []
+            compare_paths = list(args.files[1:])
+            if getattr(args, "compare", None):
+                compare_paths.append(args.compare)
+            for cp in compare_paths:
+                cmp_data = load_data(cp)
+                cmp_session = Session(
+                    data=cmp_data,
+                    filepath=cp,
+                    name=_Path(cp).name,
+                )
+                SESSIONS[cmp_session.sid] = cmp_session
+                compare_sids.append(cmp_session.sid)
+
+            info = json.dumps(
+                {
+                    "sid": session.sid,
+                    "name": session.name,
+                    "shape": [int(s) for s in session.shape],
+                    "has_vectorfield": session.vfield is not None,
+                    "overlay_sid": overlay_sid,
+                    "compare_sids": compare_sids or None,
+                }
+            )
+            print(f"SESSION:{info}", file=sys.stderr)
         run_stdio_server()
         return
 
@@ -2662,9 +2705,27 @@ def arrayview():
     # WebSocket server entirely.  The extension spawns a Python subprocess
     # with --mode stdio and bridges via postMessage — no ports needed.
     is_remote = _is_vscode_remote()
-    if is_remote and not args.overlay and not compare_files and not getattr(args, 'vectorfield', None):
+    if is_remote:
         _ensure_vscode_extension()
-        _open_direct_via_signal_file(base_file, title=f"ArrayView: {name}")
+        # Build generic extra CLI args so new flags work without touching the
+        # VS Code extension — they're forwarded verbatim to the subprocess.
+        extra_args: list[str] = []
+        if args.vectorfield:
+            extra_args += ["--vectorfield", os.path.abspath(args.vectorfield)]
+            if vfield_components_dim is not None:
+                extra_args += ["--vectorfield-components-dim", str(vfield_components_dim)]
+        if args.overlay:
+            extra_args += ["--overlay", os.path.abspath(args.overlay)]
+        if args.rgb:
+            extra_args.append("--rgb")
+        # Compare files: pass as additional positional args
+        for cf in compare_files:
+            extra_args.append(cf)
+        _open_direct_via_signal_file(
+            base_file,
+            title=f"ArrayView: {name}",
+            extra_args=extra_args or None,
+        )
         return
 
     sid = uuid.uuid4().hex

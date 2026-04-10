@@ -2,9 +2,10 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.11.0",
+  "version": "0.13.0",
   "publisher": "arrayview",
   "license": "MIT",
+  "icon": "icon.png",
   "engines": { "vscode": "^1.80.0" },
   "extensionKind": ["workspace", "ui"],
   "categories": ["Other"],
@@ -17,13 +18,35 @@
   "files": [
     "extension.js",
     "package.json",
+    "icon.png",
     "LICENSE"
   ],
   "contributes": {
     "commands": [
       {
         "command": "arrayview.openFile",
-        "title": "ArrayView: Open File"
+        "title": "Open in ArrayView"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "arrayview.arrayEditor",
+        "displayName": "ArrayView",
+        "selector": [
+          { "filenamePattern": "*.npy" },
+          { "filenamePattern": "*.npz" },
+          { "filenamePattern": "*.nii" },
+          { "filenamePattern": "*.nii.gz" },
+          { "filenamePattern": "*.h5" },
+          { "filenamePattern": "*.hdf5" },
+          { "filenamePattern": "*.mat" },
+          { "filenamePattern": "*.tif" },
+          { "filenamePattern": "*.tiff" },
+          { "filenamePattern": "*.pt" },
+          { "filenamePattern": "*.pth" },
+          { "filenamePattern": "*.zarr.zip" }
+        ],
+        "priority": "default"
       }
     ]
   }

@@ -58,7 +58,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.9.0"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.13.0"  # current bundled extension version
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -152,14 +152,42 @@ def _remove_old_extension_versions(current_version: str) -> None:
                 _vprint(f"[ArrayView] could not remove {entry}: {exc}", flush=True)
 
 
-def _extension_on_disk(version: str) -> bool:
-    """Return True if the extension directory for *version* exists on disk."""
+def _extension_on_disk(version: str, vsix_path: str | None = None) -> bool:
+    """Return True if the extension directory for *version* exists on disk.
+
+    When *vsix_path* is given, also verifies that the installed extension
+    matches the bundled VSIX by comparing a content hash stored at install
+    time.  This catches rebuilds during development where the version stays
+    the same but the VSIX content changed.
+    """
+    import hashlib
+
     for base in (
         os.path.expanduser("~/.vscode/extensions"),
         os.path.expanduser("~/.vscode-server/extensions"),
     ):
-        if os.path.isdir(os.path.join(base, f"arrayview.arrayview-opener-{version}")):
+        ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{version}")
+        if not os.path.isdir(ext_dir):
+            continue
+        if vsix_path is None:
             return True
+        # Compare content hash
+        try:
+            vsix_hash = hashlib.md5(open(vsix_path, "rb").read()).hexdigest()
+        except OSError:
+            return True  # can't read VSIX, assume installed is fine
+        hash_file = os.path.join(ext_dir, ".vsix_hash")
+        try:
+            installed_hash = open(hash_file).read().strip()
+        except OSError:
+            installed_hash = None
+        if installed_hash == vsix_hash:
+            return True
+        _vprint(
+            f"[ArrayView] VSIX content changed (installed={installed_hash}, bundled={vsix_hash}) — reinstalling",
+            flush=True,
+        )
+        return False
     return False
 
 
@@ -190,11 +218,11 @@ def _ensure_vscode_extension() -> bool:
         _vprint("[ArrayView] could not read version from bundled VSIX", flush=True)
         return False
 
-    # Fast path: correct version already installed — no reinstall needed.
-    # Reinstalling with --force triggers an extension-host reload, which
-    # creates a ~10-15s gap during which the signal file can be missed.
+    # Fast path: correct version and content already installed — no reinstall
+    # needed.  Reinstalling with --force triggers an extension-host reload,
+    # which creates a ~10-15s gap during which the signal file can be missed.
     _remove_old_extension_versions(ext_version)
-    if _extension_on_disk(ext_version):
+    if _extension_on_disk(ext_version, vsix_path):
         _VSCODE_EXT_INSTALLED = True
         _vprint(
             f"[ArrayView] extension v{ext_version} already installed — skipping reinstall",
@@ -228,6 +256,21 @@ def _ensure_vscode_extension() -> bool:
         )
         if r.returncode == 0 and not install_failed:
             _patch_vscode_extension_metadata(ext_version)
+            # Write content hash so future runs can detect VSIX rebuilds
+            # without a version bump (common during development).
+            try:
+                import hashlib
+                vsix_hash = hashlib.md5(open(vsix_path, "rb").read()).hexdigest()
+                for base in (
+                    os.path.expanduser("~/.vscode/extensions"),
+                    os.path.expanduser("~/.vscode-server/extensions"),
+                ):
+                    ext_dir = os.path.join(base, f"arrayview.arrayview-opener-{ext_version}")
+                    if os.path.isdir(ext_dir):
+                        with open(os.path.join(ext_dir, ".vsix_hash"), "w") as f:
+                            f.write(vsix_hash)
+            except Exception:
+                pass  # non-critical
             _VSCODE_EXT_INSTALLED = True
             _VSCODE_EXT_FRESH_INSTALL = True
             return True
@@ -566,7 +609,9 @@ def _open_via_signal_file(
 
 
 def _open_direct_via_signal_file(
-    filepath: str, title: str | None = None
+    filepath: str,
+    title: str | None = None,
+    extra_args: list[str] | None = None,
 ) -> bool:
     """Write a direct-mode signal file for the VS Code extension.
 
@@ -574,6 +619,10 @@ def _open_direct_via_signal_file(
     subprocess (``python -m arrayview --mode stdio <filepath>``) and hosts
     the viewer HTML directly in a webview panel with postMessage transport.
     No ports, no WebSocket, no authentication — just IPC.
+
+    *extra_args* are forwarded verbatim to the subprocess command line so
+    that new CLI flags (``--vectorfield``, ``--overlay``, ``--rgb``, …)
+    work without touching the extension.
     """
     import sys as _sys
 
@@ -586,6 +635,8 @@ def _open_direct_via_signal_file(
     }
     if title:
         payload["title"] = title
+    if extra_args:
+        payload["extraArgs"] = extra_args
     return _write_vscode_signal(payload, skip_compat=True)
 
 

@@ -24,7 +24,10 @@ import numpy as np
 
 from arrayview._io import load_data, load_data_with_meta
 from arrayview._render import (
+    LUTS,
     _composite_overlay_mask,
+    _compute_vmin_vmax,
+    _ensure_lut,
     _extract_overlay_mask,
     _init_luts,
     _overlay_is_label_map,
@@ -32,6 +35,7 @@ from arrayview._render import (
     apply_complex_mode,
     extract_projection,
     extract_slice,
+    mosaic_shape,
     render_mosaic,
     render_projection_rgba,
     render_rgb_rgba,
@@ -485,6 +489,258 @@ def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
     })
 
 
+def _handle_vectorfield_fetch(sid: str, params: dict) -> None:
+    """Return downsampled vector field arrows for a 2-D view."""
+    session = SESSIONS.get(sid)
+    if not session or session.vfield is None:
+        _write_json({"error": "no vectorfield"})
+        return
+    dim_x = int(params.get("dim_x", 0))
+    dim_y = int(params.get("dim_y", 0))
+    indices = params.get("indices", "")
+    idx_tuple = tuple(int(x) for x in indices.split(",")) if indices else ()
+    t_index = int(params.get("t_index", 0))
+    density_offset = int(params.get("density_offset", 0))
+    result = _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index, density_offset)
+    if result is None:
+        _write_json({"error": "vectorfield computation failed"})
+        return
+    _write_json({
+        "arrows": result["arrows"].tolist(),
+        "scale": result["scale"],
+        "stride": result["stride"],
+    })
+
+
+def _handle_pixel(sid: str, params: dict) -> None:
+    """Return the raw value at a single pixel."""
+    session = SESSIONS.get(sid)
+    if not session:
+        _write_json({"error": "session not found"})
+        return
+    if session.rgb_axis is not None:
+        _write_json({"value": None})
+        return
+    dim_x = int(params.get("dim_x", 0))
+    dim_y = int(params.get("dim_y", 0))
+    indices = params.get("indices", "")
+    idx_tuple = tuple(int(x) for x in indices.split(",")) if indices else ()
+    px = int(params.get("px", 0))
+    py = int(params.get("py", 0))
+    complex_mode = int(params.get("complex_mode", 0))
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data = apply_complex_mode(raw, complex_mode)
+    h, w = data.shape
+    if 0 <= py < h and 0 <= px < w:
+        v = data[py, px]
+        val = None if np.isnan(v) or np.isinf(v) else float(v)
+    else:
+        val = None
+    _write_json({"value": val})
+
+
+# ---------------------------------------------------------------------------
+# Diff / Compare helpers
+# ---------------------------------------------------------------------------
+
+def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
+    """Extract a slice and normalize to [0, 1] float32."""
+    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    return normalized.astype(np.float32)
+
+
+def _render_normalized_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale):
+    """Return (float32 normalized mosaic [0,1], nan_mask)."""
+    n = session.shape[dim_z]
+    idx_list = list(idx_tuple)
+    frames_raw = [
+        extract_slice(
+            session, dim_x, dim_y,
+            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
+        )
+        for i in range(n)
+    ]
+    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
+    if log_scale:
+        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
+    all_data = np.stack(frames)
+    if log_scale:
+        vmin = float(np.percentile(all_data, 1))
+        vmax = float(np.percentile(all_data, 99))
+    else:
+        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
+    rows, cols = mosaic_shape(n)
+    H, W = frames[0].shape
+    GAP = 2
+    total_h = rows * H + (rows - 1) * GAP
+    total_w = cols * W + (cols - 1) * GAP
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        r0, c0 = r * (H + GAP), c * (W + GAP)
+        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
+    nan_mask = np.isnan(grid)
+    if vmax > vmin:
+        normalized = np.clip(np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1)
+    else:
+        normalized = np.zeros_like(grid)
+    return normalized.astype(np.float32), nan_mask
+
+
+def _compute_diff(session_a, session_b, dim_x, dim_y, indices, dim_z, dr, complex_mode, log_scale, diff_mode):
+    """Shared diff logic for both diff image and diff histogram handlers.
+
+    Returns (raw_diff, vmin, vmax, colormap, nan_mask_or_None).
+    """
+    idx_tuple = tuple(int(x) for x in indices.split(",")) if isinstance(indices, str) else indices
+    ndim_a = len(session_a.shape)
+    ndim_b = len(session_b.shape)
+    idx_a = idx_tuple[:ndim_a]
+    idx_b = idx_tuple[:ndim_b]
+    nan_mask = None
+
+    if dim_z >= 0:
+        a, nan_mask_a = _render_normalized_mosaic(session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale)
+        b, nan_mask_b = _render_normalized_mosaic(session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale)
+        nan_mask = nan_mask_a | nan_mask_b
+    else:
+        a = _render_normalized(session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale)
+        b = _render_normalized(session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale)
+
+    # Resize b to match a if shapes differ
+    if a.shape != b.shape:
+        b_img = _pil_image().fromarray((b * 255).astype(np.uint8), mode="L")
+        b_img = b_img.resize((a.shape[1], a.shape[0]), _pil_image().BILINEAR)
+        b = np.array(b_img, dtype=np.float32) / 255.0
+
+    if diff_mode == 1:
+        raw = a - b
+        vmin, vmax = -1.0, 1.0
+        colormap = "RdBu_r"
+    elif diff_mode == 2:
+        raw = np.abs(a - b)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "afmhot"
+    else:
+        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
+        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
+        vmax = float(raw.max()) or 1.0
+        vmin = 0.0
+        colormap = "afmhot"
+
+    return raw, vmin, vmax, colormap, nan_mask
+
+
+def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
+    """Render a diff image and return as base64 JPEG with metadata headers."""
+    import base64
+    import io
+
+    session_a = SESSIONS.get(sid_a)
+    session_b = SESSIONS.get(sid_b)
+    if not session_a or not session_b:
+        _write_json({"error": "session not found"})
+        return
+
+    dim_x = int(params.get("dim_x", 0))
+    dim_y = int(params.get("dim_y", 0))
+    indices = params.get("indices", "")
+    dim_z = int(params.get("dim_z", -1))
+    dr = int(params.get("dr", 1))
+    complex_mode = int(params.get("complex_mode", 0))
+    log_scale = params.get("log_scale", "false").lower() == "true"
+    diff_mode = int(params.get("diff_mode", 1))
+    diff_colormap = params.get("diff_colormap", "")
+    _vmin_ov = params.get("vmin_override")
+    _vmax_ov = params.get("vmax_override")
+    vmin_override = float(_vmin_ov) if _vmin_ov is not None else None
+    vmax_override = float(_vmax_ov) if _vmax_ov is not None else None
+
+    try:
+        raw, vmin, vmax, colormap, nan_mask = _compute_diff(
+            session_a, session_b, dim_x, dim_y, indices,
+            dim_z, dr, complex_mode, log_scale, diff_mode,
+        )
+    except Exception as e:
+        _write_json({"error": str(e)})
+        return
+
+    if vmin_override is not None:
+        vmin = vmin_override
+    if vmax_override is not None:
+        vmax = vmax_override
+    if diff_colormap and _ensure_lut(diff_colormap):
+        colormap = diff_colormap
+
+    if vmax > vmin:
+        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(raw)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    rgba = lut[(normalized * 255).astype(np.uint8)]
+    if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
+        rgba[nan_mask] = [22, 22, 22, 255]
+
+    img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+
+    _write_json({
+        "_binary": True,
+        "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "headers": {
+            "X-ArrayView-Vmin": str(vmin),
+            "X-ArrayView-Vmax": str(vmax),
+            "X-ArrayView-Colormap": colormap,
+        },
+    })
+
+
+def _handle_diff_histogram(sid_a: str, sid_b: str, params: dict) -> None:
+    """Compute histogram of the diff between two sessions."""
+    session_a = SESSIONS.get(sid_a)
+    session_b = SESSIONS.get(sid_b)
+    if not session_a or not session_b:
+        _write_json({"error": "session not found"})
+        return
+
+    dim_x = int(params.get("dim_x", 0))
+    dim_y = int(params.get("dim_y", 0))
+    indices = params.get("indices", "")
+    dim_z = int(params.get("dim_z", -1))
+    dr = int(params.get("dr", 1))
+    complex_mode = int(params.get("complex_mode", 0))
+    log_scale = params.get("log_scale", "false").lower() == "true"
+    diff_mode = int(params.get("diff_mode", 1))
+    bins = int(params.get("bins", 64))
+
+    try:
+        raw, _, _, _, _ = _compute_diff(
+            session_a, session_b, dim_x, dim_y, indices,
+            dim_z, dr, complex_mode, log_scale, diff_mode,
+        )
+    except Exception as e:
+        _write_json({"error": str(e)})
+        return
+
+    vmin = float(raw.min())
+    vmax = float(raw.max())
+    counts, edges = np.histogram(raw.ravel(), bins=bins)
+    _write_json({
+        "counts": counts.tolist(),
+        "edges": edges.tolist(),
+        "vmin": vmin,
+        "vmax": vmax,
+    })
+
+
 def _handle_fetch_proxy(msg: dict) -> None:
     """Handle proxied fetch requests from the viewer."""
     endpoint = msg.get("endpoint", "")
@@ -516,6 +772,14 @@ def _handle_fetch_proxy(msg: dict) -> None:
         _write_json({"status": "started"})
     elif route == "preload_status" and sid:
         _write_json({"done": 0, "total": 0, "skipped": True})
+    elif route == "vectorfield" and sid:
+        _handle_vectorfield_fetch(sid, params)
+    elif route == "pixel" and sid:
+        _handle_pixel(sid, params)
+    elif route == "diff" and len(parts) >= 3:
+        _handle_diff(parts[1], parts[2], params)
+    elif route == "diff-histogram" and len(parts) >= 3:
+        _handle_diff_histogram(parts[1], parts[2], params)
     else:
         _write_error(f"unsupported endpoint: {endpoint}")
 
@@ -648,7 +912,20 @@ def _handle_get_viewer_html(msg: dict) -> None:
 
     sid = msg.get("sid", "")
 
-    query_val = json.dumps(f"?sid={sid}&transport=postMessage") if sid else "null"
+    # Build query string from session info — the extension forwards the full
+    # SESSION: payload so new features (overlay_sid, compare, etc.) work
+    # without touching extension code.
+    qs = f"?sid={sid}&transport=postMessage"
+    overlay_sid = msg.get("overlay_sid")
+    if overlay_sid:
+        qs += f"&overlay_sid={overlay_sid}"
+    compare_sids = msg.get("compare_sids")
+    if compare_sids:
+        sids = compare_sids if isinstance(compare_sids, list) else [s.strip() for s in str(compare_sids).split(",") if s.strip()]
+        if sids:
+            qs += f"&compare_sid={sids[0]}"
+            qs += f"&compare_sids={','.join(sids)}"
+    query_val = json.dumps(qs) if sid else "null"
 
     _theme_names = ["dark", "light", "solarized", "nord"]
     _cfg_theme = get_viewer_theme()

@@ -74,9 +74,10 @@ const EXT_PPIDS = _getAncestorPids(process.pid, 8);
 // bridges length-prefixed binary responses from stdout / JSON requests on stdin.
 // ---------------------------------------------------------------------------
 class PythonBridge {
-    constructor(filePath, onSessionReady, pythonPath, shmParams) {
+    constructor(filePath, onSessionReady, pythonPath, shmParams, extraArgs) {
         this.filePath = filePath;
         this.shmParams = shmParams || null;  // {name, shape, dtype}
+        this.extraArgs = extraArgs || [];    // additional CLI args (e.g. --vectorfield)
         this.process = null;
         this.sid = null;
         this._buffer = Buffer.alloc(0);
@@ -89,38 +90,85 @@ class PythonBridge {
         return new Promise((resolve, reject) => {
             this._startResolve = resolve;
             this._startReject = reject;
-            this._spawn(this.pythonPath || 'python3');
+            // Candidate order:
+            // 1. Explicit pythonPath (from signal file — always correct)
+            // 2. Workspace .venv (covers uv sync / editable installs during dev)
+            // 3. System python3/python (might have arrayview via pip)
+            // 4. uv run --with arrayview (ephemeral env from PyPI — always works)
+            if (this.pythonPath) {
+                this._candidates = [this.pythonPath];
+            } else {
+                this._candidates = ['python3', 'python', 'uv run --with arrayview python'];
+                // Prepend workspace .venv if it exists
+                const folders = vscode.workspace.workspaceFolders;
+                if (folders) {
+                    for (const f of folders) {
+                        const venvPy = path.join(f.uri.fsPath, '.venv', 'bin', 'python');
+                        if (fs.existsSync(venvPy)) {
+                            this._candidates.unshift(venvPy);
+                            break;
+                        }
+                    }
+                }
+            }
+            this._tryNextCandidate();
         });
+    }
+
+    _tryNextCandidate() {
+        if (this._candidates.length === 0) {
+            const msg = 'Python with arrayview not found. Install with: pip install arrayview (or uv pip install arrayview)';
+            log(`PYTHON: all candidates exhausted`);
+            if (this._startReject) { this._startReject(new Error(msg)); this._startReject = null; }
+            return;
+        }
+        const cmd = this._candidates.shift();
+        this._spawn(cmd);
     }
 
     _spawn(cmd) {
         const { spawn } = require('child_process');
-        let args;
+        let arrayviewArgs;
         if (this.shmParams) {
-            args = ['-m', 'arrayview', '--mode', 'stdio',
+            arrayviewArgs = ['-m', 'arrayview', '--mode', 'stdio',
                 '--shm-name', this.shmParams.name,
                 '--shm-shape', this.shmParams.shape,
                 '--shm-dtype', this.shmParams.dtype];
             if (this.shmParams.arrayName) {
-                args.push('--name', this.shmParams.arrayName);
+                arrayviewArgs.push('--name', this.shmParams.arrayName);
             }
         } else {
-            args = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
+            arrayviewArgs = ['-m', 'arrayview', '--mode', 'stdio', this.filePath];
         }
-        log(`PYTHON: spawning ${cmd} ${args.join(' ')}`);
-        this.process = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+        if (this.extraArgs.length > 0) {
+            arrayviewArgs.push(...this.extraArgs);
+        }
+
+        // Support compound commands like "uv run python"
+        let spawnCmd, spawnArgs;
+        const parts = cmd.split(/\s+/);
+        if (parts.length > 1) {
+            spawnCmd = parts[0];
+            spawnArgs = [...parts.slice(1), ...arrayviewArgs];
+        } else {
+            spawnCmd = cmd;
+            spawnArgs = arrayviewArgs;
+        }
+
+        log(`PYTHON: spawning ${spawnCmd} ${spawnArgs.join(' ')}`);
+        this.process = spawn(spawnCmd, spawnArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        this._currentCmd = cmd;
 
         this.process.on('error', (err) => {
-            if (err.code === 'ENOENT' && cmd === 'python3' && !this.pythonPath) {
-                log('PYTHON: python3 not found, trying python');
-                this._spawn('python');
+            if (err.code === 'ENOENT' && this._candidates.length > 0) {
+                log(`PYTHON: ${spawnCmd} not found, trying next candidate`);
+                this._tryNextCandidate();
                 return;
             }
             log(`PYTHON: spawn error: ${err.message}`);
             if (this._startReject) {
-                this._startReject(new Error(
-                    cmd === 'python' ? 'Python not found. Install Python and arrayview (pip install arrayview).' : err.message
-                ));
+                this._startReject(new Error(err.message));
                 this._startReject = null;
             }
         });
@@ -133,6 +181,7 @@ class PythonBridge {
                     try {
                         const info = JSON.parse(line.slice(8));
                         this.sid = info.sid;
+                        this.sessionInfo = info;  // preserve full session info (overlay_sid, etc.)
                         if (this.onSessionReady) this.onSessionReady(info);
                         if (this._startResolve) {
                             this._startResolve(info);
@@ -152,7 +201,13 @@ class PythonBridge {
         });
 
         this.process.on('exit', (code) => {
-            log(`PYTHON: exited with code ${code}`);
+            log(`PYTHON: ${this._currentCmd} exited with code ${code}`);
+            // If we haven't started yet and there are more candidates, try next
+            if (code !== 0 && this._startResolve && this._candidates && this._candidates.length > 0) {
+                log(`PYTHON: trying next candidate after exit code ${code}`);
+                this._tryNextCandidate();
+                return;
+            }
             // Reject any pending request callbacks
             for (const cb of this._pendingCallbacks) {
                 cb(Buffer.from(JSON.stringify({ error: `process exited with code ${code}` })));
@@ -202,36 +257,28 @@ class PythonBridge {
 // ---------------------------------------------------------------------------
 // Direct webview: embeds the viewer HTML directly (no iframe/server)
 // ---------------------------------------------------------------------------
-async function openDirectWebview(filePath, title, pythonPath, shmParams) {
-    const label = title || (filePath ? path.basename(filePath) : (shmParams && shmParams.arrayName) || 'Array');
 
-    const viewColumn = vscode.window.activeTextEditor
-        ? vscode.ViewColumn.Beside
-        : vscode.ViewColumn.Active;
-
-    const panel = vscode.window.createWebviewPanel(
-        'arrayview.viewer',
-        `ArrayView: ${label}`,
-        { viewColumn, preserveFocus: false },
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-        }
-    );
-
-    // Spawn Python subprocess and wait for session to be ready
+/**
+ * Wire up a webview panel to a PythonBridge: set HTML, bridge messages,
+ * clean up on dispose.  Shared by openDirectWebview and the custom editor.
+ */
+async function setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extraArgs) {
     const bridge = new PythonBridge(filePath, (sessionInfo) => {
         log(`SESSION READY: sid=${sessionInfo.sid} name=${sessionInfo.name}`);
-    }, pythonPath, shmParams);
+    }, pythonPath, shmParams, extraArgs);
     const sessionInfo = await Promise.race([
         bridge.start(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for Python session (30s)')), 30000)),
     ]);
 
-    // Get the rendered viewer HTML from the Python subprocess
+    // Get the rendered viewer HTML from the Python subprocess.
+    // Forward the full sessionInfo so the stdio server can build the correct
+    // query string (overlay_sid, etc.) without the extension needing to know
+    // about each feature.
     const htmlPayload = await bridge.sendRequest({
         type: 'get-viewer-html',
         sid: bridge.sid,
+        ...(bridge.sessionInfo || {}),
     });
 
     let viewerHtml;
@@ -239,13 +286,10 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
         const response = JSON.parse(htmlPayload.toString());
         viewerHtml = response.html;
     } catch (e) {
-        vscode.window.showErrorMessage(`ArrayView: Failed to get viewer HTML: ${e.message}`);
         bridge.destroy();
-        panel.dispose();
-        return;
+        throw new Error(`Failed to get viewer HTML: ${e.message}`);
     }
 
-    // Set the webview HTML
     panel.webview.html = viewerHtml;
 
     // Bridge messages between webview and Python subprocess
@@ -383,7 +427,64 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams) {
         }
     });
 
+    log(`DIRECT: setup complete for ${filePath}`);
+    return bridge;
+}
+
+async function openDirectWebview(filePath, title, pythonPath, shmParams, extraArgs) {
+    const label = title || (filePath ? `ArrayView: ${path.basename(filePath)}` : (shmParams && shmParams.arrayName) || 'Array');
+
+    const viewColumn = vscode.window.activeTextEditor
+        ? vscode.ViewColumn.Beside
+        : vscode.ViewColumn.Active;
+
+    const panel = vscode.window.createWebviewPanel(
+        'arrayview.viewer',
+        label,
+        { viewColumn, preserveFocus: false },
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+        }
+    );
+
+    try {
+        await setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extraArgs);
+    } catch (e) {
+        panel.dispose();
+        throw e;
+    }
     log(`DIRECT: opened "${label}" for ${filePath}`);
+}
+
+// ---------------------------------------------------------------------------
+// Custom editor provider: "Open With..." from Explorer
+// ---------------------------------------------------------------------------
+class ArrayViewEditorProvider {
+    static viewType = 'arrayview.arrayEditor';
+
+    openCustomDocument(uri, _openContext, _token) {
+        // Minimal document — just wraps the URI.  No data loading here;
+        // PythonBridge handles everything in resolveCustomEditor.
+        return { uri, dispose: () => {} };
+    }
+
+    async resolveCustomEditor(document, webviewPanel, _token) {
+        const filePath = document.uri.fsPath;
+        log(`CUSTOM-EDITOR: resolveCustomEditor for ${filePath}`);
+        webviewPanel.webview.options = { enableScripts: true };
+        webviewPanel.webview.html = `<html><body style="background:#1e1e1e;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui">
+            <div>Loading ${path.basename(filePath)}…</div></body></html>`;
+        try {
+            await setupArrayViewPanel(webviewPanel, filePath);
+            log(`CUSTOM-EDITOR: setup complete for ${filePath}`);
+        } catch (e) {
+            log(`CUSTOM-EDITOR: error: ${e.message}\n${e.stack}`);
+            webviewPanel.webview.html = `<html><body style="color:#c00;padding:2em;font-family:monospace">
+                <h2>ArrayView failed to open</h2><pre>${e.message}</pre>
+                <p>Check Output → "ArrayView" for details.</p></body></html>`;
+        }
+    }
 }
 
 let version = 'unknown';
@@ -715,7 +816,10 @@ async function processSignalData(data) {
                 try { fs.unlinkSync(path.join(SIGNAL_DIR, compat)); } catch (_) {}
             }
             const shmParams = data.shm ? { ...data.shm, arrayName: data.arrayName } : null;
-            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams);
+            // Forward extra CLI args generically — Python builds this list from
+            // its argparse namespace so new flags work without extension changes.
+            const extraArgs = Array.isArray(data.extraArgs) ? data.extraArgs : [];
+            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs);
             return;
         }
 
@@ -900,6 +1004,14 @@ function activate(context) {
         }
     });
     context.subscriptions.push(openFileCmd);
+
+    // Register custom editor provider for "Open With..." support
+    const editorProvider = vscode.window.registerCustomEditorProvider(
+        ArrayViewEditorProvider.viewType,
+        new ArrayViewEditorProvider(),
+        { webviewOptions: { retainContextWhenHidden: true } }
+    );
+    context.subscriptions.push(editorProvider);
 
     // Start SSH relay listener for zero-config remote array viewing
     startRelayServer();
