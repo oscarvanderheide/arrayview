@@ -1749,7 +1749,7 @@
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
         let _lebesgueVersion = null;    // version key for cached _lebesgueSlice
-        let _lebesgueFetching = false;  // prevents concurrent fetches
+        let _lebesgueFetchCtrl = null;  // AbortController for in-flight Lebesgue fetch
         let _lastLebesgueBin = -1;      // tracks which histogram bin is currently highlighted
         let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
@@ -5058,32 +5058,37 @@
         }
 
         async function _fetchLebesgueSlice() {
-            if (!sid || !indices.length || _lebesgueFetching) return;
-            _lebesgueFetching = true;
-            if (compareActive) {
-                // Fetch for all compare sessions in parallel
-                const sids = getCompareRenderSids();
-                await Promise.all(sids.map(s => _fetchLebesgueSliceForSid(s, dim_x, dim_y)));
-                // Also cache in legacy variables for single-session fallback
-                const first = _lebesguePerSession[sids[0]];
-                if (first) {
-                    _lebesgueSlice = first.slice;
-                    _lebesgueSliceW = first.w;
-                    _lebesgueSliceH = first.h;
-                    _lebesgueVersion = first.version;
-                }
-            } else {
-                const entry = await _fetchLebesgueSliceForSid(sid, dim_x, dim_y);
-                if (entry) {
-                    _lebesgueSlice = entry.slice;
-                    _lebesgueSliceW = entry.w;
-                    _lebesgueSliceH = entry.h;
-                    _lebesgueVersion = entry.version;
+            if (!sid || !indices.length) return;
+            // Abort any in-flight fetch so rapid slice changes always fetch the latest
+            if (_lebesgueFetchCtrl) _lebesgueFetchCtrl.abort();
+            const ctrl = new AbortController();
+            _lebesgueFetchCtrl = ctrl;
+            try {
+                if (compareActive) {
+                    const sids = getCompareRenderSids();
+                    await Promise.all(sids.map(s => _fetchLebesgueSliceForSid(s, dim_x, dim_y)));
+                    if (ctrl.signal.aborted) return;
+                    const first = _lebesguePerSession[sids[0]];
+                    if (first) {
+                        _lebesgueSlice = first.slice;
+                        _lebesgueSliceW = first.w;
+                        _lebesgueSliceH = first.h;
+                        _lebesgueVersion = first.version;
+                    }
                 } else {
-                    _lebesgueSlice = null;
+                    const entry = await _fetchLebesgueSliceForSid(sid, dim_x, dim_y);
+                    if (ctrl.signal.aborted) return;
+                    if (entry) {
+                        _lebesgueSlice = entry.slice;
+                        _lebesgueSliceW = entry.w;
+                        _lebesgueSliceH = entry.h;
+                        _lebesgueVersion = entry.version;
+                    } else {
+                        _lebesgueSlice = null;
+                    }
                 }
-            }
-            _lebesgueFetching = false;
+            } catch (_) { /* aborted or network error */ }
+            if (_lebesgueFetchCtrl === ctrl) _lebesgueFetchCtrl = null;
         }
 
         function _clearLebesgueOverlay() {
@@ -7142,10 +7147,15 @@
             renderInfo();
             // Invalidate cached histogram data so next colorbar hover re-fetches
             _histDataVersion = null;
-            // Invalidate and clear Lebesgue overlay (slice changed)
-            _lebesgueVersion = null;
-            Object.keys(_lebesguePerSession).forEach(k => delete _lebesguePerSession[k]);
-            Object.keys(_hoverSliceCache).forEach(k => delete _hoverSliceCache[k]);
+            // Lebesgue / hover caches are version-keyed, so stale entries are
+            // never served for the wrong slice.  Don't eagerly clear — the old
+            // data remains harmless while the async re-fetch is in flight, and
+            // clearing creates a window where hover falls to the slow /pixel path.
+            // Cap cache size to prevent unbounded memory growth.
+            const _hscKeys = Object.keys(_hoverSliceCache);
+            if (_hscKeys.length > 64) _hscKeys.slice(0, _hscKeys.length - 32).forEach(k => delete _hoverSliceCache[k]);
+            const _lpsKeys = Object.keys(_lebesguePerSession);
+            if (_lpsKeys.length > 32) _lpsKeys.slice(0, _lpsKeys.length - 16).forEach(k => delete _lebesguePerSession[k]);
             if (lebesgueMode || _pixelInfoVisible) {
                 if (lebesgueMode) _clearLebesgueOverlay();
                 _fetchLebesgueSlice();
