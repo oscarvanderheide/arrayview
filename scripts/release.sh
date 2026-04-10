@@ -55,6 +55,8 @@ TAG="v${VERSION}"
 
 echo "Version bumped to $VERSION (tag: $TAG)"
 
+uv lock --quiet
+
 run() {
     echo "+ $*"
     if [[ "$DRY_RUN" == true ]]; then
@@ -111,7 +113,7 @@ if [[ "$DRY_RUN" == true && -n "$NOTES" ]]; then
 fi
 
 # --- Commit, tag, push, release ---
-run git add pyproject.toml
+run git add pyproject.toml uv.lock
 run git commit -m "release: $TAG"
 run git push origin main
 run git tag "$TAG"
@@ -132,5 +134,5 @@ fi
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
     echo "(dry-run — re-run with --execute to apply)"
-    git checkout pyproject.toml
+    git checkout pyproject.toml uv.lock
 fi
