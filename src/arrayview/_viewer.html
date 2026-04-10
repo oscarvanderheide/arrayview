@@ -535,14 +535,7 @@
             width: min(820px, 92vw); height: min(520px, 86vh);
             overflow: hidden;
         }
-        .help-topbar {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 14px; flex-shrink: 0;
-        }
-        .help-mode-hint {
-            font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
-        }
-        .help-mode-hint kbd, .help-footer kbd {
+        .help-footer kbd {
             display: inline-block; border: 1px solid var(--border);
             border-radius: 4px; padding: 0px 5px;
             font-family: 'SF Mono', ui-monospace, monospace;
@@ -579,13 +572,23 @@
             margin-bottom: 8px; padding-bottom: 4px;
             border-bottom: 1px solid var(--border-subtle);
         }
+        .help-section-title:not(:first-child) { margin-top: 16px; }
+        .help-subsection-title {
+            font-size: 12px; font-weight: 600; color: var(--text);
+            margin-top: 18px; margin-bottom: 4px;
+        }
+        .help-subsection-title:first-child { margin-top: 0; }
+        .help-subsection-desc {
+            color: var(--muted); font-size: 11.5px;
+            line-height: 1.6; margin-bottom: 10px;
+        }
         .help-section { margin-bottom: 18px; }
         .help-columns { display: flex; gap: 28px; }
         .help-column { flex: 1; min-width: 0; }
         .help-entry { margin-bottom: 8px; }
         .help-entry-row { display: flex; align-items: baseline; }
         .help-entry-key {
-            flex-shrink: 0; width: 88px;
+            flex-shrink: 0; width: 100px;
             color: var(--help-key); font-weight: 600;
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
             font-size: 12px;
@@ -593,15 +596,14 @@
         .help-entry-action { color: var(--text); font-size: 12.5px; }
         .help-entry-hint {
             color: var(--muted); font-size: 11px;
-            margin-left: 88px; margin-top: 1px;
+            margin-left: 100px; margin-top: 1px;
         }
         .help-footer {
             flex-shrink: 0; border-top: 1px solid var(--border-subtle);
             margin-top: 14px; padding-top: 10px;
-            display: flex; justify-content: space-between; align-items: center;
+            display: flex; justify-content: flex-end; align-items: center;
             font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
         }
-        .help-footer-nav kbd { margin-right: 2px; }
         .help-footer-link {
             color: var(--muted); text-decoration: none;
             font-size: 11px; letter-spacing: 0.04em;
@@ -1501,14 +1503,10 @@
     </div>
     <div id="help-overlay">
         <div id="help-box">
-            <div class="help-topbar">
-                <span class="help-mode-hint">press <kbd>?</kbd> to close</span>
-            </div>
             <div id="help-tabs"></div>
             <div id="help-content"></div>
             <div class="help-footer">
-                <span class="help-footer-nav"><kbd>h</kbd><kbd>l</kbd> / <kbd>← →</kbd> switch tabs</span>
-                <a class="help-footer-link" href="https://github.com/brainhack-school2024/arrayview#keybindings" target="_blank" rel="noopener">Full reference →</a>
+                <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
             </div>
         </div>
     </div>
@@ -10412,97 +10410,189 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const GUIDE_TABS = [
             {
                 id: 'basics', label: 'Basics',
-                desc: 'The essentials for navigating and adjusting any array.',
+                desc: 'The essentials for exploring any array. Move through slices, zoom into details, or play through a volume as an animation. These controls work everywhere.',
                 columns: 2,
                 sections: [
                     {
-                        title: 'Navigation',
+                        title: 'Slices & Dimensions',
                         entries: [
-                            { key: '← → ↑ ↓', action: 'navigate slices', hint: 'step through the volume one slice at a time' },
-                            { key: 'x / y', action: 'change viewing dimension', hint: 'choose which axes map to screen x and y' },
-                            { key: 'z', action: 'toggle mosaic', hint: 'tile all slices of the current axis in a grid' },
-                            { key: 'scroll', action: 'zoom in / out', hint: 'pinch-to-zoom on trackpad' },
-                            { key: '0', action: 'reset zoom to fit' },
-                            { key: 'space', action: 'play / pause', hint: '< > adjust playback speed' },
+                            { key: '← → ↑ ↓', action: 'Step through slices' },
+                            { key: 'x / y', action: 'Change viewing dimension', hint: 'choose which axes map to horizontal and vertical' },
+                            { key: 'z', action: 'Mosaic — tile all slices in a grid' },
+                            { key: '1–9 Enter', action: 'Jump to a specific slice number' },
                         ]
                     },
                     {
-                        title: 'Display',
+                        title: 'Playback',
                         entries: [
-                            { key: 'i', action: 'toggle hover pixel info', hint: 'show coordinates and value under cursor' },
-                            { key: 'c', action: 'cycle colormap', hint: 'grayscale, viridis, turbo, etc.' },
-                            { key: 'd', action: 'open histogram / cycle quantiles', hint: 'press repeatedly to tighten the intensity range' },
-                            { key: 'I', action: 'info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'command palette', hint: 'search all commands' },
+                            { key: 'Space', action: 'Play / pause animation' },
+                            { key: '< >', action: 'Slower / faster playback' },
+                        ]
+                    },
+                    {
+                        title: 'Info & Search',
+                        entries: [
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
+                            { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
+                            { key: '/', action: 'Command palette', hint: 'search all available commands' },
+                        ]
+                    },
+                    {
+                        title: 'Zoom & Pan', columnBreak: true,
+                        entries: [
+                            { key: 'Pinch / ⌘Scroll', action: 'Zoom in / out', hint: 'Ctrl+Scroll on Windows / Linux' },
+                            { key: '0', action: 'Reset zoom to fit' },
+                            { key: 'Drag', action: 'Pan the image (when zoomed in)' },
+                            { key: 'F', action: 'Zen mode — hide UI chrome', hint: 'strips away panels and controls to focus on the image' },
+                        ]
+                    },
+                    {
+                        title: 'Export',
+                        entries: [
+                            { key: 's', action: 'Save screenshot' },
+                            { key: 'g', action: 'Save GIF animation' },
+                            { key: 'e', action: 'Copy shareable URL' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'display', label: 'Display',
+                desc: 'Control how your data looks. Adjust colors and the display range to bring out features that aren\u2019t visible with default settings.',
+                columns: 2,
+                sections: [
+                    {
+                        title: 'Color & Range',
+                        entries: [
+                            { key: 'c', action: 'Cycle colormap', hint: 'grayscale, viridis, turbo, and more' },
+                            { key: 'd', action: 'Cycle display range presets', hint: 'clips outliers — press repeatedly to tighten' },
+                            { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
+                            { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
+                            { key: 'b', action: 'Toggle canvas borders' },
+                        ]
+                    },
+                    {
+                        title: 'Colorbar',
+                        entries: [
+                            { key: 'Scroll', action: 'Narrow or widen the display range' },
+                            { key: 'Drag handles', action: 'Adjust min / max bounds' },
+                            { key: 'Drag bar', action: 'Shift the visible range up or down' },
+                            { key: 'Dbl-click', action: 'Expand histogram' },
+                            { key: 'Dbl-click label', action: 'Type an exact min or max value' },
+                        ]
+                    },
+                    {
+                        title: 'Transforms', columnBreak: true,
+                        entries: [
+                            { key: 'f', action: 'FFT — view frequency domain', hint: 'press again to return to spatial domain' },
+                            { key: 'p', action: 'Cycle projections', hint: 'MAX → MIN → MEAN → STD → off' },
+                            { key: 'm', action: 'Complex mode cycle', hint: 'magnitude → phase → real → imaginary' },
                         ]
                     }
                 ]
             },
             {
                 id: 'ortho', label: 'Ortho View',
-                desc: 'Three synchronized panels showing axial, sagittal, and coronal views of a 3D volume. Crosshairs link the views so clicking in one updates the others.',
+                desc: 'Three synchronized panels showing your volume from three directions at once. A crosshair links the views — clicking in one panel updates the other two. Great for exploring 3D data like MRI scans, where you need to see axial, sagittal, and coronal slices together.',
                 sections: [
                     {
+                        title: 'Controls',
                         entries: [
-                            { key: 'V', action: 'Toggle ortho view', hint: 'Enter or exit the three-panel layout' },
-                            { key: 'Click', action: 'Set crosshair position', hint: 'Click any panel to jump all views to that point' },
-                            { key: '← → ↑ ↓', action: 'Move crosshair', hint: 'Fine-tune position with arrow keys' },
-                            { key: 'Scroll', action: 'Zoom focused panel', hint: 'Zoom applies to the panel under the cursor' },
-                            { key: 'X Y Z', action: 'Switch axis', hint: 'View the volume from a different orientation' },
-                        ]
-                    }
-                ]
-            },
-            {
-                id: 'roi', label: 'ROI',
-                desc: 'Draw a region of interest to see local statistics (mean, std, min, max) and restrict the histogram to that region.',
-                sections: [
-                    {
-                        entries: [
-                            { key: 'Shift+R', action: 'Toggle ROI mode', hint: 'Enter or exit ROI drawing mode' },
-                            { key: 'Drag', action: 'Draw ROI rectangle', hint: 'Click and drag on the image to select a region' },
-                            { key: 'R', action: 'Cycle ROI shape', hint: 'Switch between rectangle, ellipse, and freehand' },
-                            { key: 'Esc', action: 'Clear ROI', hint: 'Remove the current selection and exit ROI mode' },
-                        ]
-                    }
-                ]
-            },
-            {
-                id: 'seg', label: 'Segmentation',
-                desc: 'Overlay label maps on your image. Load a segmentation array and toggle visibility, adjust opacity, or pick labels interactively.',
-                sections: [
-                    {
-                        entries: [
-                            { key: 'S', action: 'Cycle segmentation mode', hint: 'Toggle through available segmentation overlays' },
-                            { key: 'M', action: 'Toggle mask / adjust alpha', hint: 'Control overlay transparency' },
-                            { key: 'Click', action: 'Pick label', hint: 'Click on the image to identify a segmentation label' },
-                            { key: 'Esc', action: 'Exit segmentation mode' },
+                            { key: 'v', action: 'Enter or exit ortho view' },
+                            { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
+                            { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
+                            { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
+                            { key: 'o', action: 'Reset to origin' },
                         ]
                     }
                 ]
             },
             {
                 id: 'compare', label: 'Compare',
-                desc: 'View two arrays side by side, overlay them, or compute a difference map. Useful for checking registration, model outputs, or before/after changes.',
+                desc: 'View two or more arrays side by side, blend them together, or compute a difference map. Useful for checking registration, comparing model outputs, or inspecting before-and-after changes. Open multiple arrays with the file picker first.',
                 sections: [
                     {
+                        title: 'Layout',
                         entries: [
-                            { key: 'n', action: 'cycle compare target', hint: 'switch which array you\'re comparing against' },
-                            { key: 'G', action: 'Cycle compare layout', hint: 'Side-by-side, overlay, checkerboard, or diff' },
-                            { key: 'Z', action: 'Toggle focus mode', hint: 'Zoom into the comparison view' },
+                            { key: 'G', action: 'Cycle layout', hint: 'horizontal → vertical → grid' },
+                            { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
+                        ]
+                    },
+                    {
+                        title: 'Operations (requires exactly 2 arrays)',
+                        entries: [
+                            { key: 'X', action: 'Cycle compare operation', hint: 'off → A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
+                            { key: '[ ]', action: 'Adjust operation parameter', hint: 'blend amount, flicker speed, or checkerboard tile size' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'tools', label: 'Tools',
+                desc: 'Draw on the image to measure, segment, or crop. Each tool uses click or drag to define a region, and shows results in real time.',
+                sections: [
+                    {
+                        subsection: 'ROI — Region of Interest',
+                        subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
+                        entries: [
+                            { key: 'R', action: 'Toggle ROI mode' },
+                            { key: 'r', action: 'Cycle shape', hint: 'rectangle → circle → freehand → flood fill' },
+                            { key: 'Drag', action: 'Draw ROI region' },
+                            { key: 'Right-click', action: 'Delete ROI under cursor' },
+                            { key: 'Esc', action: 'Clear all and exit' },
+                        ]
+                    },
+                    {
+                        subsection: 'Ruler',
+                        subdesc: 'Click two points to measure pixel distance.',
+                        entries: [
+                            { key: 'u', action: 'Toggle ruler mode' },
+                        ]
+                    },
+                    {
+                        subsection: 'Segmentation',
+                        subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
+                        entries: [
+                            { key: 'S', action: 'Toggle segmentation mode' },
+                            { key: 'Click', action: 'Add region (positive prompt)' },
+                            { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
+                            { key: 'Esc', action: 'Exit segmentation' },
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'overlays', label: 'Overlays',
+                desc: 'Extra layers displayed on top of your array. Load segmentation masks with --overlay or deformation fields with --vectorfield when launching arrayview. Press O to toggle visibility for all overlays at once.',
+                sections: [
+                    {
+                        subsection: 'Segmentation Masks',
+                        subdesc: 'Binary masks rendered as colored layers on the image. Load one or more with --overlay mask1.nii,mask2.nii. Each mask gets its own color.',
+                        entries: [
+                            { key: 'O', action: 'Cycle visibility', hint: 'all → none → individual masks (if multiple)' },
+                            { key: '[ ]', action: 'Adjust opacity' },
+                        ]
+                    },
+                    {
+                        subsection: 'Vector Field',
+                        subdesc: 'Deformation or flow fields rendered as arrows. Load with --vectorfield field.nii.',
+                        entries: [
+                            { key: 'O', action: 'Toggle visibility' },
+                            { key: '[ ]', action: 'Adjust arrow density' },
+                            { key: '{ }', action: 'Adjust arrow length' },
                         ]
                     }
                 ]
             },
             {
                 id: 'qmri', label: 'qMRI',
-                desc: 'Quantitative MRI mode for parameter maps (T1, T2, FA, etc.). Displays voxel values with proper units and provides tissue-specific presets.',
+                desc: 'For quantitative MRI parameter maps — T1, T2, FA, and others. Voxel values are shown with proper units and the display adjusts to tissue-specific intensity ranges. Use this when viewing parameter maps to get meaningful readouts instead of raw numbers.',
                 sections: [
                     {
+                        title: 'Controls',
                         entries: [
-                            { key: 'q', action: 'enter / cycle / exit qMRI', hint: 'step through available qMRI parameter modes' },
-                            { key: 'Z', action: 'Toggle qMRI mosaic', hint: 'See all parameter maps in a grid' },
-                            { key: 'R', action: 'Cycle range preset', hint: 'Tissue-specific intensity ranges for each parameter' },
+                            { key: 'q', action: 'Enter / cycle / exit qMRI mode', hint: 'steps through available parameter types' },
+                            { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
                 ]
@@ -10541,10 +10631,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const wrapper = document.createElement('div');
                 if (tab.columns === 2) wrapper.className = 'help-columns';
 
+                let col = null; // current column container
                 for (const section of tab.sections) {
-                    const col = document.createElement('div');
-                    if (tab.columns === 2) col.className = 'help-column';
+                    // Start a new column if 2-column layout and this is the first section or a columnBreak
+                    if (tab.columns === 2) {
+                        if (!col || section.columnBreak) {
+                            col = document.createElement('div');
+                            col.className = 'help-column';
+                            wrapper.appendChild(col);
+                        }
+                    } else {
+                        if (!col) {
+                            col = wrapper; // single-column: append directly to wrapper
+                        }
+                    }
 
+                    // Subsection header (bold title + description paragraph)
+                    if (section.subsection) {
+                        const subTitle = document.createElement('div');
+                        subTitle.className = 'help-subsection-title';
+                        subTitle.textContent = section.subsection;
+                        col.appendChild(subTitle);
+
+                        if (section.subdesc) {
+                            const subDesc = document.createElement('div');
+                            subDesc.className = 'help-subsection-desc';
+                            subDesc.textContent = section.subdesc;
+                            col.appendChild(subDesc);
+                        }
+                    }
+
+                    // Section title (uppercase label with divider)
                     if (section.title) {
                         const titleEl = document.createElement('div');
                         titleEl.className = 'help-section-title';
@@ -10580,8 +10697,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
                         col.appendChild(entryEl);
                     }
-
-                    wrapper.appendChild(col);
                 }
 
                 panel.appendChild(wrapper);
