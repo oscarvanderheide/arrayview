@@ -9232,19 +9232,53 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             'overlay.cycleVisibility': {
                 title: 'Cycle overlay visibility',
-                when: ['hasOverlay'],
+                when: [],
                 run: (ctx, e) => {
+                    const hasOv = !!overlay_sid;
+                    const hasVf = hasVectorfield;
+                    if (!hasOv && !hasVf) return;
+
+                    // Helper: show or hide vector field arrows
+                    const setVfield = (show) => {
+                        if (!hasVf) return;
+                        vfieldVisible = show;
+                        if (!show) {
+                            if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
+                            vfieldCanvas.style.display = 'none';
+                            if (multiViewActive) {
+                                _mvVfieldAborts.forEach(ac => ac.abort());
+                                _mvVfieldAborts.clear();
+                                _mvVfieldCache.clear();
+                                document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
+                            }
+                        } else {
+                            if (multiViewActive) mvDrawAllVectorOverlays();
+                            else drawVectorOverlay();
+                        }
+                    };
+
+                    // Vector field only (no masks): simple toggle
+                    if (!hasOv) {
+                        setVfield(!vfieldVisible);
+                        showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
+                        saveState();
+                        return;
+                    }
+
                     // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
                     const sids = overlay_sid.split(',');
                     const nMasks = sids.length;
                     if (_overlayVisibility === 'all') {
                         _overlayVisibility = 'none';
+                        setVfield(false);
                     } else if (_overlayVisibility === 'none') {
                         _overlayVisibility = nMasks > 1 ? 0 : 'all';
+                        if (_overlayVisibility === 'all') setVfield(true);
                     } else {
                         // Currently showing individual mask
                         const next = _overlayVisibility + 1;
                         _overlayVisibility = next >= nMasks ? 'all' : next;
+                        if (_overlayVisibility === 'all') setVfield(true);
                     }
                     // Status message
                     if (_overlayVisibility === 'all') {
@@ -9258,6 +9292,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
                     }
                     updateView();
+                    saveState();
                 },
             },
             'overlay.openPicker': {
@@ -9874,7 +9909,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (!hasVectorfield) {
-                        showStatus('U: no vector field loaded');
+                        showStatus('no vector field loaded');
                         return;
                     } // kept inline: emits toast
                     vfieldVisible = !vfieldVisible;
@@ -10337,7 +10372,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Order matters: seg.exit (when segMode) takes precedence over slice.cancelJump
             { key: 'Escape', command: 'seg.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
-            { key: 'U', command: 'vfield.toggleArrows' },
             { key: 'u', command: 'ruler.toggle' },
         ];
 
