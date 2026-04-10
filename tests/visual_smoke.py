@@ -124,6 +124,7 @@ STABILITY (keys must not cause UI element jumps)
   Z — zen mode toggle                       ✓ 34 (before/after)
   b — border toggle                         ✓ 35 (before/after)
   +/- — zoom in/out                         ✓ 36 (canvas resizes, cb stays below)
+    immersive crossfade handoff              ✓ 75 (mid-zone zoom maps to paneCutoff; minimap stays hidden)
   registration arrays (phantom)             ✓ 37 (shifted ellipse, overlay via X)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
     compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
@@ -1845,6 +1846,80 @@ def run_smoke(page, base, client, tmp):
     _press(page, "d", wait=200)
     _press(page, "d", wait=200)  # cycle back to 0-100
     print(f"  OK: histogram height stable (delta={delta}px)")
+
+    # ── 75: immersive crossfade handoff maps zoom to paneCutoff ────────────
+    print("75: immersive crossfade handoff")
+    _goto(page, base, sid_med3d, wait=1500)
+    _focus(page)
+    handoff = page.evaluate(
+        """() => window.eval(`(() => {
+            if (!lastImgW || !lastImgH) return { ok: false, reason: 'missing-dims' };
+            if (!_shouldEnterImmersive()) return { ok: false, reason: 'immersive-not-available' };
+            if (!immersiveTl) _buildImmersiveTl();
+            if (!immersiveTl) return { ok: false, reason: 'timeline-missing' };
+            const paneCutoff = (immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+            const zoomSpan = _immTargetZoom - _normalFitZoom;
+            if (!(zoomSpan > 0)) return { ok: false, reason: 'zoom-span-zero' };
+            _immersiveDriveTween = null;
+            _fullscreenActive = false;
+            document.body.classList.remove('fullscreen-mode');
+            userZoom = _normalFitZoom + 0.5 * zoomSpan;
+            _crossfadeCollapseP = 0;
+            _crossfadeP = 0;
+            ModeRegistry.scaleAll();
+            return {
+                ok: true,
+                progress: immersiveTl.progress(),
+                expected: paneCutoff * 0.5,
+                paneCutoff,
+            };
+        })()` )"""
+    )
+    assert handoff.get("ok"), f"FAIL: immersive handoff setup failed ({handoff})"
+    assert abs(handoff["progress"] - handoff["expected"]) < 0.03, (
+        f"FAIL: immersive mid-zone progress snapped to {handoff['progress']:.3f} "
+        f"instead of {handoff['expected']:.3f}"
+    )
+    scrub = page.evaluate(
+        """() => window.eval(`(() => {
+            const paneCutoff = (immersiveTl && immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+            const zoomSpan = _immTargetZoom - _normalFitZoom;
+            userZoom = _normalFitZoom + 0.25 * zoomSpan;
+            _crossfadeCollapseP = 0;
+            _crossfadeP = 0;
+            _fullscreenActive = false;
+            document.body.classList.remove('fullscreen-mode');
+            ModeRegistry.scaleAll();
+            const desiredZoom = _normalFitZoom + 0.5 * zoomSpan;
+            _scrubRequestedZoom = desiredZoom;
+            _zoomAdjustedByUser = true;
+            _driveImmersive(paneCutoff * 0.5, 0.25, { scrub: true });
+            ModeRegistry.scaleAll();
+            return {
+                requestedZoom: _scrubRequestedZoom,
+                renderedZoom: userZoom,
+                minimapVisible: !!document.getElementById('mini-map')?.classList.contains('visible'),
+                overflow: mainPan.overflows,
+            };
+        })()` )"""
+    )
+    assert scrub["requestedZoom"] > scrub["renderedZoom"], (
+        f"FAIL: scrub rendered zoom jumped to requested zoom ({scrub})"
+    )
+    assert scrub["minimapVisible"] is False, (
+        f"FAIL: minimap visible during immersive scrub ({scrub})"
+    )
+    _shot(page, "75a_immersive_handoff_midzone")
+    page.evaluate(
+        """() => window.eval(`(() => {
+            _crossfadeCleanup();
+            _fullscreenActive = false;
+            document.body.classList.remove('fullscreen-mode');
+            userZoom = _normalFitZoom;
+            _zoomAdjustedByUser = false;
+            ModeRegistry.scaleAll();
+        })()` )"""
+    )
 
     print(f"\nAll {len(list(OUT_DIR.glob('*.png')))} screenshots saved to {OUT_DIR}/")
 

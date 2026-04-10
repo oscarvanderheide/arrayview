@@ -74,6 +74,8 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
             position: relative;
             transition: background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            --fly-y: 0px;
+            transform: translateY(var(--fly-y, 0px));
         }
         /* Param-flash edge layer: a colored border overlay clipped to the
            left --av-fill-px portion of the pill. Sits on top of the existing
@@ -153,6 +155,7 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
             display: flex; align-items: center; gap: 8px;
             box-sizing: border-box;
+            --fly-y: 0px;
         }
         :root.light #slim-cb-wrap {
             background: rgba(240, 240, 240, 0.85);
@@ -316,6 +319,8 @@
             text-transform: uppercase; flex-shrink: 0;
             margin-bottom: 10px; min-height: 1em; text-align: center;
             display: flex; align-items: center; justify-content: center; gap: 7px;
+            --fly-y: 0px;
+            transform: translateY(var(--fly-y, 0px));
         }
         #array-name svg { flex-shrink: 0; }
         @keyframes av-logo-pulse {
@@ -906,7 +911,8 @@
         }
         /* Dim bar overlaid top-center — positioned via JS relative to canvas */
         body.fullscreen-mode #info {
-            position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
+            position: fixed; z-index: 3; left: 50%;
+            transform: translateX(-50%) translateY(var(--fly-y, 0px)) !important;
             margin: 0 !important;
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -925,7 +931,7 @@
         }
         /* Colorbar overlaid bottom-center */
         body.fullscreen-mode #slim-cb-wrap {
-            position: fixed !important; z-index: 3; left: 50%; transform: translateX(-50%) !important;
+            position: fixed !important; z-index: 3; left: 50%; transform: translateX(-50%) translateY(var(--fly-y, 0px)) !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -1532,6 +1538,7 @@
     </div>
     <div class="gallery-items"></div>
 </div>
+    <script src="/gsap.min.js"></script>
     <script>
         /* ── JS: Constants and Transport Setup ───────────────────── */
         const COLORMAPS = __COLORMAPS__;
@@ -1827,9 +1834,13 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
-        let _zoomSensitivity = 0.002; // scroll-zoom exponent multiplier (halved for crossfade debugging)
+        let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
+        let immersiveTl = null; // GSAP timeline that fully drives the immersive crossfade
+        let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
+        let _immTargetZoom = 1.0; // cached zoom target at start of transition (_calcAutoFitZoom(..., true) * 1.005)
+        let _immDriveDir = 1; // +1 = driving toward immersive, -1 = driving toward normal — read by midpoint .call()
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
@@ -2416,12 +2427,23 @@
                 }
                 childrenH += h + parseFloat(s.marginTop || 0) + parseFloat(s.marginBottom || 0);
             }
-            // In fullscreen: center the canvas viewport in the viewport (ignore hidden/fixed chrome)
-            // In normal mode: center all in-flow children; scaleCanvas already reserves
-            // bottom space so the fixed colorbar/eggs won't overlap the canvas.
-            const pt = _fullscreenActive
-                ? Math.max(0, Math.floor((window.innerHeight - (document.getElementById('canvas-viewport')?.offsetHeight || childrenH)) / 2))
-                : Math.max(14, Math.floor((window.innerHeight - 80 - childrenH) / 2));
+            // Freeze wrapper padding only while the normal-mode chrome is
+            // still visible. Once the fade-out is complete (_crossfadeP > 0.5
+            // corresponds to timeline progress > 0.3), let padding reflow so
+            // the hidden title/info footprint can keep lifting the pane before
+            // the midpoint class switch.
+            if (_immersiveDriveTween && !_fullscreenActive && _crossfadeP <= 0.5) {
+                wrapper.style.justifyContent = 'flex-start';
+                return;
+            }
+            // Smooth the bottom reserve using _crossfadeCollapseP so paddingTop is
+            // continuous across the _fullscreenActive flip. Margins of the
+            // collapsing elements (#array-name, #info) are handled elsewhere.
+            const bottomReserve = (_fullscreenActive && _crossfadeP <= 0)
+                ? 0
+                : Math.round(80 * Math.max(0, 1 - _crossfadeCollapseP));
+            const minPt = _fullscreenActive ? 0 : 14;
+            const pt = Math.max(minPt, Math.floor((window.innerHeight - bottomReserve - childrenH) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
@@ -2569,43 +2591,23 @@
             if (_fullscreenActive) _positionFullscreenInfo();
         }
 
-        /** Scale all canvases with a brief CSS size-transition for smooth zoom feel. */
-        let _zoomAnimId = null;
+        /** Scale all canvases with GSAP-driven zoom animation for smooth immersive transitions. */
+        let _zoomAnimId = null;   // kept for compat — now unused
         let _zoomRendered = undefined; // zoom level currently shown on screen
+        let _scrubRequestedZoom = null; // raw pinch target while immersive scrub catches up
+        let _zoomTween = null;    // active GSAP tween for zoom animation
         function _scaleAllWithAnim(onDone, easeIn) {
-            // Animate zoom by interpolating userZoom from current rendered value to
-            // target via rAF, calling ModeRegistry.scaleAll() each frame so every
-            // element (canvas, viewport, colorbar, eggs) updates together.
-            // onDone: optional callback fired when animation completes.
-            // easeIn: if true, use ease-in cubic (slow start → fast end) for shrink animations.
-            const targetZoom = userZoom;
+            // Snap within-mode zooms (pure zoom-in-normal, pure zoom-in-immersive).
+            // Crossfade transitions are now handled exclusively by _driveImmersive,
+            // which owns the GSAP timeline. This helper is kept for backward
+            // compat with callers that still route through it for within-mode
+            // snap behavior.
+            if (_zoomTween) { _zoomTween.kill(); _zoomTween = null; }
             if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
-            const fromZoom = (_zoomRendered !== undefined) ? _zoomRendered : targetZoom;
-            if (Math.abs(fromZoom - targetZoom) < 0.001) {
-                userZoom = targetZoom; _zoomRendered = targetZoom;
-                _cbExpandedHLocked = false;
-                ModeRegistry.scaleAll();
-                if (onDone) onDone();
-                return;
-            }
-            const DURATION = 150;
-            const t0 = performance.now();
-            function step(now) {
-                const p = Math.min((now - t0) / DURATION, 1);
-                const ease = easeIn ? Math.pow(p, 3) : 1 - Math.pow(1 - p, 3); // ease-in or ease-out cubic
-                userZoom = fromZoom + (targetZoom - fromZoom) * ease;
-                _zoomRendered = userZoom;
-                ModeRegistry.scaleAll();
-                if (p < 1) {
-                    _zoomAnimId = requestAnimationFrame(step);
-                } else {
-                    userZoom = targetZoom; _zoomRendered = targetZoom;
-                    _cbExpandedHLocked = false; // allow histogram height recompute at final zoom
-                    ModeRegistry.scaleAll(); _zoomAnimId = null;
-                    if (onDone) onDone();
-                }
-            }
-            _zoomAnimId = requestAnimationFrame(step);
+            _zoomRendered = userZoom;
+            _cbExpandedHLocked = false;
+            ModeRegistry.scaleAll();
+            if (onDone) onDone();
         }
 
         /* ── JS: Compare Mode ─────────────────────────────────────── */
@@ -2636,7 +2638,7 @@
             // In immersive, per-pane colorbars are overlaid (absolute), so no space reservation needed
             const cbExtra = (_anyCenter && !_fullscreenActive) ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP) : 0;
             const panePadY = (_fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP)) + cbExtra;
-            const fitSlack = _fullscreenActive ? 1.0 : 0.96;
+            const fitSlack = 0.96 + 0.04 * (_fullscreenActive ? 1 : _crossfadeCollapseP);
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
@@ -3346,6 +3348,11 @@
         }
 
         window.addEventListener('resize', () => {
+            // Kill the immersive timeline — it was built against the old
+            // layout and the fly distances are now stale. It will rebuild
+            // on next transition.
+            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
+            if (immersiveTl) { immersiveTl.progress(_fullscreenActive ? 1 : 0); immersiveTl.kill(); immersiveTl = null; }
             ModeRegistry.scaleAll();
             positionEggs();
             _validateUIState();
@@ -3361,6 +3368,11 @@
             if (!w) { fn(); return; }
             _crossfading = true;
             w.classList.add('mode-fade');
+            // Kill the immersive timeline — the element targets may
+            // change (compare ↔ single ↔ multiview) and the cached fly
+            // distances will no longer match the post-switch layout.
+            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
+            if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
             // Wait for fade-out transition to finish, then run the mode switch
             setTimeout(() => {
                 try { fn(); } catch(e) { console.error(e); }
@@ -3494,7 +3506,7 @@
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
                     wrap.style.left = '50%';
-                    wrap.style.transform = 'translateX(-50%)';
+                    wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
                     wrap.style.transformOrigin = '';
                     wrap.style.width = fsCbW + 'px';
                     wrap.style.display = '';
@@ -3534,7 +3546,9 @@
             // ── Normal horizontal colorbar ──────────────────────────
             if (wrap) {
                 wrap.classList.remove('compact-vertical', 'compact-overlay');
-                wrap.style.transform = '';
+                // Compose translateX centering with any GSAP-driven fly-y.
+                // (The wrap is later repositioned via top/left below.)
+                wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
                 wrap.style.transformOrigin = '';
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
@@ -3574,11 +3588,16 @@
             // Top is fixed at pane bottom + chromeGap. Never moves.
             const cbTop = _cbAnchorBottom + chromeGap;
             if (wrap) {
-                wrap.style.top  = cbTop + 'px';
-                // Island spans full canvas width; colorbar canvas fills remaining space
-                wrap.style.width = Math.max(160, cssW) + 'px';
+                // During an active crossfade drive (fs=false, either
+                // forward pre-switch or reverse post-switch), leave
+                // cb top/width alone so the cb stays frozen at whichever
+                // endpoint the class-switch callbacks snapped it to.
+                if (!(_immersiveDriveTween && !_fullscreenActive)) {
+                    wrap.style.top  = cbTop + 'px';
+                    wrap.style.width = Math.max(160, cssW) + 'px';
+                }
                 wrap.style.left = '50%';
-                wrap.style.transform = 'translateX(-50%)';
+                wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
             }
             slimCbCanvas.style.width = '';
             slimCbCanvas.style.display = '';
@@ -8876,9 +8895,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const w = lastImgW || canvas.width;
                         const h = lastImgH || canvas.height;
                         // 0.5% past immFit: chrome fully faded in, <1px overflow
-                        userZoom = _calcAutoFitZoom(w, h, true) * 1.005;
+                        _immTargetZoom = _calcAutoFitZoom(w, h, true) * 1.005;
+                        userZoom = _immTargetZoom;
                         _zoomAdjustedByUser = true;
-                        _scaleAllWithAnim();
+                        _driveImmersive(1, 0.75);
                         showStatus('immersive');
                         saveState();
                     } else {
@@ -8909,14 +8929,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             _scaleAllWithAnim();
                             showStatus(userZoom <= immTarget + 0.001 ? 'immersive' : `zoom: ${Math.round(userZoom * 100)}%`);
                         } else {
-                            // At immersive fit — animate reverse crossfade to normal.
-                            // Don't manually exit fullscreen: the crossfade handles
-                            // the toggle at p=0.5 as userZoom animates down.
+                            // At immersive fit — reverse the timeline back to normal.
+                            // Don't manually exit fullscreen: the .call() at the
+                            // midpoint handles the class toggle as the timeline
+                            // plays backward.
                             userZoom = _normalFitZoom;
                             _zoomAdjustedByUser = false;
                             mainPan.reset();
                             mosaicPan.reset();
-                            _scaleAllWithAnim();
+                            _driveImmersive(0, 0.75);
                             showStatus('zoom: fit');
                         }
                     } else {
@@ -8941,20 +8962,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         showStatus(`jump to slice: ${sliceJumpBuffer}_`);
                     } else {
                         // Reset to normal fit from anywhere (including immersive)
-                        if (_fullscreenActive) {
-                            _fullscreenActive = false;
-                            document.body.classList.remove('fullscreen-mode');
-                            _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
-                            const wrap = document.getElementById('slim-cb-wrap');
-                            if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                            const infoEl = document.getElementById('info');
-                            if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                            if (wrap) { wrap.style.top = ''; wrap.style.bottom = ''; wrap.style.right = ''; }
-                            if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                            const wrapper = document.getElementById('wrapper');
-                            if (wrapper) wrapper.style.paddingTop = '';
-                            _reconcileCbVisibility({ animPhase: 'exit-3' });
-                        }
+                        if (_zoomTween) { _zoomTween.kill(); _zoomTween = null; }
+                        // Snap the timeline to 0 — handles the class toggle,
+                        // drag-position resets, and inline-style cleanup
+                        // via the reverse midpoint .call().
+                        _driveImmersive(0, 0);
                         _crossfadeCleanup();
                         userZoom = 1.0;
                         _zoomAdjustedByUser = false;
@@ -14409,6 +14421,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const { atMax: _mvAtMax } = _clampUniformZoom(absMaxT);
             if (_mvAtMax) {
                 _zoomRendered = 1.0;
+                if (_zoomTween) { _zoomTween.kill(); _zoomTween = null; }
                 if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             }
             const T = Math.min(Math.max(50, Math.floor(absMaxT * userZoom)), absMaxT);
@@ -14684,7 +14697,79 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.ctrlKey || e.metaKey) {
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
-                userZoom = Math.max(_normalFitZoom, Math.min(10.0, userZoom * factor));
+                const zoomBase = (_scrubRequestedZoom !== null) ? _scrubRequestedZoom : userZoom;
+                const desiredZoom = Math.max(_normalFitZoom, Math.min(10.0, zoomBase * factor));
+                // Compute immersive-fit zoom unconditionally. The
+                // aspect-ratio heuristic in _shouldEnterImmersive() is
+                // only used by the `=` key's auto-entry decision — for
+                // pinch we always allow the crossfade as long as there's
+                // a meaningful zoom gain from removing the chrome reserve.
+                const _wZ = lastImgW || canvas.width;
+                const _hZ = lastImgH || canvas.height;
+                const immFitZ = (_wZ && _hZ) ? _calcAutoFitZoom(_wZ, _hZ, true) : Infinity;
+                const immLandZ = immFitZ * 1.005;
+                const crossfadeAvailable = Number.isFinite(immLandZ) && immLandZ > _normalFitZoom * 1.005;
+                // Touch the zone if userZoom or desiredZoom is inside [normFit, immLand]
+                // OR the jump straddles it (one side below, one side above).
+                const userInZone    = crossfadeAvailable && (userZoom    >= _normalFitZoom && userZoom    <= immLandZ);
+                const desiredInZone = crossfadeAvailable && (desiredZoom >= _normalFitZoom && desiredZoom <= immLandZ);
+                const straddlesZone = crossfadeAvailable && (
+                    (userZoom <= _normalFitZoom && desiredZoom >= immLandZ) ||
+                    (userZoom >= immLandZ && desiredZoom <= _normalFitZoom)
+                );
+                // Also: if userZoom is already past immLand (we're fully
+                // immersive) and desiredZoom stays past immLand, pure zoom.
+                // But if desiredZoom DROPS below immLand, we need to drive
+                // the crossfade (overlay chrome fade-out + pane shrink).
+                if (window.__pinchDebug) {
+                    console.log('[pinch]', {
+                        dy: e.deltaY, uz: userZoom.toFixed(3), dz: desiredZoom.toFixed(3),
+                        nf: _normalFitZoom.toFixed(3), imm: Number.isFinite(immFitZ) ? immFitZ.toFixed(3) : 'Inf',
+                        userInZone, desiredInZone, straddlesZone,
+                        willDrive: crossfadeAvailable && (userInZone || desiredInZone || straddlesZone),
+                        fs: _fullscreenActive, hasTl: !!immersiveTl,
+                    });
+                }
+                if (crossfadeAvailable && (userInZone || desiredInZone || straddlesZone)) {
+                    if (!immersiveTl) _buildImmersiveTl();
+                    if (immersiveTl) {
+                        _immTargetZoom = immLandZ;
+                        // Map desiredZoom to timeline progress. The pane
+                        // reaches final immersive size at progress = paneCutoff
+                        // (0.6); pinching further (or reaching immLand)
+                        // auto-extends progress to 1.0 which plays the
+                        // chrome-overlay fade-in.
+                        const paneCutoff = (immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+                        const rawPaneP = (desiredZoom - _normalFitZoom) / (immLandZ - _normalFitZoom);
+                        let rawP;
+                        if (rawPaneP >= 1) {
+                            // User has pinched to or past immLand → full progress
+                            // → auto-trigger chrome fade-in.
+                            rawP = 1;
+                        } else if (rawPaneP <= 0) {
+                            rawP = 0;
+                        } else {
+                            // Pinch is mid-zone: scrub pane-growth phase only.
+                            rawP = rawPaneP * paneCutoff;
+                        }
+                        // Keep the raw requested zoom separate from the rendered
+                        // zoom while the scrub tween catches the layout up.
+                        // Rendering off the requested zoom causes temporary
+                        // overflow during the crossfade, which shows up as a
+                        // visible pane jump and minimap flicker.
+                        _scrubRequestedZoom = desiredZoom;
+                        // Flag BEFORE scaleAll so the overflow-recalc branch
+                        // in _scalePane doesn't reset userZoom back to fit.
+                        _zoomAdjustedByUser = true;
+                        _driveImmersive(rawP, 0.25, { scrub: true });
+                        ModeRegistry.scaleAll();
+                        saveState();
+                        return;
+                    }
+                }
+                // Fallthrough: pure zoom path (no crossfade interaction).
+                _scrubRequestedZoom = null;
+                userZoom = desiredZoom;
                 if (!_snapZoomToFit()) {
                     _zoomAdjustedByUser = true;
                 }
@@ -15058,187 +15143,525 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         // ── Zoom-driven immersive crossfade ────────────────────────────
-        // Progressively collapses chrome and grows the pane as zoom increases
-        // from normalFit to immersiveFit.  The slice always fills the pane.
-        let _crossfadePrev = -1;
-        let _crossfadeTitleH = 0;  // cached natural heights
-        let _crossfadeInfoH = 0;
-        let _crossfadeCbH = 0;
-        function _applyImmersiveCrossfade() {
-            const w = lastImgW || canvas.width;
-            const h = lastImgH || canvas.height;
-            if (!w || !h) return;
-            if (!_shouldEnterImmersive()) {
-                if (_crossfadePrev > 0) _crossfadeCleanup();
-                _crossfadeCollapseP = 0;
-                _crossfadeP = 0;
-                _crossfadePrev = -1;
-                return;
+        // A single GSAP timeline drives every animated property when
+        // zoom crosses from normal fit to immersive fit. Title and dim bar
+        // fly up off the top of the viewport, the shared colorbar flies
+        // down off the bottom, the fullscreen-mode CSS class toggles at
+        // progress 0.5, then the dim bar drops back in from above and the
+        // colorbar rises up from below, landing at their overlay positions.
+        //
+        // All animated values flow through the timeline — we never write
+        // maxHeight / margin / opacity / padding manually any more.
+        //
+        // Compare / multiview / qMRI per-pane chrome does an opacity-only
+        // fade in the same timeline (no fly) to keep the choreography
+        // sane when there are 5+ elements involved.
+        function _immersiveTargets() {
+            return {
+                title: document.getElementById('array-name'),
+                info: document.getElementById('info'),
+                cb: document.getElementById('slim-cb-wrap'),
+            };
+        }
+
+        function _resetImmersiveTransforms() {
+            // Wipe any GSAP-animated channels on the chrome so the next
+            // rebuild measures true normal-flow positions. All three
+            // flying elements (title, info, cb) use the --fly-y custom
+            // property channel composed with translateX via CSS — we
+            // never touch the inline transform itself, so centering and
+            // any other inline transforms written by scaleAll stay intact.
+            // Use the DOM API directly so nothing can strip the element's
+            // inline transform by accident.
+            const t = _immersiveTargets();
+            [t.title, t.info, t.cb].forEach(el => {
+                if (!el) return;
+                el.style.removeProperty('--fly-y');
+                el.style.removeProperty('opacity');
+                el.style.removeProperty('height');
+                el.style.removeProperty('min-height');
+                el.style.removeProperty('margin-top');
+                el.style.removeProperty('margin-bottom');
+                el.style.removeProperty('padding-top');
+                el.style.removeProperty('padding-bottom');
+                el.style.removeProperty('overflow');
+            });
+            if (typeof gsap !== 'undefined') {
+                const selectors = ['.compare-title', '.compare-pane-cb-island', '#mv-cb-wrap', '.qv-cb-island', '#mini-map', '#compare-center-island'];
+                selectors.forEach(sel => {
+                    const found = document.querySelectorAll(sel);
+                    if (found.length) gsap.set(found, { clearProps: 'opacity' });
+                });
+            }
+        }
+
+        function _buildImmersiveTl() {
+            if (typeof gsap === 'undefined') return null;
+            // Kill any previously-built timeline so its state doesn't leak
+            // (GSAP caches starting values on `.to` targets).
+            if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
+            // Wipe any leftover GSAP transforms so getBoundingClientRect()
+            // measures the true normal-flow positions.
+            _resetImmersiveTransforms();
+
+            // Capture live fly distances from the current layout. Must be
+            // called while elements are visible in normal mode — that's
+            // enforced by _driveImmersive(), which only rebuilds when
+            // progress is cleanly 0 or 1.
+            const { title: titleEl, info: infoEl, cb: cbWrap } = _immersiveTargets();
+
+            // fly distances: pad by 20px so elements fully clear the viewport edge.
+            let titleFlyUp = 120, infoFlyUp = 160, cbFlyDown = 200;
+            if (titleEl) {
+                const r = titleEl.getBoundingClientRect();
+                // Use bottom edge — whole element must clear the top of the viewport.
+                if (r.height > 0) titleFlyUp = Math.max(60, r.bottom + 20);
+            }
+            if (infoEl) {
+                const r = infoEl.getBoundingClientRect();
+                if (r.height > 0) infoFlyUp = Math.max(60, r.bottom + 20);
+            }
+            if (cbWrap) {
+                const r = cbWrap.getBoundingClientRect();
+                if (r.height > 0) cbFlyDown = Math.max(60, window.innerHeight - r.top + 20);
             }
 
-            const immFit = _calcAutoFitZoom(w, h, true);
-            const normFit = _normalFitZoom;
-            if (immFit <= normFit) { _crossfadeCollapseP = 0; _crossfadeP = 0; return; }
-            const p = Math.max(0, Math.min(1, (userZoom - normFit) / (immFit - normFit)));
+            // Cache the current (normal-mode) layout positions so we can
+            // snap back to them cleanly at the reverse class switch, and
+            // so the pre-switch freeze guards have a consistent endpoint.
+            const _wrapperEl = document.getElementById('wrapper');
+            const normalLayoutCache = {
+                wrapperPt: _wrapperEl ? _wrapperEl.style.paddingTop : '',
+                cbTop: cbWrap ? cbWrap.style.top : '',
+                cbWidth: cbWrap ? cbWrap.style.width : '',
+            };
 
-            if (Math.abs(p - _crossfadePrev) < 0.003 && p > 0 && p < 1) return;
-            _crossfadePrev = p;
-
-            // collapseP: 0→1 during first half (chrome collapses + fades out)
-            const collapseP = Math.min(1, p * 2);
-            // fadeIn: 0→1 only AFTER pane reaches final size (userZoom past immFit).
-            // This prevents chrome from appearing while the pane is still growing,
-            // which would cause annoying positional drift of the floating elements.
-            // 0.5% zoom range past immFit — matches the 1.005 margin in zoom.in
-            const fadeIn = Math.min(1, Math.max(0, (userZoom - immFit) / (immFit * 0.005)));
-
-            // Set global for scale functions
-            _crossfadeCollapseP = collapseP;
-            _crossfadeP = p;
-
-            // Cache natural heights when crossfade starts
-            if (p > 0 && _crossfadeTitleH === 0) {
-                const t = document.getElementById('array-name');
-                const i = document.getElementById('info');
-                const c = document.getElementById('slim-cb-wrap');
-                _crossfadeTitleH = t ? t.offsetHeight : 30;
-                _crossfadeInfoH = i ? i.offsetHeight : 30;
-                _crossfadeCbH = c ? c.offsetHeight : 30;
+            // Cache the zoom target once per build so mid-animation layout
+            // changes don't cause the userZoom derivation to drift. We
+            // compute immFit unconditionally — the aspect-ratio gate in
+            // _shouldEnterImmersive() is only for the `=` key's auto-entry
+            // decision, not for the crossfade math itself.
+            const _w = lastImgW || canvas.width;
+            const _h = lastImgH || canvas.height;
+            if (_w && _h) {
+                _immTargetZoom = _calcAutoFitZoom(_w, _h, true) * 1.005;
             }
 
-            // ── Collapse chrome heights (first half) ──────────────────
-            const titleEl = document.getElementById('array-name');
-            const infoEl = document.getElementById('info');
-            const cbWrap = document.getElementById('slim-cb-wrap');
+            // Proxy objects drive the two globals that the scale functions
+            // already read (so bottom reserves, pane padding, etc. stay in
+            // sync with the animation). No element writes here.
+            const collapseProxy = { v: 0 };
+            const progressProxy = { v: 0 };
 
-            if (p === 0) {
-                // Fully normal: clear all inline styles (including transition override)
-                if (titleEl) { titleEl.style.transition = ''; titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.opacity = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
-                if (infoEl) { infoEl.style.transition = ''; infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; infoEl.style.opacity = ''; }
-                if (cbWrap) { cbWrap.style.transition = ''; cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; cbWrap.style.opacity = ''; }
-                _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
-                _crossfadeP = 0;
-            } else if (!_fullscreenActive) {
-                // Crossfading in normal layout: collapse heights + fade
-                const remainH = 1 - collapseP;
-                if (titleEl) {
-                    titleEl.style.transition = 'none';
-                    titleEl.style.maxHeight = (_crossfadeTitleH * remainH) + 'px';
-                    titleEl.style.overflow = 'hidden';
-                    titleEl.style.opacity = remainH;
-                }
-                if (infoEl) {
-                    infoEl.style.transition = 'none';
-                    infoEl.style.maxHeight = (_crossfadeInfoH * remainH) + 'px';
-                    infoEl.style.overflow = 'hidden';
-                    infoEl.style.opacity = remainH;
-                }
-                if (cbWrap) {
-                    cbWrap.style.transition = 'none';
-                    cbWrap.style.maxHeight = (_crossfadeCbH * remainH) + 'px';
-                    cbWrap.style.overflow = 'hidden';
-                    cbWrap.style.opacity = remainH;
-                }
+            const tl = gsap.timeline({ paused: true, defaults: { ease: 'power2.inOut' } });
+
+            // Timeline layout (normalized 0 → 1):
+            //   [0.00, 0.30] chrome opacity 1 → 0  (fast fade-out)
+            //   [0.00, 0.60] collapseP 0 → 1       (layout reserves collapse)
+            //   [0.00, 0.60] userZoom normFit → immLand (driven externally)
+            //   @0.60        class switch: fullscreen-mode ON
+            //   [0.60, 1.00] chrome overlay opacity 0 → 1 (fade-in at overlay pos)
+            //
+            // Chrome is fully invisible (opacity 0) by 0.30, well before
+            // the pane finishes growing at 0.60 — so they never visibly
+            // interact with the expanding canvas. Fade-in doesn't start
+            // until the pane has reached its final immersive size.
+            const PANE_CUTOFF = 0.6;
+
+            // ── Proxy tweens: drive _crossfadeCollapseP and _crossfadeP ─
+            // Both proxies complete at progress 0.6 so the layout reserves
+            // reach their immersive values before the class switch fires.
+            // After 0.6, chrome overlay fade-in plays on a stable layout.
+            tl.fromTo(collapseProxy, { v: 0 }, {
+                v: 1,
+                duration: PANE_CUTOFF,
+                ease: 'none',
+                immediateRender: false,
+                onUpdate: () => { _crossfadeCollapseP = collapseProxy.v; },
+            }, 0);
+            tl.fromTo(progressProxy, { v: 0 }, {
+                v: 1,
+                duration: PANE_CUTOFF,
+                ease: 'none',
+                immediateRender: false,
+                onUpdate: () => { _crossfadeP = progressProxy.v; },
+            }, 0);
+
+            // ── Phase 1: fast chrome fade-out (progress 0 → 0.3) ─────
+            // Title, dim bar, shared colorbar all fade to opacity 0 at
+            // progress 0.3 — well before the pane finishes growing at
+            // 0.6, so the user never sees the expanding canvas overlap
+            // visible chrome.
+            const FADE_OUT_END = 0.3;
+            if (titleEl) {
+                tl.fromTo(titleEl, { opacity: 1 },
+                    { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            if (infoEl) {
+                tl.fromTo(infoEl, { opacity: 1 },
+                    { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            if (cbWrap) {
+                tl.fromTo(cbWrap, { opacity: 1 },
+                    { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            // Compare / multiview / qMRI per-pane chrome: opacity fade only.
+            // Only add tweens for elements that actually exist.
+            if (document.querySelector('.compare-title')) {
+                tl.fromTo('.compare-title', { opacity: 1 }, { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            if (document.querySelector('.compare-pane-cb-island')) {
+                tl.fromTo('.compare-pane-cb-island', { opacity: 1 }, { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            if (document.getElementById('mv-cb-wrap')) {
+                tl.fromTo('#mv-cb-wrap', { opacity: 1 }, { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
+            }
+            if (document.querySelector('.qv-cb-island')) {
+                tl.fromTo('.qv-cb-island', { opacity: 1 }, { opacity: 0, duration: FADE_OUT_END, ease: 'power2.out', immediateRender: false }, 0);
             }
 
-            // ── Layout switch at p=0.5 (chrome invisible + collapsed) ─
-            const shouldBeFullscreen = p >= 0.5;
-            if (shouldBeFullscreen !== _fullscreenActive) {
-                if (shouldBeFullscreen) {
-                    // Enter: chrome already collapsed via inline styles above
+            const FLOW_COLLAPSE_DUR = PANE_CUTOFF - FADE_OUT_END;
+            const collapseHiddenFlow = (el) => {
+                if (!el) return;
+                const s = getComputedStyle(el);
+                const h = el.getBoundingClientRect().height;
+                const minH = parseFloat(s.minHeight || 0);
+                const mt = parseFloat(s.marginTop || 0);
+                const mb = parseFloat(s.marginBottom || 0);
+                const pt = parseFloat(s.paddingTop || 0);
+                const pb = parseFloat(s.paddingBottom || 0);
+                tl.fromTo(el, {
+                    height: h,
+                    minHeight: minH,
+                    marginTop: mt,
+                    marginBottom: mb,
+                    paddingTop: pt,
+                    paddingBottom: pb,
+                    overflow: 'hidden',
+                }, {
+                    height: 0,
+                    minHeight: 0,
+                    marginTop: 0,
+                    marginBottom: 0,
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    duration: FLOW_COLLAPSE_DUR,
+                    ease: 'power2.inOut',
+                    immediateRender: false,
+                }, FADE_OUT_END);
+            };
+            collapseHiddenFlow(titleEl);
+            collapseHiddenFlow(infoEl);
+
+            // ── Class switch at progress 0.6 (pane at final size) ────
+            // One symmetric .call() at position 0.6 handles both
+            // directions. Since we scrub the timeline from an external
+            // drive tween, tl.reversed() is always false — so we read
+            // _immDriveDir which is set before each drive call.
+            tl.call(() => {
+                const entering = _immDriveDir >= 0;
+                if (entering) {
                     _fullscreenActive = true;
                     document.body.classList.add('fullscreen-mode');
-                    _reconcileCbVisibility({ animPhase: 'enter-2' });
+                    if (titleEl) {
+                        titleEl.style.removeProperty('height');
+                        titleEl.style.removeProperty('min-height');
+                        titleEl.style.removeProperty('margin-top');
+                        titleEl.style.removeProperty('margin-bottom');
+                        titleEl.style.removeProperty('padding-top');
+                        titleEl.style.removeProperty('padding-bottom');
+                        titleEl.style.removeProperty('overflow');
+                        titleEl.style.setProperty('--fly-y', '0px');
+                    }
+                    if (infoEl) {
+                        infoEl.style.removeProperty('height');
+                        infoEl.style.removeProperty('min-height');
+                        infoEl.style.removeProperty('margin-top');
+                        infoEl.style.removeProperty('margin-bottom');
+                        infoEl.style.removeProperty('padding-top');
+                        infoEl.style.removeProperty('padding-bottom');
+                        infoEl.style.removeProperty('overflow');
+                        infoEl.style.setProperty('--fly-y', '0px');
+                    }
+                    if (typeof _reconcileCbVisibility === 'function') {
+                        try { _reconcileCbVisibility({ animPhase: 'enter-2' }); } catch (_) {}
+                    }
                     if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
                         const centerIsland = document.getElementById('compare-center-island');
                         if (centerIsland) {
                             const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
-                            centerIsland.innerHTML = _centerModeIndicatorHTML(mode);
+                            try { centerIsland.innerHTML = _centerModeIndicatorHTML(mode); } catch (_) {}
                         }
                     }
-                    // Clear inline collapse styles — fullscreen-mode CSS handles it now
-                    if (titleEl) { titleEl.style.maxHeight = ''; titleEl.style.overflow = ''; titleEl.style.margin = ''; titleEl.style.padding = ''; }
-                    if (infoEl) { infoEl.style.maxHeight = ''; infoEl.style.overflow = ''; }
-                    if (cbWrap) { cbWrap.style.maxHeight = ''; cbWrap.style.overflow = ''; }
+                    // The timeline snaps xPercent to -50 at position 0.5
+                    // via tl.set(), so the fullscreen-mode `left: 50%`
+                    // positioning centers the colorbar here.
+                    try { _positionFullscreenChrome(); } catch (_) {}
                 } else {
-                    // Exit: restore normal layout, re-apply collapse inline styles
                     _fullscreenActive = false;
                     document.body.classList.remove('fullscreen-mode');
+                    if (titleEl) titleEl.style.setProperty('--fly-y', '0px');
+                    if (infoEl) infoEl.style.setProperty('--fly-y', '0px');
                     _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
                     const wrap = document.getElementById('slim-cb-wrap');
-                    if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
-                    if (infoEl) { infoEl.style.top = ''; infoEl.style.left = ''; infoEl.style.transform = ''; }
-                    if (cbWrap) { cbWrap.style.top = ''; cbWrap.style.bottom = ''; cbWrap.style.right = ''; }
+                    if (wrap) { wrap.classList.remove('compact-overlay'); }
+                    const infoEl2 = document.getElementById('info');
+                    if (infoEl2) { infoEl2.style.top = ''; infoEl2.style.left = ''; infoEl2.style.transform = ''; }
+                    if (wrap) {
+                        // Snap the cb back to its cached normal-mode
+                        // position so the fade-in plays on a stable layout.
+                        // The freeze guard in drawSlimColorbar will keep
+                        // it here for the rest of the reverse drive.
+                        wrap.style.bottom = '';
+                        wrap.style.right = '';
+                        wrap.style.top = normalLayoutCache.cbTop || '';
+                        wrap.style.width = normalLayoutCache.cbWidth || '';
+                    }
                     if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
-                    const wrapper = document.getElementById('wrapper');
-                    if (wrapper) wrapper.style.paddingTop = '';
-                    _reconcileCbVisibility({ animPhase: 'exit-3' });
-                    // Re-apply collapse for the shrinking second half → first half
-                    const remainH = 1 - collapseP;
-                    if (titleEl) { titleEl.style.maxHeight = (_crossfadeTitleH * remainH) + 'px'; titleEl.style.overflow = 'hidden'; }
-                    if (infoEl) { infoEl.style.maxHeight = (_crossfadeInfoH * remainH) + 'px'; infoEl.style.overflow = 'hidden'; }
-                    if (cbWrap) { cbWrap.style.maxHeight = (_crossfadeCbH * remainH) + 'px'; cbWrap.style.overflow = 'hidden'; }
+                    if (typeof _reconcileCbVisibility === 'function') {
+                        try { _reconcileCbVisibility({ animPhase: 'exit-3' }); } catch (_) {}
+                    }
                 }
-            }
+                // Force a scale pass so new reserves take effect this frame.
+                try { ModeRegistry.scaleAll(); } catch (_) {}
+            }, null, PANE_CUTOFF);
 
-            // ── Opacity for second half (fade in at immersive positions) ─
-            // Use numeric fadeIn (not `fadeIn || ''`) so that fadeIn=0 sets
-            // opacity="0" (hidden), not "" (clears style → fully visible).
-            // Disable CSS transitions during crossfade so opacity changes are
-            // instant — the CSS transition: opacity 0.3s would otherwise
-            // animate from the old value, causing a visible flash at the toggle.
-            if (_fullscreenActive) {
-                if (titleEl) { titleEl.style.transition = 'none'; titleEl.style.opacity = '0'; }
-                if (infoEl) { infoEl.style.transition = 'none'; infoEl.style.opacity = fadeIn; }
-                if (cbWrap) { cbWrap.style.transition = 'none'; cbWrap.style.opacity = fadeIn; }
-                if (fadeIn > 0) _positionFullscreenChrome();
+            // ── Phase 2: fade chrome back in at overlay positions ────
+            // Title never returns (spec choice — it's gone in immersive).
+            // Dim bar + colorbar fade back in AFTER the pane reaches its
+            // final size (starting at progress 0.6). No position movement.
+            const FADE_IN_DUR = 1.0 - PANE_CUTOFF;  // 0.4 (from 0.6 to 1.0)
+            if (infoEl) {
+                tl.fromTo(infoEl, { opacity: 0 },
+                    { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out', immediateRender: false }, PANE_CUTOFF);
             }
+            if (cbWrap) {
+                tl.fromTo(cbWrap, { opacity: 0 },
+                    { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out', immediateRender: false }, PANE_CUTOFF);
+            }
+            // Per-pane chrome fades in at their overlay positions.
+            if (document.querySelector('.compare-pane-cb-island')) {
+                tl.to('.compare-pane-cb-island', { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out' }, PANE_CUTOFF);
+            }
+            if (document.getElementById('mv-cb-wrap')) {
+                tl.to('#mv-cb-wrap', { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out' }, PANE_CUTOFF);
+            }
+            if (document.querySelector('.qv-cb-island')) {
+                tl.to('.qv-cb-island', { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out' }, PANE_CUTOFF);
+            }
+            // compare-title stays hidden in immersive — don't fade back in.
+            // mini-map + compare-center-island fade in (no fly).
+            if (document.getElementById('mini-map')) {
+                tl.fromTo('#mini-map', { opacity: 0 }, { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out', immediateRender: false }, PANE_CUTOFF);
+            }
+            if (document.getElementById('compare-center-island')) {
+                tl.fromTo('#compare-center-island', { opacity: 0 }, { opacity: 1, duration: FADE_IN_DUR, ease: 'power2.out', immediateRender: false }, PANE_CUTOFF);
+            }
+            // Store the pane cutoff on the timeline itself so the drive
+            // onUpdate and pinch path can map userZoom correctly.
+            tl.data = { paneCutoff: PANE_CUTOFF };
 
-            // Compare/multiview/qMRI chrome
-            if (compareActive) {
-                const cmpFade = _fullscreenActive ? fadeIn : (1 - collapseP);
-                document.querySelectorAll('.compare-title').forEach(el => {
-                    el.style.opacity = (p === 0) ? '' : (_fullscreenActive ? '0' : (1 - collapseP));
-                });
-                document.querySelectorAll('.compare-pane-cb-island').forEach(el => {
-                    el.style.opacity = (p === 0) ? '' : cmpFade;
-                });
-            }
-            const mvCb = multiViewActive ? document.getElementById('mv-cb-wrap') : null;
-            if (mvCb) {
-                if (p === 0) { mvCb.style.opacity = ''; }
-                else { mvCb.style.opacity = _fullscreenActive ? fadeIn : (1 - collapseP); }
-            }
-            const qmriCbs = qmriActive ? document.querySelectorAll('#qmri-view-wrap .qv-cb-island') : [];
-            qmriCbs.forEach(el => {
-                if (p === 0) { el.style.opacity = ''; }
-                else { el.style.opacity = _fullscreenActive ? fadeIn : (1 - collapseP); }
+            immersiveTl = tl;
+            return tl;
+        }
+
+        function _driveImmersive(targetP, duration, opts) {
+            // opts.scrub = true → caller owns userZoom (set it raw before
+            // calling). Drive tween only progresses the timeline; userZoom
+            // is NOT overwritten by the onUpdate callback. Used by the
+            // pinch/ctrl-wheel path so cumulative pinches accumulate.
+            const scrubMode = !!(opts && opts.scrub);
+            // Disable any CSS opacity transitions on the chrome elements
+            // so GSAP's per-frame opacity writes take effect immediately.
+            // Otherwise the specific #slim-cb-wrap CSS rule (which includes
+            // `transition: opacity 0.3s ease`) lags the fade by 300ms and
+            // makes the cb fade visibly trail the dim bar fade.
+            const _tgt = _immersiveTargets();
+            [_tgt.title, _tgt.info, _tgt.cb].forEach(el => {
+                if (el) el.style.transition = 'none';
             });
+            // Fallback: snap if GSAP missing.
+            if (typeof gsap === 'undefined') {
+                _scrubRequestedZoom = null;
+                const entering = targetP >= 0.5;
+                _fullscreenActive = entering;
+                document.body.classList.toggle('fullscreen-mode', entering);
+                _crossfadeCollapseP = entering ? 1 : 0;
+                _crossfadeP = entering ? 1 : 0;
+                const w = lastImgW || canvas.width;
+                const h = lastImgH || canvas.height;
+                if (w && h) {
+                    userZoom = entering ? _calcAutoFitZoom(w, h, true) * 1.005 : _normalFitZoom;
+                } else {
+                    userZoom = entering ? userZoom : _normalFitZoom;
+                }
+                _zoomRendered = userZoom;
+                try { ModeRegistry.scaleAll(); } catch (_) {}
+                return;
+            }
+            // Build lazily. We reuse the same timeline across an entire
+            // transition (entering and its matching exit), so exit from
+            // immersive reverses the exact timeline that was built while
+            // normal-flow positions were still measurable.
+            if (!immersiveTl) _buildImmersiveTl();
+            if (!immersiveTl) {
+                // Build failed (no elements measurable yet) — fall back to snap.
+                _scrubRequestedZoom = null;
+                const entering = targetP >= 0.5;
+                _fullscreenActive = entering;
+                document.body.classList.toggle('fullscreen-mode', entering);
+                _crossfadeCollapseP = entering ? 1 : 0;
+                _crossfadeP = entering ? 1 : 0;
+                try { ModeRegistry.scaleAll(); } catch (_) {}
+                return;
+            }
+            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
+            // Record direction so the midpoint .call() knows which way
+            // to toggle the fullscreen class. We compare against current
+            // progress because scrubbed playback doesn't flip tl.reversed().
+            const _curP = immersiveTl.progress();
+            _immDriveDir = (targetP >= _curP) ? 1 : -1;
+            // Instant snap path (zoom.reset). GSAP's .call() only fires
+            // when the playhead crosses a position during playback — a
+            // bare progress(x) jump skips it — so manually force the
+            // fullscreen class/state to match the snap target.
+            if (duration <= 0) {
+                _scrubRequestedZoom = null;
+                const wantFS = targetP >= 0.5;
+                if (_fullscreenActive !== wantFS) {
+                    _fullscreenActive = wantFS;
+                    document.body.classList.toggle('fullscreen-mode', wantFS);
+                    if (!wantFS) {
+                        _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
+                        const wrap = document.getElementById('slim-cb-wrap');
+                        if (wrap) { wrap.classList.remove('compact-overlay'); wrap.style.width = ''; }
+                        const infoEl2 = document.getElementById('info');
+                        if (infoEl2) { infoEl2.style.top = ''; infoEl2.style.left = ''; infoEl2.style.transform = ''; }
+                        if (wrap) { wrap.style.top = ''; wrap.style.bottom = ''; wrap.style.right = ''; }
+                        if (_miniMap) { _miniMap.style.top = ''; _miniMap.style.left = ''; _miniMap.style.right = ''; }
+                        const wrapper = document.getElementById('wrapper');
+                        if (wrapper) wrapper.style.paddingTop = '';
+                    }
+                }
+                immersiveTl.progress(targetP);
+                const p = immersiveTl.progress();
+                if (_normalFitZoom && _immTargetZoom) {
+                    const paneCutoff = (immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+                    const paneP = Math.min(1, p / paneCutoff);
+                    userZoom = _normalFitZoom + paneP * (_immTargetZoom - _normalFitZoom);
+                    _zoomRendered = userZoom;
+                }
+                // After a clean snap to 0, kill the timeline AND wipe the
+                // GSAP transforms so the next transition rebuilds fresh
+                // from normal-flow positions.
+                if (targetP <= 0.0001) {
+                    immersiveTl.kill();
+                    immersiveTl = null;
+                    _resetImmersiveTransforms();
+                    _crossfadeCollapseP = 0;
+                    _crossfadeP = 0;
+                }
+                try { ModeRegistry.scaleAll(); } catch (_) {}
+                return;
+            }
+            _immersiveDriveTween = gsap.to(immersiveTl, {
+                progress: targetP,
+                duration,
+                ease: duration > 0.2 ? 'power2.inOut' : 'power1.out',
+                overwrite: true,
+                onUpdate: () => {
+                    // Keypress path (scrub=false) owns userZoom — derive it
+                    // from timeline progress so canvas growth is in lockstep
+                    // with the chrome fade. The pane reaches its final
+                    // immersive size at progress = paneCutoff (0.6), and
+                    // stays at that size for the remaining [0.6, 1.0] while
+                    // the chrome overlay fades in.
+                    //
+                    // Scrub path (pinch) keeps userZoom raw from the wheel
+                    // event; we only update the timeline visually here.
+                    if (_normalFitZoom && _immTargetZoom) {
+                        const p = immersiveTl.progress();
+                        const paneCutoff = (immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+                        const paneP = Math.min(1, p / paneCutoff);
+                        userZoom = _normalFitZoom + paneP * (_immTargetZoom - _normalFitZoom);
+                        _zoomRendered = userZoom;
+                    }
+                    try { ModeRegistry.scaleAll(); } catch (_) {}
+                },
+                onComplete: () => {
+                    _immersiveDriveTween = null;
+                    _scrubRequestedZoom = null;
+                    // If we've settled cleanly at 0, kill the timeline and
+                    // wipe GSAP transforms so the next transition rebuilds
+                    // against fresh normal-flow positions.
+                    const p = immersiveTl.progress();
+                    if (p <= 0.0001) {
+                        const _tl = immersiveTl;
+                        setTimeout(() => {
+                            if (immersiveTl === _tl) {
+                                _tl.kill();
+                                immersiveTl = null;
+                                _resetImmersiveTransforms();
+                                _crossfadeCollapseP = 0;
+                                _crossfadeP = 0;
+                            }
+                        }, 0);
+                    }
+                    try { ModeRegistry.scaleAll(); } catch (_) {}
+                },
+            });
+        }
 
-            // Update _fitZoom
-            if (p >= 1) _fitZoom = immFit;
+        function _applyImmersiveCrossfade() {
+            // Thin shim for static scaleAll passes (drags, initial render,
+            // non-animated layout reflows). The timeline is authoritative;
+            // this just ensures _crossfadeCollapseP / _crossfadeP reflect
+            // the current static state when no animation is running.
+            //
+            // When an animation IS running, onUpdate takes care of the
+            // globals and we can bail out — the timeline has the truth.
+            if (_immersiveDriveTween) return;
+            const w = lastImgW || canvas.width;
+            const h = lastImgH || canvas.height;
+            if (!w || !h) return;
+            if (!_shouldEnterImmersive()) {
+                // Clean up if we were in a crossfade state.
+                if (_crossfadeP > 0 || _crossfadeCollapseP > 0) {
+                    if (immersiveTl) { immersiveTl.progress(0); }
+                    _crossfadeCollapseP = 0;
+                    _crossfadeP = 0;
+                }
+                return;
+            }
+            // When the timeline exists, sync its progress to userZoom so
+            // static scale passes see consistent reserves.
+            //
+            // The pane reaches immersive size at paneCutoff (0.6), not 1.0.
+            // Static layout passes that occur between scrub tweens must map
+            // zoom back onto that same 0→paneCutoff range; otherwise a mid-zone
+            // zoom snaps the timeline ahead into the overlay-fade phase and the
+            // pane visibly jumps at the handoff.
+            if (immersiveTl && _normalFitZoom && _immTargetZoom > _normalFitZoom) {
+                const paneCutoff = (immersiveTl.data && immersiveTl.data.paneCutoff) || 0.6;
+                const zoomP = Math.max(0, Math.min(1, (userZoom - _normalFitZoom) / (_immTargetZoom - _normalFitZoom)));
+                const p = _fullscreenActive
+                    ? Math.max(paneCutoff, immersiveTl.progress())
+                    : zoomP * paneCutoff;
+                immersiveTl.progress(p);
+            }
+            // No element writes here — the timeline handles all of them.
+            // Just update _fitZoom for consumers that read it.
+            const immFit = _calcAutoFitZoom(w, h, true);
+            if (userZoom >= immFit) _fitZoom = immFit;
         }
 
         function _crossfadeCleanup() {
+            if (_immersiveDriveTween) { _immersiveDriveTween.kill(); _immersiveDriveTween = null; }
+            if (immersiveTl) { immersiveTl.progress(0); immersiveTl.kill(); immersiveTl = null; }
+            _scrubRequestedZoom = null;
+            _resetImmersiveTransforms();
             _crossfadeCollapseP = 0;
             _crossfadeP = 0;
-            const titleEl = document.getElementById('array-name');
-            const infoEl = document.getElementById('info');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            for (const el of [titleEl, infoEl, cbWrap]) {
-                if (el) { el.style.opacity = ''; el.style.transition = ''; el.style.maxHeight = ''; el.style.overflow = ''; el.style.margin = ''; el.style.padding = ''; }
-            }
-            document.querySelectorAll('.compare-title, .compare-pane-cb-island').forEach(el => {
-                el.style.opacity = ''; el.style.transition = '';
-            });
-            const mvCb = document.getElementById('mv-cb-wrap');
-            if (mvCb) { mvCb.style.opacity = ''; mvCb.style.transition = ''; }
-            document.querySelectorAll('#qmri-view-wrap .qv-cb-island').forEach(el => {
-                el.style.opacity = ''; el.style.transition = '';
-            });
-            const wrapper = document.getElementById('wrapper');
-            if (wrapper) { wrapper.style.padding = ''; wrapper.style.margin = ''; }
-            _crossfadeTitleH = 0; _crossfadeInfoH = 0; _crossfadeCbH = 0;
         }
 
         function _positionFullscreenChrome() {
@@ -16025,6 +16448,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function updateMiniMap() {
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
+            const suppressDuringImmersive = !!(_immersiveDriveTween || (_crossfadeP > 0 && _crossfadeP < 1));
+            if (suppressDuringImmersive) {
+                _miniMap.classList.remove('visible');
+                _clearPerPaneMinimaps();
+                return;
+            }
             const compareFrame = compareActive ? compareFrames.find(Boolean) : null;
             const compareShouldShow = compareActive && comparePan.overflows && compareFrame && !multiViewActive && !qmriActive;
             const normalShouldShow = mainPan.overflows && lastImageData && !compareActive && !multiViewActive && !qmriActive;

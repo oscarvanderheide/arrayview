@@ -25,7 +25,7 @@ from fastapi import (
     UploadFile,
     WebSocket,
 )
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.websockets import WebSocketDisconnect
 from importlib.resources import files as _pkg_files
 
@@ -270,6 +270,16 @@ _SHELL_HTML: str = (
 _VIEWER_HTML_TEMPLATE: str = (
     _pkg_files("arrayview").joinpath("_viewer.html").read_text(encoding="utf-8")
 )
+
+_GSAP_JS: str = (
+    _pkg_files("arrayview").joinpath("gsap.min.js").read_text(encoding="utf-8")
+)
+
+
+@app.get("/gsap.min.js")
+def serve_gsap():
+    """Serve vendored GSAP library (browser caches via ETag)."""
+    return Response(content=_GSAP_JS, media_type="application/javascript")
 
 
 # ── WebSocket Routes (Shell and Viewer) ───────────────────────────
