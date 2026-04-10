@@ -15,7 +15,8 @@ Load the relevant skill before touching the corresponding area.
 | `frontend-designer` | Styling/layout changes to `_viewer.html` |
 | `vscode-simplebrowser` | Extension, signal-file IPC, `_VSCODE_EXT_VERSION` |
 | `invocation-consistency` | Server startup, display-opening, env detection |
-| `docs-style` | README, help overlay, docstrings |
+| `viewer-ui-checklist` | Any UI change (smoke tests, help overlay, README sync) |
+| `docs-style` | README, help overlay, docstrings (formatting rules) |
 
 ## Non-Negotiables
 

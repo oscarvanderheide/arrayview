@@ -1,13 +1,13 @@
 ---
 name: viewer-ui-checklist
-description: Use when adding keyboard shortcuts, changing layout, or making any UI change to arrayview. Ensures visual_smoke.py stays in sync.
+description: Use when adding keyboard shortcuts, changing layout, or making any UI change to arrayview. Ensures visual_smoke.py, help overlay, and README stay in sync.
 ---
 
 # ArrayView UI Checklist
 
 ## Rule
 
-Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py` before the task is complete.
+Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the help overlay, and (when user-facing) `README.md` before the task is complete.
 
 ## What counts as a UI change
 
@@ -34,6 +34,14 @@ Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py` before
    ```
 
 4. **Open and review** the new screenshots in `tests/smoke_output/`
+
+5. **Update `GUIDE_TABS`** in `_viewer.html` if you added, removed, or changed a keybinding
+   - Add/update the entry in the appropriate tab and section
+   - Include a `hint` for non-obvious shortcuts
+   - Use the `docs-style` skill for formatting rules
+
+6. **Update `README.md`** if the change is user-facing (new CLI flag, new API, new mode)
+   - Use the `docs-style` skill for formatting rules
 
 ## Red flags — STOP
 
