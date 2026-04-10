@@ -5034,6 +5034,16 @@
             }
         }
 
+        /** Debounced prefetch — safe to call on every wheel / key event. */
+        function _debouncedHoverPrefetch() {
+            if (!_pixelInfoVisible && !lebesgueMode) return;
+            clearTimeout(_hoverPrefetchTimer);
+            _hoverPrefetchTimer = setTimeout(() => {
+                _fetchLebesgueSlice();
+                if (_pixelInfoVisible) _prefetchHoverSlices();
+            }, 80);
+        }
+
         async function _fetchLebesgueSliceForSid(fetchSid, fetchDimX, fetchDimY) {
             const params = new URLSearchParams({
                 dim_x: fetchDimX, dim_y: fetchDimY,
@@ -7157,13 +7167,7 @@
             if (_lpsKeys.length > 32) _lpsKeys.slice(0, _lpsKeys.length - 16).forEach(k => delete _lebesguePerSession[k]);
             if (lebesgueMode || _pixelInfoVisible) {
                 if (lebesgueMode) _clearLebesgueOverlay();
-                // Debounce the fetch so rapid trackpad scrolling doesn't
-                // keep aborting in-flight requests before they complete.
-                clearTimeout(_hoverPrefetchTimer);
-                _hoverPrefetchTimer = setTimeout(() => {
-                    _fetchLebesgueSlice();
-                    if (_pixelInfoVisible) _prefetchHoverSlices();
-                }, 80);
+                _debouncedHoverPrefetch();
             }
             if (compareQmriActive) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
@@ -10234,6 +10238,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        _debouncedHoverPrefetch();
                         saveState();
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
@@ -10264,6 +10269,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         indices[activeDim] = Math.max(0, indices[activeDim] - 1);
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        _debouncedHoverPrefetch();
                         saveState();
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
@@ -11742,6 +11748,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     activeDim = view.sliceDir;
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    _debouncedHoverPrefetch();
                     saveState();
                 }, { passive: false });
                 cv.addEventListener('mousedown', (e) => {
@@ -12484,6 +12491,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
                         renderInfo();
                         qmriViews.forEach(v => qvRender(v));
+                        _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
@@ -12703,6 +12711,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
                         renderInfo();
                         compareQmriViews.forEach(v => compareQmriRender(v));
+                        _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
@@ -13056,6 +13065,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         indices[view.sliceDir] = Math.max(0, Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + delta));
                         renderInfo();
                         compareMvViews.forEach(v => compareMvRender(v));
+                        _debouncedHoverPrefetch();
                         saveState();
                     }, { passive: false });
                     cv.addEventListener('mousedown', (e) => {
@@ -14498,7 +14508,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 else if (compareMvActive) compareMvViews.forEach(v => compareMvRender(v));
                 else if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                 else if (qmriActive) qmriViews.forEach(v => qvRender(v));
-                else updateView();
+                else { updateView(); return; }
+                _debouncedHoverPrefetch();
             }
         });
         document.addEventListener('mouseup', (e) => {
@@ -14553,7 +14564,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 qmriViews.forEach(v => qvRender(v));
             } else {
                 updateView();
+                saveState();
+                return;
             }
+            _debouncedHoverPrefetch();
             saveState();
         }, { passive: false });
 
