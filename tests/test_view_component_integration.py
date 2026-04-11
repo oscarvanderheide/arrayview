@@ -221,3 +221,21 @@ def test_registration_mode_adds_center_view(loaded_viewer, sid_2d):
     page.wait_for_timeout(300)
     assert result.get("mode") == "compare"
     assert result.get("hasRegCenter") is True
+
+
+def test_wipe_mode_adds_center_view(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        await enterCompareModeByMultipleSids([window.currentSid, window.currentSid]);
+        if (typeof _setCompareCenterMode === 'function') _setCompareCenterMode(5);
+        return {
+            mode: modeManager.modeName,
+            hasComposite: !!modeManager.getViewById('compare-composite-center'),
+            compositeMode: modeManager.getViewById('compare-composite-center')?.displayState?._compositeMode,
+        };
+    }""")
+    page.wait_for_timeout(300)
+    assert result.get("mode") == "compare"
+    assert result.get("hasComposite") is True
+    assert result.get("compositeMode") == "wipe"
