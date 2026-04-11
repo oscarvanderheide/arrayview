@@ -308,3 +308,20 @@ def test_compare_qmri_populates_modemanager(loaded_viewer, sid_4d):
     page.wait_for_timeout(500)
     assert result.get("mode") == "compare-qmri"
     assert result.get("count", 0) > 0
+
+
+def test_mip_mode_populates_modemanager(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")      # enter multiview
+    page.wait_for_timeout(800)
+    # enterMipMode is async, so we await it
+    result = page.evaluate("""async () => {
+        if (typeof enterMipMode !== 'function') return { error: 'no enterMipMode' };
+        await enterMipMode();
+        return { mode: modeManager.modeName, count: modeManager.currentViews.length };
+    }""")
+    page.wait_for_timeout(500)
+    assert result.get("mode") == "mip"
+    assert result.get("count") >= 1
