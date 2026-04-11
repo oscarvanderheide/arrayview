@@ -5443,6 +5443,22 @@
             destroy(views) { super.destroy(views); }
         }
 
+        class CompareMvLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'compare-mv'; }
+            getViews(sessions, savedStates) { return []; }  // stub — legacy DOM manages canvases
+            arrangeViews(views, root) {}
+            scaleViews(views) { if (typeof compareMvScaleAllCanvases === 'function') compareMvScaleAllCanvases(); }
+            destroy(views) { super.destroy(views); }
+        }
+
+        class CompareQmriLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'compare-qmri'; }
+            getViews(sessions, savedStates) { return []; }
+            arrangeViews(views, root) {}
+            scaleViews(views) { if (typeof compareQmriScaleAllCanvases === 'function') compareQmriScaleAllCanvases(); }
+            destroy(views) { super.destroy(views); }
+        }
+
         // ─ 6. ModeManager singleton ───────────────────────────────────────
 
         const modeManager = {
@@ -13802,6 +13818,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
+            // Phase 10: sync modeManager
+            {
+                const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
+                const _cqViews = compareQmriViews.map((v, i) => {
+                    const ds = makeDisplayState({ vmin: v.lockedVmin, vmax: v.lockedVmax });
+                    const qv = new View({ id: 'compare-qmri-' + i, role: 'compare-qmri', session: _session,
+                        displayState: ds, slicer: new FreeSliceSlicer(), container: document.body });
+                    qv.canvas = v.canvas || null;
+                    qv.wrapper = v.canvas?.parentElement || null;
+                    if (v._colorBar) qv.colorBar = v._colorBar;
+                    qv._initialized = true;
+                    v._initialized = true;
+                    return qv;
+                });
+                modeManager.currentViews = _cqViews;
+                modeManager.currentLayout = new CompareQmriLayout();
+                modeManager.modeName = 'compare-qmri';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare-qmri' } }));
+            }
         }
 
         function exitCompareQmri() {
@@ -13823,6 +13858,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             renderInfo();
             showStatus('compare qMRI: off');
+            // Phase 10: restore modeManager to compare mode
+            if (compareActive) {
+                modeManager.modeName = 'compare';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+            }
         }
 
         function compareQmriRender(v) {
@@ -14201,6 +14241,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             renderInfo();
             _reconcileUI();
             showStatus(`compare 3-plane — ${compareMvSids.length} arrays × 3 planes — v to exit`, 3000);
+            // Phase 10: sync modeManager
+            {
+                const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
+                const _cmvViews = compareMvViews.map((v, i) => {
+                    const ds = makeDisplayState({ vmin: v.lockedVmin, vmax: v.lockedVmax });
+                    const mv = new View({ id: 'compare-mv-' + i, role: 'compare-mv', session: _session,
+                        displayState: ds, slicer: new FreeSliceSlicer(), container: document.body });
+                    mv.canvas = v.canvas || null;
+                    mv.wrapper = v.canvas?.parentElement || null;
+                    if (v._colorBar) mv.colorBar = v._colorBar;
+                    mv._initialized = true;
+                    v._initialized = true;
+                    return mv;
+                });
+                modeManager.currentViews = _cmvViews;
+                modeManager.currentLayout = new CompareMvLayout();
+                modeManager.modeName = 'compare-mv';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare-mv' } }));
+            }
         }
 
         function handleCmvPointer(view, e) {
@@ -14241,6 +14300,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             renderInfo();
             showStatus('compare 3-plane: off');
+            // Phase 10: restore modeManager to compare mode
+            if (compareActive) {
+                modeManager.modeName = 'compare';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+            }
         }
 
         function compareMvRender(v) {

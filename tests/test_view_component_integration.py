@@ -274,3 +274,37 @@ def test_qmri_mosaic_updates_mode_name(loaded_viewer, sid_4d):
     assert result.get("beforeMode") == "qmri"
     # afterMode is either 'qmri-mosaic' (if mosaic activated) or still 'qmri' (if z-dim not found)
     assert result.get("afterMode") in ("qmri", "qmri-mosaic")
+
+
+def test_compare_mv_populates_modemanager(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterCompareModeByMultipleSids !== 'function') return { error: 'no enterCompare' };
+        await enterCompareModeByMultipleSids([window.currentSid, window.currentSid]);
+        await new Promise(r => setTimeout(r, 400));
+        if (typeof enterCompareMv !== 'function') return { error: 'no enterCompareMv' };
+        enterCompareMv();
+        await new Promise(r => setTimeout(r, 400));
+        return { mode: modeManager.modeName, count: modeManager.currentViews.length };
+    }""")
+    page.wait_for_timeout(500)
+    assert result.get("mode") == "compare-mv"
+    assert result.get("count", 0) > 0
+
+
+def test_compare_qmri_populates_modemanager(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterCompareModeByMultipleSids !== 'function') return { error: 'no enterCompare' };
+        await enterCompareModeByMultipleSids([window.currentSid, window.currentSid]);
+        await new Promise(r => setTimeout(r, 400));
+        if (typeof enterCompareQmri !== 'function') return { error: 'no enterCompareQmri' };
+        enterCompareQmri();
+        await new Promise(r => setTimeout(r, 400));
+        return { mode: modeManager.modeName, count: modeManager.currentViews.length };
+    }""")
+    page.wait_for_timeout(500)
+    assert result.get("mode") == "compare-qmri"
+    assert result.get("count", 0) > 0
