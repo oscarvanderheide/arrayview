@@ -204,3 +204,20 @@ def test_diff_mode_adds_center_view(loaded_viewer, sid_2d):
     page.wait_for_timeout(300)
     assert result.get("mode") == "compare"
     assert result.get("hasDiffCenter") is True
+
+
+def test_registration_mode_adds_center_view(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterCompareModeByMultipleSids !== 'function') return { error: 'no enterCompare' };
+        await enterCompareModeByMultipleSids([window.currentSid, window.currentSid]);
+        if (typeof _setCompareCenterMode === 'function') _setCompareCenterMode(4);
+        return {
+            mode: modeManager.modeName,
+            hasRegCenter: !!modeManager.getViewById('compare-reg-center'),
+        };
+    }""")
+    page.wait_for_timeout(300)
+    assert result.get("mode") == "compare"
+    assert result.get("hasRegCenter") is True
