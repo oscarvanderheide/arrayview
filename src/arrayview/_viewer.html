@@ -1852,6 +1852,7 @@
         let _cmvPrevSquareStretch = false;
         let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
         let _comparePrevZoom = 1.0;  // saved on enterCompareMode, restored on exitCompareMode
+        let _comparePrevNormalView = null; // Phase 4: saved primary View, restored on exitCompareMode
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
@@ -2182,6 +2183,11 @@
                     [cmpManualVmin[idx], cmpManualVmin[srcIdx]];
                 [cmpManualVmax[srcIdx], cmpManualVmax[idx]] =
                     [cmpManualVmax[idx], cmpManualVmax[srcIdx]];
+                // Phase 4 dual-write: swap displayStates to match pane swap
+                { const _va = modeManager.currentViews[srcIdx], _vb = modeManager.currentViews[idx];
+                  if (_va && _vb) { [modeManager.currentViews[srcIdx], modeManager.currentViews[idx]] = [_vb, _va]; }
+                  else if (_va) { _va.displayState.vmin = cmpManualVmin[srcIdx]; _va.displayState.vmax = cmpManualVmax[srcIdx]; }
+                  else if (_vb) { _vb.displayState.vmin = cmpManualVmin[idx]; _vb.displayState.vmax = cmpManualVmax[idx]; } }
                 applyCompareLayout();
                 drawCompareFramesFromCache();
                 drawAllComparePaneCbs();
@@ -2228,6 +2234,8 @@
                 const newHalf = (win * factor) / 2;
                 cmpManualVmin[i] = center - newHalf;
                 cmpManualVmax[i] = center + newHalf;
+                // Phase 4 dual-write
+                { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = cmpManualVmin[i]; _v.displayState.vmax = cmpManualVmax[i]; } }
                 drawComparePaneCb(i);
                 compareRender();
             }, { passive: false });
@@ -2245,6 +2253,8 @@
                 if (window._comparePaneCbs && window._comparePaneCbs[i]) return;
                 cmpManualVmin[i] = null;
                 cmpManualVmax[i] = null;
+                // Phase 4 dual-write
+                { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = null; _v.displayState.vmax = null; } }
                 drawComparePaneCb(i);
                 compareRender();
             });
@@ -2334,6 +2344,8 @@
                     _cmpCbDragX = e.clientX;
                     cmpManualVmin[i] = vmin - (dx / cbW) * win;
                     cmpManualVmax[i] = vmax - (dx / cbW) * win;
+                    // Phase 4 dual-write
+                    { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = cmpManualVmin[i]; _v.displayState.vmax = cmpManualVmax[i]; } }
                     drawComparePaneCb(i);
                     compareRender();
                 }
@@ -2973,7 +2985,9 @@
                         const f = compareFrames[idx];
                         return { vmin: cmpManualVmin[idx] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[idx] ?? (f ? f.vmax : currentVmax) };
                     },
-                    setWindow: (lo, hi) => { cmpManualVmin[idx] = lo; cmpManualVmax[idx] = hi; },
+                    setWindow: (lo, hi) => { cmpManualVmin[idx] = lo; cmpManualVmax[idx] = hi;
+                        // Phase 4 dual-write
+                        const _v = modeManager.currentViews[idx]; if (_v) { _v.displayState.vmin = lo; _v.displayState.vmax = hi; } },
                     fetchHistogram: () => _fetchHistogramCompare(),
                     onWindowChange: () => { compareRender(); },
                 }));
@@ -5271,6 +5285,49 @@
                     const panes = document.getElementById('mv-panes');
                     if (panes) panes.remove();
                 }
+            }
+        }
+
+        class CompareLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'compare'; }
+
+            getViews(sessions, savedStates) {
+                return sessions.map((session, i) => {
+                    const saved = savedStates?.[i];
+                    const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                    return new View({
+                        id: 'compare-' + i,
+                        role: 'compare',
+                        session: session,
+                        displayState: ds,
+                        slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('compare-wrap') || document.body,
+                    });
+                });
+            }
+
+            arrangeViews(views, root) {
+                // In compare mode, pane canvases are managed by the legacy compareScaleCanvases().
+                // We bind each View to the existing .compare-canvas-clip > canvas at position i.
+                const clips = document.querySelectorAll('.compare-canvas-clip');
+                views.forEach((v, i) => {
+                    const clip = clips[i];
+                    if (clip) {
+                        const canvas = clip.querySelector('canvas');
+                        if (canvas) {
+                            v.canvas = canvas;
+                            v.wrapper = clip;
+                        }
+                    }
+                });
+            }
+
+            scaleViews(views) {
+                if (typeof compareScaleCanvases === 'function') compareScaleCanvases();
+            }
+
+            destroy(views) {
+                super.destroy(views);
             }
         }
 
@@ -10244,6 +10301,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) {
                                     cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
                                     cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
+                                    // Phase 4 dual-write
+                                    [0, 1].forEach(i => { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = q.vmin; _v.displayState.vmax = q.vmax; } });
                                     _cmpLeftCb.draw(); _cmpRightCb?.draw();
                                     _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
                                     compareRender();
@@ -11631,6 +11690,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 updateView();
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
                 showStatus(`compare: ${compareName}`);
+                // Phase 4: sync modeManager
+                {
+                    // Save the existing primary View on first enter so exitCompareMode can restore it.
+                    if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
+                    const _cmpSids = compareSidList.length ? [targetSid, sid] : [targetSid];
+                    const _cmpN = Math.max(2, _cmpSids.length);
+                    const _cmpClips = document.querySelectorAll('.compare-canvas-clip');
+                    const _cmpViews = Array.from({ length: _cmpN }, (_, i) => {
+                        const clip = _cmpClips[i] || null;
+                        const canvas = clip ? clip.querySelector('canvas') : null;
+                        const ds = makeDisplayState({ vmin: cmpManualVmin[i], vmax: cmpManualVmax[i] });
+                        const _cmpSid = i === 0 ? sid : (compareSidList[i - 1] || targetSid);
+                        const session = { sid: _cmpSid, ndim: shape.length, isComplex };
+                        const v = new View({ id: 'compare-' + i, role: 'compare', session, displayState: ds,
+                            slicer: new FreeSliceSlicer(), container: clip || document.body });
+                        v.canvas = canvas || null;
+                        v.wrapper = clip || null;
+                        v._initialized = true;  // skip init() — legacy DOM already set up
+                        return v;
+                    });
+                    modeManager.currentViews = _cmpViews;
+                    modeManager.currentLayout = new CompareLayout();
+                    modeManager.modeName = 'compare';
+                    document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+                }
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -11677,6 +11761,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
                 const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
                 showStatus(`compare: ${names.join(' · ')}`);
+                // Phase 4: sync modeManager
+                {
+                    // Save the existing primary View on first enter so exitCompareMode can restore it.
+                    if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
+                    const _cmpN = sids.length;
+                    const _cmpClips = document.querySelectorAll('.compare-canvas-clip');
+                    const _cmpViews = Array.from({ length: _cmpN }, (_, i) => {
+                        const clip = _cmpClips[i] || null;
+                        const canvas = clip ? clip.querySelector('canvas') : null;
+                        const ds = makeDisplayState({ vmin: cmpManualVmin[i], vmax: cmpManualVmax[i] });
+                        const session = { sid: sids[i], ndim: shape.length, isComplex };
+                        const v = new View({ id: 'compare-' + i, role: 'compare', session, displayState: ds,
+                            slicer: new FreeSliceSlicer(), container: clip || document.body });
+                        v.canvas = canvas || null;
+                        v.wrapper = clip || null;
+                        v._initialized = true;  // skip init() — legacy DOM already set up
+                        return v;
+                    });
+                    modeManager.currentViews = _cmpViews;
+                    modeManager.currentLayout = new CompareLayout();
+                    modeManager.modeName = 'compare';
+                    document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+                }
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -12269,6 +12376,43 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _updateHeaderNameForCompare();
             updateView();
             showStatus('compare: off');
+            // Phase 4: sync modeManager back to normal (same shallow pattern as exitMultiView)
+            {
+                // Null out compare View references before discarding so nothing
+                // inadvertently touches legacy DOM or colorbars (already cleaned up above).
+                modeManager.currentViews.forEach(v => {
+                    v.canvas = null; v.wrapper = null; v.colorBar = null;
+                    v.layers.forEach(l => l.destroy());
+                    v.layers = [];
+                    v._initialized = false;
+                });
+                // Restore the pre-compare normal View if we saved one, otherwise rebuild.
+                if (_comparePrevNormalView) {
+                    modeManager.currentViews = [_comparePrevNormalView];
+                    _comparePrevNormalView = null;
+                } else {
+                    const _mmSession = { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                    const _nmView = new View({
+                        id: 'normal',
+                        role: 'primary',
+                        session: _mmSession,
+                        displayState: makeDisplayState(),
+                        slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('canvas-wrap') || document.body,
+                    });
+                    const _existingCanvas = document.getElementById('canvas');
+                    if (_existingCanvas) {
+                        _nmView.canvas = _existingCanvas;
+                        _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
+                    }
+                    _nmView.colorBar = primaryCb;
+                    _nmView._initialized = true;
+                    modeManager.currentViews = [_nmView];
+                }
+                modeManager.currentLayout = new NormalLayout();
+                modeManager.modeName = 'normal';
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            }
         }
 
         // --------------- Multi-view (3-plane) ---------------
