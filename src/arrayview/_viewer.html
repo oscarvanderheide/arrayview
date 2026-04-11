@@ -2273,6 +2273,7 @@
             e.preventDefault();
             const step = e.deltaY > 0 ? 0.05 : -0.05;
             registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+            { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
             applyCompareLayout(); drawCompareFramesFromCache(); saveState();
             const _dt0 = document.getElementById('compare-diff-title');
             if (_dt0) _dt0.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
@@ -2289,6 +2290,7 @@
             const rect = regBlendBarWrap.getBoundingClientRect();
             const dx = e.clientX - _regBlendDragX;
             registrationAlpha = Math.max(0.05, Math.min(0.95, (_regBlendDragAlpha0 || 0.5) + dx / rect.width));
+            { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
             applyCompareLayout(); drawCompareFramesFromCache(); drawRegBlendCb();
             const _dt1 = document.getElementById('compare-diff-title');
             if (_dt1) _dt1.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
@@ -3181,6 +3183,28 @@
             } else {
                 // Remove diff center view if present
                 modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-diff-center');
+            }
+            // Phase 6: sync registration center pane
+            if (registrationMode && compareActive) {
+                let regView = modeManager.getViewById('compare-reg-center');
+                if (!regView) {
+                    const ds = makeDisplayState();
+                    ds._registrationAlpha = registrationAlpha;
+                    regView = new View({
+                        id: 'compare-reg-center', role: 'reg-center',
+                        session: modeManager.currentViews[0]?.session,
+                        displayState: ds, slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('compare-wrap') || document.body,
+                    });
+                    regView._initialized = true;
+                    const regPane = document.getElementById('compare-diff-pane');
+                    if (regPane) { regView.canvas = regPane.querySelector('canvas'); regView.wrapper = regPane; }
+                    modeManager.currentViews.push(regView);
+                } else {
+                    regView.displayState._registrationAlpha = registrationAlpha;
+                }
+            } else {
+                modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-reg-center');
             }
         }
 
@@ -7749,6 +7773,7 @@
             _checkerActive = (compareCenterMode === 7);
             if (Number.isFinite(Number(s.registrationAlpha))) {
                 registrationAlpha = Math.max(0.05, Math.min(0.95, Number(s.registrationAlpha)));
+                { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
             }
             if (Number.isFinite(Number(s.overlayAlpha))) {
                 overlayAlpha = Math.max(0.05, Math.min(0.95, Number(s.overlayAlpha)));
@@ -9752,6 +9777,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
                     } else if (compareActive && registrationMode) {
                         registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
+                        { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
                         applyCompareLayout();
                         drawCompareFramesFromCache();
                         // Update overlay title to reflect new blend
