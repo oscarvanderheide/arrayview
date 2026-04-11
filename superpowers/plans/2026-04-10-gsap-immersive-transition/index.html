@@ -1,0 +1,946 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>GSAP Immersive Transition Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gsap-immersive-transition-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GSAP Immersive Transition Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-vendor-gsapminjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Vendor gsap.min.js
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-serve-gsap-from-the-server-and-load-it-in-the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Serve GSAP from the server and load it in the viewer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-replace-_scaleallwithanim-with-gsap-tween" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Replace _scaleAllWithAnim with GSAP tween
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-refactor-_applyimmersivecrossfade-to-use-gsap-proxy-timeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Refactor _applyImmersiveCrossfade to use GSAP proxy timeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-run-existing-tests-and-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Run existing tests and verify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-clean-up-and-final-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Clean up and final commit
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="gsap-immersive-transition-implementation-plan">GSAP Immersive Transition Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Replace the manual rAF zoom animation with GSAP for snappy, properly-eased immersive transitions on <code>=</code>/<code>-</code> key presses, and use a GSAP proxy timeline to drive the crossfade CSS interpolation.</p>
+<p><strong>Architecture:</strong> Vendor <code>gsap.min.js</code> and serve it via a dedicated FastAPI endpoint. Replace <code>_scaleAllWithAnim()</code> with a GSAP tween (400ms, power2.inOut). Refactor <code>_applyImmersiveCrossfade()</code> to scrub a paused GSAP proxy timeline instead of computing <code>collapseP</code>/<code>fadeIn</code> with manual arithmetic. The existing class toggle logic and CSS property application stay intact.</p>
+<p><strong>Tech Stack:</strong> GSAP 3.12.x (core only, no plugins), Python/FastAPI, vanilla JS</p>
+<p><strong>Spec:</strong> <code>docs/superpowers/specs/2026-04-10-gsap-immersive-transition-design.md</code></p>
+<hr />
+<h3 id="task-1-vendor-gsapminjs">Task 1: Vendor gsap.min.js</h3>
+<p><strong>Files:</strong>
+- Create: <code>src/arrayview/gsap.min.js</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Download GSAP core</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-L<span class="w"> </span>-o<span class="w"> </span>src/arrayview/gsap.min.js<span class="w"> </span><span class="s2">&quot;https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js&quot;</span>
+</code></pre></div>
+<p>Verify the file exists and is ~72KB:
+<div class="highlight"><pre><span></span><code>ls<span class="w"> </span>-la<span class="w"> </span>src/arrayview/gsap.min.js
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Verify the file contains GSAP</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>head<span class="w"> </span>-c<span class="w"> </span><span class="m">200</span><span class="w"> </span>src/arrayview/gsap.min.js
+</code></pre></div>
+<p>Expected: starts with a copyright comment and minified JS containing <code>gsap</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/gsap.min.js
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;vendor: add gsap 3.12.7 core for immersive transition&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-2-serve-gsap-from-the-server-and-load-it-in-the-viewer">Task 2: Serve GSAP from the server and load it in the viewer</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_server.py:28-30</code> (import), <code>src/arrayview/_server.py:265-272</code> (template loading), add endpoint
+- Modify: <code>src/arrayview/_viewer.html:1535</code> (add script tag before main script)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add GSAP endpoint to _server.py</strong></li>
+</ul>
+<p>Add <code>Response</code> to the existing import on line 28:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.responses</span><span class="w"> </span><span class="kn">import</span> <span class="n">HTMLResponse</span><span class="p">,</span> <span class="n">JSONResponse</span><span class="p">,</span> <span class="n">Response</span>
+</code></pre></div>
+<p>After line 272 (after the <code>_VIEWER_HTML_TEMPLATE</code> block), add:</p>
+<div class="highlight"><pre><span></span><code><span class="n">_GSAP_JS</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">_pkg_files</span><span class="p">(</span><span class="s2">&quot;arrayview&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">joinpath</span><span class="p">(</span><span class="s2">&quot;gsap.min.js&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/gsap.min.js&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">serve_gsap</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Serve vendored GSAP library (browser caches via ETag).&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">Response</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">_GSAP_JS</span><span class="p">,</span> <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;application/javascript&quot;</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add script tag to _viewer.html</strong></li>
+</ul>
+<p>Before line 1535 (<code>&lt;script&gt;</code>), add:</p>
+<div class="highlight"><pre><span></span><code>    <span class="p">&lt;</span><span class="nt">script</span> <span class="na">src</span><span class="o">=</span><span class="s">&quot;/gsap.min.js&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Verify GSAP loads in the browser</strong></li>
+</ul>
+<p>Start the viewer, open browser devtools console, type <code>gsap.version</code>. Should return <code>"3.12.7"</code>.</p>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_server.py<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: serve vendored GSAP and load in viewer&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-3-replace-_scaleallwithanim-with-gsap-tween">Task 3: Replace _scaleAllWithAnim with GSAP tween</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:2576-2612</code> (<code>_scaleAllWithAnim</code> function)</p>
+<p>This is the core change. The existing function uses a manual rAF loop with 2000ms duration and cubic easing. Replace it with a GSAP tween: 400ms, power2.inOut.</p>
+<ul>
+<li>[ ] <strong>Step 1: Replace _scaleAllWithAnim</strong></li>
+</ul>
+<p>Replace the entire function (lines 2576-2612) with:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_zoomAnimId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">   </span><span class="c1">// kept for compat — now unused</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">undefined</span><span class="p">;</span><span class="w"> </span><span class="c1">// zoom level currently shown on screen</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_zoomTween</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">    </span><span class="c1">// active GSAP tween for zoom animation</span>
+<span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_scaleAllWithAnim</span><span class="p">(</span><span class="nx">onDone</span><span class="p">,</span><span class="w"> </span><span class="nx">easeIn</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// Animate zoom from current rendered value to userZoom target.</span>
+<span class="w">            </span><span class="c1">// GSAP drives the rAF loop; each frame calls ModeRegistry.scaleAll()</span>
+<span class="w">            </span><span class="c1">// which runs _applyImmersiveCrossfade + the mode scaler.</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">targetZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">userZoom</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_zoomTween</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_zoomTween</span><span class="p">.</span><span class="nx">kill</span><span class="p">();</span><span class="w"> </span><span class="nx">_zoomTween</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_zoomAnimId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cancelAnimationFrame</span><span class="p">(</span><span class="nx">_zoomAnimId</span><span class="p">);</span><span class="w"> </span><span class="nx">_zoomAnimId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fromZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="kc">undefined</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nx">fromZoom</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.001</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span><span class="w"> </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">_cbExpandedHLocked</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">onDone</span><span class="p">)</span><span class="w"> </span><span class="nx">onDone</span><span class="p">();</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">proxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">z</span><span class="o">:</span><span class="w"> </span><span class="nx">fromZoom</span><span class="w"> </span><span class="p">};</span>
+<span class="w">            </span><span class="nx">_zoomTween</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">gsap</span><span class="p">.</span><span class="nx">to</span><span class="p">(</span><span class="nx">proxy</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">z</span><span class="o">:</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">duration</span><span class="o">:</span><span class="w"> </span><span class="mf">0.4</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">ease</span><span class="o">:</span><span class="w"> </span><span class="nx">easeIn</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;power3.in&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;power2.inOut&#39;</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">onUpdate</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">proxy</span><span class="p">.</span><span class="nx">z</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">userZoom</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                </span><span class="p">},</span>
+<span class="w">                </span><span class="nx">onComplete</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">_cbExpandedHLocked</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                    </span><span class="nx">_zoomTween</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">onDone</span><span class="p">)</span><span class="w"> </span><span class="nx">onDone</span><span class="p">();</span>
+<span class="w">                </span><span class="p">},</span>
+<span class="w">            </span><span class="p">});</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div>
+<p>Key changes from the old function:
+- <code>_zoomTween</code> replaces <code>_zoomAnimId</code> as the active animation handle
+- <code>gsap.to(proxy, ...)</code> replaces <code>requestAnimationFrame(step)</code>
+- 400ms replaces 2000ms
+- <code>power2.inOut</code> replaces manual cubic easing (<code>1 - Math.pow(1-p, 3)</code>)
+- <code>power3.in</code> replaces manual ease-in cubic (<code>Math.pow(p, 3)</code>) for the <code>easeIn</code> path
+- All callers (<code>=</code>, <code>-</code>, <code>0</code> key handlers) continue to work unchanged — the function signature is identical</p>
+<ul>
+<li>
+<p>[ ] <strong>Step 2: Verify = key animation in browser</strong></p>
+</li>
+<li>
+<p>Open arrayview with a 2D array</p>
+</li>
+<li>Press <code>=</code> — should smoothly enter immersive in ~400ms with power2.inOut feel</li>
+<li>Press <code>-</code> — should smoothly exit immersive in ~400ms</li>
+<li>Press <code>0</code> — should snap back to fit</li>
+<li>
+<p>Scroll/pinch zoom should still work as before (scroll doesn't use <code>_scaleAllWithAnim</code>)</p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Commit</strong></p>
+</li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: replace manual zoom animation with GSAP tween (400ms, power2.inOut)&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-4-refactor-_applyimmersivecrossfade-to-use-gsap-proxy-timeline">Task 4: Refactor _applyImmersiveCrossfade to use GSAP proxy timeline</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:15061-15245</code> (<code>_applyImmersiveCrossfade</code> and surrounding code)</p>
+<p>Replace the manual <code>collapseP</code>/<code>fadeIn</code> arithmetic with a paused GSAP timeline that drives proxy values. The CSS property application logic stays the same — only the progress computation changes.</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the proxy timeline builder</strong></li>
+</ul>
+<p>Replace the crossfade state variables (lines 15064-15069) and add the timeline builder. Insert right after the <code>// ── Zoom-driven immersive crossfade</code> comment (line 15061):</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="c1">// ── Zoom-driven immersive crossfade ────────────────────────────</span>
+<span class="w">        </span><span class="c1">// GSAP proxy timeline: scrubbed by zoom progress during scroll/pinch.</span>
+<span class="w">        </span><span class="c1">// Drives collapseP (0→1 in first half). fadeIn is computed manually</span>
+<span class="w">        </span><span class="c1">// The actual CSS property application remains manual so we can handle</span>
+<span class="w">        </span><span class="c1">// the fullscreen-mode class toggle between the two phases.</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadePrev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeTitleMT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">_crossfadeTitleMB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeInfoMT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">_crossfadeInfoMB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">_cfProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">collapseP</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="p">};</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_cfTimeline</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+
+<span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_buildCrossfadeTimeline</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_cfTimeline</span><span class="p">)</span><span class="w"> </span><span class="nx">_cfTimeline</span><span class="p">.</span><span class="nx">kill</span><span class="p">();</span>
+<span class="w">            </span><span class="nx">_cfProxy</span><span class="p">.</span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="c1">// Timeline maps progress 0→0.5 to collapseP 0→1 (first half of crossfade).</span>
+<span class="w">            </span><span class="c1">// fadeIn is NOT driven by the timeline — it depends on absolute zoom values</span>
+<span class="w">            </span><span class="c1">// (userZoom relative to immFit), not the normalized progress p.</span>
+<span class="w">            </span><span class="nx">_cfTimeline</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">gsap</span><span class="p">.</span><span class="nx">timeline</span><span class="p">({</span><span class="w"> </span><span class="nx">paused</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">})</span>
+<span class="w">                </span><span class="p">.</span><span class="nx">to</span><span class="p">(</span><span class="nx">_cfProxy</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">collapseP</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nx">duration</span><span class="o">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="nx">ease</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="mf">0</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Replace manual collapseP/fadeIn computation in _applyImmersiveCrossfade</strong></li>
+</ul>
+<p>In the function body (starting at line 15070), replace the <code>collapseP</code> and <code>fadeIn</code> manual computation (lines 15091-15096) with the timeline scrub:</p>
+<p>Replace:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="c1">// collapseP: 0→1 during first half (chrome collapses + fades out)</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="p">);</span>
+<span class="w">            </span><span class="c1">// fadeIn: 0→1 only AFTER pane reaches final size (userZoom past immFit).</span>
+<span class="w">            </span><span class="c1">// This prevents chrome from appearing while the pane is still growing,</span>
+<span class="w">            </span><span class="c1">// which would cause annoying positional drift of the floating elements.</span>
+<span class="w">            </span><span class="c1">// 0.5% zoom range past immFit — matches the 1.005 margin in zoom.in</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">immFit</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="nx">immFit</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">0.005</span><span class="p">)));</span>
+</code></pre></div></p>
+<p>With:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="c1">// Scrub the proxy timeline to get collapseP and fadeIn values</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_cfTimeline</span><span class="p">)</span><span class="w"> </span><span class="nx">_buildCrossfadeTimeline</span><span class="p">();</span>
+<span class="w">            </span><span class="nx">_cfTimeline</span><span class="p">.</span><span class="nx">progress</span><span class="p">(</span><span class="nx">p</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_cfProxy</span><span class="p">.</span><span class="nx">collapseP</span><span class="p">;</span>
+<span class="w">            </span><span class="c1">// fadeIn: delayed until pane reaches final size (0.5% zoom past immFit)</span>
+<span class="w">            </span><span class="c1">// This prevents floating chrome from drifting while the pane is still growing.</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">immFit</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="nx">immFit</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">0.005</span><span class="p">)));</span>
+</code></pre></div></p>
+<p>Note: <code>fadeIn</code> stays manual because it depends on <code>userZoom</code> relative to <code>immFit</code> (a physical zoom threshold), not the normalized progress <code>p</code>. The proxy timeline drives <code>collapseP</code> only.</p>
+<ul>
+<li>[ ] <strong>Step 3: Reset timeline in cleanup paths</strong></li>
+</ul>
+<p>In <code>_crossfadeCleanup()</code> (line 15247), add timeline reset:</p>
+<p>After <code>_crossfadeP = 0;</code> (line 15249), add:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_cfTimeline</span><span class="p">)</span><span class="w"> </span><span class="nx">_cfTimeline</span><span class="p">.</span><span class="nx">progress</span><span class="p">(</span><span class="mf">0</span><span class="p">);</span>
+<span class="w">            </span><span class="nx">_cfProxy</span><span class="p">.</span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In the early-return path of <code>_applyImmersiveCrossfade</code> (line 15074-15079), where <code>_shouldEnterImmersive()</code> returns false, add after <code>_crossfadeCollapseP = 0;</code>:
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_cfTimeline</span><span class="p">)</span><span class="w"> </span><span class="nx">_cfTimeline</span><span class="p">.</span><span class="nx">progress</span><span class="p">(</span><span class="mf">0</span><span class="p">);</span>
+<span class="w">                </span><span class="nx">_cfProxy</span><span class="p">.</span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+</code></pre></div></p>
+<ul>
+<li>
+<p>[ ] <strong>Step 4: Verify scroll/pinch crossfade still works</strong></p>
+</li>
+<li>
+<p>Open arrayview with a 2D array</p>
+</li>
+<li>Slowly scroll/pinch to zoom in past normal fit</li>
+<li>Chrome should smoothly collapse and fade out</li>
+<li>Continue zooming — at p=0.5, layout switches to immersive</li>
+<li>Chrome fades in at floating positions</li>
+<li>Zoom back out — reverse should be symmetric</li>
+<li>
+<p>No visible jumps or stutter at any point</p>
+</li>
+<li>
+<p>[ ] <strong>Step 5: Commit</strong></p>
+</li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: use GSAP proxy timeline for crossfade collapseP&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-5-run-existing-tests-and-verify">Task 5: Run existing tests and verify</h3>
+<p><strong>Files:</strong> No changes — verification only.</p>
+<ul>
+<li>[ ] <strong>Step 1: Run the full test suite</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>/Users/oscar/Projects/packages/python/arrayview
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-x<span class="w"> </span>-v<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-40
+</code></pre></div>
+<p>All tests should pass. The GSAP changes are timing-only — no behavioral changes to the viewer.</p>
+<ul>
+<li>[ ] <strong>Step 2: Run interaction tests specifically</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_interactions.py<span class="w"> </span>-x<span class="w"> </span>-v<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-40
+</code></pre></div>
+<p>Focus on zoom-related tests — they exercise the = key and zoom animations.</p>
+<ul>
+<li>[ ] <strong>Step 3: Manual visual verification checklist</strong></li>
+</ul>
+<p>Test each scenario in the browser:</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Expected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>=</code> key from normal fit</td>
+<td>Smooth 400ms entry to immersive, power2.inOut feel</td>
+</tr>
+<tr>
+<td><code>-</code> key from immersive</td>
+<td>Smooth 400ms exit to normal, symmetric</td>
+</tr>
+<tr>
+<td><code>=</code> then <code>-</code> rapidly</td>
+<td>Picks up from current position, no jump</td>
+</tr>
+<tr>
+<td>Scroll/pinch into immersive</td>
+<td>Same as before (zoom-driven, no timing change)</td>
+</tr>
+<tr>
+<td>Scroll/pinch out of immersive</td>
+<td>Same as before</td>
+</tr>
+<tr>
+<td><code>0</code> key from immersive</td>
+<td>Snaps back to normal fit</td>
+</tr>
+<tr>
+<td>Window resize during immersive</td>
+<td>Layout adjusts, no crash</td>
+</tr>
+<tr>
+<td>Compare mode <code>=</code> key</td>
+<td>Smooth immersive entry/exit</td>
+</tr>
+<tr>
+<td>qMRI mode <code>=</code> key</td>
+<td>Smooth immersive entry/exit</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>[ ] <strong>Step 4: Screenshot before/after for visual regression</strong></li>
+</ul>
+<p>Take screenshots of immersive state in at least single-view and compare-view modes. Compare with existing baselines in <code>tests/ui_audit/baselines/</code>.</p>
+<hr />
+<h3 id="task-6-clean-up-and-final-commit">Task 6: Clean up and final commit</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (remove dead code if any)</p>
+<ul>
+<li>[ ] <strong>Step 1: Remove _zoomAnimId if no longer referenced</strong></li>
+</ul>
+<p>Search for <code>_zoomAnimId</code> in the file. If the only references are in the new <code>_scaleAllWithAnim</code> (the compat fallback), it can stay. If there are external references (e.g., in scroll handlers that cancel the animation), keep it.</p>
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;_zoomAnimId&#39;</span><span class="w"> </span>src/arrayview/_viewer.html
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Verify GSAP fallback guard</strong></li>
+</ul>
+<p>Check that the code handles the case where GSAP fails to load. In the <code>_scaleAllWithAnim</code> function, <code>gsap.to()</code> would throw if GSAP isn't loaded. Add a guard at the top of the function:</p>
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">gsap</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;undefined&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="c1">// Fallback: snap instantly if GSAP unavailable</span>
+<span class="w">                </span><span class="nx">_zoomRendered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetZoom</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">_cbExpandedHLocked</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">onDone</span><span class="p">)</span><span class="w"> </span><span class="nx">onDone</span><span class="p">();</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+</code></pre></div>
+<p>Similarly in <code>_buildCrossfadeTimeline</code>:
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_buildCrossfadeTimeline</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">gsap</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;undefined&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="c1">// ... rest of function</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Final commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: add GSAP fallback guards, clean up dead zoom animation code&quot;</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

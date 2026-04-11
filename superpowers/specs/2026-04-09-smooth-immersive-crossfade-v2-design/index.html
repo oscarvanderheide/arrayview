@@ -1,0 +1,853 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Smooth Immersive Crossfade v2 - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smooth-immersive-crossfade-v2" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Smooth Immersive Crossfade v2
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-insight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Insight
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#progress-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Progress value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#first-half-p-0-05-collapse-fade-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First half (p: 0 → 0.5) — collapse + fade out
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#midpoint-p-05-invisible-layout-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Midpoint (p = 0.5) — invisible layout switch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#second-half-p-05-10-fade-in-at-immersive-positions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second half (p: 0.5 → 1.0) — fade in at immersive positions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fully-immersive-p-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fully immersive (p ≥ 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reverse-zooming-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reverse (zooming out)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chrome-collapse-technique" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chrome collapse technique
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bottom-reserve-interpolation-all-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bottom reserve interpolation — all modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#colorbar-collapse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Colorbar collapse
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-site" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call site
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        = key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_shouldenterimmersive-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        _shouldEnterImmersive() guard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dimbar-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dimbar width
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-gets-removed-same-as-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Gets Removed (same as v1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#edge-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edge Cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="smooth-immersive-crossfade-v2">Smooth Immersive Crossfade v2</h1>
+<p><strong>Date:</strong> 2026-04-09
+<strong>Status:</strong> Approved
+<strong>Supersedes:</strong> <code>2026-04-09-smooth-immersive-crossfade-design.md</code> (v1 had layout jump issues)</p>
+<h2 id="problem">Problem</h2>
+<p>Entering/exiting immersive mode during continuous trackpad zoom needs to feel seamless. The v1 approach tried to control only chrome opacity during the crossfade and toggle the <code>fullscreen-mode</code> CSS class at a single point. This caused visible layout jumps because the class toggle changes ~10 layout properties at once (title collapses, padding changes, dimbar/colorbar repositioning). No matter where we toggled (p=0.5 or p=1), the layout shift was visible.</p>
+<h2 id="key-insight">Key Insight</h2>
+<p>The pane must <strong>grow continuously</strong> during the crossfade. The slice must always fill the pane — no overflow, no empty space, no minimap until fully immersive and zooming further. This means chrome elements must <strong>physically collapse</strong> (not just fade) to give the pane more room.</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="progress-value">Progress value</h3>
+<div class="highlight"><pre><span></span><code>immFit = _calcAutoFitZoom(w, h, true)   // immersive fit zoom
+normFit = _normalFitZoom                 // normal fit zoom  
+p = clamp((userZoom - normFit) / (immFit - normFit), 0, 1)
+</code></pre></div>
+<h3 id="first-half-p-0-05-collapse-fade-out">First half (p: 0 → 0.5) — collapse + fade out</h3>
+<p>Chrome elements physically shrink AND fade out. The pane grows to fill freed space. The slice fills the growing pane (no overflow).</p>
+<ul>
+<li><strong>Title (<code>#array-name</code>):</strong> height collapses from natural to 0. Opacity fades 1→0. Margin/padding collapse proportionally. Uses inline styles (<code>maxHeight</code>, <code>overflow: hidden</code>).</li>
+<li><strong>Dimbar (<code>#info</code>):</strong> height collapses from natural to 0. Opacity fades 1→0. Same technique.</li>
+<li><strong>Colorbar area:</strong> The 80px <code>bottomReserve</code> in <code>scaleCanvas</code> accounts for colorbar + eggs + gaps. This needs to interpolate from 80→0 during the first half.</li>
+</ul>
+<p><strong>Why the slice fills the pane:</strong> <code>uiReserveV()</code> already measures actual <code>offsetHeight</code> of title and dimbar. As we collapse them, it returns less, <code>scaleCanvas</code> computes more <code>maxH</code>, and the canvas fills the larger space. The <code>bottomReserve</code> interpolation handles the colorbar space. Since p is linear in userZoom, and the fit-zoom calculation is linear in available height, the two match — the slice exactly fills the pane at every intermediate point.</p>
+<h3 id="midpoint-p-05-invisible-layout-switch">Midpoint (p = 0.5) — invisible layout switch</h3>
+<p>All chrome at opacity 0 and collapsed. Toggle <code>fullscreen-mode</code> class. The class sets the same collapsed state + floating positioning for dimbar/colorbar. Since chrome is invisible and already collapsed, the switch has zero visual impact.</p>
+<h3 id="second-half-p-05-10-fade-in-at-immersive-positions">Second half (p: 0.5 → 1.0) — fade in at immersive positions</h3>
+<ul>
+<li><strong>Dimbar:</strong> fades in 0→1 at floating position (top of pane, blur backdrop)</li>
+<li><strong>Colorbar:</strong> fades in 0→1 at floating position (bottom of pane, blur backdrop)  </li>
+<li><strong>Title:</strong> stays hidden (opacity 0, hidden by <code>fullscreen-mode</code> CSS)</li>
+<li><strong>Pane continues growing</strong> as userZoom increases toward immersive fit</li>
+</ul>
+<h3 id="fully-immersive-p-1">Fully immersive (p ≥ 1)</h3>
+<p>Chrome fully visible at immersive positions. Further zooming causes slice to overflow pane → minimap appears. This is the existing immersive zoom behavior.</p>
+<h3 id="reverse-zooming-out">Reverse (zooming out)</h3>
+<p>Symmetric. As p decreases:
+- p: 1 → 0.5: dimbar/colorbar fade out at immersive positions
+- p = 0.5: remove <code>fullscreen-mode</code> class (chrome invisible, no visual impact). Restore inline collapse styles so elements stay collapsed.
+- p: 0.5 → 0: chrome expands back into their normal positions AND fades in. Pane shrinks.
+- p = 0: fully normal, inline styles cleared.</p>
+<h2 id="implementation-details">Implementation Details</h2>
+<h3 id="chrome-collapse-technique">Chrome collapse technique</h3>
+<p>For each chrome element (title, dimbar), progressively set:
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="p">);</span><span class="w">  </span><span class="c1">// 0→1 during first half</span>
+<span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">naturalH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span>
+<span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">;</span>
+<span class="c1">// Also collapse margin/padding proportionally</span>
+</code></pre></div></p>
+<p>Cache <code>naturalH</code> (element's natural height) when the crossfade starts (p transitions from 0 to &gt;0) so it doesn't change during the crossfade.</p>
+<h3 id="bottom-reserve-interpolation-all-modes">Bottom reserve interpolation — all modes</h3>
+<p>Every scale function uses <code>uiReserveV()</code> (which auto-adjusts as we collapse title + dimbar) PLUS a mode-specific bottom reserve for colorbar/eggs/padding. These bottom reserves are currently hardcoded. During the first half of the crossfade, they must interpolate to 0.</p>
+<p>Introduce a global <code>_crossfadeCollapseP</code> variable (0 outside crossfade, 0→1 during first half):</p>
+<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// set by _applyImmersiveCrossfade</span>
+
+<span class="c1">// Each scale function multiplies its bottom reserve:</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">bottomReserve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">fullReserve</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div>
+<p>Affected scale functions and their reserves:
+- <code>scaleCanvas</code>: <code>bottomReserve = 80</code> → <code>80 * (1 - _crossfadeCollapseP)</code>
+- <code>compareScaleCanvases</code>: <code>uiReserveH = uiReserveV() + 40</code> → the <code>40</code> part → <code>40 * (1 - _crossfadeCollapseP)</code>
+- <code>compareQmriScaleAllCanvases</code>: <code>cbRows * cbH + bottomPad</code> → multiply by <code>(1 - _crossfadeCollapseP)</code>
+- <code>compareMvScaleAllCanvases</code>: same pattern as compareQmri
+- <code>qvScaleAllCanvases</code>: <code>bottomPad = 24</code> → <code>24 * (1 - _crossfadeCollapseP)</code>
+- <code>mvScaleAllCanvases</code>: <code>cbH + labelH</code> added to <code>uiReserveV()</code> → multiply extra by <code>(1 - _crossfadeCollapseP)</code></p>
+<p>This is a small change in each function — multiply the non-<code>uiReserveV()</code> vertical reserve by <code>(1 - _crossfadeCollapseP)</code>.</p>
+<h3 id="colorbar-collapse">Colorbar collapse</h3>
+<p>The colorbar (<code>#slim-cb-wrap</code>) is below the pane. It physically collapses during the first half (same maxHeight technique as title/dimbar). Its space is accounted for by the bottom reserve interpolation above.</p>
+<h3 id="call-site">Call site</h3>
+<p><code>_applyImmersiveCrossfade()</code> runs BEFORE the scalers in <code>ModeRegistry.scaleAll()</code>. This ensures:
+1. Chrome elements are collapsed to the right height
+2. <code>_crossfadeBottomReserve</code> is set
+3. THEN scale functions measure layout and compute canvas size</p>
+<h3 id="key"><code>=</code> key</h3>
+<p>Sets <code>userZoom = immersiveFitZoom</code> and calls <code>_scaleAllWithAnim()</code>. Each animation frame calls <code>ModeRegistry.scaleAll()</code> which runs the crossfade. Chrome collapses and fades as the animated zoom sweeps through the zone.</p>
+<h3 id="_shouldenterimmersive-guard"><code>_shouldEnterImmersive()</code> guard</h3>
+<p>The crossfade only activates when <code>_shouldEnterImmersive()</code> returns true (height is the binding constraint). If width binds, zooming past normalFit just causes overflow as usual — no immersive transition.</p>
+<h3 id="dimbar-width">Dimbar width</h3>
+<p>The dimbar keeps its normal width in immersive mode (CSS <code>padding</code> override removed from <code>fullscreen-mode #info</code>).</p>
+<h2 id="what-gets-removed-same-as-v1">What Gets Removed (same as v1)</h2>
+<ul>
+<li><code>_enterImmersive()</code> — replaced by crossfade</li>
+<li><code>_exitImmersive()</code> — replaced by crossfade reversing</li>
+<li><code>_immersiveAnimating</code> flag</li>
+<li><code>_animOpacity()</code> — no callers remain</li>
+</ul>
+<h2 id="edge-cases">Edge Cases</h2>
+<ul>
+<li><strong>Window resize:</strong> <code>immFit</code> recalculates, p adjusts, chrome repositions.</li>
+<li><strong>Rapid direction change:</strong> Stateless — p from current zoom, no animation state.</li>
+<li><strong>Compare/multiview/qMRI:</strong> Same collapse + fade pattern for mode-specific chrome.</li>
+<li><strong><code>0</code> key reset:</strong> Animates zoom to normalFit. Crossfade reverses naturally.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

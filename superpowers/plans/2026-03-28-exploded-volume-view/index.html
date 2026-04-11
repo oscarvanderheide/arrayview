@@ -1,0 +1,1402 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Exploded Volume View Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#exploded-volume-view-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Exploded Volume View Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-server-endpoint-for-batch-slice-thumbnails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Server endpoint for batch slice thumbnails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-exploded-view-htmlcss-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Exploded view HTML/CSS structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-core-exploded-view-state-and-slice-fetching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Core exploded view state and slice fetching
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-build-the-3d-scene-and-entry-animation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Build the 3D scene and entry animation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-auto-rotation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Auto-rotation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-exit-animation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Exit animation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-keyboard-integration-and-density-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Keyboard integration and density controls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-8-help-overlay-and-status-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 8: Help overlay and status updates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-9-visual-smoke-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 9: Visual smoke test
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-10-edge-cases-and-polish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 10: Edge cases and polish
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="exploded-volume-view-implementation-plan">Exploded Volume View Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Press <code>E</code> to explode the current volume into a 3D fanned deck of slices that auto-rotates, with <code>[</code>/<code>]</code> density control and click-to-exit.</p>
+<p><strong>Architecture:</strong> New HTTP endpoint returns batch JPEG thumbnails for sampled slices. Frontend builds a CSS 3D transform scene with DOM elements (not canvas), spring-animated entry/exit, and requestAnimationFrame auto-rotation. Integrates as a new mode flag (<code>explodedActive</code>) in the existing mode system.</p>
+<p><strong>Tech Stack:</strong> Python (FastAPI endpoint, PIL, existing render pipeline), vanilla JS (CSS 3D transforms, rAF), existing colormap/dynamic-range logic.</p>
+<p><strong>Spec:</strong> <code>docs/superpowers/specs/2026-03-28-exploded-volume-view-design.md</code></p>
+<hr />
+<h3 id="task-1-server-endpoint-for-batch-slice-thumbnails">Task 1: Server endpoint for batch slice thumbnails</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_server.py</code> (add new endpoint near existing <code>/thumbnail/{sid}</code> at ~line 2074)</p>
+<p>This endpoint renders multiple slices at once for the exploded view. It reuses the existing <code>render_rgba()</code> pipeline so all colormaps, dynamic range, complex modes, and log scale are respected.</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the POST /exploded/{sid} endpoint</strong></li>
+</ul>
+<p>Add this endpoint after the existing <code>/thumbnail/{sid}</code> endpoint (~line 2107):</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">Body</span>
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/exploded/</span><span class="si">{sid}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_exploded_slices</span><span class="p">(</span>
+    <span class="n">sid</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">dim_x</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+    <span class="n">dim_y</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+    <span class="n">scroll_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+    <span class="n">indices</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+    <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="mi">256</span><span class="p">),</span>
+    <span class="n">colormap</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="s2">&quot;gray&quot;</span><span class="p">),</span>
+    <span class="n">dr</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+    <span class="n">complex_mode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span>
+    <span class="n">log_scale</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="kc">False</span><span class="p">),</span>
+    <span class="n">vmin_override</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span>
+    <span class="n">vmax_override</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Body</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return JPEG thumbnails for multiple slices along scroll_dim.&quot;&quot;&quot;</span>
+    <span class="n">session</span> <span class="o">=</span> <span class="n">SESSIONS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sid</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">session</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Response</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="n">ndim</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ndim</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">JSONResponse</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;need &gt;= 3D array&quot;</span><span class="p">},</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">400</span><span class="p">)</span>
+
+    <span class="n">Image</span> <span class="o">=</span> <span class="n">_pil_image</span><span class="p">()</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Build base index tuple (middle of each dim)</span>
+    <span class="n">base_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span> <span class="o">//</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">slice_idx</span> <span class="ow">in</span> <span class="n">indices</span><span class="p">:</span>
+        <span class="n">idx_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">base_indices</span><span class="p">)</span>
+        <span class="n">idx_list</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">slice_idx</span><span class="p">),</span> <span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">rgba</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">render_rgba</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">dim_x</span><span class="p">,</span> <span class="n">dim_y</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">idx_list</span><span class="p">),</span>
+            <span class="n">colormap</span><span class="p">,</span> <span class="n">dr</span><span class="p">,</span> <span class="n">complex_mode</span><span class="p">,</span> <span class="n">log_scale</span><span class="p">,</span>
+            <span class="n">vmin_override</span><span class="p">,</span> <span class="n">vmax_override</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">img</span> <span class="o">=</span> <span class="n">Image</span><span class="o">.</span><span class="n">fromarray</span><span class="p">(</span><span class="n">rgba</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">:</span><span class="mi">3</span><span class="p">])</span>
+        <span class="c1"># Maintain aspect ratio, fit within width</span>
+        <span class="n">aspect</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">height</span> <span class="o">/</span> <span class="n">img</span><span class="o">.</span><span class="n">width</span>
+        <span class="n">target_h</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">width</span> <span class="o">*</span> <span class="n">aspect</span><span class="p">))</span>
+        <span class="n">resample</span> <span class="o">=</span> <span class="n">Image</span><span class="o">.</span><span class="n">NEAREST</span> <span class="k">if</span> <span class="n">img</span><span class="o">.</span><span class="n">width</span> <span class="o">&lt;=</span> <span class="n">width</span> <span class="k">else</span> <span class="n">Image</span><span class="o">.</span><span class="n">LANCZOS</span>
+        <span class="n">img</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">resize</span><span class="p">((</span><span class="n">width</span><span class="p">,</span> <span class="n">target_h</span><span class="p">),</span> <span class="n">resample</span><span class="p">)</span>
+
+        <span class="n">buf</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+        <span class="n">img</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;JPEG&quot;</span><span class="p">,</span> <span class="n">quality</span><span class="o">=</span><span class="mi">70</span><span class="p">)</span>
+        <span class="n">b64</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">buf</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;ascii&quot;</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;index&quot;</span><span class="p">:</span> <span class="n">slice_idx</span><span class="p">,</span> <span class="s2">&quot;image&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;data:image/jpeg;base64,</span><span class="si">{</span><span class="n">b64</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">})</span>
+
+    <span class="k">return</span> <span class="n">JSONResponse</span><span class="p">({</span><span class="s2">&quot;slices&quot;</span><span class="p">:</span> <span class="n">results</span><span class="p">})</span>
+</code></pre></div>
+<p>Make sure <code>base64</code> is imported at the top of the file (add <code>import base64</code> if missing). Also ensure <code>from fastapi.responses import JSONResponse</code> is imported (check existing imports — it likely already is).</p>
+<p>The <code>render_rgba</code> import should already be present from <code>_render.py</code>. Verify with the existing imports near the top of <code>_server.py</code>.</p>
+<ul>
+<li>[ ] <strong>Step 2: Run the server and test manually</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>/Users/oscar/Projects/packages/python/arrayview
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+<span class="s2">import numpy as np, requests, json</span>
+<span class="s2"># Create test array and save</span>
+<span class="s2">a = np.random.rand(32, 64, 64).astype(np.float32)</span>
+<span class="s2">np.save(&#39;/tmp/test_exploded.npy&#39;, a)</span>
+<span class="s2">&quot;</span>
+</code></pre></div>
+<p>Start the server in background, then test:
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>arrayview<span class="w"> </span>/tmp/test_exploded.npy<span class="w"> </span><span class="p">&amp;</span>
+sleep<span class="w"> </span><span class="m">2</span>
+<span class="c1"># Get the session ID from /sessions</span>
+<span class="nv">SID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:8000/sessions<span class="w"> </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; print(json.load(sys.stdin)[0][&#39;sid&#39;])&quot;</span><span class="k">)</span>
+<span class="c1"># Test exploded endpoint</span>
+curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://localhost:8000/exploded/</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;dim_x&quot;:2,&quot;dim_y&quot;:1,&quot;scroll_dim&quot;:0,&quot;indices&quot;:[0,8,16,24,31],&quot;width&quot;:128}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; d=json.load(sys.stdin); print(f&#39;{len(d[\&quot;slices\&quot;])} slices, first image length: {len(d[\&quot;slices\&quot;][0][\&quot;image\&quot;])} chars&#39;)&quot;</span>
+<span class="c1"># Expected: &quot;5 slices, first image length: NNNN chars&quot;</span>
+<span class="nb">kill</span><span class="w"> </span>%1<span class="w"> </span><span class="m">2</span>&gt;/dev/null
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_server.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add POST /exploded/{sid} batch thumbnail endpoint&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-2-exploded-view-htmlcss-structure">Task 2: Exploded view HTML/CSS structure</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (add CSS styles in the <code>&lt;style&gt;</code> block, add container div in the <code>&lt;body&gt;</code>)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add CSS for the exploded view</strong></li>
+</ul>
+<p>Find the closing <code>&lt;/style&gt;</code> tag in <code>_viewer.html</code> and add before it:</p>
+<div class="highlight"><pre><span></span><code><span class="c">/* ── Exploded Volume View ── */</span>
+<span class="p">#</span><span class="nn">exploded-overlay</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">display</span><span class="p">:</span><span class="w"> </span><span class="kc">none</span><span class="p">;</span>
+<span class="w">    </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">fixed</span><span class="p">;</span>
+<span class="w">    </span><span class="k">inset</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="w">    </span><span class="k">z-index</span><span class="p">:</span><span class="w"> </span><span class="mi">8000</span><span class="p">;</span><span class="w">  </span><span class="c">/* above canvas, below help overlay (9000) */</span>
+<span class="w">    </span><span class="k">background</span><span class="p">:</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">    </span><span class="k">transition</span><span class="p">:</span><span class="w"> </span><span class="k">background</span><span class="w"> </span><span class="mf">0.4</span><span class="kt">s</span><span class="w"> </span><span class="kc">ease</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="p">#</span><span class="nn">exploded-overlay</span><span class="p">.</span><span class="nc">active</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">display</span><span class="p">:</span><span class="w"> </span><span class="kc">block</span><span class="p">;</span>
+<span class="w">    </span><span class="k">background</span><span class="p">:</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.75</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="p">#</span><span class="nn">exploded-scene</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">absolute</span><span class="p">;</span>
+<span class="w">    </span><span class="k">inset</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="w">    </span><span class="k">perspective</span><span class="p">:</span><span class="w"> </span><span class="mi">1200</span><span class="kt">px</span><span class="p">;</span>
+<span class="w">    </span><span class="k">display</span><span class="p">:</span><span class="w"> </span><span class="kc">flex</span><span class="p">;</span>
+<span class="w">    </span><span class="k">align-items</span><span class="p">:</span><span class="w"> </span><span class="kc">center</span><span class="p">;</span>
+<span class="w">    </span><span class="k">justify-content</span><span class="p">:</span><span class="w"> </span><span class="kc">center</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="p">#</span><span class="nn">exploded-turntable</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">transform-style</span><span class="p">:</span><span class="w"> </span><span class="kc">preserve-3d</span><span class="p">;</span>
+<span class="w">    </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">relative</span><span class="p">;</span>
+<span class="w">    </span><span class="c">/* Size is set dynamically based on slice dimensions */</span>
+<span class="p">}</span>
+<span class="p">.</span><span class="nc">exploded-slice</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">absolute</span><span class="p">;</span>
+<span class="w">    </span><span class="k">background-size</span><span class="p">:</span><span class="w"> </span><span class="kc">cover</span><span class="p">;</span>
+<span class="w">    </span><span class="k">background-position</span><span class="p">:</span><span class="w"> </span><span class="kc">center</span><span class="p">;</span>
+<span class="w">    </span><span class="k">border</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="kt">px</span><span class="w"> </span><span class="kc">solid</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mf">0.15</span><span class="p">);</span>
+<span class="w">    </span><span class="k">border-radius</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="kt">px</span><span class="p">;</span>
+<span class="w">    </span><span class="k">box-shadow</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">2</span><span class="kt">px</span><span class="w"> </span><span class="mi">12</span><span class="kt">px</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.4</span><span class="p">);</span>
+<span class="w">    </span><span class="k">cursor</span><span class="p">:</span><span class="w"> </span><span class="kc">pointer</span><span class="p">;</span>
+<span class="w">    </span><span class="k">transition</span><span class="p">:</span><span class="w"> </span><span class="k">border-color</span><span class="w"> </span><span class="mf">0.2</span><span class="kt">s</span><span class="p">,</span><span class="w"> </span><span class="k">box-shadow</span><span class="w"> </span><span class="mf">0.2</span><span class="kt">s</span><span class="p">;</span>
+<span class="w">    </span><span class="c">/* backface-visibility: hidden; — intentionally NOT set so slices visible from both sides */</span>
+<span class="p">}</span>
+<span class="p">.</span><span class="nc">exploded-slice</span><span class="p">:</span><span class="nd">hover</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">border-color</span><span class="p">:</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">250</span><span class="p">,</span><span class="w"> </span><span class="mi">204</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mf">0.6</span><span class="p">);</span>
+<span class="w">    </span><span class="k">box-shadow</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">2</span><span class="kt">px</span><span class="w"> </span><span class="mi">20</span><span class="kt">px</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">250</span><span class="p">,</span><span class="w"> </span><span class="mi">204</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mf">0.25</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="p">.</span><span class="nc">exploded-slice</span><span class="p">.</span><span class="nc">active</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">border-color</span><span class="p">:</span><span class="w"> </span><span class="mh">#facc15</span><span class="p">;</span>
+<span class="w">    </span><span class="k">box-shadow</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">16</span><span class="kt">px</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">250</span><span class="p">,</span><span class="w"> </span><span class="mi">204</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mf">0.4</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="p">.</span><span class="nc">exploded-slice-label</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">absolute</span><span class="p">;</span>
+<span class="w">    </span><span class="k">bottom</span><span class="p">:</span><span class="w"> </span><span class="mi">-18</span><span class="kt">px</span><span class="p">;</span>
+<span class="w">    </span><span class="k">left</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="kt">%</span><span class="p">;</span>
+<span class="w">    </span><span class="k">transform</span><span class="p">:</span><span class="w"> </span><span class="nb">translateX</span><span class="p">(</span><span class="mi">-50</span><span class="kt">%</span><span class="p">);</span>
+<span class="w">    </span><span class="k">font</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="kt">px</span><span class="w"> </span><span class="nf">var</span><span class="p">(</span><span class="nv">--font-mono</span><span class="p">,</span><span class="w"> </span><span class="kc">monospace</span><span class="p">);</span>
+<span class="w">    </span><span class="k">color</span><span class="p">:</span><span class="w"> </span><span class="nb">rgba</span><span class="p">(</span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">);</span>
+<span class="w">    </span><span class="k">white-space</span><span class="p">:</span><span class="w"> </span><span class="kc">nowrap</span><span class="p">;</span>
+<span class="w">    </span><span class="k">pointer-events</span><span class="p">:</span><span class="w"> </span><span class="kc">none</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add the container div to the body</strong></li>
+</ul>
+<p>Find the <code>&lt;!-- help overlay --&gt;</code> comment in the HTML body (this is a high-z-index element). Add the exploded overlay div BEFORE it:</p>
+<div class="highlight"><pre><span></span><code><span class="cm">&lt;!-- exploded volume view --&gt;</span>
+<span class="p">&lt;</span><span class="nt">div</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;exploded-overlay&quot;</span><span class="p">&gt;</span>
+    <span class="p">&lt;</span><span class="nt">div</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;exploded-scene&quot;</span><span class="p">&gt;</span>
+        <span class="p">&lt;</span><span class="nt">div</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;exploded-turntable&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
+    <span class="p">&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
+<span class="p">&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add CSS and DOM structure for exploded volume view&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-3-core-exploded-view-state-and-slice-fetching">Task 3: Core exploded view state and slice fetching</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (add JS near other mode variables and functions)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add state variables</strong></li>
+</ul>
+<p>Find the mode flag variables (near line 1520, where <code>let multiViewActive = false;</code> etc. are declared). Add after them:</p>
+<div class="highlight"><pre><span></span><code><span class="cm">/* ── Exploded volume view state ── */</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span><span class="w">          </span><span class="c1">// [{index, image, el}]</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedDensityLevel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w">     </span><span class="c1">// -5..+5, same as vfDensityLevel</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedCenterIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span><span class="w">       </span><span class="c1">// which slice is &quot;centered&quot;</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedRotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w">         </span><span class="c1">// current turntable angle in degrees</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">         </span><span class="c1">// requestAnimationFrame ID</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_explodedPauseUntil</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w">       </span><span class="c1">// timestamp: pause rotation until this time</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_EXPLODED_ROTATION_SPEED</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">15</span><span class="p">;</span><span class="w"> </span><span class="c1">// degrees per second</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_EXPLODED_MAX_SLICES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_EXPLODED_THUMB_W</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">256</span><span class="p">;</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add the slice sampling function</strong></li>
+</ul>
+<p>Add this function in the JS section, after the state variables (or in a logical grouping near other utility functions):</p>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedSampleIndices</span><span class="p">(</span><span class="nx">axisLen</span><span class="p">,</span><span class="w"> </span><span class="nx">densityLevel</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Return evenly-spaced slice indices along an axis.</span>
+<span class="cm">       densityLevel: 0 = adaptive default, ±N adjusts count. */</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">baseCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="nx">axisLen</span><span class="p">,</span><span class="w"> </span><span class="nx">_EXPLODED_MAX_SLICES</span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// √2 per level (half-octave), same convention as vector field density</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">3</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="nx">axisLen</span><span class="p">,</span>
+<span class="w">        </span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">baseCount</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">pow</span><span class="p">(</span><span class="mf">1.4142</span><span class="p">,</span><span class="w"> </span><span class="nx">densityLevel</span><span class="p">))));</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">count</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">axisLen</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nb">Array</span><span class="p">.</span><span class="kr">from</span><span class="p">({</span><span class="nx">length</span><span class="o">:</span><span class="w"> </span><span class="nx">axisLen</span><span class="p">},</span><span class="w"> </span><span class="p">(</span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">i</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">step</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">axisLen</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="nx">count</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nb">Array</span><span class="p">.</span><span class="kr">from</span><span class="p">({</span><span class="nx">length</span><span class="o">:</span><span class="w"> </span><span class="nx">count</span><span class="p">},</span><span class="w"> </span><span class="p">(</span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">i</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">step</span><span class="p">));</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Add the slice fetching function</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedFetchSlices</span><span class="p">(</span><span class="nx">indices</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Fetch batch thumbnails from the server. Returns array of {index, image}. */</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">body</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">dim_x</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_order</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">],</span>
+<span class="w">        </span><span class="nx">dim_y</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_order</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">2</span><span class="p">],</span>
+<span class="w">        </span><span class="nx">scroll_dim</span><span class="o">:</span><span class="w"> </span><span class="nx">current_slice_dim</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">indices</span><span class="o">:</span><span class="w"> </span><span class="nx">indices</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">width</span><span class="o">:</span><span class="w"> </span><span class="nx">_EXPLODED_THUMB_W</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">colormap</span><span class="o">:</span><span class="w"> </span><span class="nx">currentColormap</span><span class="p">(),</span>
+<span class="w">        </span><span class="nx">dr</span><span class="o">:</span><span class="w"> </span><span class="nx">dr_idx</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">complex_mode</span><span class="o">:</span><span class="w"> </span><span class="nx">complexMode</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">log_scale</span><span class="o">:</span><span class="w"> </span><span class="nx">logScale</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">vmin_override</span><span class="o">:</span><span class="w"> </span><span class="nx">manualVmin</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">vmax_override</span><span class="o">:</span><span class="w"> </span><span class="nx">manualVmax</span><span class="p">,</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="sb">`/exploded/</span><span class="si">${</span><span class="nx">sid</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;POST&#39;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s1">&#39;Content-Type&#39;</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;application/json&#39;</span><span class="p">},</span>
+<span class="w">        </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">body</span><span class="p">),</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">res</span><span class="p">.</span><span class="nx">ok</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">[];</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">res</span><span class="p">.</span><span class="nx">json</span><span class="p">();</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">slices</span><span class="p">;</span><span class="w">  </span><span class="c1">// [{index, image}, ...]</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add state variables, sampling, and fetch logic&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-4-build-the-3d-scene-and-entry-animation">Task 4: Build the 3D scene and entry animation</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (add scene building and animation functions)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the scene building function</strong></li>
+</ul>
+<p>This creates the DOM elements for each slice and positions them in 3D space:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedBuildScene</span><span class="p">(</span><span class="nx">sliceData</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Build DOM cards inside #exploded-turntable from fetched slice data. */</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">turntable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-turntable&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">innerHTML</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedSlices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">sliceData</span><span class="p">.</span><span class="nx">length</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Card dimensions: maintain aspect ratio from first image</span>
+<span class="w">    </span><span class="c1">// We&#39;ll use a fixed width and compute height after first image loads</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cardW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">180</span><span class="p">;</span><span class="w">  </span><span class="c1">// CSS px</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cardH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">cardW</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">shape</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">2</span><span class="p">]]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">shape</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">[</span><span class="nx">dim_order</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">]]));</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">spacing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">4</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">12</span><span class="p">,</span><span class="w"> </span><span class="mf">300</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">n</span><span class="p">));</span><span class="w">  </span><span class="c1">// Z spacing in px</span>
+
+<span class="w">    </span><span class="c1">// Current scroll index for highlighting</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">currentScrollIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">indices</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">];</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">let</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">n</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">sliceData</span><span class="p">[</span><span class="nx">i</span><span class="p">];</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">el</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">createElement</span><span class="p">(</span><span class="s1">&#39;div&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">className</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;exploded-slice&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">currentScrollIdx</span><span class="p">)</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cardW</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cardH</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">backgroundImage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`url(</span><span class="si">${</span><span class="nx">s</span><span class="p">.</span><span class="nx">image</span><span class="si">}</span><span class="sb">)`</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">-</span><span class="nx">cardW</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">-</span><span class="nx">cardH</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Position along Z axis, centered around 0</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">zOffset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">i</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">spacing</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">dataset</span><span class="p">.</span><span class="nx">zOffset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">zOffset</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">dataset</span><span class="p">.</span><span class="nx">sliceIndex</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Scale: slightly larger near center</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nx">i</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">((</span><span class="nx">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="mf">1</span><span class="p">);</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">scl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.05</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.05</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Opacity: fade edges</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">opac</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.3</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="p">;</span>
+
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translateZ(</span><span class="si">${</span><span class="nx">zOffset</span><span class="si">}</span><span class="sb">px) scale(</span><span class="si">${</span><span class="nx">scl</span><span class="si">}</span><span class="sb">)`</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opac</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Slice index label</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">createElement</span><span class="p">(</span><span class="s1">&#39;div&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">label</span><span class="p">.</span><span class="nx">className</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;exploded-slice-label&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">label</span><span class="p">.</span><span class="nx">textContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">appendChild</span><span class="p">(</span><span class="nx">label</span><span class="p">);</span>
+
+<span class="w">        </span><span class="c1">// Click to exit and jump to this slice</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;click&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_explodedExitTo</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="p">));</span>
+
+<span class="w">        </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">appendChild</span><span class="p">(</span><span class="nx">el</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">push</span><span class="p">({</span><span class="nx">index</span><span class="o">:</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="p">,</span><span class="w"> </span><span class="nx">image</span><span class="o">:</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">image</span><span class="p">,</span><span class="w"> </span><span class="nx">el</span><span class="p">});</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// Set turntable dimensions for proper centering</span>
+<span class="w">    </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cardW</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cardH</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add the spring entry animation</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedEnter</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Animate into exploded view. */</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">shape</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;exploded: need ≥ 3D array&#39;</span><span class="p">);</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// Block if in any multi-pane mode</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">isMultiPane</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;exploded: exit current mode first&#39;</span><span class="p">);</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedDensityLevel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedRotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">overlay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-overlay&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">turntable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-turntable&#39;</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 1. Fetch slices</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">axisLen</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">shape</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">];</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sampleIndices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedSampleIndices</span><span class="p">(</span><span class="nx">axisLen</span><span class="p">,</span><span class="w"> </span><span class="nx">_explodedDensityLevel</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`exploding </span><span class="si">${</span><span class="nx">sampleIndices</span><span class="p">.</span><span class="nx">length</span><span class="si">}</span><span class="sb"> slices…`</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sliceData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">_explodedFetchSlices</span><span class="p">(</span><span class="nx">sampleIndices</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">sliceData</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;exploded: failed to fetch slices&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// 2. Build scene (cards start invisible)</span>
+<span class="w">    </span><span class="nx">_explodedBuildScene</span><span class="p">(</span><span class="nx">sliceData</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 3. Show overlay with background fade</span>
+<span class="w">    </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 4. Spring-in animation: cards start collapsed at Z=0 and fan out</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cards</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.exploded-slice&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">cards</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">finalZ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">el</span><span class="p">.</span><span class="nx">dataset</span><span class="p">.</span><span class="nx">zOffset</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translateZ(0px) scale(0.6)`</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="c1">// Force reflow</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="p">;</span>
+<span class="w">        </span><span class="c1">// Animate with spring-like cubic-bezier (overshoot)</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.5s ease-out&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">el</span><span class="p">.</span><span class="nx">dataset</span><span class="p">.</span><span class="nx">zOffset</span><span class="p">))</span><span class="w"> </span><span class="o">/</span>
+<span class="w">            </span><span class="p">(</span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(...</span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">el</span><span class="p">.</span><span class="nx">dataset</span><span class="p">.</span><span class="nx">zOffset</span><span class="p">))))</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="mf">1</span><span class="p">);</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">scl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.05</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.05</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">opac</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.3</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">distFromCenter</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translateZ(</span><span class="si">${</span><span class="nx">finalZ</span><span class="si">}</span><span class="sb">px) scale(</span><span class="si">${</span><span class="nx">scl</span><span class="si">}</span><span class="sb">)`</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opac</span><span class="p">;</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="c1">// 5. Start auto-rotation after animation settles</span>
+<span class="w">    </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedStartRotation</span><span class="p">();</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="mf">750</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): build 3D scene and spring entry animation&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-5-auto-rotation">Task 5: Auto-rotation</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Add rotation loop and pause logic</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedStartRotation</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Begin continuous turntable rotation via rAF. */</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_explodedRafId</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">lastTime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">performance</span><span class="p">.</span><span class="nx">now</span><span class="p">();</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">turntable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-turntable&#39;</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">function</span><span class="w"> </span><span class="nx">tick</span><span class="p">(</span><span class="nx">now</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">explodedActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">dt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">now</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">lastTime</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1000</span><span class="p">;</span><span class="w">  </span><span class="c1">// seconds</span>
+<span class="w">        </span><span class="nx">lastTime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">now</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Pause rotation on hover / interaction</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">now</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">_explodedPauseUntil</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">requestAnimationFrame</span><span class="p">(</span><span class="nx">tick</span><span class="p">);</span>
+<span class="w">            </span><span class="k">return</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="nx">_explodedRotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_explodedRotation</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">_EXPLODED_ROTATION_SPEED</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">dt</span><span class="p">)</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mf">360</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`rotateY(</span><span class="si">${</span><span class="nx">_explodedRotation</span><span class="si">}</span><span class="sb">deg)`</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">requestAnimationFrame</span><span class="p">(</span><span class="nx">tick</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">requestAnimationFrame</span><span class="p">(</span><span class="nx">tick</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kd">function</span><span class="w"> </span><span class="nx">_explodedStopRotation</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_explodedRafId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">cancelAnimationFrame</span><span class="p">(</span><span class="nx">_explodedRafId</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">_explodedRafId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kd">function</span><span class="w"> </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="nx">durationMs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Pause auto-rotation for durationMs, then resume. */</span>
+<span class="w">    </span><span class="nx">_explodedPauseUntil</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">performance</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">durationMs</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="mf">2000</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add hover pause on the overlay</strong></li>
+</ul>
+<p>Add this after the rotation functions:</p>
+<div class="highlight"><pre><span></span><code><span class="p">(</span><span class="kd">function</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">overlay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-overlay&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mouseenter&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="mf">99999</span><span class="p">));</span>
+<span class="w">    </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mouseleave&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="mf">2000</span><span class="p">));</span>
+<span class="p">})();</span>
+</code></pre></div>
+<p>Wait — we only want to pause on slice hover, not the whole overlay. Revise: attach hover listeners to each slice card inside <code>_explodedBuildScene</code>, right after the click listener:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mouseenter&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="mf">99999</span><span class="p">));</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mouseleave&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="mf">2000</span><span class="p">));</span>
+</code></pre></div>
+<p>Do NOT add the IIFE above. Instead, add these two lines inside the <code>for</code> loop in <code>_explodedBuildScene</code>, right after the <code>el.addEventListener('click', ...)</code> line.</p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add auto-rotation with hover pause&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-6-exit-animation">Task 6: Exit animation</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Add exit function with spring collapse</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedExitTo</span><span class="p">(</span><span class="nx">targetSliceIndex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Collapse exploded view and jump to targetSliceIndex. */</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedStopRotation</span><span class="p">();</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">overlay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-overlay&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">turntable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-turntable&#39;</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 1. Collapse cards toward center</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cards</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.exploded-slice&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">cards</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;transform 0.45s cubic-bezier(0.55, 0, 0.68, 0.53), opacity 0.35s ease-in&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;translateZ(0px) scale(0.6)&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="c1">// 2. Fade out background</span>
+<span class="w">    </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;background 0.3s ease&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">background</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;rgba(0, 0, 0, 0)&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="mf">250</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 3. Clean up and jump to slice</span>
+<span class="w">    </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">overlay</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">background</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">innerHTML</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedSlices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+<span class="w">        </span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// Jump to the target slice</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">targetSliceIndex</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">indices</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">targetSliceIndex</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">updateView</span><span class="p">();</span>
+<span class="w">            </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`slice </span><span class="si">${</span><span class="nx">targetSliceIndex</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="mf">550</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kd">function</span><span class="w"> </span><span class="nx">_explodedExit</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Exit exploded view, returning to the nearest-to-center slice. */</span>
+<span class="w">    </span><span class="c1">// Find the slice closest to the current scroll index</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">currentIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">indices</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">];</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">bestSlice</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="p">[</span><span class="mf">0</span><span class="p">].</span><span class="nx">index</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">currentIdx</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">bestDist</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">Infinity</span><span class="p">;</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">currentIdx</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">d</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">bestDist</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">bestDist</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">d</span><span class="p">;</span><span class="w"> </span><span class="nx">bestSlice</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">index</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">_explodedExitTo</span><span class="p">(</span><span class="nx">bestSlice</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add spring collapse exit animation&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-7-keyboard-integration-and-density-controls">Task 7: Keyboard integration and density controls</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (keydown handler)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add early return guard for exploded mode</strong></li>
+</ul>
+<p>In the main keydown handler (the <code>sink.addEventListener('keydown', ...)</code> block), add a guard clause right after the existing <code>_immersiveAnimating</code> guard (around line 7454). This blocks all keys except the ones we handle while exploded:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="c1">// ── Exploded view: block all keys except E, Esc, s, [, ], scroll ──</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;e&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;E&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedExit</span><span class="p">();</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;Escape&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedExit</span><span class="p">();</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;s&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* fall through to screenshot handler below */</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;[&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;]&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">_explodedDensityLevel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="o">-</span><span class="mf">5</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">5</span><span class="p">,</span>
+<span class="w">                    </span><span class="nx">_explodedDensityLevel</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;]&#39;</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">)));</span>
+<span class="w">                </span><span class="nx">_explodedRefreshDensity</span><span class="p">();</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span><span class="w">  </span><span class="c1">// block everything else</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add the <code>E</code> key binding</strong></li>
+</ul>
+<p>In the keydown handler, find a suitable location in the if/else chain (near other mode toggles like <code>f</code> for FFT, <code>F</code> for fullscreen). Add:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;E&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;e&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">explodedActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedExit</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedEnter</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>Note: make sure this doesn't conflict with the existing <code>e</code> key (copy URL). Check what lowercase <code>e</code> currently does. Looking at the spec, the existing <code>e</code> key copies a reusable URL. We should use uppercase <code>E</code> only. Revise:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;E&#39;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">e</span><span class="p">.</span><span class="nx">shiftKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">explodedActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedExit</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedEnter</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>Check the existing keydown handler to see if <code>E</code> (uppercase) is already bound. If it is, find an alternative or share the binding contextually. The spec says <code>E</code>, so use uppercase <code>E</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Add the density refresh function</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">_explodedRefreshDensity</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/* Re-fetch slices at new density and rebuild scene (no full re-animation). */</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_explodedStopRotation</span><span class="p">();</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">turntable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-turntable&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">savedRotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedRotation</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">axisLen</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">shape</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">];</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sampleIndices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedSampleIndices</span><span class="p">(</span><span class="nx">axisLen</span><span class="p">,</span><span class="w"> </span><span class="nx">_explodedDensityLevel</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`density </span><span class="si">${</span><span class="nx">_explodedDensityLevel</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;+&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="si">}${</span><span class="nx">_explodedDensityLevel</span><span class="si">}</span><span class="sb"> (</span><span class="si">${</span><span class="nx">sampleIndices</span><span class="p">.</span><span class="nx">length</span><span class="si">}</span><span class="sb"> slices)`</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sliceData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">_explodedFetchSlices</span><span class="p">(</span><span class="nx">sampleIndices</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">sliceData</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// Quick fade-out existing cards</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">oldCards</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.exploded-slice&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">oldCards</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;opacity 0.2s ease&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="k">await</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Promise</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">setTimeout</span><span class="p">(</span><span class="nx">r</span><span class="p">,</span><span class="w"> </span><span class="mf">220</span><span class="p">));</span>
+
+<span class="w">    </span><span class="c1">// Rebuild and fade in</span>
+<span class="w">    </span><span class="nx">_explodedBuildScene</span><span class="p">(</span><span class="nx">sliceData</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">_explodedRotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">savedRotation</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`rotateY(</span><span class="si">${</span><span class="nx">_explodedRotation</span><span class="si">}</span><span class="sb">deg)`</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">newCards</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">turntable</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.exploded-slice&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">newCards</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">origOpac</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;opacity 0.25s ease&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">origOpac</span><span class="p">;</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">_explodedStartRotation</span><span class="p">();</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="mf">280</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Add scroll handling for centering slices</strong></li>
+</ul>
+<p>Add a wheel listener on the overlay. Place this near the other exploded functions:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;exploded-overlay&#39;</span><span class="p">).</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;wheel&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_explodedAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">e</span><span class="p">.</span><span class="nx">preventDefault</span><span class="p">();</span>
+<span class="w">    </span><span class="nx">_explodedPauseRotation</span><span class="p">(</span><span class="mf">2000</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// Shift which slice is highlighted</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">dir</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">deltaY</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">activeIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">findIndex</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">));</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">newIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span>
+<span class="w">        </span><span class="p">(</span><span class="nx">activeIdx</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">activeIdx</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">dir</span><span class="p">));</span>
+
+<span class="w">    </span><span class="nx">_explodedSlices</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">));</span>
+<span class="w">    </span><span class="nx">_explodedSlices</span><span class="p">[</span><span class="nx">newIdx</span><span class="p">].</span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">_explodedCenterIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_explodedSlices</span><span class="p">[</span><span class="nx">newIdx</span><span class="p">].</span><span class="nx">index</span><span class="p">;</span>
+<span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="nx">passive</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">});</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): keyboard integration, density controls, scroll centering&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-8-help-overlay-and-status-updates">Task 8: Help overlay and status updates</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (help overlay HTML, keyboard hints)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add exploded view to the help overlay</strong></li>
+</ul>
+<p>Find the help overlay's keyboard shortcut table in the HTML. Look for the section that lists mode keys (near <code>f</code> for FFT, <code>F</code> for fullscreen/zen). Add a row:</p>
+<div class="highlight"><pre><span></span><code><span class="p">&lt;</span><span class="nt">tr</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">kbd</span><span class="p">&gt;</span>E<span class="p">&lt;/</span><span class="nt">kbd</span><span class="p">&gt;&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>exploded volume view (3D card deck)<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;/</span><span class="nt">tr</span><span class="p">&gt;</span>
+</code></pre></div>
+<p>Also add in a "While in exploded view" section or note:</p>
+<div class="highlight"><pre><span></span><code><span class="p">&lt;</span><span class="nt">tr</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">kbd</span><span class="p">&gt;</span>[<span class="p">&lt;/</span><span class="nt">kbd</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nt">kbd</span><span class="p">&gt;</span>]<span class="p">&lt;/</span><span class="nt">kbd</span><span class="p">&gt;&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>decrease / increase slice density (exploded)<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;/</span><span class="nt">tr</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">tr</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>scroll<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>highlight prev / next slice (exploded)<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;/</span><span class="nt">tr</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">tr</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>click<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;</span><span class="nt">td</span><span class="p">&gt;</span>exit and jump to clicked slice (exploded)<span class="p">&lt;/</span><span class="nt">td</span><span class="p">&gt;&lt;/</span><span class="nt">tr</span><span class="p">&gt;</span>
+</code></pre></div>
+<p>Find the exact location by searching for existing keyboard shortcut rows like <code>&lt;kbd&gt;F&lt;/kbd&gt;</code> for zen/fullscreen mode.</p>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): add help overlay documentation&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-9-visual-smoke-test">Task 9: Visual smoke test</h3>
+<p><strong>Files:</strong>
+- Modify: <code>tests/visual_smoke.py</code> (if it exists — add exploded view test case)</p>
+<ul>
+<li>[ ] <strong>Step 1: Check if visual_smoke.py exists and add a test</strong></li>
+</ul>
+<p>Look for <code>tests/visual_smoke.py</code> or similar. If it exists, add a test case for exploded view. The test should:
+1. Open a 3D array
+2. Press <code>E</code> to enter exploded view
+3. Verify the overlay is visible
+4. Press <code>]</code> to increase density
+5. Press <code>E</code> to exit
+6. Verify normal view is restored</p>
+<p>If no visual smoke test file exists, create a manual test script:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Manual smoke test for exploded volume view.</span>
+
+<span class="sd">Run:</span>
+<span class="sd">    python -m arrayview /tmp/test_exploded.npy</span>
+
+<span class="sd">Then:</span>
+<span class="sd">    1. Press E — should see 3D card deck with auto-rotation</span>
+<span class="sd">    2. Hover a slice — rotation should pause</span>
+<span class="sd">    3. Press ] twice — more slices should appear</span>
+<span class="sd">    4. Press [ three times — fewer slices</span>
+<span class="sd">    5. Scroll wheel — yellow highlight should move between slices</span>
+<span class="sd">    6. Click any slice — should exit and jump to that slice index</span>
+<span class="sd">    7. Press E again — re-enter</span>
+<span class="sd">    8. Press Escape — should exit</span>
+<span class="sd">    9. Verify normal view works after exit (scroll, colormap, etc.)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+</code></pre></div>
+<p>Save this as <code>tests/manual_exploded_smoke.py</code> (or add to existing smoke test infrastructure).</p>
+<ul>
+<li>[ ] <strong>Step 2: Run a quick manual verification</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import numpy as np; np.save(&#39;/tmp/test_exploded.npy&#39;, np.random.rand(64, 128, 128).astype(np.float32))&quot;</span>
+python<span class="w"> </span>-m<span class="w"> </span>arrayview<span class="w"> </span>/tmp/test_exploded.npy
+</code></pre></div>
+<p>Open the viewer, press <code>E</code>, verify the 3D deck appears and rotates. Test <code>[</code>/<code>]</code>, scroll, click exit, <code>Esc</code> exit.</p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>tests/
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;test(exploded): add smoke test for exploded volume view&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-10-edge-cases-and-polish">Task 10: Edge cases and polish</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Handle 2D arrays gracefully</strong></li>
+</ul>
+<p>Verify that <code>_explodedEnter()</code> already returns early for 2D arrays (the <code>shape.length &lt; 3</code> check). Test with a 2D array:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import numpy as np; np.save(&#39;/tmp/test_2d.npy&#39;, np.random.rand(128, 128).astype(np.float32))&quot;</span>
+python<span class="w"> </span>-m<span class="w"> </span>arrayview<span class="w"> </span>/tmp/test_2d.npy
+</code></pre></div>
+<p>Press <code>E</code> — should show status "exploded: need ≥ 3D array" and do nothing.</p>
+<ul>
+<li>[ ] <strong>Step 2: Handle small volumes (&lt; 3 slices)</strong></li>
+</ul>
+<p>If the scroll axis has &lt; 3 slices, exploded view isn't useful. Add a guard in <code>_explodedEnter()</code> after the shape check:</p>
+<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">shape</span><span class="p">[</span><span class="nx">current_slice_dim</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;exploded: need ≥ 3 slices along scroll axis&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">_explodedAnimating</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">explodedActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Add explodedActive to ModeRegistry</strong></li>
+</ul>
+<p>Update the <code>ModeRegistry</code> object to be aware of exploded mode. In the <code>isMultiPane</code> getter, exploded view should NOT count as multi-pane (it's an overlay, not a layout change). But the <code>name</code> getter should report it:</p>
+<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">explodedActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;exploded&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareQmriActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;compareQmri&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="c1">// ... rest unchanged</span>
+<span class="w">    </span><span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Prevent entering other modes while exploded</strong></li>
+</ul>
+<p>In the mode entry functions (<code>enterMultiView</code>, <code>enterCompareMode</code>, etc.), add early returns if <code>explodedActive</code> is true. Or rely on the keydown guard from Task 7 which blocks all keys — verify this is sufficient.</p>
+<p>The keydown guard from Task 7 already blocks all keys except <code>E</code>, <code>Esc</code>, <code>s</code>, <code>[</code>, <code>]</code> while exploded. So mode-entry keys like <code>v</code>, <code>z</code>, <code>q</code> are already blocked. No additional guards needed.</p>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(exploded): edge case handling and ModeRegistry integration&quot;</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

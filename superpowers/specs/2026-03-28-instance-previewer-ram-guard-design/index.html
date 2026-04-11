@@ -1,0 +1,889 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Instance Previewer Sidebar & RAM Guard - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#instance-previewer-sidebar-ram-guard" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Instance Previewer Sidebar &amp; RAM Guard
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instance-previewer-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance Previewer Sidebar
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Instance Previewer Sidebar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-instance-card" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Instance Card
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#thumbnail-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thumbnail Generation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#footer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Footer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frontend-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ram-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RAM Guard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RAM Guard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#estimation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estimation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#block-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend-changes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frontend-changes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variable Override
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-to-modify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files to Modify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="instance-previewer-sidebar-ram-guard">Instance Previewer Sidebar &amp; RAM Guard</h1>
+<h2 id="overview">Overview</h2>
+<p>Two features for the unified picker (Cmd/Ctrl/Shift+O):</p>
+<ol>
+<li><strong>Instance previewer sidebar</strong> — visual preview of all open instances with thumbnails and metadata</li>
+<li><strong>RAM guard</strong> — hard block when loading files that would exceed available memory</li>
+</ol>
+<h2 id="instance-previewer-sidebar">Instance Previewer Sidebar</h2>
+<h3 id="layout">Layout</h3>
+<p>The picker modal expands to accommodate a <strong>left sidebar</strong> (200px) alongside the existing file picker (right side). The sidebar lists all open instances; the file picker retains its current behavior (search, file list, multi-select for compare).</p>
+<p>When no instances are open (only one session, which is current), the sidebar is hidden and the picker renders at its current width.</p>
+<h3 id="per-instance-card">Per-Instance Card</h3>
+<p>Each card shows:
+- <strong>Frozen thumbnail</strong> (48x36px) — snapshot of the instance's current view at the moment the picker opens
+- <strong>Name</strong> — session name, ellipsis overflow
+- <strong>Shape</strong> — e.g. <code>(256, 256, 128)</code>
+- <strong>Dtype + current slice</strong> — e.g. <code>float32 · z=64</code>
+- <strong>"(current)" badge</strong> — yellow text on the active session</p>
+<p>Visual treatment:
+- Yellow left border (2px) on the current instance
+- Hover highlight on non-current instances
+- Dark card background matching arrayview's existing dark theme</p>
+<h3 id="thumbnail-generation">Thumbnail Generation</h3>
+<p>When the picker opens, fetch a snapshot for each session via <code>GET /frame/{sid}</code> with small dimensions (e.g. <code>w=96&amp;h=72</code>). These are frozen — no live updates while the picker is open.</p>
+<p>The <code>/frame/{sid}</code> endpoint already exists and returns a JPEG of the current view state. A new query parameter <code>thumbnail=1</code> can return a smaller, lower-quality version to reduce latency.</p>
+<h3 id="interaction">Interaction</h3>
+<ul>
+<li><strong>Click</strong> an instance card → picker closes immediately, switches to that instance</li>
+<li><strong>Keyboard</strong>: Arrow keys / j/k navigate the currently focused panel. Tab cycles focus: search field → sidebar → file list. Enter selects the highlighted item in whichever panel has focus. When the picker opens, focus starts on the search field (same as today).</li>
+<li><strong>Search</strong> filters both sidebar instances and file list simultaneously</li>
+</ul>
+<h3 id="footer">Footer</h3>
+<p>Bottom of the sidebar shows: <code>{N} instances · {X} GB used</code> (sum of estimated memory across all sessions).</p>
+<h3 id="backend-changes">Backend Changes</h3>
+<p>New endpoint or extension to <code>GET /sessions</code>:
+<div class="highlight"><pre><span></span><code>GET /sessions?thumbnails=1
+</code></pre></div>
+Returns session list with an additional <code>thumbnail_url</code> field pointing to <code>/frame/{sid}?w=96&amp;h=72&amp;q=60</code>.</p>
+<p>Alternatively, the frontend fetches thumbnails in parallel after receiving the session list. This is simpler and avoids changing the <code>/sessions</code> response format.</p>
+<p><strong>Recommended approach</strong>: Frontend fetches thumbnails in parallel. The sidebar renders immediately with a placeholder gradient, then swaps in the real thumbnail when the fetch completes. This keeps the picker feeling instant.</p>
+<h3 id="frontend-changes">Frontend Changes</h3>
+<ul>
+<li><code>showUnifiedPicker()</code> in <code>_viewer.html</code>: add sidebar DOM construction</li>
+<li>Widen the picker overlay when instances &gt; 1</li>
+<li>Add CSS for sidebar cards, thumbnail placeholders, hover states</li>
+<li>Add keyboard navigation for sidebar focus</li>
+</ul>
+<h2 id="ram-guard">RAM Guard</h2>
+<h3 id="scope">Scope</h3>
+<p>Only applies to formats that <strong>fully load into RAM</strong>:
+- <code>.pt</code> / <code>.pth</code> (PyTorch — converted to numpy in memory)
+- <code>.tif</code> / <code>.tiff</code> (tifffile loads entire image)
+- <code>.mat</code> (scipy/h5py loads full array)</p>
+<p>Formats that use memory-mapping or lazy access load silently with no guard:
+- <code>.npy</code> (numpy mmap)
+- <code>.npz</code> (numpy, small overhead)
+- <code>.zarr</code> / <code>.zarr.zip</code> (chunked lazy access)
+- <code>.nii</code> / <code>.nii.gz</code> (nibabel lazy proxy)
+- <code>.h5</code> / <code>.hdf5</code> (h5py lazy access)</p>
+<h3 id="estimation">Estimation</h3>
+<p>Before loading a full-load format:</p>
+<ol>
+<li><strong>Estimate array size</strong>: For <code>.pt</code>/<code>.mat</code>, use file size as a rough estimate (actual in-memory size may differ due to compression, but file size is a safe lower bound). For <code>.tif</code>, use file size (tifffile loads the raw pixel data).</li>
+<li><strong>Check available RAM</strong>: <code>psutil.virtual_memory().available</code></li>
+<li><strong>Compare</strong>: If estimated size &gt; available RAM → block</li>
+</ol>
+<h3 id="block-behavior">Block Behavior</h3>
+<p>Hard block with no override. The user sees a dialog:</p>
+<div class="highlight"><pre><span></span><code>⚠ Not enough memory
+
+model_large.pt requires ~8.2 GB
+Available RAM: 3.1 GB
+
+Close other instances or free memory to continue
+
+[OK]
+</code></pre></div>
+<p>The dialog is dismissable (OK or Escape), returning the user to the picker.</p>
+<h3 id="backend-changes_1">Backend Changes</h3>
+<p>New endpoint or pre-check in the <code>/load</code> handler:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># In POST /load handler, before actually loading:</span>
+<span class="k">if</span> <span class="n">_is_full_load_format</span><span class="p">(</span><span class="n">filepath</span><span class="p">):</span>
+    <span class="n">estimated</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+    <span class="n">available</span> <span class="o">=</span> <span class="n">psutil</span><span class="o">.</span><span class="n">virtual_memory</span><span class="p">()</span><span class="o">.</span><span class="n">available</span>
+    <span class="k">if</span> <span class="n">estimated</span> <span class="o">&gt;</span> <span class="n">available</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">JSONResponse</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;insufficient_memory&quot;</span><span class="p">,</span>
+             <span class="s2">&quot;estimated_bytes&quot;</span><span class="p">:</span> <span class="n">estimated</span><span class="p">,</span>
+             <span class="s2">&quot;available_bytes&quot;</span><span class="p">:</span> <span class="n">available</span><span class="p">,</span>
+             <span class="s2">&quot;filename&quot;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">filepath</span><span class="p">)},</span>
+            <span class="n">status_code</span><span class="o">=</span><span class="mi">507</span>  <span class="c1"># Insufficient Storage</span>
+        <span class="p">)</span>
+</code></pre></div>
+<h3 id="frontend-changes_1">Frontend Changes</h3>
+<ul>
+<li>In the picker's file-open handler: check the <code>/load</code> response for <code>error: "insufficient_memory"</code></li>
+<li>Render the block dialog over the picker</li>
+<li>OK / Escape dismisses the dialog, returns to picker</li>
+</ul>
+<h3 id="environment-variable-override">Environment Variable Override</h3>
+<p>For advanced users who know what they're doing (e.g. swap-backed systems):</p>
+<div class="highlight"><pre><span></span><code>ARRAYVIEW_SKIP_RAM_GUARD=1
+</code></pre></div>
+<p>Disables the RAM check entirely. Not exposed in any UI.</p>
+<h2 id="files-to-modify">Files to Modify</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_viewer.html</code></td>
+<td>Sidebar DOM, CSS, keyboard nav, RAM block dialog</td>
+</tr>
+<tr>
+<td><code>_server.py</code></td>
+<td>RAM check in <code>/load</code>, optional thumbnail params on <code>/frame</code></td>
+</tr>
+<tr>
+<td><code>_session.py</code></td>
+<td>Helper to estimate session memory usage (for footer total)</td>
+</tr>
+<tr>
+<td><code>_io.py</code></td>
+<td>Classify formats as full-load vs lazy (already implicit, make explicit)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="out-of-scope">Out of Scope</h2>
+<ul>
+<li>Live-updating thumbnails while picker is open</li>
+<li>Memory-mapped format dialogs or notes (silent load)</li>
+<li>RAM guard for lazy formats</li>
+<li>Drag-and-drop onto the sidebar</li>
+<li>Reordering instances in the sidebar</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

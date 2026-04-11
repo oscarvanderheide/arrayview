@@ -1,0 +1,1020 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>PyTorch Deep Learning Integration - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pytorch-deep-learning-integration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PyTorch Deep Learning Integration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-1-trainingmonitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 1: TrainingMonitor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature 1: TrainingMonitor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#usage-in-a-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage in a training loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data-shape-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data shape handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-gets-shown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What gets shown
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-2-view_batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 2: view_batch()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature 2: view_batch()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#api_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batch-format-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch format detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-structure-_torchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module structure: _torch.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exports
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-3-overlay-visibility-toggle-shifto" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 3: Overlay Visibility Toggle (Shift+O)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature 3: Overlay Visibility Toggle (Shift+O)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-behavior-shifto-cycles-through" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New behavior: Shift+O cycles through
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-this-matters-for-dl-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this matters for DL integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pytorch-deep-learning-integration">PyTorch Deep Learning Integration</h1>
+<p><strong>Date:</strong> 2026-03-30
+<strong>Status:</strong> Approved</p>
+<h2 id="goal">Goal</h2>
+<p>Make arrayview frictionless for medical imaging researchers using PyTorch, by adding two convenience features that wrap the existing <code>view()</code> + <code>handle.update()</code> API.</p>
+<h2 id="scope">Scope</h2>
+<ul>
+<li>One new file: <code>src/arrayview/_torch.py</code></li>
+<li>Exports added to <code>__init__.py</code>: <code>TrainingMonitor</code>, <code>view_batch</code></li>
+<li>No server changes, no frontend changes</li>
+<li>PyTorch remains a lazy import (not a hard dependency)</li>
+</ul>
+<h2 id="feature-1-trainingmonitor">Feature 1: <code>TrainingMonitor</code></h2>
+<p>A class that opens an arrayview compare window and updates it periodically during training.</p>
+<h3 id="api">API</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">arrayview</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrainingMonitor</span>
+
+<span class="n">monitor</span> <span class="o">=</span> <span class="n">TrainingMonitor</span><span class="p">(</span>
+    <span class="n">every</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>          <span class="c1"># update viewer every N epochs (default: 1)</span>
+    <span class="n">samples</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>        <span class="c1"># how many samples to keep from validation (default: 1)</span>
+    <span class="n">overlay</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>    <span class="c1"># if True, show prediction as overlay on input instead of side-by-side</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="usage-in-a-training-loop">Usage in a training loop</h3>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="n">train</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">train_loader</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">val_loader</span><span class="p">:</span>
+        <span class="n">pred</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;image&#39;</span><span class="p">])</span>
+        <span class="n">monitor</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
+            <span class="nb">input</span><span class="o">=</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;image&#39;</span><span class="p">],</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;label&#39;</span><span class="p">],</span>
+            <span class="n">prediction</span><span class="o">=</span><span class="n">pred</span><span class="p">,</span>
+            <span class="n">epoch</span><span class="o">=</span><span class="n">epoch</span><span class="p">,</span>
+        <span class="p">)</span>
+</code></pre></div>
+<h3 id="behavior">Behavior</h3>
+<ul>
+<li><strong>First call to <code>step()</code></strong>: calls <code>view(input, target, prediction)</code> to open a 3-pane compare window. Stores the returned <code>ViewHandle</code> objects.</li>
+<li><strong>Subsequent calls within the same epoch</strong>: replaces the stored samples if <code>samples</code> limit not yet reached. If <code>samples=3</code>, keeps the first 3 calls per epoch.</li>
+<li><strong>Every N epochs</strong> (controlled by <code>every</code>): calls <code>handle.update()</code> on the prediction pane to refresh the viewer. Input and target panes are also updated (the user may be viewing different validation samples each time).</li>
+<li><strong>Skipped epochs</strong> (not divisible by <code>every</code>): <code>step()</code> is a no-op (returns immediately). Cheap to leave in the loop.</li>
+<li><strong>Tensor handling</strong>: all tensors are detached, moved to CPU, and converted to numpy internally. The user never needs to do <code>.detach().cpu().numpy()</code>.</li>
+</ul>
+<h3 id="data-shape-handling">Data shape handling</h3>
+<ul>
+<li><strong>Single sample</strong> (no batch dim or batch=1): displayed directly.</li>
+<li><strong>Multiple samples</strong> (<code>samples &gt; 1</code>): stacked along a new leading dimension so the user can scroll through them in arrayview's existing dimension slider.</li>
+<li><strong>2D or 3D spatial data</strong>: both work — arrayview handles them natively.</li>
+<li><strong>Segmentation labels</strong> (integer tensors): when <code>overlay=True</code>, passed via <code>view()</code>'s existing <code>overlay=</code> parameter for label colorization.</li>
+</ul>
+<h3 id="what-gets-shown">What gets shown</h3>
+<p>Three options depending on arguments provided to <code>step()</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Arguments provided</th>
+<th>Panes shown</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>input</code>, <code>target</code>, <code>prediction</code></td>
+<td>3-pane compare: input / target / prediction</td>
+</tr>
+<tr>
+<td><code>input</code>, <code>prediction</code></td>
+<td>2-pane compare: input / prediction</td>
+</tr>
+<tr>
+<td><code>prediction</code> only</td>
+<td>1-pane: just the prediction</td>
+</tr>
+</tbody>
+</table>
+<p>When <code>overlay=True</code> and <code>target</code>/<code>prediction</code> are integer masks:
+- Instead of compare mode, shows <code>input</code> with <code>target</code> as overlay in pane 1, <code>input</code> with <code>prediction</code> as overlay in pane 2.</p>
+<h2 id="feature-2-view_batch">Feature 2: <code>view_batch()</code></h2>
+<p>A convenience function to quickly browse samples from a DataLoader, Dataset, or raw batch.</p>
+<h3 id="api_1">API</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">arrayview</span><span class="w"> </span><span class="kn">import</span> <span class="n">view_batch</span>
+
+<span class="c1"># From a DataLoader — grabs one batch</span>
+<span class="n">view_batch</span><span class="p">(</span><span class="n">train_loader</span><span class="p">)</span>
+
+<span class="c1"># From a Dataset — grabs N random samples</span>
+<span class="n">view_batch</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">samples</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+
+<span class="c1"># From a raw batch (dict or tuple)</span>
+<span class="n">batch</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">train_loader</span><span class="p">))</span>
+<span class="n">view_batch</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+
+<span class="c1"># With segmentation overlay</span>
+<span class="n">view_batch</span><span class="p">(</span><span class="n">train_loader</span><span class="p">,</span> <span class="n">overlay</span><span class="o">=</span><span class="s1">&#39;label&#39;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="parameters">Parameters</h3>
+<ul>
+<li><code>source</code>: a <code>DataLoader</code>, <code>Dataset</code>, dict, tuple, or tensor</li>
+<li><code>samples</code> (int, default=None): how many samples to show. None = full batch for DataLoaders, 16 for Datasets.</li>
+<li><code>overlay</code> (str, default=None): key name in a dict-batch to use as segmentation overlay.</li>
+<li><code>key</code> (str, default=None): if the batch is a dict, which key to view. If None, uses heuristic: picks the largest tensor (by element count), which is usually the image.</li>
+<li>All other kwargs forwarded to <code>view()</code>.</li>
+</ul>
+<h3 id="batch-format-detection">Batch format detection</h3>
+<table>
+<thead>
+<tr>
+<th>Input type</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DataLoader</code></td>
+<td><code>next(iter(source))</code> to grab one batch</td>
+</tr>
+<tr>
+<td><code>Dataset</code></td>
+<td>Index <code>samples</code> random items, stack them</td>
+</tr>
+<tr>
+<td><code>dict</code></td>
+<td>Look up <code>key</code> (or auto-detect largest tensor)</td>
+</tr>
+<tr>
+<td><code>tuple/list</code></td>
+<td>First element is treated as images</td>
+</tr>
+<tr>
+<td><code>Tensor/ndarray</code></td>
+<td>Used directly (assumed to be [N, ...] batch)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="output">Output</h3>
+<ul>
+<li>Stacks samples along a new leading dimension → single (N+d)-D array.</li>
+<li>Opens with <code>view()</code> — user scrolls through samples with existing dimension slider.</li>
+<li>If <code>overlay</code> is specified, the overlay array is stacked the same way and passed to <code>view(overlay=...)</code>.</li>
+<li>Returns the <code>ViewHandle</code> so the user can further interact programmatically.</li>
+</ul>
+<h2 id="module-structure-_torchpy">Module structure: <code>_torch.py</code></h2>
+<div class="highlight"><pre><span></span><code>src/arrayview/_torch.py
+├── TrainingMonitor        (class)
+│   ├── __init__()         — store config
+│   ├── step()             — main entry point called in training loop
+│   ├── _should_update()   — check if this epoch triggers an update
+│   ├── _collect_sample()  — detach/cpu/numpy a tensor
+│   └── _refresh_viewer()  — call view() or handle.update()
+│
+├── view_batch()           (function)
+│   ├── _extract_from_loader()
+│   ├── _extract_from_dataset()
+│   ├── _extract_from_dict()
+│   └── _detect_image_key()
+</code></pre></div>
+<h2 id="exports">Exports</h2>
+<p>Add to <code>src/arrayview/__init__.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">arrayview._torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrainingMonitor</span><span class="p">,</span> <span class="n">view_batch</span>
+</code></pre></div>
+<p>These imports must be lazy — <code>_torch.py</code> imports <code>torch</code> only when its functions are actually called, not at module load time. This keeps <code>import arrayview</code> fast and doesn't require PyTorch to be installed.</p>
+<h2 id="error-handling">Error handling</h2>
+<ul>
+<li>If PyTorch is not installed and user calls <code>TrainingMonitor()</code> or <code>view_batch()</code>: raise <code>ImportError</code> with a clear message ("pip install torch").</li>
+<li>If batch format is unrecognized: raise <code>TypeError</code> with explanation of supported formats.</li>
+<li>If tensor is on GPU: silently move to CPU (no warning needed, this is expected).</li>
+</ul>
+<h2 id="testing">Testing</h2>
+<ul>
+<li>Unit tests for tensor conversion (detach/cpu/numpy path).</li>
+<li>Unit tests for batch format detection (dict, tuple, DataLoader, Dataset).</li>
+<li>Integration test: <code>TrainingMonitor.step()</code> with mock tensors, verify <code>view()</code> and <code>handle.update()</code> are called correctly.</li>
+<li>No need to test the viewer itself — that's already covered.</li>
+</ul>
+<h2 id="feature-3-overlay-visibility-toggle-shifto">Feature 3: Overlay Visibility Toggle (Shift+O)</h2>
+<p>A keyboard shortcut to cycle through overlay visibility states in the viewer.</p>
+<h3 id="current-state">Current state</h3>
+<ul>
+<li><code>[</code>/<code>]</code> adjusts overlay alpha (transparency) — already works</li>
+<li>Shift+O opens file picker (redundant with Cmd+O / Ctrl+O)</li>
+<li>No way to hide overlays or view individual masks</li>
+</ul>
+<h3 id="new-behavior-shifto-cycles-through">New behavior: Shift+O cycles through</h3>
+<ol>
+<li><strong>All overlays shown</strong> (default, current behavior)</li>
+<li><strong>No overlays</strong> (base image only)</li>
+<li><strong>Mask 1 only</strong> (if multiple overlays)</li>
+<li><strong>Mask 2 only</strong></li>
+<li>...etc for each mask</li>
+<li>Back to all</li>
+</ol>
+<p>When cycling, show a status message like <code>"overlays: all"</code>, <code>"overlays: off"</code>, <code>"overlay 1/3: red"</code>.</p>
+<p>If only one overlay is present, the cycle is just: <strong>shown → hidden → shown</strong>.</p>
+<h3 id="implementation">Implementation</h3>
+<ul>
+<li>Frontend only (<code>_viewer.html</code>): add keyboard handler for Shift+O</li>
+<li>Track <code>overlayVisibility</code> state: <code>'all'</code> | <code>'none'</code> | index (0, 1, 2, ...)</li>
+<li>When rendering, filter which <code>overlay_sid</code> values are sent in the slice request based on visibility state</li>
+<li>No server changes needed — the server already supports rendering with any subset of overlays</li>
+</ul>
+<h3 id="why-this-matters-for-dl-integration">Why this matters for DL integration</h3>
+<p>With <code>TrainingMonitor(overlay=True)</code>, researchers get ground truth and prediction as separate overlay masks. Shift+O lets them quickly compare: just the prediction, just the ground truth, both, or neither.</p>
+<h2 id="out-of-scope">Out of scope</h2>
+<ul>
+<li>PyTorch Lightning / other framework callbacks (future wrapper around <code>TrainingMonitor</code>).</li>
+<li>Feature map / activation visualization.</li>
+<li>Loss curves / scalar metrics.</li>
+<li>Attention maps / GradCAM.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

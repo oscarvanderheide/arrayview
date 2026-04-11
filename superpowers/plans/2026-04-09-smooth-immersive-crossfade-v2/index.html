@@ -1,0 +1,1219 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Smooth Immersive Crossfade v2 — Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#smooth-immersive-crossfade-v2-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Smooth Immersive Crossfade v2 — Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-add-_crossfadecollapsep-and-update-all-6-scale-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add _crossfadeCollapseP and update all 6 scale functions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-add-_applyimmersivecrossfade-and-wire-into-moderegistryscaleall" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Add _applyImmersiveCrossfade() and wire into ModeRegistry.scaleAll()
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-rewrite-key-key-and-scroll-handler-to-use-crossfade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Rewrite = key, - key, and scroll handler to use crossfade
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-simplify-zoomreset-0-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Simplify zoom.reset (0 key)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-css-dimbar-width-constant-in-immersive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: CSS — dimbar width constant in immersive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-remove-_enterimmersive-_exitimmersive-_immersiveanimating-_animopacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Remove _enterImmersive, _exitImmersive, _immersiveAnimating, _animOpacity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-run-visual-smoke-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Run visual smoke tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="smooth-immersive-crossfade-v2-implementation-plan">Smooth Immersive Crossfade v2 — Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Replace the discrete 3-phase immersive animation with a zoom-driven crossfade where the pane grows continuously, chrome collapses/expands physically, and the slice always fills the pane.</p>
+<p><strong>Architecture:</strong> A global <code>_crossfadeCollapseP</code> variable (0→1 during first half of crossfade) tells all 6 scale functions how much to reduce their bottom reserves. A <code>_applyImmersiveCrossfade()</code> function runs before every scale, progressively collapsing chrome heights and controlling opacity. Layout class toggle at p=0.5 when chrome is invisible and already collapsed.</p>
+<p><strong>Tech Stack:</strong> Vanilla JavaScript, CSS</p>
+<p><strong>Spec:</strong> <code>docs/superpowers/specs/2026-04-09-smooth-immersive-crossfade-v2-design.md</code></p>
+<hr />
+<h3 id="task-1-add-_crossfadecollapsep-and-update-all-6-scale-functions">Task 1: Add <code>_crossfadeCollapseP</code> and update all 6 scale functions</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — variable declaration area (~line 1835), <code>scaleCanvas</code> (~line 2532), <code>compareScaleCanvases</code> (~line 2603), <code>compareQmriScaleAllCanvases</code> (~line 12298), <code>compareMvScaleAllCanvases</code> (~line 12733), <code>qvScaleAllCanvases</code> (~line 13041), <code>mvScaleAllCanvases</code> (~line 13733)</p>
+<p>This task adds the global variable and modifies each scale function to interpolate its bottom reserve. No visual change yet — the variable stays at 0 until the crossfade function (Task 2) sets it.</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the global variable</strong></li>
+</ul>
+<p>Find <code>let _zoomSensitivity = 0.02;</code> (around line 1835). Insert after it:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Update <code>scaleCanvas</code></strong></li>
+</ul>
+<p>Find in <code>scaleCanvas</code> (~line 2533):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">bottomReserve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="p">;</span><span class="w"> </span><span class="c1">// fullscreen: overlaid; normal: colorbar + eggs + gaps</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">12</span><span class="p">;</span><span class="w"> </span><span class="c1">// breathing room on each side in immersive mode</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">maxW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerWidth</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="p">));</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">maxH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">50</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomReserve</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">));</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">bottomReserve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">12</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">sidePad</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">maxW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerWidth</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">sidePad</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">maxH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">50</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomReserve</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">));</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Update <code>compareScaleCanvases</code></strong></li>
+</ul>
+<p>Find in <code>compareScaleCanvases</code> (~line 2621–2650):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">titleReserve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">28</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">panePadX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">16</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">titleReserve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">28</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">panePadX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">16</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div></p>
+<p>Find (~line 2627–2628):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbExtra</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_anyCenter</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="mf">10</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">CB_COLLAPSED_H</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">4</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">panePadY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">12</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">cbExtra</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbExtra</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_anyCenter</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="mf">10</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">CB_COLLAPSED_H</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">4</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">panePadY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">12</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">cbExtra</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Find (~line 2648–2650):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">40</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerWidth</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="p">));</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">));</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">40</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">));</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerWidth</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">80</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)));</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">100</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">immersivePad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">));</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 4: Update <code>compareQmriScaleAllCanvases</code></strong></li>
+</ul>
+<p>Find (~line 12314–12318):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">labelH</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">cbRows</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">cbH</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">rows</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">labelH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">cbRows</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">cbH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">rows</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 5: Update <code>compareMvScaleAllCanvases</code></strong></li>
+</ul>
+<p>Find (~line 12747–12751):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">labelH</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">cbRows</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">cbH</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">nRows</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">labelH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">cbRows</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">cbH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">)</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">nRows</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span>
+<span class="w">                         </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 6: Update <code>qvScaleAllCanvases</code></strong></li>
+</ul>
+<p>Find (~line 13056–13057):
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                             </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">totalH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span>
+<span class="w">                             </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="nx">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">rowGap</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">bottomPad</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 7: Update <code>mvScaleAllCanvases</code></strong></li>
+</ul>
+<p>Find (~line 13738–13739):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cbWrap</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">cbH</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">labelH</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cbWrap</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">uiReserveH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">uiReserveV</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">cbH</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">labelH</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="p">);</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 8: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add _crossfadeCollapseP — all 6 scale functions interpolate bottom reserves</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-2-add-_applyimmersivecrossfade-and-wire-into-moderegistryscaleall">Task 2: Add <code>_applyImmersiveCrossfade()</code> and wire into <code>ModeRegistry.scaleAll()</code></h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — insert function before <code>_enterImmersive</code> (~line 14387), update <code>ModeRegistry.scaleAll()</code> (~line 1972)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the crossfade function</strong></li>
+</ul>
+<p>Insert BEFORE <code>let _immersiveAnimating = false;</code> (~line 14387):</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="c1">// ── Zoom-driven immersive crossfade ────────────────────────────</span>
+<span class="w">        </span><span class="c1">// Progressively collapses chrome and grows the pane as zoom increases</span>
+<span class="w">        </span><span class="c1">// from normalFit to immersiveFit.  The slice always fills the pane.</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadePrev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w">  </span><span class="c1">// cached natural heights</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_applyImmersiveCrossfade</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">w</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgH</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">w</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">!</span><span class="nx">h</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_shouldEnterImmersive</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadePrev</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="nx">_crossfadeCleanup</span><span class="p">();</span>
+<span class="w">                </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">_crossfadePrev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">immFit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_calcAutoFitZoom</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">normFit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_normalFitZoom</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">immFit</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">normFit</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">normFit</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="nx">immFit</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">normFit</span><span class="p">)));</span>
+
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_crossfadePrev</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.003</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">_crossfadePrev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">p</span><span class="p">;</span>
+
+<span class="w">            </span><span class="c1">// collapseP: 0→1 during first half (chrome collapses + fades out)</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">collapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="p">);</span>
+<span class="w">            </span><span class="c1">// fadeIn: 0→1 during second half (chrome fades in at immersive positions)</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">2</span><span class="p">);</span>
+
+<span class="w">            </span><span class="c1">// Set global for scale functions</span>
+<span class="w">            </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">;</span>
+
+<span class="w">            </span><span class="c1">// Cache natural heights when crossfade starts</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">);</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">);</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">                </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">t</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">i</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">c</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">offsetHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="c1">// ── Collapse chrome heights (first half) ──────────────────</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">titleEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">infoEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="c1">// Fully normal: clear all inline styles</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">titleEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">margin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">padding</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="c1">// Crossfading in normal layout: collapse heights + fade</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">remainH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">;</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">titleEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">remainH</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">remainH</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">remainH</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="c1">// ── Layout switch at p=0.5 (chrome invisible + collapsed) ─</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">shouldBeFullscreen</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">0.5</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">shouldBeFullscreen</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">shouldBeFullscreen</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="c1">// Enter: chrome already collapsed via inline styles above</span>
+<span class="w">                    </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                    </span><span class="nb">document</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;fullscreen-mode&#39;</span><span class="p">);</span>
+<span class="w">                    </span><span class="nx">_reconcileCbVisibility</span><span class="p">({</span><span class="w"> </span><span class="nx">animPhase</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;enter-2&#39;</span><span class="w"> </span><span class="p">});</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_checkerActive</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">centerIsland</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-center-island&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">centerIsland</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">5</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">6</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">_checkerActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mf">7</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">4</span><span class="p">)));</span>
+<span class="w">                            </span><span class="nx">centerIsland</span><span class="p">.</span><span class="nx">innerHTML</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_centerModeIndicatorHTML</span><span class="p">(</span><span class="nx">mode</span><span class="p">);</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                    </span><span class="c1">// Clear inline collapse styles — fullscreen-mode CSS handles it now</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">titleEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">margin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">padding</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="c1">// Exit: restore normal layout, re-apply collapse inline styles</span>
+<span class="w">                    </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                    </span><span class="nb">document</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;fullscreen-mode&#39;</span><span class="p">);</span>
+<span class="w">                    </span><span class="nx">_infoDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="nx">_islandDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">wrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">wrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;compact-overlay&#39;</span><span class="p">);</span><span class="w"> </span><span class="nx">wrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_miniMap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">wrapper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;wrapper&#39;</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wrapper</span><span class="p">)</span><span class="w"> </span><span class="nx">wrapper</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">paddingTop</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">_reconcileCbVisibility</span><span class="p">({</span><span class="w"> </span><span class="nx">animPhase</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;exit-3&#39;</span><span class="w"> </span><span class="p">});</span>
+<span class="w">                    </span><span class="c1">// Re-apply collapse for the shrinking second half → first half</span>
+<span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">remainH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">titleEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">remainH</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;hidden&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="c1">// ── Opacity for second half (fade in at immersive positions) ─</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">titleEl</span><span class="p">)</span><span class="w"> </span><span class="nx">titleEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span><span class="w"> </span><span class="c1">// title stays hidden in immersive</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">infoEl</span><span class="p">)</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cbWrap</span><span class="p">)</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="nx">_positionFullscreenChrome</span><span class="p">();</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="c1">// Compare/multiview/qMRI chrome</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">cmpFade</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">);</span>
+<span class="w">                </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-title&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">));</span>
+<span class="w">                </span><span class="p">});</span>
+<span class="w">                </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-pane-cb-island&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">cmpFade</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">                </span><span class="p">});</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">mvCb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-cb-wrap&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">mvCb</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">mvCb</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">mvCb</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">qmriCbs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;#qmri-view-wrap .qv-cb-island&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[];</span>
+<span class="w">            </span><span class="nx">qmriCbs</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">                </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="nx">fadeIn</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="mf">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">collapseP</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="p">});</span>
+
+<span class="w">            </span><span class="c1">// Update _fitZoom</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">immFit</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_crossfadeCleanup</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">_crossfadeCollapseP</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">titleEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">infoEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cbWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">el</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="p">[</span><span class="nx">titleEl</span><span class="p">,</span><span class="w"> </span><span class="nx">infoEl</span><span class="p">,</span><span class="w"> </span><span class="nx">cbWrap</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">el</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">maxHeight</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">margin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">padding</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">            </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-title, .compare-pane-cb-island&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">            </span><span class="p">});</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">mvCb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">mvCb</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">mvCb</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">mvCb</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;#qmri-view-wrap .qv-cb-island&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">            </span><span class="p">});</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">wrapper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;wrapper&#39;</span><span class="p">);</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wrapper</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">wrapper</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">padding</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">wrapper</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">margin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">            </span><span class="nx">_crossfadeTitleH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">_crossfadeInfoH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">_crossfadeCbH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Wire into <code>ModeRegistry.scaleAll()</code></strong></li>
+</ul>
+<p>Find <code>ModeRegistry.scaleAll()</code> (~line 1972):
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="nx">scaleAll</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">scaler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">getScaler</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">scaler</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaler</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">lastImgW</span><span class="p">,</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">);</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+<span class="w">                </span><span class="nx">_reconcileCbVisibility</span><span class="p">();</span>
+<span class="w">            </span><span class="p">},</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="nx">scaleAll</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">_applyImmersiveCrossfade</span><span class="p">();</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">scaler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">getScaler</span><span class="p">();</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">scaler</span><span class="p">)</span><span class="w"> </span><span class="nx">scaler</span><span class="p">();</span>
+<span class="w">                </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">)</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">lastImgW</span><span class="p">,</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">);</span>
+<span class="w">                </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+<span class="w">                </span><span class="k">else</span><span class="w"> </span><span class="nx">_reconcileCbVisibility</span><span class="p">();</span>
+<span class="w">            </span><span class="p">},</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add _applyImmersiveCrossfade — zoom-driven chrome collapse + pane growth</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-3-rewrite-key-key-and-scroll-handler-to-use-crossfade">Task 3: Rewrite <code>=</code> key, <code>-</code> key, and scroll handler to use crossfade</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — <code>zoom.in</code> (~line 8445), <code>zoom.out</code> (~line 8468), scroll handler (~line 14015)</p>
+<ul>
+<li>[ ] <strong>Step 1: Rewrite <code>zoom.in</code></strong></li>
+</ul>
+<p>Find <code>'zoom.in'</code> command (~line 8445). Replace the <code>run</code> body:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="nx">run</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">                        </span><span class="nx">_shouldEnterImmersive</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">_enterImmersive</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;immersive&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">1.1</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                        </span><span class="nx">_scaleAllWithAnim</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;immersive&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;zoom: fit&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="sb">`zoom: </span><span class="si">${</span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">100</span><span class="p">)</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                </span><span class="p">},</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="nx">run</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">                        </span><span class="nx">_shouldEnterImmersive</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">w</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">;</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgH</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">;</span>
+<span class="w">                        </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_calcAutoFitZoom</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                        </span><span class="nx">_scaleAllWithAnim</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;immersive&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">1.1</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                        </span><span class="nx">_scaleAllWithAnim</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;immersive&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;zoom: fit&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="sb">`zoom: </span><span class="si">${</span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">100</span><span class="p">)</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                </span><span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Rewrite <code>zoom.out</code></strong></li>
+</ul>
+<p>Find <code>'zoom.out'</code> command (~line 8468). Replace the <code>run</code> body:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="nx">run</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1.1</span><span class="p">,</span><span class="w"> </span><span class="nx">_normalFitZoom</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">_exitImmersive</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;zoom: fit&#39;</span><span class="p">);</span>
+<span class="w">                            </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                            </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                    </span><span class="nx">_scaleAllWithAnim</span><span class="p">();</span>
+<span class="w">                    </span><span class="nx">showStatus</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;zoom: fit&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="sb">`zoom: </span><span class="si">${</span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">100</span><span class="p">)</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
+<span class="w">                    </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                </span><span class="p">},</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="nx">run</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1.1</span><span class="p">,</span><span class="w"> </span><span class="nx">_normalFitZoom</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                    </span><span class="nx">_scaleAllWithAnim</span><span class="p">();</span>
+<span class="w">                    </span><span class="nx">showStatus</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">_normalFitZoom</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;zoom: fit&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="sb">`zoom: </span><span class="si">${</span><span class="nb">Math</span><span class="p">.</span><span class="nx">round</span><span class="p">(</span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">100</span><span class="p">)</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
+<span class="w">                    </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                </span><span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Simplify scroll handler</strong></li>
+</ul>
+<p>Find the ctrl+scroll handler (~line 14015):</p>
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="nx">e</span><span class="p">.</span><span class="nx">ctrlKey</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">metaKey</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">clamped</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="o">-</span><span class="mf">10</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">10</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">deltaY</span><span class="p">));</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">factor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">pow</span><span class="p">(</span><span class="mf">2</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="nx">clamped</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">_zoomSensitivity</span><span class="p">);</span>
+<span class="w">                </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="nx">_normalFitZoom</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">factor</span><span class="p">));</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">_fitZoom</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">_exitImmersive</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;zoom: fit&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                        </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">                </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+</code></pre></div>
+<p>Replace with:</p>
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">ctrlKey</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">metaKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">clamped</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="o">-</span><span class="mf">10</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">10</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">deltaY</span><span class="p">));</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">factor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">pow</span><span class="p">(</span><span class="mf">2</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="nx">clamped</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">_zoomSensitivity</span><span class="p">);</span>
+<span class="w">                </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="nx">_normalFitZoom</span><span class="p">,</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">factor</span><span class="p">));</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_snapZoomToFit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">                </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: zoom.in/out/scroll use crossfade instead of _enterImmersive/_exitImmersive</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-4-simplify-zoomreset-0-key">Task 4: Simplify <code>zoom.reset</code> (0 key)</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — <code>zoom.reset</code> command (~line 8489)</p>
+<ul>
+<li>[ ] <strong>Step 1: Replace the <code>run</code> body</strong></li>
+</ul>
+<p>Find <code>'zoom.reset'</code> command. Replace the entire <code>run</code> body with:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="nx">run</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">sliceJumpBuffer</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="nx">sliceJumpBuffer</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">key</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">sliceJumpTimeout</span><span class="p">)</span><span class="w"> </span><span class="nx">clearTimeout</span><span class="p">(</span><span class="nx">sliceJumpTimeout</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">sliceJumpTimeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">sliceJumpBuffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w"> </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">);</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="mf">2000</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`jump to slice: </span><span class="si">${</span><span class="nx">sliceJumpBuffer</span><span class="si">}</span><span class="sb">_`</span><span class="p">);</span>
+<span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">performance</span><span class="p">.</span><span class="nx">now</span><span class="p">();</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">isDoubleTap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="nx">now</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">_lastZeroPress</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">500</span><span class="p">);</span>
+<span class="w">                        </span><span class="nx">_lastZeroPress</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">now</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">isDoubleTap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">_crossfadeCleanup</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">mainPan</span><span class="p">.</span><span class="nx">reset</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">mosaicPan</span><span class="p">.</span><span class="nx">reset</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAllAutoFit</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;zoom: fit&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">w</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">;</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lastImgH</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_calcAutoFitZoom</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
+<span class="w">                            </span><span class="nx">_fitZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">userZoom</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">mainPan</span><span class="p">.</span><span class="nx">reset</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;immersive · press 0 again to exit&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">_crossfadeCleanup</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">userZoom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">_zoomAdjustedByUser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">mainPan</span><span class="p">.</span><span class="nx">reset</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">mosaicPan</span><span class="p">.</span><span class="nx">reset</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAllAutoFit</span><span class="p">();</span>
+<span class="w">                            </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;zoom: fit&#39;</span><span class="p">);</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                        </span><span class="nx">saveState</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                </span><span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: simplify zoom.reset — use _crossfadeCleanup instead of _immersiveAnimating cleanup</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-5-css-dimbar-width-constant-in-immersive">Task 5: CSS — dimbar width constant in immersive</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — CSS (~line 901)</p>
+<ul>
+<li>[ ] <strong>Step 1: Remove padding override</strong></li>
+</ul>
+<p>Find:
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">info</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">fixed</span><span class="p">;</span><span class="w"> </span><span class="k">z-index</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w"> </span><span class="k">left</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="kt">%</span><span class="p">;</span><span class="w"> </span><span class="k">transform</span><span class="p">:</span><span class="w"> </span><span class="nb">translateX</span><span class="p">(</span><span class="mi">-50</span><span class="kt">%</span><span class="p">);</span>
+<span class="w">            </span><span class="k">margin</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="cp">!important</span><span class="p">;</span><span class="w"> </span><span class="k">padding</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="kt">px</span><span class="w"> </span><span class="mi">16</span><span class="kt">px</span><span class="p">;</span>
+</code></pre></div></p>
+<p>Replace with:
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">info</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">position</span><span class="p">:</span><span class="w"> </span><span class="kc">fixed</span><span class="p">;</span><span class="w"> </span><span class="k">z-index</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w"> </span><span class="k">left</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="kt">%</span><span class="p">;</span><span class="w"> </span><span class="k">transform</span><span class="p">:</span><span class="w"> </span><span class="nb">translateX</span><span class="p">(</span><span class="mi">-50</span><span class="kt">%</span><span class="p">);</span>
+<span class="w">            </span><span class="k">margin</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="cp">!important</span><span class="p">;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: dimbar keeps constant width in immersive — remove padding override</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-6-remove-_enterimmersive-_exitimmersive-_immersiveanimating-_animopacity">Task 6: Remove <code>_enterImmersive</code>, <code>_exitImmersive</code>, <code>_immersiveAnimating</code>, <code>_animOpacity</code></h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Find all remaining references</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;_enterImmersive\|_exitImmersive\|_immersiveAnimating&#39;</span><span class="w"> </span>src/arrayview/_viewer.html
+</code></pre></div>
+<p>For every reference that is a GUARD (<code>&amp;&amp; !_immersiveAnimating</code> or <code>if (!_immersiveAnimating)</code>): remove the <code>_immersiveAnimating</code> part from the condition. If the entire condition was just <code>if (!_immersiveAnimating)</code>, remove the if-wrapper but keep the body.</p>
+<p>For <code>if (_immersiveAnimating) return;</code> in <code>_applyImmersiveCrossfade</code>: delete the line.</p>
+<ul>
+<li>
+<p>[ ] <strong>Step 2: Delete <code>let _immersiveAnimating = false;</code></strong></p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Delete <code>function _enterImmersive()</code> (entire function, ~65 lines)</strong></p>
+</li>
+<li>
+<p>[ ] <strong>Step 4: Delete <code>function _exitImmersive()</code> (entire function, ~115 lines)</strong></p>
+</li>
+<li>
+<p>[ ] <strong>Step 5: Delete <code>function _animOpacity()</code> if no callers remain</strong></p>
+</li>
+</ul>
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;_animOpacity&#39;</span><span class="w"> </span>src/arrayview/_viewer.html
+</code></pre></div>
+<p>If only the definition remains, delete it.</p>
+<ul>
+<li>[ ] <strong>Step 6: Verify clean</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;_enterImmersive\|_exitImmersive\|_immersiveAnimating\|_animOpacity&#39;</span><span class="w"> </span>src/arrayview/_viewer.html
+</code></pre></div>
+<p>Should return NO results (except possibly comments).</p>
+<ul>
+<li>[ ] <strong>Step 7: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: remove _enterImmersive, _exitImmersive, _immersiveAnimating, _animOpacity</span>
+
+<span class="s2">Replaced by stateless zoom-driven _applyImmersiveCrossfade.</span>
+
+<span class="s2">Co-Authored-By: Claude Opus 4.6 (1M context) &lt;noreply@anthropic.com&gt;&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-7-run-visual-smoke-tests">Task 7: Run visual smoke tests</h3>
+<p><strong>Files:</strong>
+- Run: <code>tests/visual_smoke.py</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Run smoke tests</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>tests/visual_smoke.py
+</code></pre></div>
+<p>Expected: All tests pass (zoom tests 04, 05, 36, 38, 63c, 71 use keyboard +/-/0 which go through <code>_scaleAllWithAnim</code> → <code>ModeRegistry.scaleAll()</code> → crossfade).</p>
+<ul>
+<li>
+<p>[ ] <strong>Step 2: Fix any failures</strong></p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Commit fixes if needed</strong></p>
+</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

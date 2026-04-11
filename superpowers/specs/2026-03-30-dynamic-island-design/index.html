@@ -1,0 +1,821 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Dynamic Island for ROI & SEGMENT Modes - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dynamic-island-for-roi-segment-modes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Dynamic Island for ROI &amp; SEGMENT Modes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#island-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Island Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Island Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#roi-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROI Rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segment-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEGMENT Rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roi-shapes-press-a-to-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROI Shapes (press A to cycle)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seg-methods-press-s-to-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEG Methods (press S to cycle)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mutual-exclusivity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutual Exclusivity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#positioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Positioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#styling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Styling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roi-export-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROI Export Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seg-export-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEG Export Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Changes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-stays-the-same" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Stays the Same
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="dynamic-island-for-roi-segment-modes">Dynamic Island for ROI &amp; SEGMENT Modes</h1>
+<h2 id="problem">Problem</h2>
+<p>The egg badge system is designed for composable data transforms (FFT, LOG, MAGNITUDE, etc.) that stack naturally. ROI and SEGMENT are interaction modes — they take over canvas input rather than transforming displayed data. They are also mutually incompatible. Representing them as eggs is a category error.</p>
+<p>Previous attempts (floating fan-out arc at cursor, inline badge icons) were either too intrusive or too limited — neither provided space for the ROI table, stats, export, or segmentation label management.</p>
+<h2 id="solution">Solution</h2>
+<p>A draggable <strong>dynamic island</strong> panel that appears when ROI or SEGMENT mode is active. One island at a time — activating one dismisses the other with an Apple Dynamic Island-style morph transition.</p>
+<h2 id="island-layout">Island Layout</h2>
+<p>Both ROI and SEGMENT islands share the same visual structure:</p>
+<div class="highlight"><pre><span></span><code>┌─────────────────────────────────┐
+│ ≡  ROI · □ ○ ~ ◆    ↓         │  ← header: drag handle, title, shape icons, download
+├─────────────────────────────────┤
+│ ■ ROI 1      142.3 ± 28.1   × │  ← row: color swatch, name, stats, delete
+│ ■ ROI 2       89.7 ± 15.4   × │
+│ ■ ROI 3      201.0 ± 42.8   × │
+└─────────────────────────────────┘
+</code></pre></div>
+<h3 id="header">Header</h3>
+<ul>
+<li><strong>Drag handle</strong> (three horizontal lines, left edge) — mousedown to drag the island anywhere in the viewport</li>
+<li><strong>Title</strong> — "ROI" or "SEG", white, bold</li>
+<li><strong>Dot separator</strong> — subtle <code>·</code></li>
+<li><strong>Shape/method icon strip</strong> — all available shapes shown as small SVG icons. Active shape highlighted in mode color (yellow for ROI, pink for SEG). Inactive shapes gray at 50% opacity. Click an icon to select it directly. Press A/S to cycle as before.</li>
+<li><strong>Download icon</strong> (right edge) — triggers export</li>
+</ul>
+<h3 id="roi-rows">ROI Rows</h3>
+<p>Each drawn ROI gets a row:
+- <strong>Color swatch</strong> — 7px rounded square, unique color per ROI
+- <strong>Name</strong> — "ROI 1", "ROI 2", etc. (auto-numbered)
+- <strong>Stats</strong> — <code>mean ± std</code> for the current 2D slice, right-aligned, muted color
+- <strong>Delete</strong> — <code>×</code> button to remove the ROI</p>
+<h3 id="segment-rows">SEGMENT Rows</h3>
+<p>Each accepted segmentation label gets a row:
+- <strong>Color swatch</strong> — 7px rounded square, matches overlay color
+- <strong>Name</strong> — default "Label 1", "Label 2", etc. Click to edit inline. Dashed underline hints editability. Default names shown in italic, user-set names in regular weight.
+- <strong>Delete</strong> — <code>×</code> button to remove the label</p>
+<p>No voxel count shown in the row — keep it minimal.</p>
+<h2 id="roi-shapes-press-a-to-cycle">ROI Shapes (press A to cycle)</h2>
+<ol>
+<li><strong>rect</strong> — drag to draw rectangle</li>
+<li><strong>circle</strong> — drag to draw ellipse</li>
+<li><strong>freehand</strong> — drag to draw freeform path</li>
+<li><strong>floodfill</strong> — click seed pixel, <code>[</code>/<code>]</code> to adjust tolerance</li>
+</ol>
+<h2 id="seg-methods-press-s-to-cycle">SEG Methods (press S to cycle)</h2>
+<ol>
+<li><strong>click</strong> — single click seed point</li>
+<li><strong>circle</strong> — drag bounding ellipse</li>
+<li><strong>scribble</strong> — freehand lines</li>
+<li><strong>lasso</strong> — closed contour polygon</li>
+</ol>
+<h2 id="mutual-exclusivity">Mutual Exclusivity</h2>
+<p>ROI and SEGMENT modes cannot be active simultaneously:
+- Pressing <strong>S</strong> while ROI island is visible: ROI island morphs into SEG island
+- Pressing <strong>A</strong> while SEG island is visible: SEG island morphs into ROI island
+- The morph transition: container stays in place, content crossfades, height animates if row count differs (~300ms)</p>
+<h2 id="positioning">Positioning</h2>
+<ul>
+<li><strong>Default position</strong>: left side of the canvas pane</li>
+<li><strong>Draggable</strong>: user can drag the island anywhere in the viewport via the header drag handle</li>
+<li><strong>Position memory</strong>: once dragged, the island remembers its position. Both ROI and SEG islands share the same remembered position. Position persists across mode switches within a session.</li>
+<li><strong>Canvas space</strong>: normally positioned adjacent to the canvas with sufficient horizontal space. If space is tight, the island overlays the canvas edge (glassmorphic background ensures readability)</li>
+</ul>
+<h2 id="styling">Styling</h2>
+<ul>
+<li><strong>Background</strong>: <code>rgba(24, 24, 24, 0.95)</code> with <code>backdrop-filter: blur(16px)</code></li>
+<li><strong>Border</strong>: <code>1px solid rgba(255, 255, 255, 0.07)</code></li>
+<li><strong>Border radius</strong>: 14px</li>
+<li><strong>Font</strong>: monospace, 11px base, 10px for row content, 9px for stats</li>
+<li><strong>ROI accent color</strong>: <code>#f0c674</code> (yellow)</li>
+<li><strong>SEG accent color</strong>: <code>#e87aaf</code> (pink)</li>
+<li><strong>Selected row</strong>: subtle tinted background + border matching mode color</li>
+<li><strong>Theme-aware</strong>: respects dark/light/solarized/nord themes via CSS variables</li>
+</ul>
+<h2 id="roi-export-format">ROI Export Format</h2>
+<p>CSV download with bitmask dimension encoding.</p>
+<p>The bitmask has one digit per array dimension. <code>1</code> = dimension included in the statistic, <code>0</code> = fixed at current index. The ROI plane dimensions are always <code>1</code>; additional <code>1</code>s mean the statistic is aggregated across that dimension.</p>
+<p>Example: 5D array, ROI drawn on dimensions 1 and 3 (bitmask base: <code>01010</code>):</p>
+<div class="highlight"><pre><span></span><code>roi,dims,mean,std,min,max,n_pixels
+ROI 1,01010,142.3,28.1,12,255,347
+ROI 1,11010,135.1,31.2,3,255,17347
+ROI 1,01110,140.2,29.8,5,253,8680
+ROI 1,01011,138.9,30.1,8,252,6940
+ROI 1,11111,128.4,35.7,0,255,347000
+ROI 2,01010,89.7,15.4,22,201,182
+ROI 2,11010,91.2,18.3,8,215,9100
+...
+</code></pre></div>
+<p>Rows per ROI:
+1. <strong>Base slice</strong> — just the 2D ROI plane (the two <code>1</code> bits)
+2. <strong>Single-dimension extensions</strong> — one row per additional dimension, toggling one extra <code>1</code>
+3. <strong>All dimensions</strong> — all bits set to <code>1</code></p>
+<h2 id="seg-export-format">SEG Export Format</h2>
+<p>NPY file containing the label mask (existing behavior via <code>/seg/export/{sid}</code>).</p>
+<h2 id="what-changes">What Changes</h2>
+<ul>
+<li>Remove ROI and SEG from the egg badge system (<code>renderEggs()</code>)</li>
+<li>Remove the existing <code>#seg-panel</code> — its functionality moves into the SEG island</li>
+<li>Add new island DOM element, shared between ROI and SEG</li>
+<li>ROI egg badge → island header</li>
+<li>SEG egg badge + seg-panel → island header + label rows</li>
+<li>Existing A/S key handlers gain mutual-exclusivity logic</li>
+</ul>
+<h2 id="what-stays-the-same">What Stays the Same</h2>
+<ul>
+<li>All egg badges for composable transforms (FFT, LOG, MAGNITUDE, RGB, ALPHA, PROJECTION) remain unchanged</li>
+<li>ROI drawing mechanics (overlay canvas, shapes, freehand points, floodfill tolerance)</li>
+<li>SEG interaction mechanics (nnInteractive server communication, mask handling)</li>
+<li>A/S key cycling behavior (just adds dismissal of the other mode)</li>
+<li>All other keyboard shortcuts</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

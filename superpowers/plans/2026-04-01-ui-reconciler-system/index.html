@@ -1,0 +1,1174 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>UI Reconciler System Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ui-reconciler-system-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              UI Reconciler System Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#key-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key File
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#important-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Important Context
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Important Context">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#task-1-add-reconciler-functions-shadow-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add reconciler functions (shadow mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-2-wire-_reconcileui-into-dispatch-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Wire _reconcileUI() into dispatch points
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-3-remove-old-layout-toggles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Remove old layout toggles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-4-remove-old-compare-state-toggles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Remove old compare state toggles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-5-simplify-canvas-bordered-keydown-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Simplify canvas-bordered keydown handler
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-6-replace-shadow-validation-with-permanent-rules-update-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Replace shadow validation with permanent rules + update docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ui-reconciler-system-implementation-plan">UI Reconciler System Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Centralize all scattered UI visibility toggles into grouped reconciler functions so UI state is derived from mode flags in one place.</p>
+<p><strong>Architecture:</strong> Three grouped reconcilers (<code>_reconcileLayout()</code>, <code>_reconcileCompareState()</code>, <code>_reconcileCbVisibility()</code>) called through a <code>_reconcileUI()</code> wrapper. Each reads current mode flags and sets the correct DOM state. The existing <code>_reconcileCbVisibility()</code> (already implemented) is incorporated into the wrapper.</p>
+<p><strong>Tech Stack:</strong> Pure JS, single file <code>_viewer.html</code></p>
+<hr />
+<h2 id="key-file">Key File</h2>
+<p>All changes in: <code>src/arrayview/_viewer.html</code></p>
+<h2 id="important-context">Important Context</h2>
+<ul>
+<li><code>_reconcileCbVisibility()</code> already exists (~line 13548) and handles: <code>#slim-cb-wrap</code>, <code>.compare-pane-cb-island</code> fs-overlay, <code>.qv-cb-island</code> fs-overlay, <code>#compare-center-island</code></li>
+<li><code>_validateUIState()</code> exists (~line 13453) with Rules 4, 10, 12, 13, 16, 17, 23, 24, 25, 26</li>
+<li><code>compareWrap</code> is a cached reference to <code>document.getElementById('compare-view-wrap')</code></li>
+<li>Mode flags: <code>compareActive</code>, <code>multiViewActive</code>, <code>qmriActive</code>, <code>compareQmriActive</code>, <code>compareMvActive</code>, <code>_fullscreenActive</code></li>
+<li>Compare sub-mode flags: <code>diffMode</code> (0-3), <code>registrationMode</code>, <code>_wipeActive</code>, <code>_flickerActive</code>, <code>_checkerActive</code>, <code>compareFocusMode</code></li>
+<li>User preference: <code>canvasBorders</code></li>
+<li>Initial <code>canvas-wrap</code> state is <code>display:none</code> (loading). Do NOT touch the initial load display toggles (lines ~5628, 5772, 6015) — those are loading lifecycle, not mode transitions.</li>
+</ul>
+<hr />
+<h3 id="task-1-add-reconciler-functions-shadow-mode">Task 1: Add reconciler functions (shadow mode)</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Add <code>_reconcileLayout()</code> function</strong></li>
+</ul>
+<p>Add right before <code>_reconcileCbVisibility()</code> (~line 13548), after <code>_validateUIState()</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// ── Layout container visibility reconciler ───────────────────</span>
+<span class="c1">// Derives which top-level containers are visible from mode flags.</span>
+<span class="kd">function</span><span class="w"> </span><span class="nx">_reconcileLayout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// 1. Canvas wrap — visible only in single-view (no special mode)</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">canvasWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">canvasWrap</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nb">document</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;av-loading&#39;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">canvasWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// 2. Compare wrap active class — shown for base compare (not sub-modes using other containers)</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareMvActive</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 3. Array name — hidden in compare mode</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">nameEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">nameEl</span><span class="p">)</span><span class="w"> </span><span class="nx">nameEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// 4. Multiview orientation indicator</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">mvOrientation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-orientation&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">mvOrientation</span><span class="p">)</span><span class="w"> </span><span class="nx">mvOrientation</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;block&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// 5. Canvas borders — apply to all relevant containers based on user preference</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-viewport&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">vp</span><span class="p">)</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">);</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.qv-canvas-wrap, .compare-canvas-wrap, .mv-view&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">);</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Note: the <code>av-loading</code> guard on canvas-wrap prevents the reconciler from showing it during initial load (before first frame arrives). The loading lifecycle handles that transition.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add <code>_reconcileCompareState()</code> function</strong></li>
+</ul>
+<p>Add right after <code>_reconcileLayout()</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// ── Compare sub-mode state reconciler ────────────────────────</span>
+<span class="c1">// Derives compare sub-mode UI from center mode flags.</span>
+<span class="c1">// When !compareActive, cleans up all compare-specific classes.</span>
+<span class="kd">function</span><span class="w"> </span><span class="nx">_reconcileCompareState</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">isCenter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_checkerActive</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">showWipePane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_checkerActive</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// 1. Diff pane visibility and overlay class</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">diffPane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-diff-pane&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">diffPane</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">diffPane</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">))</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;flex&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">diffPane</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;overlay-center&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// 2. Wipe pane visibility</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">wipePaneEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-wipe-pane&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wipePaneEl</span><span class="p">)</span><span class="w"> </span><span class="nx">wipePaneEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">showWipePane</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;flex&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// 3. Wipe mode class</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;wipe-mode&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">showWipePane</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 4. Focus classes</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;focus-reg&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// 5. Flex-wrap for 3-column layout</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">panesEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-panes&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">panesEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">panesEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">flexWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">isCenter</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareDisplaySids</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;nowrap&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Add <code>_reconcileUI()</code> wrapper</strong></li>
+</ul>
+<p>Add right before <code>_reconcileLayout()</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// ── Unified UI reconciler ────────────────────────────────────</span>
+<span class="c1">// Single entry point that reconciles all UI state from current flags.</span>
+<span class="c1">// Call after any mode state change.</span>
+<span class="kd">function</span><span class="w"> </span><span class="nx">_reconcileUI</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">_reconcileLayout</span><span class="p">();</span>
+<span class="w">    </span><span class="nx">_reconcileCompareState</span><span class="p">();</span>
+<span class="w">    </span><span class="nx">_reconcileCbVisibility</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Add shadow validation rules in <code>_validateUIState()</code></strong></li>
+</ul>
+<p>Add after Rule 26, before the <code>if (w.length)</code> line:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Rule 27 (shadow) — layout reconciler: canvas-wrap display matches expected</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vCanvasWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_vCanvasWrap</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nb">document</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;av-loading&#39;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">expectedVisible</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareMvActive</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">actuallyVisible</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_vCanvasWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">actuallyVisible</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">expectedVisible</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="sb">`Rule 27 (shadow): canvas-wrap display=</span><span class="si">${</span><span class="nx">_vCanvasWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="si">}</span><span class="sb"> but expected visible=</span><span class="si">${</span><span class="nx">expectedVisible</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// Rule 28 (shadow) — layout reconciler: compareWrap.active matches expected</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vCmpActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vExpectedCmpActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareMvActive</span><span class="p">;</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_vCmpActive</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">_vExpectedCmpActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="sb">`Rule 28 (shadow): compareWrap.active=</span><span class="si">${</span><span class="nx">_vCmpActive</span><span class="si">}</span><span class="sb"> but expected=</span><span class="si">${</span><span class="nx">_vExpectedCmpActive</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="c1">// Rule 29 (shadow) — layout reconciler: array-name display</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vNameEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_vNameEl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">nameVisible</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_vNameEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">nameVisible</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="s1">&#39;Rule 29 (shadow): array-name visible but compareActive=true&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// Rule 30 (shadow) — compare state: wipe-mode class</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vHasWipeClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;wipe-mode&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vExpectedWipe</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_checkerActive</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_vHasWipeClass</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">_vExpectedWipe</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="sb">`Rule 30 (shadow): compareWrap.wipe-mode=</span><span class="si">${</span><span class="nx">_vHasWipeClass</span><span class="si">}</span><span class="sb"> but expected=</span><span class="si">${</span><span class="nx">_vExpectedWipe</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>feat: add _reconcileLayout(), _reconcileCompareState(), _reconcileUI() in shadow mode
+</code></pre></div>
+<hr />
+<h3 id="task-2-wire-_reconcileui-into-dispatch-points">Task 2: Wire <code>_reconcileUI()</code> into dispatch points</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Upgrade existing <code>_reconcileCbVisibility()</code> calls to <code>_reconcileUI()</code></strong></li>
+</ul>
+<p>Find all <code>_reconcileCbVisibility()</code> calls (NOT those with <code>animPhase</code> param) in mode entry/exit functions and replace with <code>_reconcileUI()</code>:</p>
+<p>Replace in these functions (search for <code>_reconcileCbVisibility()</code> without arguments):
+- <code>enterMultiView()</code> → change to <code>_reconcileUI()</code>
+- <code>enterQmri()</code> → change to <code>_reconcileUI()</code>
+- <code>enterCompareQmri()</code> → change to <code>_reconcileUI()</code>
+- <code>enterCompareMv()</code> → change to <code>_reconcileUI()</code>
+- <code>setFullscreenMode(false)</code> → change to <code>_reconcileUI()</code>
+- <code>_exitImmersive()</code> snap-to-normal path → change to <code>_reconcileUI()</code> (note: <code>ModeRegistry.scaleAll()</code> in this path already calls <code>_reconcileCbVisibility()</code> so this is belt-and-suspenders)
+- Key-0 handler animation-cancel path → change to <code>_reconcileUI()</code>
+- Key-0 handler double-tap path → change to <code>_reconcileUI()</code></p>
+<p><strong>DO NOT change these</strong> (they use animPhase or are in hot paths):
+- <code>_reconcileCbVisibility({ animPhase: 'enter-2' })</code> in <code>_enterImmersive()</code>
+- <code>_reconcileCbVisibility({ animPhase: 'exit-3' })</code> in <code>_exitImmersive()</code> Phase 3
+- <code>_reconcileCbVisibility()</code> in <code>ModeRegistry.scaleAll()</code> — keep as CB-only for performance
+- <code>_reconcileCbVisibility()</code> in <code>_setCompareCenterMode()</code> — handled in Step 2</p>
+<ul>
+<li>[ ] <strong>Step 2: Update <code>_setCompareCenterMode()</code> dispatch</strong></li>
+</ul>
+<p>In <code>_setCompareCenterMode()</code>, find the existing <code>_reconcileCbVisibility()</code> call and replace with:
+<div class="highlight"><pre><span></span><code><span class="nx">_reconcileCompareState</span><span class="p">();</span>
+<span class="nx">_reconcileCbVisibility</span><span class="p">();</span>
+</code></pre></div>
+(Don't call full <code>_reconcileUI()</code> here — layout doesn't change when toggling center modes.)</p>
+<ul>
+<li>[ ] <strong>Step 3: Add <code>_reconcileUI()</code> to functions not yet wired</strong></li>
+</ul>
+<p>Add <code>_reconcileUI()</code> call near the end of these functions (before <code>showStatus</code>/<code>renderEggs</code>/<code>saveState</code>):
+- <code>exitCompareMode()</code> — after all flag resets, before <code>drawSlimColorbar()</code>
+- <code>exitMultiView()</code> — after cleanup, before <code>renderInfo()</code>
+- <code>exitQmri()</code> — after cleanup, before <code>renderInfo()</code>
+- <code>exitCompareQmri()</code> — after cleanup, before <code>renderInfo()</code>
+- <code>exitCompareMv()</code> — after cleanup, before <code>renderInfo()</code>
+- <code>enterCompareModeBySid()</code> — after <code>compareActive = true</code> and <code>compareWrap.classList.add('active')</code> block
+- <code>enterCompareModeByMultipleSids()</code> — same position
+- <code>toggleWipeMode()</code> — after <code>_wipeActive = !_wipeActive</code>, replace manual toggles</p>
+<p><strong>Keep all old toggles in place</strong> — belt-and-suspenders.</p>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>feat: wire _reconcileUI() into all mode entry/exit dispatch points
+</code></pre></div>
+<hr />
+<h3 id="task-3-remove-old-layout-toggles">Task 3: Remove old layout toggles</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Remove <code>#canvas-wrap</code> display toggles from mode functions</strong></li>
+</ul>
+<p>Remove these lines (the reconciler now handles canvas-wrap visibility):</p>
+<p>In <code>enterCompareModeBySid()</code> (~line 9729):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterCompareModeByMultipleSids()</code> (~line 9769):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMode()</code> (~line 10369-10371):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p>In <code>enterMultiView()</code> (~line 10408):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitMultiView()</code> (~line 10630):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterQmri()</code> (~line 10671):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitQmri()</code> (~line 10840):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterCompareQmri()</code> (~line 10877):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitCompareQmri()</code> (~line 11041):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterCompareMv()</code> (~line 11224):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMv()</code> (~line 11420):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>compareRender()</code> (~line 5866):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-wrap&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p><strong>DO NOT remove</strong> the initial load sites (lines ~5628, 5772, 6015) — those are loading lifecycle.</p>
+<ul>
+<li>[ ] <strong>Step 2: Remove <code>compareWrap.active</code> toggles</strong></li>
+</ul>
+<p>In <code>enterCompareModeBySid()</code> (~line 9731):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>enterCompareModeByMultipleSids()</code> (~line 9771):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMode()</code> (~line 10366):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>enterCompareQmri()</code> (~line 10876):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>exitCompareQmri()</code> (~line 11037):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>enterCompareMv()</code> (~line 11223):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMv()</code> (~line 11416):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;active&#39;</span><span class="p">);</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Remove <code>#array-name</code> display toggles</strong></li>
+</ul>
+<p>In <code>enterCompareModeBySid()</code> (~line 9730):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterCompareModeByMultipleSids()</code> (~line 9770):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMode()</code> (~line 10372):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;array-name&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 4: Remove <code>#mv-orientation</code> display toggles</strong></li>
+</ul>
+<p>In <code>enterMultiView()</code> (~line 10598):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-orientation&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;block&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitMultiView()</code> (~line 10629):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-orientation&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>enterCompareMv()</code> (~line 11379):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-orientation&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;block&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>exitCompareMv()</code> (~line 11410):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-orientation&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 5: Update comments in <code>enterCompareMv()</code></strong></li>
+</ul>
+<p>The comment "Hide compare panes" (~line 11222) should be updated since <code>compareWrap.classList.remove('active')</code> is removed. Change to just reference the reconciler:
+<div class="highlight"><pre><span></span><code><span class="c1">// Layout reconciled by _reconcileUI() — show qmri-view-wrap (shared container)</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>refactor: remove scattered layout toggles — reconciler is now authoritative
+</code></pre></div>
+<hr />
+<h3 id="task-4-remove-old-compare-state-toggles">Task 4: Remove old compare state toggles</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Clean up <code>exitCompareMode()</code></strong></li>
+</ul>
+<p>Remove these lines from <code>exitCompareMode()</code> (reconciler handles all of them):</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE all of these:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-diff-pane&#39;</span><span class="p">).</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-diff-pane&#39;</span><span class="p">).</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;overlay-center&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_wp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-wipe-pane&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_wp</span><span class="p">)</span><span class="w"> </span><span class="nx">_wp</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;wipe-mode&#39;</span><span class="p">);</span>
+<span class="c1">// (compareWrap.classList.remove(&#39;active&#39;) already removed in Task 3)</span>
+<span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;focus-reg&#39;</span><span class="p">);</span>
+</code></pre></div>
+<p><strong>KEEP</strong> <code>compareFocusMode = false;</code> (the flag reset), just remove the classList line after it. The reconciler reads <code>compareFocusMode</code> to derive the classes.</p>
+<ul>
+<li>[ ] <strong>Step 2: Clean up <code>_setCompareCenterMode()</code></strong></li>
+</ul>
+<p>Remove these lines (reconciler handles them via <code>_reconcileCompareState()</code> call):</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE: diff pane display (lines ~2997-2999)</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">diffPane</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">diffPane</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">diffMode</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;flex&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">diffPane</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;overlay-center&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="c1">// REMOVE: wipe pane display and wipe-mode class (lines ~3003-3006)</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">showWipePane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_flickerActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">_checkerActive</span><span class="p">;</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wipePaneEl</span><span class="p">)</span><span class="w"> </span><span class="nx">wipePaneEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">showWipePane</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;flex&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;wipe-mode&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">showWipePane</span><span class="p">);</span>
+
+<span class="c1">// REMOVE: focus class cleanup at newMode === 0 (lines ~2991-2992)</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">newMode</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;focus-reg&#39;</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="c1">// REMOVE: flex-wrap (line ~3013-3014)</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">panesEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-panes&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_hasCenterNow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">showWipePane</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">panesEl</span><span class="p">)</span><span class="w"> </span><span class="nx">panesEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">flexWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_hasCenterNow</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareDisplaySids</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;nowrap&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+</code></pre></div>
+<p><strong>KEEP</strong> the <code>compareFocusMode = false</code> flag reset (reconciler reads it), the diff pane content updates (<code>diffPane.classList.toggle('overlay-center'...</code> is now in reconciler), and all imperative work (fetchAndDrawDiff, _drawWipe, _startFlicker, _drawCheckerboard, showStatus, etc.).</p>
+<p><strong>KEEP</strong> the <code>const diffPane = document.getElementById('compare-diff-pane');</code> declaration IF it's still used for content setting (e.g., title innerHTML). Remove if now unused.</p>
+<ul>
+<li>[ ] <strong>Step 3: Clean up <code>toggleWipeMode()</code></strong></li>
+</ul>
+<p>Replace the manual toggles with a reconciler call:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// BEFORE:</span>
+<span class="nx">_wipeActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">_wipeActive</span><span class="p">;</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;wipe-mode&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">wipePaneEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-wipe-pane&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">wipePaneEl</span><span class="p">)</span><span class="w"> </span><span class="nx">wipePaneEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_wipeActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s1">&#39;flex&#39;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+
+<span class="c1">// AFTER:</span>
+<span class="nx">_wipeActive</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">_wipeActive</span><span class="p">;</span>
+<span class="nx">_reconcileCompareState</span><span class="p">();</span>
+<span class="nx">_reconcileCbVisibility</span><span class="p">();</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Clean up <code>toggleRegistrationMode()</code></strong></li>
+</ul>
+<p>Remove the focus class cleanup (reconciler handles it):</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE (lines ~10316-10318):</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareFocusMode</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;focus-reg&#39;</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>KEEP</strong> <code>compareFocusMode = false;</code> — but move it before <code>_setCompareCenterMode(0)</code> so the flag is correct when the reconciler runs.</p>
+<ul>
+<li>[ ] <strong>Step 5: Clean up Z key handler</strong></li>
+</ul>
+<p>Replace the focus class toggles with a reconciler call:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// BEFORE (~line 8716-8718):</span>
+<span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">compareFocusMode</span><span class="p">;</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">);</span>
+<span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;focus-reg&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">registrationMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">);</span>
+
+<span class="c1">// AFTER:</span>
+<span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">compareFocusMode</span><span class="p">;</span>
+<span class="nx">_reconcileCompareState</span><span class="p">();</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>refactor: remove scattered compare state toggles — reconciler is now authoritative
+</code></pre></div>
+<hr />
+<h3 id="task-5-simplify-canvas-bordered-keydown-handler">Task 5: Simplify canvas-bordered keydown handler</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Replace B key handler cascade</strong></li>
+</ul>
+<p>Find the B key handler (~line 8847) with its mode-specific if/else cascade and replace with:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// BEFORE:</span>
+<span class="nx">canvasBorders</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">canvasBorders</span><span class="p">;</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">mvViews</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">v</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">v</span><span class="p">.</span><span class="nx">pane</span><span class="p">)</span><span class="w"> </span><span class="nx">v</span><span class="p">.</span><span class="nx">pane</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">);</span><span class="w"> </span><span class="p">});</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.qv-canvas-wrap&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">));</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-canvas-wrap&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">));</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.qv-canvas-wrap&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">));</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-viewport&#39;</span><span class="p">).</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="c1">// AFTER:</span>
+<span class="nx">canvasBorders</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">!</span><span class="nx">canvasBorders</span><span class="p">;</span>
+<span class="nx">_reconcileLayout</span><span class="p">();</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Remove F key (zen mode) border cleanup</strong></li>
+</ul>
+<p>Find the F key handler (~line 9656-9659) and replace the manual border removal:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// BEFORE:</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_zenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">canvasBorders</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-viewport&#39;</span><span class="p">).</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.mv-view, .compare-canvas-wrap, .qv-canvas-wrap&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="c1">// AFTER:</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_zenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">canvasBorders</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_reconcileLayout</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Remove <code>exitMultiView()</code> border re-apply</strong></li>
+</ul>
+<p>Find (~line 10643):
+<div class="highlight"><pre><span></span><code><span class="c1">// REMOVE:</span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-viewport&#39;</span><span class="p">).</span><span class="nx">classList</span><span class="p">.</span><span class="nx">toggle</span><span class="p">(</span><span class="s1">&#39;canvas-bordered&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">canvasBorders</span><span class="p">);</span>
+</code></pre></div>
+The reconciler already handles this when called from exitMultiView().</p>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>refactor: replace scattered canvas-bordered toggles with _reconcileLayout()
+</code></pre></div>
+<hr />
+<h3 id="task-6-replace-shadow-validation-with-permanent-rules-update-docs">Task 6: Replace shadow validation with permanent rules + update docs</h3>
+<p><strong>Files:</strong> Modify <code>src/arrayview/_viewer.html</code>, <code>dev/lessons_learned.md</code>, <code>AGENTS.md</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Replace shadow Rules 27-30 with permanent versions</strong></li>
+</ul>
+<p>Remove "(shadow)" labels and tighten the validation:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Rule 27 — Layout reconciler: canvas-wrap display matches expected</span>
+<span class="c1">// (same code, remove &quot;(shadow)&quot; from label)</span>
+
+<span class="c1">// Rule 28 — Layout reconciler: compareWrap.active matches expected</span>
+<span class="c1">// (same code, remove &quot;(shadow)&quot; from label)</span>
+
+<span class="c1">// Rule 29 — Layout reconciler: array-name display</span>
+<span class="c1">// (same code, remove &quot;(shadow)&quot; from label)</span>
+
+<span class="c1">// Rule 30 — Compare state: wipe-mode class</span>
+<span class="c1">// (same code, remove &quot;(shadow)&quot; from label)</span>
+
+<span class="c1">// Rule 31 — Compare state: diff pane visibility</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_vDiffPane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;compare-diff-pane&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_vDiffPane</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">expectedDiff</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">registrationMode</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">actuallyVisible</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_vDiffPane</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">actuallyVisible</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">expectedDiff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="sb">`Rule 31: compare-diff-pane display=</span><span class="si">${</span><span class="nx">_vDiffPane</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">display</span><span class="si">}</span><span class="sb"> but expected visible=</span><span class="si">${</span><span class="nx">expectedDiff</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// Rule 32 — Compare state: focus classes</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">_immersiveAnimating</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">hasFocusDiff</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareWrap</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;focus-diff&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">expectedFocusDiff</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareFocusMode</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">hasFocusDiff</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nx">expectedFocusDiff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">w</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="sb">`Rule 32: focus-diff=</span><span class="si">${</span><span class="nx">hasFocusDiff</span><span class="si">}</span><span class="sb"> but expected=</span><span class="si">${</span><span class="nx">expectedFocusDiff</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Update <code>dev/lessons_learned.md</code></strong></li>
+</ul>
+<p>Add a new section:</p>
+<div class="highlight"><pre><span></span><code><span class="gu">## UI Reconciler Pattern</span>
+
+<span class="gs">**Problem:**</span> UI element visibility scattered across 15+ toggle sites per element. Mode combinatorics make it impossible to keep all sites in sync — same class of bug fixed 4+ times for colorbars alone.
+
+<span class="gs">**Solution:**</span> Grouped reconciler functions that derive UI state from mode flags:
+<span class="k">-</span><span class="w"> </span><span class="sb">`_reconcileLayout()`</span> — container visibility (canvas-wrap, compareWrap, array-name, mv-orientation, canvas-bordered)
+<span class="k">-</span><span class="w"> </span><span class="sb">`_reconcileCompareState()`</span> — compare sub-mode UI (diff/wipe panes, wipe-mode/focus classes, flex-wrap)
+<span class="k">-</span><span class="w"> </span><span class="sb">`_reconcileCbVisibility()`</span> — colorbar/island visibility
+<span class="k">-</span><span class="w"> </span><span class="sb">`_reconcileUI()`</span> — wrapper that calls all three
+
+<span class="gs">**Key insight:**</span> Mode entry/exit functions set flags, then call the reconciler. The reconciler reads flags and computes correct DOM state. No function needs to know what other functions do — the reconciler is the single source of truth.
+
+<span class="gs">**When adding new modes or UI elements:**</span> Add the visibility rule to the appropriate reconciler. All existing call sites automatically get the update.
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Update <code>AGENTS.md</code></strong></li>
+</ul>
+<p>Add to the "Non-Negotiables" section:</p>
+<div class="highlight"><pre><span></span><code><span class="k">-</span><span class="w"> </span>UI visibility changes go through reconcilers (<span class="ge">_reconcileUI/_</span>reconcileLayout/_reconcileCompareState/_reconcileCbVisibility), not inline style.display or classList toggles in mode functions
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>feat: finalize UI reconciler validation rules, update docs and AGENTS.md
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

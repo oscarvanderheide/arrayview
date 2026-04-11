@@ -1,0 +1,974 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>TODO Batch Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#todo-batch-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TODO Batch Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-add-sum-projection-mode-to-keybind-p" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add SUM projection mode to keybind p
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-fix-minimap-position-in-immersive-view-northeast-not-east" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Fix minimap position in immersive view (northeast, not east)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-fix-3-view-crosshair-line-width-and-transparency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Fix 3-view crosshair line width and transparency
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-make-dimbar-and-colorbar-islands-draggable-in-immersive-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Make dimbar and colorbar islands draggable in immersive view
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-fix-pane-centering-in-native-window-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Fix pane centering in native window mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-fix-roi-island-disappearing-after-freehand-draw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Fix ROI island disappearing after freehand draw
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-fix-roi-csv-export-error-sessionarray-sessiondata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Fix ROI CSV export error (session.array → session.data)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-8-adjust-initial-roi-island-position" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 8: Adjust initial ROI island position
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Order
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="todo-batch-implementation-plan">TODO Batch Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Fix 8 bugs/features from dev/TODO.md in one session.</p>
+<p><strong>Architecture:</strong> Each task is independent — touches <code>_viewer.html</code> (frontend), <code>_server.py</code> (backend), or <code>_render.py</code> (rendering). All changes are self-contained.</p>
+<p><strong>Tech Stack:</strong> Vanilla JS/HTML/CSS frontend, Python/FastAPI backend, NumPy rendering.</p>
+<hr />
+<h3 id="task-1-add-sum-projection-mode-to-keybind-p">Task 1: Add SUM projection mode to keybind <code>p</code></h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_render.py:148-154</code> (PROJECTION_OPS dict)
+- Modify: <code>src/arrayview/_viewer.html:1427</code> (help text)
+- Modify: <code>src/arrayview/_viewer.html:1658</code> (PROJECTION_LABELS)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add SUM to PROJECTION_OPS in _render.py</strong></li>
+</ul>
+<p>In <code>_render.py</code>, add entry <code>6: ("sum", np.sum)</code> to <code>PROJECTION_OPS</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">PROJECTION_OPS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="mi">1</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;max&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
+    <span class="mi">2</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;min&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
+    <span class="mi">3</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;mean&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">),</span>
+    <span class="mi">4</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;std&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">),</span>
+    <span class="mi">5</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;sos&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>  <span class="c1"># sum of squares — custom implementation</span>
+    <span class="mi">6</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;sum&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">),</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add SUM to PROJECTION_LABELS in _viewer.html</strong></li>
+</ul>
+<p>Change line 1658:
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">PROJECTION_LABELS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;MAX&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;MIN&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;MEAN&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;STD&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;SOS&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;SUM&#39;</span><span class="p">];</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Update help text</strong></li>
+</ul>
+<p>Change line 1427:
+<div class="highlight"><pre><span></span><code><span class="p">&lt;</span><span class="nt">div</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;help-row&quot;</span><span class="p">&gt;&lt;</span><span class="nt">span</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;key&quot;</span><span class="p">&gt;</span>p<span class="p">&lt;/</span><span class="nt">span</span><span class="p">&gt;&lt;</span><span class="nt">span</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;desc&quot;</span><span class="p">&gt;</span>cycle projection: off → MAX → MIN → MEAN → STD → SOS → SUM<span class="p">&lt;/</span><span class="nt">span</span><span class="p">&gt;&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 4: Verify the cycling logic already handles N labels</strong></li>
+</ul>
+<p>The keybind handler at ~line 9297 cycles <code>projectionMode</code> from 0 to <code>PROJECTION_LABELS.length</code>, so adding to the labels array is sufficient. No code change needed there.</p>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_render.py<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add SUM projection mode to keybind p&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-2-fix-minimap-position-in-immersive-view-northeast-not-east">Task 2: Fix minimap position in immersive view (northeast, not east)</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:13252-13254</code> (minimap overlap fallback)</p>
+<p>The current code at line 13252 positions the minimap to the <strong>east</strong> (right side, vertically centered) when it overlaps the dimbar. The user wants it <strong>northeast</strong> (top-right of canvas, but offset to avoid dimbar).</p>
+<ul>
+<li>[ ] <strong>Step 1: Change overlap fallback to northeast position</strong></li>
+</ul>
+<p>Replace the overlap branch (lines 13252-13254):</p>
+<p>Old:
+<div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">overlaps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">vpRect</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">vpRect</span><span class="p">.</span><span class="nx">height</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">mmH</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">vpRect</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">10</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p>New — position northeast of canvas (top edge, right of canvas):
+<div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">overlaps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">vpRect</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">mmMargin</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_miniMap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">vpRect</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">10</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: minimap falls back to northeast (not east) in immersive view&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-3-fix-3-view-crosshair-line-width-and-transparency">Task 3: Fix 3-view crosshair line width and transparency</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:12267</code> (lineWidth calculation)
+- Modify: <code>src/arrayview/_viewer.html:12208</code> (MV_PLANE_STROKES alpha)</p>
+<p>The crosshair lines in 3-view mode use a width of 1 canvas pixel (which looks thick on small arrays) and 0.75 alpha (looks blurry). Fix: use a fixed CSS-pixel width and reduce transparency.</p>
+<ul>
+<li>[ ] <strong>Step 1: Change lineWidth to fixed 1.5 CSS pixels</strong></li>
+</ul>
+<p>Replace line 12267:
+<div class="highlight"><pre><span></span><code><span class="nx">v</span><span class="p">.</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">lineWidth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">scale</span><span class="p">);</span>
+</code></pre></div>
+with:
+<div class="highlight"><pre><span></span><code><span class="nx">v</span><span class="p">.</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">lineWidth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="mf">1.5</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">scale</span><span class="p">);</span>
+</code></pre></div></p>
+<p>This ensures the line is always ~1.5 CSS pixels regardless of zoom/array size.</p>
+<ul>
+<li>[ ] <strong>Step 2: Reduce alpha in MV_PLANE_STROKES</strong></li>
+</ul>
+<p>Replace line 12208:
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">MV_PLANE_STROKES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;rgba(255,90,90,0.75)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;rgba(100,210,130,0.75)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;rgba(80,170,255,0.75)&#39;</span><span class="p">];</span>
+</code></pre></div>
+with:
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">MV_PLANE_STROKES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;rgba(255,90,90,0.9)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;rgba(100,210,130,0.9)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;rgba(80,170,255,0.9)&#39;</span><span class="p">];</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: 3-view crosshair lines use fixed width and less transparency&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-4-make-dimbar-and-colorbar-islands-draggable-in-immersive-view">Task 4: Make dimbar and colorbar islands draggable in immersive view</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — add drag handlers to <code>#info</code> and <code>#slim-cb-wrap</code> in immersive mode, reset on exit</p>
+<p>The <code>#dynamic-island</code> already has drag support via <code>_islandDragPos</code>. Replicate this pattern for <code>#info</code> (dimbar) and <code>#slim-cb-wrap</code> (colorbar) when in immersive mode.</p>
+<ul>
+<li>[ ] <strong>Step 1: Add drag state variables</strong></li>
+</ul>
+<p>After <code>_islandDragPos</code> declaration (~line 1593), add:
+<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="nx">_infoDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">   </span><span class="c1">// {x, y} — immersive dimbar drag position</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">     </span><span class="c1">// {x, y} — immersive colorbar drag position</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Add CSS cursor for draggable islands in immersive mode</strong></li>
+</ul>
+<p>Add to the <code>body.fullscreen-mode #info</code> CSS block (~line 767):
+<div class="highlight"><pre><span></span><code><span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">info</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">cursor</span><span class="p">:</span><span class="w"> </span><span class="n">grab</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">info</span><span class="p">:</span><span class="nd">active</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">cursor</span><span class="p">:</span><span class="w"> </span><span class="n">grabbing</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">slim-cb-wrap</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">cursor</span><span class="p">:</span><span class="w"> </span><span class="n">grab</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="nt">body</span><span class="p">.</span><span class="nc">fullscreen-mode</span><span class="w"> </span><span class="p">#</span><span class="nn">slim-cb-wrap</span><span class="p">:</span><span class="nd">active</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">cursor</span><span class="p">:</span><span class="w"> </span><span class="n">grabbing</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 3: Add drag handler function</strong></li>
+</ul>
+<p>Add a reusable drag setup function near the existing island drag code. The function should:
+- On mousedown: record offset from element origin
+- On mousemove: update element position via <code>position: fixed; left/top</code>
+- On mouseup: save position to the state variable
+- Only activate when <code>document.body.classList.contains('fullscreen-mode')</code></p>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">_setupImmersiveDrag</span><span class="p">(</span><span class="nx">el</span><span class="p">,</span><span class="w"> </span><span class="nx">posRef</span><span class="p">,</span><span class="w"> </span><span class="nx">setPosRef</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">dragging</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nx">offX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">offY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">el</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mousedown&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nb">document</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">contains</span><span class="p">(</span><span class="s1">&#39;fullscreen-mode&#39;</span><span class="p">))</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">button</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">dragging</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">rect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span>
+<span class="w">        </span><span class="nx">offX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientX</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">left</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">offY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientY</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">top</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">cursor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;grabbing&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">e</span><span class="p">.</span><span class="nx">preventDefault</span><span class="p">();</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="nb">window</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mousemove&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">dragging</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientX</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">offX</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientY</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">offY</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;auto&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;auto&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="nb">window</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;mouseup&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">dragging</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">dragging</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">cursor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">rect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span>
+<span class="w">        </span><span class="nx">setPosRef</span><span class="p">({</span><span class="w"> </span><span class="nx">x</span><span class="o">:</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">left</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="o">:</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="p">});</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Wire up drag handlers after DOM ready</strong></li>
+</ul>
+<p>In the initialization section (near where minimap/crosshair handlers are set up), add:
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">_infoEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">_cbWrapEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_infoEl</span><span class="p">)</span><span class="w"> </span><span class="nx">_setupImmersiveDrag</span><span class="p">(</span><span class="nx">_infoEl</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_infoDragPos</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_infoDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">p</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_cbWrapEl</span><span class="p">)</span><span class="w"> </span><span class="nx">_setupImmersiveDrag</span><span class="p">(</span><span class="nx">_cbWrapEl</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">p</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 5: Apply saved drag positions in immersive layout</strong></li>
+</ul>
+<p>In the immersive positioning code (<code>_positionImmersiveIslands</code> or equivalent where <code>#info</code> and <code>#slim-cb-wrap</code> get positioned), check the drag pos first:
+<div class="highlight"><pre><span></span><code><span class="c1">// For #info:</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_infoDragPos</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_infoDragPos</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_infoDragPos</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">infoEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// ... existing default positioning</span>
+<span class="p">}</span>
+
+<span class="c1">// For #slim-cb-wrap:</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_cbDragPos</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_cbDragPos</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">right</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;auto&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;auto&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">cbWrap</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// ... existing default positioning</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 6: Reset drag positions on exit immersive</strong></li>
+</ul>
+<p>In <code>_exitImmersive()</code>, reset:
+<div class="highlight"><pre><span></span><code><span class="nx">_infoDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="nx">_cbDragPos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 7: Add snap-to-default behavior</strong></li>
+</ul>
+<p>When mouseup fires within 30px of the default position, reset the drag pos to null (snaps back):
+<div class="highlight"><pre><span></span><code><span class="c1">// In the mouseup handler, after saving position:</span>
+<span class="c1">// Calculate distance to default pos and snap if close</span>
+</code></pre></div></p>
+<p>The default positions are computed during immersive layout. Store them and compare on mouseup.</p>
+<ul>
+<li>[ ] <strong>Step 8: Update help overlay</strong></li>
+</ul>
+<p>Add a help row for the new drag behavior:
+<div class="highlight"><pre><span></span><code><span class="p">&lt;</span><span class="nt">div</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;help-row&quot;</span><span class="p">&gt;&lt;</span><span class="nt">span</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;key&quot;</span><span class="p">&gt;</span>drag<span class="p">&lt;/</span><span class="nt">span</span><span class="p">&gt;&lt;</span><span class="nt">span</span> <span class="na">class</span><span class="o">=</span><span class="s">&quot;desc&quot;</span><span class="p">&gt;</span>move dimbar / colorbar in immersive mode (snaps back on exit)<span class="p">&lt;/</span><span class="nt">span</span><span class="p">&gt;&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 9: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: draggable dimbar and colorbar islands in immersive view&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-5-fix-pane-centering-in-native-window-mode">Task 5: Fix pane centering in native window mode</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> — CSS for <code>#wrapper</code> or <code>#viewer-row</code></p>
+<p>The <code>#wrapper</code> uses <code>display: flex; align-items: center; justify-content: center;</code> which centers content. In inline (Jupyter iframe) mode this works, but in native window (pywebview iframe via <code>_shell.html</code>) the pane is not centered. The <code>#canvas-wrap</code> has <code>align-self: flex-start</code> which may interact differently across contexts.</p>
+<ul>
+<li>[ ] <strong>Step 1: Investigate the root cause</strong></li>
+</ul>
+<p>Check if the issue is that <code>#viewer-row</code> or <code>#wrapper</code> doesn't fill the available height in native window mode. The shell embeds the viewer in an iframe — check if <code>html, body</code> heights are consistent.</p>
+<ul>
+<li>[ ] <strong>Step 2: Fix centering</strong></li>
+</ul>
+<p>The most likely fix is ensuring <code>#viewer-row</code> has <code>flex: 1</code> so it expands to fill available vertical space, then content centers within it:
+<div class="highlight"><pre><span></span><code><span class="p">#</span><span class="nn">viewer-row</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">display</span><span class="p">:</span><span class="w"> </span><span class="kc">flex</span><span class="p">;</span><span class="w"> </span><span class="k">align-items</span><span class="p">:</span><span class="w"> </span><span class="kc">center</span><span class="p">;</span><span class="w"> </span><span class="k">justify-content</span><span class="p">:</span><span class="w"> </span><span class="kc">center</span><span class="p">;</span><span class="w"> </span><span class="k">flex-shrink</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="w">    </span><span class="k">flex</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">    </span><span class="k">width</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="kt">%</span><span class="p">;</span><span class="w"> </span><span class="k">padding</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="kt">px</span><span class="p">;</span><span class="w"> </span><span class="k">box-sizing</span><span class="p">:</span><span class="w"> </span><span class="kc">border-box</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p>Test in both inline and native modes to verify no regression.</p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: center pane in native window mode&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-6-fix-roi-island-disappearing-after-freehand-draw">Task 6: Fix ROI island disappearing after freehand draw</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:7812-7816</code> (freehand mouseup handler)</p>
+<p>After freehand drawing, the code sets <code>rectRoiMode = false</code> which causes <code>renderIsland()</code> to hide the island. The ROI should stay visible — only exit the <em>drawing</em> sub-mode, not the entire ROI mode.</p>
+<ul>
+<li>[ ] <strong>Step 1: Remove auto-exit after freehand draw</strong></li>
+</ul>
+<p>Replace lines 7812-7816:
+<div class="highlight"><pre><span></span><code><span class="c1">// Auto-exit ROI mode after freehand draw</span>
+<span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">rectRoiMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w"> </span><span class="nx">_roiShape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;rect&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">renderEggs</span><span class="p">();</span>
+<span class="p">},</span><span class="w"> </span><span class="mf">1000</span><span class="p">);</span>
+</code></pre></div>
+with just:
+<div class="highlight"><pre><span></span><code><span class="nx">renderEggs</span><span class="p">();</span>
+</code></pre></div></p>
+<p>This keeps ROI mode active (island stays visible, user can draw more ROIs or press A to exit).</p>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: ROI island stays visible after freehand draw&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-7-fix-roi-csv-export-error-sessionarray-sessiondata">Task 7: Fix ROI CSV export error (session.array → session.data)</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_server.py:1075</code> (get_roi_multi endpoint)</p>
+<p><code>session.array</code> does not exist — Session stores the array as <code>session.data</code>.</p>
+<ul>
+<li>[ ] <strong>Step 1: Fix the attribute name</strong></li>
+</ul>
+<p>Change line 1075:
+<div class="highlight"><pre><span></span><code><span class="n">arr</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">array</span>
+</code></pre></div>
+to:
+<div class="highlight"><pre><span></span><code><span class="n">arr</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">data</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Search for other occurrences of session.array</strong></li>
+</ul>
+<p>Grep for <code>session.array</code> in <code>_server.py</code> to ensure no other instances.</p>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_server.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: ROI CSV export uses session.data (not session.array)&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-8-adjust-initial-roi-island-position">Task 8: Adjust initial ROI island position</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:6117-6121</code> (_positionIsland default branch)</p>
+<p>Current default: <code>left: 16px; top: 50%; transform: translateY(-50%)</code> — vertically centered on left edge.</p>
+<p>User wants: top of island slightly below top of canvas, horizontally centered between left of canvas and left of viewport.</p>
+<ul>
+<li>[ ] <strong>Step 1: Change default position</strong></li>
+</ul>
+<p>Replace the default branch in <code>_positionIsland()</code>:
+<div class="highlight"><pre><span></span><code><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cvRect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span>
+<span class="w">    </span><span class="c1">// Horizontally: center between left of viewport (0) and left of canvas</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">centerX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cvRect</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="mf">8</span><span class="p">,</span><span class="w"> </span><span class="nx">centerX</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">offsetWidth</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">2</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="c1">// Vertically: a bit below top of canvas</span>
+<span class="w">    </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">cvRect</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">40</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">el</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;none&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 2: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: ROI island initial position near top-left of canvas&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="execution-order">Execution Order</h2>
+<p>Tasks 1, 2, 3, 6, 7 are small and independent — can be parallelized.
+Task 4 (draggable islands) is the largest.
+Tasks 5 and 8 need visual verification.</p>
+<p>Recommended parallel batches:
+- <strong>Batch 1:</strong> Tasks 1, 2, 3, 6, 7 (quick fixes, parallel subagents)
+- <strong>Batch 2:</strong> Task 4 (draggable islands — single focused subagent)
+- <strong>Batch 3:</strong> Tasks 5, 8 (layout fixes — may need iteration)</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

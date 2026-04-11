@@ -1,0 +1,1371 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Unified Volume Histogram Implementation Plan - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#unified-volume-histogram-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Unified Volume Histogram Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-add-volume-histogramsid-endpoint-to-_serverpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add /volume-histogram/{sid} endpoint to _server.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-add-volume-histogram-handler-to-_stdio_serverpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Add volume-histogram handler to _stdio_server.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-remove-global_stats-and-simplify-server-side-dr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Remove global_stats and simplify server-side DR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-frontend-add-_fetchvolumehistogram-and-update-quantile-presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Frontend — add _fetchVolumeHistogram and update quantile presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-frontend-unify-d-key-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Frontend — unify d key handler
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-frontend-remove-dr-state-variables-and-clean-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Frontend — remove DR state variables and clean up
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-clean-up-invalidation-profile-endpoints-and-edge-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Clean up — invalidation, profile endpoints, and edge cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-8-final-validation-and-browser-smoke-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 8: Final validation and browser smoke test
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="unified-volume-histogram-implementation-plan">Unified Volume Histogram Implementation Plan</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Replace the dual DR/histogram systems with a single volume-sampled histogram that drives all display-range adjustment.</p>
+<p><strong>Architecture:</strong> New <code>/volume-histogram/{sid}</code> backend endpoint subsamples slices along the scroll dimension. Frontend fetches volume histograms (cached per colorbar), computes quantile-based vmin/vmax client-side, and sends as <code>vmin_override</code>/<code>vmax_override</code>. Server-side DR logic (<code>global_stats</code>, <code>DR_PERCENTILES</code> cycling) is removed. Server falls back to 1–99% percentile on current slice when no override is provided.</p>
+<p><strong>Tech Stack:</strong> Python (FastAPI, numpy), JavaScript (inline in <code>_viewer.html</code>)</p>
+<hr />
+<h3 id="task-1-add-volume-histogramsid-endpoint-to-_serverpy">Task 1: Add <code>/volume-histogram/{sid}</code> endpoint to <code>_server.py</code></h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_server.py:1777-1818</code> (insert new endpoint near existing <code>/histogram</code>)
+- Modify: <code>src/arrayview/_render.py:119-139</code> (reuse <code>extract_slice</code>)</p>
+<ul>
+<li>[ ] <strong>Step 1: Write the test</strong></li>
+</ul>
+<p>Add to <code>tests/test_api.py</code> inside or after <code>TestHistogram</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestVolumeHistogram</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tests for /volume-histogram/{sid} endpoint.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_volume_histogram_returns_counts_and_edges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">sid_3d</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;3D array: sample along dim 2 (scroll), display dims 0,1.&quot;&quot;&quot;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_3d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;bins&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">assert</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">200</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="s2">&quot;counts&quot;</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">and</span> <span class="s2">&quot;edges&quot;</span> <span class="ow">in</span> <span class="n">data</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;counts&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">32</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;edges&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">33</span>
+        <span class="k">assert</span> <span class="s2">&quot;vmin&quot;</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">and</span> <span class="s2">&quot;vmax&quot;</span> <span class="ow">in</span> <span class="n">data</span>
+        <span class="k">assert</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;vmin&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;vmax&quot;</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_volume_histogram_with_fixed_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">sid_4d</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;4D array: fix dim 0 (parameter map), scroll along dim 1, display dims 2,3.&quot;&quot;&quot;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_4d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;fixed_indices&quot;</span><span class="p">:</span> <span class="s2">&quot;0:0&quot;</span><span class="p">,</span> <span class="s2">&quot;bins&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">assert</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">200</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;counts&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">32</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_volume_histogram_different_fixed_indices_differ</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">sid_4d</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Different fixed indices should give different histograms (different parameter maps).&quot;&quot;&quot;</span>
+        <span class="n">resp_a</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_4d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;fixed_indices&quot;</span><span class="p">:</span> <span class="s2">&quot;0:0&quot;</span><span class="p">,</span> <span class="s2">&quot;bins&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="n">resp_b</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_4d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;fixed_indices&quot;</span><span class="p">:</span> <span class="s2">&quot;0:2&quot;</span><span class="p">,</span> <span class="s2">&quot;bins&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">resp_a</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">resp_b</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="c1"># Different parameter-map slices should generally differ</span>
+        <span class="k">assert</span> <span class="n">a</span><span class="p">[</span><span class="s2">&quot;counts&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;counts&quot;</span><span class="p">]</span> <span class="ow">or</span> <span class="n">a</span><span class="p">[</span><span class="s2">&quot;vmin&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;vmin&quot;</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_volume_histogram_unknown_sid_is_404</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">):</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/volume-histogram/nonexistent&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">assert</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">404</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_volume_histogram_caches_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">sid_3d</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Two identical requests should return identical results (cache hit).&quot;&quot;&quot;</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;dim_x&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;dim_y&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;scroll_dim&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;bins&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">}</span>
+        <span class="n">resp1</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_3d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+        <span class="n">resp2</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{</span><span class="n">sid_3d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">resp1</span><span class="o">.</span><span class="n">json</span><span class="p">()</span> <span class="o">==</span> <span class="n">resp2</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Run tests to verify they fail</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_api.py::TestVolumeHistogram -v</code>
+Expected: FAIL (404 — endpoint doesn't exist yet)</p>
+<ul>
+<li>[ ] <strong>Step 3: Implement the endpoint</strong></li>
+</ul>
+<p>Add to <code>_server.py</code> after the existing <code>/histogram/{sid}</code> endpoint (after line 1818):</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/volume-histogram/</span><span class="si">{sid}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_volume_histogram</span><span class="p">(</span>
+    <span class="n">sid</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">dim_x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">dim_y</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">scroll_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">fixed_indices</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">complex_mode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">bins</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a histogram sampled across the scroll dimension.</span>
+
+<span class="sd">    Subsamples up to 16 evenly-spaced slices along *scroll_dim*, merges</span>
+<span class="sd">    their pixel data, and returns a single histogram.  The result is</span>
+<span class="sd">    cached on the session so repeated requests are instant.</span>
+
+<span class="sd">    *fixed_indices* is a comma-separated list of ``dim:idx`` pairs that</span>
+<span class="sd">    pin non-display, non-scroll dimensions (e.g. ``&quot;3:0&quot;`` to select the</span>
+<span class="sd">    first parameter map in qMRI mode).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">session</span> <span class="o">=</span> <span class="n">SESSIONS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sid</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">session</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Response</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="c1"># Parse fixed indices</span>
+    <span class="n">fixed</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="n">fixed_indices</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">fixed_indices</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">:</span>
+                <span class="n">d</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">pair</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">fixed</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">d</span><span class="p">)]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+
+    <span class="c1"># Check cache</span>
+    <span class="n">cache_key</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim_x</span><span class="p">,</span> <span class="n">dim_y</span><span class="p">,</span> <span class="n">scroll_dim</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">fixed</span><span class="o">.</span><span class="n">items</span><span class="p">())),</span> <span class="n">complex_mode</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s2">&quot;_volume_hist_cache&quot;</span><span class="p">):</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">cached</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cached</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">cached</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_data_version&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">session</span><span class="o">.</span><span class="n">data_version</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">cached</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Sample slices along scroll_dim</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span>
+    <span class="n">max_samples</span> <span class="o">=</span> <span class="mi">16</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="n">max_samples</span><span class="p">:</span>
+        <span class="n">sample_indices</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">step</span> <span class="o">=</span> <span class="n">n</span> <span class="o">/</span> <span class="n">max_samples</span>
+        <span class="n">sample_indices</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="n">step</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_samples</span><span class="p">)]</span>
+
+    <span class="n">pixels</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">si</span> <span class="ow">in</span> <span class="n">sample_indices</span><span class="p">:</span>
+        <span class="n">idx_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">indices_mid</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+        <span class="n">idx_list</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">si</span>
+        <span class="n">idx_list</span><span class="p">[</span><span class="n">dim_x</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># will be sliced</span>
+        <span class="n">idx_list</span><span class="p">[</span><span class="n">dim_y</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># will be sliced</span>
+        <span class="k">for</span> <span class="n">d</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">fixed</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">idx_list</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">extract_slice</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">dim_x</span><span class="p">,</span> <span class="n">dim_y</span><span class="p">,</span> <span class="n">idx_list</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">apply_complex_mode</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">complex_mode</span><span class="p">)</span>
+        <span class="n">flat</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>
+        <span class="n">finite</span> <span class="o">=</span> <span class="n">flat</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">flat</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">finite</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">pixels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finite</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">pixels</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">}</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="p">[</span><span class="n">cache_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;_data_version&quot;</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">data_version</span><span class="p">,</span> <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="n">merged</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">pixels</span><span class="p">)</span>
+    <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">min</span><span class="p">())</span>
+    <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">vmin</span> <span class="o">==</span> <span class="n">vmax</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">size</span><span class="p">)],</span>
+            <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">],</span>
+            <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="n">vmin</span><span class="p">,</span>
+            <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="n">vmax</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">bins</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="mi">512</span><span class="p">))</span>
+        <span class="n">counts</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="n">counts</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+            <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">],</span>
+            <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="n">vmin</span><span class="p">,</span>
+            <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="n">vmax</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="p">[</span><span class="n">cache_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;_data_version&quot;</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">data_version</span><span class="p">,</span> <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">result</span>
+</code></pre></div>
+<p>We need a helper <code>indices_mid</code> to build default indices at the midpoint of each dimension. Add it near the top of the endpoint or as a local helper:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">indices_mid</span><span class="p">(</span><span class="n">shape</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return indices at the midpoint of each dimension.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">s</span> <span class="o">//</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">shape</span><span class="p">)</span>
+</code></pre></div>
+<p>Note: <code>extract_slice</code> ignores <code>idx_list[dim_x]</code> and <code>idx_list[dim_y]</code> (they become <code>slice(None)</code>), so the values we set there don't matter. The important indices are <code>scroll_dim</code> (which we iterate) and the <code>fixed</code> dims.</p>
+<ul>
+<li>[ ] <strong>Step 4: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_api.py::TestVolumeHistogram -v</code>
+Expected: All 5 tests PASS</p>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_server.py<span class="w"> </span>tests/test_api.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add /volume-histogram endpoint with subsampled scroll-dim data&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-2-add-volume-histogram-handler-to-_stdio_serverpy">Task 2: Add volume-histogram handler to <code>_stdio_server.py</code></h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_stdio_server.py:336-373</code> (add handler near existing <code>_handle_histogram</code>)
+- Modify: <code>src/arrayview/_stdio_server.py:416-429</code> (add route in <code>_handle_fetch_proxy</code>)</p>
+<ul>
+<li>[ ] <strong>Step 1: Add the handler function</strong></li>
+</ul>
+<p>Add after <code>_handle_histogram</code> (after line 372):</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_handle_volume_histogram</span><span class="p">(</span><span class="n">sid</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Compute histogram by subsampling slices along the scroll dimension.&quot;&quot;&quot;</span>
+    <span class="n">session</span> <span class="o">=</span> <span class="n">SESSIONS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sid</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">session</span><span class="p">:</span>
+        <span class="n">_write_error</span><span class="p">(</span><span class="s2">&quot;session not found&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+    <span class="n">dim_x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dim_x&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span>
+    <span class="n">dim_y</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dim_y&quot;</span><span class="p">,</span> <span class="s2">&quot;1&quot;</span><span class="p">))</span>
+    <span class="n">scroll_dim</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scroll_dim&quot;</span><span class="p">,</span> <span class="s2">&quot;2&quot;</span><span class="p">))</span>
+    <span class="n">complex_mode</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;complex_mode&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span>
+    <span class="n">bins</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bins&quot;</span><span class="p">,</span> <span class="s2">&quot;64&quot;</span><span class="p">)),</span> <span class="mi">512</span><span class="p">))</span>
+
+    <span class="n">fixed</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">fixed_str</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;fixed_indices&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">fixed_str</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">fixed_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">:</span>
+                <span class="n">d</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">pair</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">fixed</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">d</span><span class="p">)]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+
+    <span class="c1"># Check cache</span>
+    <span class="n">cache_key</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim_x</span><span class="p">,</span> <span class="n">dim_y</span><span class="p">,</span> <span class="n">scroll_dim</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">fixed</span><span class="o">.</span><span class="n">items</span><span class="p">())),</span> <span class="n">complex_mode</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s2">&quot;_volume_hist_cache&quot;</span><span class="p">):</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">cached</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cached</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">cached</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_data_version&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">session</span><span class="o">.</span><span class="n">data_version</span><span class="p">:</span>
+        <span class="n">_write_json</span><span class="p">(</span><span class="n">cached</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">])</span>
+        <span class="k">return</span>
+
+    <span class="n">n</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span>
+    <span class="n">max_samples</span> <span class="o">=</span> <span class="mi">16</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="n">max_samples</span><span class="p">:</span>
+        <span class="n">sample_indices</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">step</span> <span class="o">=</span> <span class="n">n</span> <span class="o">/</span> <span class="n">max_samples</span>
+        <span class="n">sample_indices</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="n">step</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_samples</span><span class="p">)]</span>
+
+    <span class="n">pixels</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">si</span> <span class="ow">in</span> <span class="n">sample_indices</span><span class="p">:</span>
+        <span class="n">idx_list</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span> <span class="o">//</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">shape</span><span class="p">]</span>
+        <span class="n">idx_list</span><span class="p">[</span><span class="n">scroll_dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">si</span>
+        <span class="k">for</span> <span class="n">d</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">fixed</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">idx_list</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">extract_slice</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">dim_x</span><span class="p">,</span> <span class="n">dim_y</span><span class="p">,</span> <span class="n">idx_list</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">apply_complex_mode</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">complex_mode</span><span class="p">)</span>
+        <span class="n">flat</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>
+        <span class="n">finite</span> <span class="o">=</span> <span class="n">flat</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">flat</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">finite</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">pixels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">finite</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">pixels</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">merged</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">pixels</span><span class="p">)</span>
+        <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">min</span><span class="p">())</span>
+        <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">vmin</span> <span class="o">==</span> <span class="n">vmax</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">merged</span><span class="o">.</span><span class="n">size</span><span class="p">)],</span> <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">],</span> <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="n">vmin</span><span class="p">,</span> <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="n">vmax</span><span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">counts</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="n">bins</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="n">counts</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot;edges&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">],</span> <span class="s2">&quot;vmin&quot;</span><span class="p">:</span> <span class="n">vmin</span><span class="p">,</span> <span class="s2">&quot;vmax&quot;</span><span class="p">:</span> <span class="n">vmax</span><span class="p">}</span>
+
+    <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="p">[</span><span class="n">cache_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;_data_version&quot;</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">data_version</span><span class="p">,</span> <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+    <span class="n">_write_json</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add routing</strong></li>
+</ul>
+<p>In <code>_handle_fetch_proxy</code>, add after the <code>histogram</code> route (after line 423):</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">elif</span> <span class="n">route</span> <span class="o">==</span> <span class="s2">&quot;volume-histogram&quot;</span> <span class="ow">and</span> <span class="n">sid</span><span class="p">:</span>
+        <span class="n">_handle_volume_histogram</span><span class="p">(</span><span class="n">sid</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_stdio_server.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add volume-histogram handler to stdio server&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-3-remove-global_stats-and-simplify-server-side-dr">Task 3: Remove <code>global_stats</code> and simplify server-side DR</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_session.py:168,201,209-254,257-265,279-282</code>
+- Modify: <code>src/arrayview/_render.py:108-116,230-254</code>
+- Modify: <code>src/arrayview/_server.py:601,634,1946,1976,2009,2614-2619,2696-2701</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Simplify <code>_compute_vmin_vmax</code> in <code>_render.py</code></strong></li>
+</ul>
+<p>Replace lines 108-116:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_compute_vmin_vmax</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">complex_mode</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">complex_mode</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">data</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="o">-</span><span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
+</code></pre></div>
+<p>The <code>dr</code> parameter is kept for signature compatibility but ignored. The server always falls back to 1–99% percentile on the current slice data when no <code>vmin_override</code>/<code>vmax_override</code> is provided.</p>
+<ul>
+<li>[ ] <strong>Step 2: Simplify <code>_prepare_display</code> in <code>_render.py</code></strong></li>
+</ul>
+<p>Replace the log_scale branch (lines 238-251) that checks <code>global_stats</code>:</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="n">log_scale</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log1p</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">data</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">=</span> <span class="n">_compute_vmin_vmax</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dr</span><span class="p">,</span> <span class="n">complex_mode</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Remove <code>compute_global_stats</code> from <code>_session.py</code></strong></li>
+</ul>
+<p>Delete the <code>compute_global_stats</code> method (lines 209-254) and the <code>self.global_stats = {}</code> line (line 168) and the <code>self.compute_global_stats()</code> call (line 201).</p>
+<p>Update <code>_recommend_colormap_reason</code> to not use <code>global_stats</code>. Replace:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_recommend_colormap_reason</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">global_stats</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a human-readable reason for the recommended colormap choice.&quot;&quot;&quot;</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;dtype&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;gray (bool dtype — binary data)&quot;</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;gray (complex dtype — showing magnitude)&quot;</span>
+    <span class="n">vmin</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">global_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">global_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)))</span>
+    <span class="k">if</span> <span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;i&quot;</span><span class="p">,</span> <span class="s2">&quot;f&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">vmin</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;RdBu_r (signed data — vmin &lt; 0)&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;gray (default — unsigned/positive data)&quot;</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_recommend_colormap_reason</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a human-readable reason for the recommended colormap choice.&quot;&quot;&quot;</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;dtype&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;gray (bool dtype — binary data)&quot;</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;gray (complex dtype — showing magnitude)&quot;</span>
+    <span class="k">if</span> <span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;i&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;RdBu_r (signed integer dtype)&quot;</span>
+    <span class="k">if</span> <span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;f&quot;</span><span class="p">:</span>
+        <span class="c1"># Quick sign check via small sample</span>
+        <span class="n">sample</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="o">.</span><span class="n">ravel</span><span class="p">()[:</span><span class="mi">10000</span><span class="p">]</span>
+        <span class="n">sample</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">sample</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sample</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">float</span><span class="p">(</span><span class="n">sample</span><span class="o">.</span><span class="n">min</span><span class="p">())</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;RdBu_r (signed data — vmin &lt; 0)&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;gray (default — unsigned/positive data)&quot;</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Remove <code>DR_PERCENTILES</code> and <code>DR_LABELS</code> from <code>_session.py</code></strong></li>
+</ul>
+<p>Delete:
+<div class="highlight"><pre><span></span><code><span class="n">DR_PERCENTILES</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">99</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">95</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">90</span><span class="p">)]</span>
+<span class="n">DR_LABELS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;0-100%&quot;</span><span class="p">,</span> <span class="s2">&quot;1-99%&quot;</span><span class="p">,</span> <span class="s2">&quot;5-95%&quot;</span><span class="p">,</span> <span class="s2">&quot;10-90%&quot;</span><span class="p">]</span>
+</code></pre></div></p>
+<p>Remove them from <code>__all__</code> as well.</p>
+<ul>
+<li>[ ] <strong>Step 5: Remove <code>compute_global_stats</code> calls in <code>_server.py</code></strong></li>
+</ul>
+<p>Search for all <code>compute_global_stats</code> calls and remove them. These are at lines ~601, ~634, ~1976, ~2009. Also remove the <code>session.global_stats</code> import/usage.</p>
+<p>Update the call to <code>_recommend_colormap_reason</code> (line ~1946) to drop the <code>global_stats</code> argument:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Before:</span>
+<span class="n">_recommend_colormap_reason</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">session</span><span class="o">.</span><span class="n">global_stats</span><span class="p">)</span>
+<span class="c1"># After:</span>
+<span class="n">_recommend_colormap_reason</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 6: Simplify GIF and grid endpoints</strong></li>
+</ul>
+<p>In both <code>/gif/{sid}</code> and <code>/grid/{sid}</code> endpoints, replace the <code>global_stats</code> lookup blocks.</p>
+<p>For <code>/gif/{sid}</code> (lines 2696-2701), replace:
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="n">dr</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">global_stats</span><span class="p">:</span>
+        <span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">global_stats</span><span class="p">[</span><span class="n">dr</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pct_lo</span><span class="p">,</span> <span class="n">pct_hi</span> <span class="o">=</span> <span class="n">DR_PERCENTILES</span><span class="p">[</span><span class="n">dr</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">DR_PERCENTILES</span><span class="p">)]</span>
+        <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="n">pct_lo</span><span class="p">))</span>
+        <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="n">pct_hi</span><span class="p">))</span>
+</code></pre></div>
+With:
+<div class="highlight"><pre><span></span><code>    <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
+</code></pre></div></p>
+<p>Same replacement for <code>/grid/{sid}</code> (lines 2614-2619).</p>
+<ul>
+<li>[ ] <strong>Step 7: Remove <code>DR_PERCENTILES</code> and <code>DR_LABELS</code> imports from <code>_server.py</code> and <code>_stdio_server.py</code></strong></li>
+</ul>
+<p>In <code>_server.py</code>, update the import from <code>_session</code> to remove <code>DR_PERCENTILES</code> and <code>DR_LABELS</code>.</p>
+<p>In <code>_stdio_server.py</code>, remove the import of <code>DR_LABELS</code> (used only for template injection) if present.</p>
+<ul>
+<li>[ ] <strong>Step 8: Run full API test suite</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_api.py -v</code>
+Expected: All tests pass. Some existing tests may reference DR-related behavior — fix any failures.</p>
+<ul>
+<li>[ ] <strong>Step 9: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_session.py<span class="w"> </span>src/arrayview/_render.py<span class="w"> </span>src/arrayview/_server.py<span class="w"> </span>src/arrayview/_stdio_server.py<span class="w"> </span>tests/test_api.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: remove global_stats and DR_PERCENTILES, simplify to 1-99% default&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-4-frontend-add-_fetchvolumehistogram-and-update-quantile-presets">Task 4: Frontend — add <code>_fetchVolumeHistogram</code> and update quantile presets</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:4569-4575</code> (QUANTILE_PRESETS)
+- Modify: <code>src/arrayview/_viewer.html:4885-4905</code> (add volume histogram fetch)
+- Modify: <code>src/arrayview/_viewer.html:9180-9186,9254-9260</code> (inline presets in lebesgue/normal paths)</p>
+<ul>
+<li>[ ] <strong>Step 1: Update <code>ColorBar.QUANTILE_PRESETS</code> to 4 levels</strong></li>
+</ul>
+<p>At line 4569, replace:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nx">ColorBar</span><span class="p">.</span><span class="nx">QUANTILE_PRESETS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;full range&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;0.1\u201399.9%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.001</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.999</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;1\u201399%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.01</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.99</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;5\u201395%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.95</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;10\u201390%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.10</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.90</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">];</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nx">ColorBar</span><span class="p">.</span><span class="nx">QUANTILE_PRESETS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;full range&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;1\u201399%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.01</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.99</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;5\u201395%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.95</span><span class="w"> </span><span class="p">},</span>
+<span class="w">            </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;10\u201390%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.10</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.90</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">];</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Add <code>_fetchVolumeHistogram</code> function</strong></li>
+</ul>
+<p>Add after <code>_fetchHistogram</code> (after line 4905):</p>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_volHistCache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{};</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nx">_volHistFetching</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+
+<span class="w">        </span><span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">(</span><span class="nx">opts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{})</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fetchDimX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">dimX</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="nx">dim_x</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fetchDimY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">dimY</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="nx">dim_y</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">scrollDim</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">scrollDim</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="nx">current_slice_dim</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">complexMode</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="nx">complexMode</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fixedIndices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">fixedIndices</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">cacheKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="nx">fetchDimX</span><span class="si">}</span><span class="sb">:</span><span class="si">${</span><span class="nx">fetchDimY</span><span class="si">}</span><span class="sb">:</span><span class="si">${</span><span class="nx">scrollDim</span><span class="si">}</span><span class="sb">:</span><span class="si">${</span><span class="nx">fixedIndices</span><span class="si">}</span><span class="sb">:</span><span class="si">${</span><span class="nx">cMode</span><span class="si">}</span><span class="sb">`</span><span class="p">;</span>
+
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_volHistCache</span><span class="p">[</span><span class="nx">cacheKey</span><span class="p">])</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">_volHistCache</span><span class="p">[</span><span class="nx">cacheKey</span><span class="p">];</span>
+
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">params</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">URLSearchParams</span><span class="p">({</span>
+<span class="w">                </span><span class="nx">dim_x</span><span class="o">:</span><span class="w"> </span><span class="nx">fetchDimX</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">dim_y</span><span class="o">:</span><span class="w"> </span><span class="nx">fetchDimY</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">scroll_dim</span><span class="o">:</span><span class="w"> </span><span class="nx">scrollDim</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">complex_mode</span><span class="o">:</span><span class="w"> </span><span class="nx">cMode</span><span class="p">,</span>
+<span class="w">                </span><span class="nx">bins</span><span class="o">:</span><span class="w"> </span><span class="mf">64</span><span class="p">,</span>
+<span class="w">            </span><span class="p">});</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">fixedIndices</span><span class="p">)</span><span class="w"> </span><span class="nx">params</span><span class="p">.</span><span class="nx">set</span><span class="p">(</span><span class="s1">&#39;fixed_indices&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">fixedIndices</span><span class="p">);</span>
+<span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">proxyFetch</span><span class="p">(</span><span class="sb">`/volume-histogram/</span><span class="si">${</span><span class="nx">sid</span><span class="si">}</span><span class="sb">?</span><span class="si">${</span><span class="nx">params</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">resp</span><span class="p">.</span><span class="nx">ok</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">json</span><span class="p">();</span>
+<span class="w">                </span><span class="nx">_volHistCache</span><span class="p">[</span><span class="nx">cacheKey</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">data</span><span class="p">;</span>
+<span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="nx">data</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="nx">_</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="kd">function</span><span class="w"> </span><span class="nx">_invalidateVolHistCache</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">_volHistCache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{};</span>
+<span class="w">        </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Update the inline <code>_QUANTILE_PRESETS</code> in the <code>d</code> key handler</strong></li>
+</ul>
+<p>There are two inline copies of <code>_QUANTILE_PRESETS</code> in the <code>d</code> key handler (lines 9180-9186 and 9254-9260). Replace both with 4 levels:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">_QUANTILE_PRESETS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">                        </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;full range&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="p">},</span>
+<span class="w">                        </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;1\u201399%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.01</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.99</span><span class="w"> </span><span class="p">},</span>
+<span class="w">                        </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;5\u201395%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.95</span><span class="w"> </span><span class="p">},</span>
+<span class="w">                        </span><span class="p">{</span><span class="w"> </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;10\u201390%&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">lo</span><span class="o">:</span><span class="w"> </span><span class="mf">0.10</span><span class="p">,</span><span class="w"> </span><span class="nx">hi</span><span class="o">:</span><span class="w"> </span><span class="mf">0.90</span><span class="w"> </span><span class="p">},</span>
+<span class="w">                    </span><span class="p">];</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Invalidate volume histogram cache on relevant changes</strong></li>
+</ul>
+<p>Add <code>_invalidateVolHistCache()</code> calls wherever the data context changes:
+- After <code>complexMode</code> changes (search for <code>complexMode =</code> assignments near mode cycling)
+- After <code>/clearcache</code> calls triggered by data reload
+- After <code>current_slice_dim</code> changes (dim cycle)</p>
+<p>The exact locations need to be found by searching for existing <code>_histData = null</code> invalidations and adding <code>_invalidateVolHistCache()</code> nearby.</p>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add _fetchVolumeHistogram and update quantile presets to 4 levels&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-5-frontend-unify-d-key-handler">Task 5: Frontend — unify <code>d</code> key handler</h3>
+<p>This is the core frontend change. All <code>d</code> key paths converge on the same pattern: fetch volume histogram → expand colorbar → cycle quantiles.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html:9087-9307</code> (the <code>d</code> key handler block)</p>
+<ul>
+<li>[ ] <strong>Step 1: Rewrite qMRI hover path (lines 9118-9138)</strong></li>
+</ul>
+<p>Replace the <code>drIdx</code> cycling path:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="c1">// In qMRI mode, hovering a specific pane: expand + cycle quantile</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">_hoveredQmriView</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">hv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">_hoveredQmriView</span><span class="p">;</span>
+<span class="w">                    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">qmriMosaicActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">_mosaicColorBar</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">_colorBar</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">cb</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">cb</span><span class="p">.</span><span class="nx">_expanded</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="k">await</span><span class="w"> </span><span class="nx">cb</span><span class="p">.</span><span class="nx">expand</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">cb</span><span class="p">.</span><span class="nx">startAutoDismiss</span><span class="p">();</span>
+<span class="w">                        </span><span class="nx">showStatus</span><span class="p">(</span><span class="s1">&#39;histogram&#39;</span><span class="p">);</span>
+<span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">q</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cb</span><span class="p">.</span><span class="nx">cycleQuantile</span><span class="p">();</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">q</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="nx">hv</span><span class="p">.</span><span class="nx">lockedVmin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">q</span><span class="p">.</span><span class="nx">vmin</span><span class="p">;</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">lockedVmax</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">q</span><span class="p">.</span><span class="nx">vmax</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">hv</span><span class="p">.</span><span class="nx">seq</span><span class="o">++</span><span class="p">;</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">rendering</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">pending</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">qvRender</span><span class="p">(</span><span class="nx">hv</span><span class="p">);</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">paneLabel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">QMRI_LABELS</span><span class="p">[</span><span class="nx">hv</span><span class="p">.</span><span class="nx">colormap</span><span class="p">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">hv</span><span class="p">.</span><span class="nx">colormap</span><span class="p">;</span>
+<span class="w">                            </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`</span><span class="si">${</span><span class="nx">paneLabel</span><span class="si">}</span><span class="sb">: </span><span class="si">${</span><span class="nx">q</span><span class="p">.</span><span class="nx">label</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">                        </span><span class="p">}</span>
+<span class="w">                        </span><span class="nx">cb</span><span class="p">.</span><span class="nx">startAutoDismiss</span><span class="p">();</span>
+<span class="w">                    </span><span class="p">}</span>
+<span class="w">                    </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Update the qMRI ColorBar <code>fetchHistogram</code> to use volume histogram</strong></li>
+</ul>
+<p>In the qMRI view initialization (line 10757-10763), replace <code>fetchHistogram</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                        </span><span class="nx">fetchHistogram</span><span class="o">:</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fixedPairs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+<span class="w">                            </span><span class="nx">fixedPairs</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="nx">qmriDim</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;:&#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">view</span><span class="p">.</span><span class="nx">qmriIdx</span><span class="p">);</span>
+<span class="w">                            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fixedIndices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">fixedPairs</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">);</span>
+<span class="w">                            </span><span class="k">return</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">({</span>
+<span class="w">                                </span><span class="nx">dimX</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_x</span><span class="p">,</span><span class="w"> </span><span class="nx">dimY</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_y</span><span class="p">,</span>
+<span class="w">                                </span><span class="nx">scrollDim</span><span class="o">:</span><span class="w"> </span><span class="nx">current_slice_dim</span><span class="p">,</span>
+<span class="w">                                </span><span class="nx">complexMode</span><span class="o">:</span><span class="w"> </span><span class="nx">complexMode</span><span class="p">,</span>
+<span class="w">                                </span><span class="nx">fixedIndices</span><span class="p">,</span>
+<span class="w">                            </span><span class="p">});</span>
+<span class="w">                        </span><span class="p">},</span>
+</code></pre></div>
+<p>Do the same for compare-qMRI ColorBar initialization (search for similar <code>fetchHistogram</code> in compare-qMRI setup).</p>
+<ul>
+<li>[ ] <strong>Step 3: Update primary ColorBar <code>fetchHistogram</code> to use volume histogram</strong></li>
+</ul>
+<p>At line 4599, replace:</p>
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="nx">fetchHistogram</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_fetchHistogramCompare</span><span class="p">()</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">_fetchHistogram</span><span class="p">(),</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code><span class="w">            </span><span class="nx">fetchHistogram</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_fetchHistogramCompare</span><span class="p">()</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">(),</span>
+</code></pre></div>
+<p>Note: compare mode still uses <code>_fetchHistogramCompare()</code> which merges histograms from multiple sessions. That function should also be updated to use volume histograms, but that's a separate concern — for now, compare mode can continue using per-slice histograms since it involves multiple arrays.</p>
+<ul>
+<li>[ ] <strong>Step 4: Update the normal/lebesgue <code>d</code> key paths to use volume histogram data</strong></li>
+</ul>
+<p>In the lebesgue path (lines 9178-9211), change the <code>_histData</code> reference to use volume histogram. The histogram data is already fetched by the ColorBar's <code>fetchHistogram</code> callback, so <code>_histData</code> should be populated from the volume histogram.</p>
+<p>Replace the first <code>_fetchHistogram</code> call in the expand path (line 9220-9221):</p>
+<div class="highlight"><pre><span></span><code><span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">fn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_fetchHistogramCompare</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">;</span>
+</code></pre></div>
+<p>But we also need the per-slice histogram for the Lebesgue overlay. So fetch both:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                        </span><span class="c1">// Fetch volume histogram for quantile-based windowing</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">volFn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_fetchHistogramCompare</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">;</span>
+<span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">volData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">volFn</span><span class="p">();</span>
+<span class="w">                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">volData</span><span class="p">)</span><span class="w"> </span><span class="nx">_histData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">volData</span><span class="p">;</span>
+<span class="w">                        </span><span class="c1">// Also fetch per-slice histogram for Lebesgue pixel overlay</span>
+<span class="w">                        </span><span class="nx">_fetchHistogram</span><span class="p">();</span>
+</code></pre></div>
+<p>Actually, looking more carefully at the code, <code>_histData</code> is used for both the visual histogram AND the quantile computation. The Lebesgue overlay uses a separate <code>/lebesgue</code> endpoint. So we can simply replace <code>_histData</code> with volume histogram data.</p>
+<p>Replace line 9220-9221:</p>
+<div class="highlight"><pre><span></span><code><span class="w">                        </span><span class="kd">const</span><span class="w"> </span><span class="nx">fn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">_fetchHistogramCompare</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">_fetchVolumeHistogram</span><span class="p">;</span>
+<span class="w">                        </span><span class="k">await</span><span class="w"> </span><span class="nx">fn</span><span class="p">().</span><span class="nx">then</span><span class="p">(</span><span class="nx">d</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">d</span><span class="p">)</span><span class="w"> </span><span class="nx">_histData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">d</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 5: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: unify d key handler to use volume histogram for all modes&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-6-frontend-remove-dr-state-variables-and-clean-up">Task 6: Frontend — remove DR state variables and clean up</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code> (multiple locations)
+- Modify: <code>src/arrayview/_server.py:3088</code> (template injection)
+- Modify: <code>src/arrayview/_stdio_server.py:568</code> (template injection)</p>
+<ul>
+<li>[ ] <strong>Step 1: Remove <code>DR_LABELS</code> template variable</strong></li>
+</ul>
+<p>In <code>_viewer.html</code> line 1504, delete:
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">DR_LABELS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">__DR_LABELS__</span><span class="p">;</span>
+</code></pre></div></p>
+<p>In <code>_server.py</code>, remove the <code>.replace("__DR_LABELS__", str(DR_LABELS))</code> line (~line 3088).</p>
+<p>In <code>_stdio_server.py</code>, remove the <code>.replace("__DR_LABELS__", str(DR_LABELS))</code> line (~line 568).</p>
+<ul>
+<li>[ ] <strong>Step 2: Remove <code>dr_idx</code> variable and references</strong></li>
+</ul>
+<p>In <code>_viewer.html</code>:</p>
+<ol>
+<li>Line 1686: Change <code>let colormap_idx = 0, dr_idx = 1;</code> to <code>let colormap_idx = 0;</code></li>
+<li>
+<p>Line 1849: Delete <code>let _diffDrIdx = null;</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Hardcode <code>dr: '0'</code> in all server requests</strong></p>
+</li>
+</ol>
+<p>Replace all occurrences of <code>dr: String(dr_idx)</code>, <code>dr: dr_idx</code>, <code>dr: String(v.drIdx !== null ? v.drIdx : dr_idx)</code>, <code>dr: String(_diffDrIdx !== null ? _diffDrIdx : dr_idx)</code> with <code>dr: '0'</code> (for string params) or <code>dr: 0</code> (for object params).</p>
+<p>Affected locations (approximate line numbers):
+- 5790, 5866, 5941, 5998, 7166, 7470
+- 11090, 11115, 11462, 11486, 11666, 11694
+- 12105, 12150</p>
+<p>For the GIF URL (line 7470), replace <code>dr=${dr_idx}</code> with <code>dr=0</code>.</p>
+<ul>
+<li>[ ] <strong>Step 4: Remove <code>drIdx</code> from qMRI view objects</strong></li>
+</ul>
+<p>Line 10745: Remove <code>drIdx: null,</code> from the view object initialization.</p>
+<ul>
+<li>[ ] <strong>Step 5: Remove <code>dr_idx</code> from state save/restore</strong></li>
+</ul>
+<p>Line 6775: Remove <code>dr_idx,</code> from <code>collectStateSnapshot()</code>.
+Line 6833: Remove <code>dr_idx = s.dr_idx ?? dr_idx;</code> from <code>applyStateSnapshot()</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Remove the diff DR cycling path (lines 9088-9095)</strong></li>
+</ul>
+<p>Delete the block:
+<div class="highlight"><pre><span></span><code><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_mouseOverCenterPane</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">diffMode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_diffDrIdx</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="nx">_diffDrIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">dr_idx</span><span class="p">;</span>
+<span class="w">                    </span><span class="nx">_diffDrIdx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">_diffDrIdx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="nx">DR_LABELS</span><span class="p">.</span><span class="nx">length</span><span class="p">;</span>
+<span class="w">                    </span><span class="k">await</span><span class="w"> </span><span class="nx">fetchAndDrawDiff</span><span class="p">();</span>
+<span class="w">                    </span><span class="nx">showStatus</span><span class="p">(</span><span class="sb">`Diff dynamic range: </span><span class="si">${</span><span class="nx">DR_LABELS</span><span class="p">[</span><span class="nx">_diffDrIdx</span><span class="p">]</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">                    </span><span class="k">return</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+</code></pre></div></p>
+<p>The diff mode should now use the same expand → cycle quantile pattern via its ColorBars.</p>
+<ul>
+<li>[ ] <strong>Step 7: Run existing browser tests to check for regressions</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_browser.py -v -k "dynamic_range or histogram" --timeout=60</code>
+Expected: Tests that reference DR_LABELS or DR cycling may need updating.</p>
+<ul>
+<li>[ ] <strong>Step 8: Update browser tests</strong></li>
+</ul>
+<p>In <code>tests/test_browser.py</code>, find <code>test_d_cycles_dynamic_range_shows_status</code> and update it. The test should now verify that pressing <code>d</code> expands the histogram and cycles quantile labels (e.g., "full range", "1–99%", etc.) instead of DR labels.</p>
+<ul>
+<li>[ ] <strong>Step 9: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html<span class="w"> </span>src/arrayview/_server.py<span class="w"> </span>src/arrayview/_stdio_server.py<span class="w"> </span>tests/test_browser.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: remove DR state variables, unify to volume histogram quantiles&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-7-clean-up-invalidation-profile-endpoints-and-edge-cases">Task 7: Clean up — invalidation, profile endpoints, and edge cases</h3>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_server.py</code> (profile endpoints)
+- Modify: <code>src/arrayview/_viewer.html</code> (cache invalidation)</p>
+<ul>
+<li>[ ] <strong>Step 1: Update profile endpoints in <code>_server.py</code></strong></li>
+</ul>
+<p>The <code>/profile/1d/{sid}</code> and <code>/profile/2d/{sid}</code> endpoints (lines ~2614, ~2696) reference <code>global_stats</code>. Replace:</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="n">dr</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">global_stats</span><span class="p">:</span>
+        <span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">global_stats</span><span class="p">[</span><span class="n">dr</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pct_lo</span><span class="p">,</span> <span class="n">pct_hi</span> <span class="o">=</span> <span class="n">DR_PERCENTILES</span><span class="p">[</span><span class="n">dr</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">DR_PERCENTILES</span><span class="p">)]</span>
+        <span class="o">...</span>
+</code></pre></div>
+<p>With:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">finite</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">finite</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
+</code></pre></div>
+<p>(Adjust variable names to match what's in scope — <code>finite</code> or the appropriate data variable.)</p>
+<ul>
+<li>[ ] <strong>Step 2: Invalidate <code>_volume_hist_cache</code> on reload/FFT</strong></li>
+</ul>
+<p>In <code>_server.py</code>, wherever <code>compute_global_stats()</code> was called after data changes (reload, FFT), add cache invalidation:</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s2">&quot;_volume_hist_cache&quot;</span><span class="p">):</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">_volume_hist_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</code></pre></div>
+<p>These locations are approximately lines 601, 634, 1976, 2009.</p>
+<ul>
+<li>[ ] <strong>Step 3: Frontend — invalidate on scroll-dim and complex-mode changes</strong></li>
+</ul>
+<p>In <code>_viewer.html</code>, add <code>_invalidateVolHistCache()</code> calls:
+- When <code>current_slice_dim</code> changes (near dim cycling logic)
+- When <code>complexMode</code> changes
+- When data is reloaded (near existing cache clear calls)</p>
+<p>Search for <code>_histData = null</code> to find existing invalidation points and add the volume cache invalidation alongside.</p>
+<ul>
+<li>[ ] <strong>Step 4: Remove <code>DR_PERCENTILES</code> import from <code>_render.py</code></strong></li>
+</ul>
+<p>The <code>_render.py</code> file imports <code>DR_PERCENTILES</code> from <code>_session</code>. Since <code>_compute_vmin_vmax</code> and <code>_prepare_display</code> no longer use it, remove the import.</p>
+<p>Also check <code>render_mosaic</code> — it has its own DR_PERCENTILES usage in the log_scale path. Simplify to hardcoded 1-99%:</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="n">log_scale</span><span class="p">:</span>
+        <span class="n">frames</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">log1p</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">f</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">]</span>
+    <span class="n">all_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+    <span class="n">vmin</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">vmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_data</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">complex_mode</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">data</span><span class="p">):</span>
+        <span class="n">vmin</span><span class="p">,</span> <span class="n">vmax</span> <span class="o">=</span> <span class="o">-</span><span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 5: Run full test suite</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/ -v --timeout=120 -x</code>
+Expected: All tests pass.</p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_server.py<span class="w"> </span>src/arrayview/_render.py<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: clean up DR remnants from profiles, render, and cache invalidation&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="task-8-final-validation-and-browser-smoke-test">Task 8: Final validation and browser smoke test</h3>
+<ul>
+<li>[ ] <strong>Step 1: Run API tests</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_api.py -v</code>
+Expected: All pass</p>
+<ul>
+<li>[ ] <strong>Step 2: Run browser tests</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_browser.py -v --timeout=120</code>
+Expected: All pass (some may have been updated in Task 6)</p>
+<ul>
+<li>[ ] <strong>Step 3: Run interaction tests</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_interactions.py -v --timeout=120</code>
+Expected: All pass</p>
+<ul>
+<li>[ ] <strong>Step 4: Run mode consistency tests</strong></li>
+</ul>
+<p>Run: <code>cd /Users/oscar/Projects/packages/python/arrayview &amp;&amp; uv run pytest tests/test_mode_consistency.py -v --timeout=120</code>
+Expected: All pass</p>
+<ul>
+<li>[ ] <strong>Step 5: Manual smoke test</strong></li>
+</ul>
+<p>Open arrayview with a 3D array:
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>/Users/oscar/Projects/packages/python/arrayview<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+<span class="s2">import numpy as np</span>
+<span class="s2">import arrayview</span>
+<span class="s2">arr = np.random.randn(50, 128, 128).astype(np.float32)</span>
+<span class="s2">arr[0, 60:70, 60:70] = 1000  # outlier slice</span>
+<span class="s2">arrayview.view(arr)</span>
+<span class="s2">&quot;</span>
+</code></pre></div></p>
+<p>Verify:
+1. Initial view shows reasonable range (1-99% of current slice)
+2. Press <code>d</code> → histogram expands, shows volume-sampled distribution
+3. Press <code>d</code> again → cycles: "full range" → "1–99%" → "5–95%" → "10–90%"
+4. Scroll to the outlier slice → range stays stable (not jumping)
+5. <code>Escape</code> to dismiss histogram</p>
+<ul>
+<li>[ ] <strong>Step 6: Manual qMRI smoke test</strong></li>
+</ul>
+<p>If test data with qMRI parameter maps is available, verify:
+1. Each pane's <code>d</code> key cycles independently
+2. T1 and T2 panes show different histogram shapes
+3. Quantile ranges are stable across scroll positions</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

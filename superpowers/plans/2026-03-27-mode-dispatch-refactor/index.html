@@ -1,0 +1,1410 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A viewer for multi-dimensional arrays">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Mode Dispatch & Shared Abstractions Refactor - arrayview</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mode-dispatch-shared-abstractions-refactor" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="arrayview" class="md-header__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            arrayview
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Mode Dispatch &amp; Shared Abstractions Refactor
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="arrayview" class="md-nav__button md-logo" aria-label="arrayview" data-md-component="logo">
+      
+  <img src="../../../logo.png" alt="logo">
+
+    </a>
+    arrayview
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oscarvanderheide/arrayview" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../loading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loading Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../viewing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../comparing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../measurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#important-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Important Context
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Important Context">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-6-way-dispatch-pattern-appears-6-times-identically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 6-way dispatch pattern (appears 6+ times identically)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-3-identical-pan-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 3 identical pan implementations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-4-pixel-hover-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 4 pixel hover implementations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling-functions-and-their-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling functions and their signatures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-order-after-scaling-all-modes-follow-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call order after scaling (all modes follow this)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-add-moderegistry-and-scaleall-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Add ModeRegistry and scaleAll() dispatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-add-panmanager-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Add PanManager class
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-add-fetchpixelinfo-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Add fetchPixelInfo() helper
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-add-geteggsanchor-to-moderegistry-and-simplify-positioneggs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Add getEggsAnchor() to ModeRegistry and simplify positionEggs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-add-keyboard-dispatch-helpers-to-moderegistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Add keyboard dispatch helpers to ModeRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-final-cleanup-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Final cleanup and verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mode-dispatch-shared-abstractions-refactor">Mode Dispatch &amp; Shared Abstractions Refactor</h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Eliminate duplicated mode-dispatch if-else chains and copy-pasted pan/pixel-hover logic by introducing a mode registry, PanManager class, and PixelHover helper.</p>
+<p><strong>Architecture:</strong> Add a <code>ModeRegistry</code> object that tracks the active mode and provides a single <code>scaleAll()</code> dispatch. Add a <code>PanManager</code> class that encapsulates the identical mousedown/move/up/clamp/apply drag pattern used by 3 separate pan implementations. Add a <code>fetchPixelInfo()</code> helper that consolidates the throttle+fetch+format pattern used by 4 pixel hover implementations. Simplify <code>positionEggs()</code> by extracting per-mode anchor queries into the registry.</p>
+<p><strong>Tech Stack:</strong> Vanilla JS (inline in <code>_viewer.html</code>), no build step, no external deps.</p>
+<hr />
+<h2 id="file-structure">File Structure</h2>
+<p>All changes are in one file:</p>
+<ul>
+<li><strong>Modify:</strong> <code>src/arrayview/_viewer.html</code></li>
+<li>Add <code>ModeRegistry</code> object and mode registrations (~80 lines)</li>
+<li>Add <code>PanManager</code> class (~60 lines)</li>
+<li>Add <code>fetchPixelInfo()</code> helper (~40 lines)</li>
+<li>Replace 6+ identical dispatch chains with single calls</li>
+<li>Replace 3 pan implementations with PanManager instances</li>
+<li>Replace 4 pixel hover implementations with fetchPixelInfo calls</li>
+<li>Simplify positionEggs with registry-provided anchor queries</li>
+<li><strong>Test:</strong> <code>tests/test_api.py</code> — must keep all 93 passing</li>
+<li><strong>Test:</strong> Manual browser verification after each task</li>
+</ul>
+<h2 id="important-context">Important Context</h2>
+<h3 id="the-6-way-dispatch-pattern-appears-6-times-identically">The 6-way dispatch pattern (appears 6+ times identically)</h3>
+<div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareQmriActive</span><span class="p">)</span><span class="w"> </span><span class="nx">compareQmriScaleAllCanvases</span><span class="p">();</span>
+<span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="nx">compareMvScaleAllCanvases</span><span class="p">();</span>
+<span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="p">)</span><span class="w"> </span><span class="nx">mvScaleAllCanvases</span><span class="p">();</span>
+<span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w"> </span><span class="nx">compareScaleCanvases</span><span class="p">();</span>
+<span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w"> </span><span class="nx">qvScaleAllCanvases</span><span class="p">();</span>
+<span class="k">else</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+</code></pre></div>
+<p>Locations: lines ~2822 (resize), ~7146 (zoom+), ~7167 (zoom-), ~7189 (reset), ~11128 (wheel), ~12139 (pinch), plus partial variants at ~7465 (square stretch) and ~11400 (fullscreen).</p>
+<h3 id="the-3-identical-pan-implementations">The 3 identical pan implementations</h3>
+<table>
+<thead>
+<tr>
+<th>Pan</th>
+<th>State vars</th>
+<th>Clamp fn</th>
+<th>Apply fn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal</td>
+<td><code>_panDrag</code>, <code>_panX</code>, <code>_panY</code></td>
+<td><code>_clampPan()</code> (line 6453)</td>
+<td><code>_applyCanvasPan()</code> (line 6468)</td>
+</tr>
+<tr>
+<td>Compare</td>
+<td><code>_cmpPanDrag</code>, <code>_cmpPanX</code>, <code>_cmpPanY</code></td>
+<td><code>_cmpClampPan()</code> (line 1554)</td>
+<td><code>_cmpApplyPan()</code> (line 1567)</td>
+</tr>
+<tr>
+<td>Mosaic</td>
+<td><code>_mosaicPanDrag</code>, <code>_mosaicPanX</code>, <code>_mosaicPanY</code></td>
+<td><code>_mosaicClampPan()</code> (line 6480)</td>
+<td><code>_mosaicApplyPan()</code> (line 6491)</td>
+</tr>
+</tbody>
+</table>
+<p>All three follow identical structure: mousedown captures <code>{x, y, panX0, panY0}</code>, mousemove computes delta and updates, mouseup clears state.</p>
+<h3 id="the-4-pixel-hover-implementations">The 4 pixel hover implementations</h3>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Handler line</th>
+<th>Throttle var</th>
+<th>Rate</th>
+<th>API call</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal</td>
+<td>~7021</td>
+<td><code>pixelHoverPending</code></td>
+<td>50ms</td>
+<td><code>/pixel/${sid}?...</code></td>
+</tr>
+<tr>
+<td>Multi-view</td>
+<td>~8924</td>
+<td><code>mvPixelPending</code></td>
+<td>50ms</td>
+<td><code>/pixel/${sid}?...</code></td>
+</tr>
+<tr>
+<td>qMRI</td>
+<td>~9142</td>
+<td><code>qvPixelPending</code></td>
+<td>60ms</td>
+<td><code>/pixel/${sid}?...</code></td>
+</tr>
+<tr>
+<td>Compare</td>
+<td>~11188</td>
+<td>implicit</td>
+<td>—</td>
+<td><code>/pixel/${sid}?...</code></td>
+</tr>
+</tbody>
+</table>
+<p>All compute coordinates the same way, call the same API, format values identically, and display via <code>showPixelInfo()</code>.</p>
+<h3 id="scaling-functions-and-their-signatures">Scaling functions and their signatures</h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Line</th>
+<th>Zoom cap</th>
+<th>Return</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scaleCanvas(w, h)</code></td>
+<td>1914</td>
+<td>None</td>
+<td>void</td>
+</tr>
+<tr>
+<td><code>compareScaleCanvases()</code></td>
+<td>1965</td>
+<td>None</td>
+<td>void</td>
+</tr>
+<tr>
+<td><code>mvScaleAllCanvases()</code></td>
+<td>10883</td>
+<td>Hard cap</td>
+<td>'max' or null</td>
+</tr>
+<tr>
+<td><code>qvScaleAllCanvases()</code></td>
+<td>10200</td>
+<td>Hard cap</td>
+<td>'max' or null</td>
+</tr>
+<tr>
+<td><code>compareQmriScaleAllCanvases()</code></td>
+<td>9491</td>
+<td>Hard cap</td>
+<td>'max' or null</td>
+</tr>
+<tr>
+<td><code>compareMvScaleAllCanvases()</code></td>
+<td>9908</td>
+<td>Hard cap</td>
+<td>'max' or null</td>
+</tr>
+</tbody>
+</table>
+<h3 id="call-order-after-scaling-all-modes-follow-this">Call order after scaling (all modes follow this)</h3>
+<div class="highlight"><pre><span></span><code>scale() → fixWrapperAlignment() → draw colorbars → positionEggs()
+</code></pre></div>
+<hr />
+<h2 id="task-1-add-moderegistry-and-scaleall-dispatch">Task 1: Add <code>ModeRegistry</code> and <code>scaleAll()</code> dispatch</h2>
+<p>Create the mode registry and replace all 6-way dispatch chains with a single call.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Define the ModeRegistry object</strong></li>
+</ul>
+<p>Insert after the existing mode flag declarations (after <code>let qmriActive = false;</code> etc., around line 1470). The registry maps mode names to their scale functions. The active mode is determined dynamically from the existing boolean flags.</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// ── Mode Registry ────────────────────────────────────────────────</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">ModeRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Return the scale function for the currently active mode. */</span>
+<span class="w">    </span><span class="nx">getScaler</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareQmriActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">compareQmriScaleAllCanvases</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w">   </span><span class="k">return</span><span class="w"> </span><span class="nx">compareMvScaleAllCanvases</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="p">)</span><span class="w">   </span><span class="k">return</span><span class="w"> </span><span class="nx">mvScaleAllCanvases</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w">     </span><span class="k">return</span><span class="w"> </span><span class="nx">compareScaleCanvases</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">qvScaleAllCanvases</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// normal mode — needs (w, h) args</span>
+<span class="w">    </span><span class="p">},</span>
+
+<span class="w">    </span><span class="cm">/** Scale all canvases for the current mode. For normal mode, uses last known image dimensions. */</span>
+<span class="w">    </span><span class="nx">scaleAll</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">scaler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">getScaler</span><span class="p">();</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">scaler</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaler</span><span class="p">();</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">lastImgW</span><span class="p">,</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+<span class="w">    </span><span class="p">},</span>
+
+<span class="w">    </span><span class="cm">/** Scale with auto-fit (for zoom reset). */</span>
+<span class="w">    </span><span class="nx">scaleAllAutoFit</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">scaler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">getScaler</span><span class="p">();</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">scaler</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaler</span><span class="p">();</span>
+<span class="w">        </span><span class="nx">_autoFitPending</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">lastImgW</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">lastImgW</span><span class="p">,</span><span class="w"> </span><span class="nx">lastImgH</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">scaleCanvas</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">};</span>
+</code></pre></div>
+<p>NOTE: This uses the EXISTING boolean flags (<code>compareQmriActive</code>, <code>compareMvActive</code>, etc.) and EXISTING scale functions. No mode registration needed — we just centralize the dispatch logic. The precedence order matches the existing 6-way if-else exactly.</p>
+<ul>
+<li>[ ] <strong>Step 2: Replace the window resize dispatch</strong></li>
+</ul>
+<p>Find the <code>window.addEventListener('resize', ...)</code> handler (around line 2822). Replace the 6-way if-else with:</p>
+<div class="highlight"><pre><span></span><code><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+</code></pre></div>
+<p>The existing handler has extra logic for compare mode calling <code>positionEggs()</code> explicitly. Check whether <code>compareScaleCanvases()</code> already calls <code>positionEggs()</code> at the end (it does, at line ~2187). If so, the explicit call is redundant and can be removed.</p>
+<ul>
+<li>[ ] <strong>Step 3: Replace zoom+ dispatch ('+' key)</strong></li>
+</ul>
+<p>Find the '+' key handler (around line 7146). Replace the 6-way if-else:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Before: 6 lines of if-else</span>
+<span class="c1">// After:</span>
+<span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">scaleAll</span><span class="p">();</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 4: Replace zoom- dispatch ('-' key)</strong></li>
+</ul>
+<p>Find the '-' key handler (around line 7167). Replace the 6-way if-else with <code>ModeRegistry.scaleAll();</code></p>
+<ul>
+<li>[ ] <strong>Step 5: Replace zoom reset dispatch ('0' key)</strong></li>
+</ul>
+<p>Find the '0' key handler (around line 7189). Replace the 6-way if-else with <code>ModeRegistry.scaleAllAutoFit();</code></p>
+<p>The <code>scaleAllAutoFit</code> method handles the <code>_autoFitPending</code> flag for normal mode.</p>
+<ul>
+<li>[ ] <strong>Step 6: Replace wheel zoom dispatch</strong></li>
+</ul>
+<p>Find the Ctrl+wheel handler (around line 11128). Replace the 6-way if-else with <code>ModeRegistry.scaleAll();</code></p>
+<ul>
+<li>[ ] <strong>Step 7: Replace pinch zoom dispatch</strong></li>
+</ul>
+<p>Find the touch pinch handler (around line 12139). Replace the 6-way if-else with <code>ModeRegistry.scaleAll();</code></p>
+<ul>
+<li>[ ] <strong>Step 8: Replace partial dispatch variants</strong></li>
+</ul>
+<p>Find the square-stretch handler ('S' key, around line 7465). Replace its 4-way if-else with <code>ModeRegistry.scaleAll();</code></p>
+<p>Find the fullscreen handler ('F' key, around line 11400). Replace its 3-way if-else with <code>ModeRegistry.scaleAll();</code></p>
+<ul>
+<li>[ ] <strong>Step 9: Run tests and verify in browser</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code>
+Expected: All 93 pass</p>
+<p>Start server and verify no JS errors in browser console:
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import arrayview, numpy as np; arrayview.view(np.random.rand(100,100), window=False); import time; time.sleep(30)&quot;</span>
+</code></pre></div></p>
+<ul>
+<li>[ ] <strong>Step 10: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: add ModeRegistry.scaleAll() to replace 6-way dispatch chains&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="task-2-add-panmanager-class">Task 2: Add <code>PanManager</code> class</h2>
+<p>Create a reusable class that handles the mousedown/move/up/clamp/apply pattern for canvas panning.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Define the PanManager class</strong></li>
+</ul>
+<p>Insert after the ModeRegistry definition (around line 1490).</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// ── PanManager ───────────────────────────────────────────────────</span>
+<span class="kd">class</span><span class="w"> </span><span class="nx">PanManager</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * @param {Object} opts</span>
+<span class="cm">     * @param {function} opts.getViewport — returns {w, h} of the clipping viewport</span>
+<span class="cm">     * @param {function} opts.getContent — returns {w, h} of the scrollable content</span>
+<span class="cm">     * @param {function} opts.apply — called with (x, y) to set the CSS transform</span>
+<span class="cm">     * @param {function} [opts.onDragStart] — called when drag begins</span>
+<span class="cm">     * @param {function} [opts.onDragEnd] — called when drag ends</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="kr">constructor</span><span class="p">(</span><span class="nx">opts</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">;</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// {startX, startY, panX0, panY0}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Reset pan to origin. */</span>
+<span class="w">    </span><span class="nx">reset</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">apply</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Clamp pan within bounds (content must stay within viewport). */</span>
+<span class="w">    </span><span class="nx">clamp</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">getViewport</span><span class="p">();</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">ct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">getContent</span><span class="p">();</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="nx">ct</span><span class="p">.</span><span class="nx">w</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">w</span><span class="p">),</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="p">));</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">max</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="nx">ct</span><span class="p">.</span><span class="nx">h</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">h</span><span class="p">),</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="p">));</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Apply current pan position via the apply callback. */</span>
+<span class="w">    </span><span class="nx">apply</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">apply</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Call from mousedown to start a drag. */</span>
+<span class="w">    </span><span class="nx">startDrag</span><span class="p">(</span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">startX</span><span class="o">:</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientX</span><span class="p">,</span><span class="w"> </span><span class="nx">startY</span><span class="o">:</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">clientY</span><span class="p">,</span><span class="w"> </span><span class="nx">panX0</span><span class="o">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="p">,</span><span class="w"> </span><span class="nx">panY0</span><span class="o">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="p">};</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">onDragStart</span><span class="p">)</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">onDragStart</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Call from mousemove to update drag. Returns true if dragging. */</span>
+<span class="w">    </span><span class="nx">updateDrag</span><span class="p">(</span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">.</span><span class="nx">panX0</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">clientX</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">.</span><span class="nx">startX</span><span class="p">);</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">.</span><span class="nx">panY0</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">clientY</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">.</span><span class="nx">startY</span><span class="p">);</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">clamp</span><span class="p">();</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">apply</span><span class="p">();</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Call from mouseup to end drag. Returns true if was dragging. */</span>
+<span class="w">    </span><span class="nx">endDrag</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">onDragEnd</span><span class="p">)</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">onDragEnd</span><span class="p">();</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Whether a drag is in progress. */</span>
+<span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">dragging</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">_drag</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/** Whether content overflows viewport (pan would have effect). */</span>
+<span class="w">    </span><span class="nx">get</span><span class="w"> </span><span class="nx">overflows</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">getViewport</span><span class="p">();</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">ct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">opts</span><span class="p">.</span><span class="nx">getContent</span><span class="p">();</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">ct</span><span class="p">.</span><span class="nx">w</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">w</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">ct</span><span class="p">.</span><span class="nx">h</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">h</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Create PanManager instance for normal mode</strong></li>
+</ul>
+<p>Find the existing <code>_panX</code>, <code>_panY</code>, <code>_panDrag</code> declarations (around line 6451) and <code>_clampPan()</code> / <code>_applyCanvasPan()</code> functions (lines 6453-6471). Create a PanManager instance nearby:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">mainPan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">PanManager</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">getViewport</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-viewport&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">clientWidth</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerWidth</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">vp</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">vp</span><span class="p">.</span><span class="nx">clientHeight</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">getContent</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cssW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">parseInt</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">width</span><span class="p">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cssH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">parseInt</span><span class="p">(</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">cssW</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">cssH</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">apply</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">x</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;canvas-inner&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">inner</span><span class="p">)</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translate(</span><span class="si">${</span><span class="nx">x</span><span class="si">}</span><span class="sb">px,</span><span class="si">${</span><span class="nx">y</span><span class="si">}</span><span class="sb">px)`</span><span class="p">;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Replace normal mode pan code with mainPan</strong></li>
+</ul>
+<p>Replace all references to <code>_panDrag</code>, <code>_panX</code>, <code>_panY</code> with <code>mainPan._drag</code>, <code>mainPan.x</code>, <code>mainPan.y</code>.</p>
+<p>In the mousedown handler (line ~6523): replace <code>_panDrag = {...}</code> with <code>mainPan.startDrag(e)</code>.</p>
+<p>In the mousemove handler (line ~1771): replace the <code>if (_panDrag !== null)</code> block with <code>if (mainPan.updateDrag(e)) { /* done */ }</code>.</p>
+<p>In the mouseup handler (line ~1813): replace <code>if (_panDrag !== null) { _panDrag = null; }</code> with <code>mainPan.endDrag()</code>.</p>
+<p>Replace calls to <code>_clampPan()</code> with <code>mainPan.clamp()</code> and <code>_applyCanvasPan()</code> with <code>mainPan.apply()</code>.</p>
+<p>In <code>scaleCanvas()</code> (line ~1953-1954): replace <code>_clampPan(); _applyCanvasPan();</code> with <code>mainPan.clamp(); mainPan.apply();</code>.</p>
+<p>Where <code>_panX = 0; _panY = 0;</code> appears (zoom reset, etc.): replace with <code>mainPan.reset()</code>.</p>
+<p>Delete the old <code>_panX</code>, <code>_panY</code>, <code>_panDrag</code>, <code>_clampPan()</code>, <code>_applyCanvasPan()</code> declarations.</p>
+<ul>
+<li>[ ] <strong>Step 4: Create PanManager instance for compare mode</strong></li>
+</ul>
+<p>Find <code>_cmpPanX</code>, <code>_cmpPanY</code>, <code>_cmpPanDrag</code> (line ~1545) and <code>_cmpClampPan()</code> / <code>_cmpApplyPan()</code> (lines 1554-1577). Create:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">comparePan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">PanManager</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">getViewport</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareCanvases</span><span class="p">[</span><span class="mf">0</span><span class="p">];</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">clip</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">cv</span><span class="p">.</span><span class="nx">closest</span><span class="p">(</span><span class="s1">&#39;.compare-canvas-clip&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">clip</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">clip</span><span class="p">.</span><span class="nx">clientWidth</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">clip</span><span class="p">.</span><span class="nx">clientHeight</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">getContent</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">compareCanvases</span><span class="p">[</span><span class="mf">0</span><span class="p">];</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">cv</span><span class="p">.</span><span class="nx">closest</span><span class="p">(</span><span class="s1">&#39;.compare-canvas-inner&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cssW</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="nb">parseInt</span><span class="p">(</span><span class="nx">cv</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">width</span><span class="p">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">cv</span><span class="p">.</span><span class="nx">width</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">cssH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cv</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="nb">parseInt</span><span class="p">(</span><span class="nx">cv</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">cv</span><span class="p">.</span><span class="nx">height</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">cssW</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">cssH</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">apply</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">x</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-canvas-inner&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">inner</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">inner</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translate(</span><span class="si">${</span><span class="nx">x</span><span class="si">}</span><span class="sb">px,</span><span class="si">${</span><span class="nx">y</span><span class="si">}</span><span class="sb">px)`</span><span class="p">;</span>
+<span class="w">        </span><span class="p">});</span>
+<span class="w">        </span><span class="c1">// Counter-transform axes indicators</span>
+<span class="w">        </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-axes-indicator&#39;</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">ai</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">ai</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translate(</span><span class="si">${</span><span class="o">-</span><span class="nx">x</span><span class="si">}</span><span class="sb">px,</span><span class="si">${</span><span class="o">-</span><span class="nx">y</span><span class="si">}</span><span class="sb">px)`</span><span class="p">;</span>
+<span class="w">        </span><span class="p">});</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div>
+<p>Replace all compare pan references similarly. Delete old <code>_cmpPanX</code>, <code>_cmpPanY</code>, <code>_cmpPanDrag</code>, <code>_cmpClampPan()</code>, <code>_cmpApplyPan()</code>.</p>
+<ul>
+<li>[ ] <strong>Step 5: Create PanManager instance for mosaic mode</strong></li>
+</ul>
+<p>Find <code>_mosaicPanX</code>, <code>_mosaicPanY</code>, <code>_mosaicPanDrag</code> (line ~1494) and <code>_mosaicClampPan()</code> / <code>_mosaicApplyPan()</code> (lines 6480-6494). Create:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">mosaicPan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">PanManager</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">getViewport</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">wrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;qmri-view-wrap&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">wrap</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">wrap</span><span class="p">.</span><span class="nx">clientWidth</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">wrap</span><span class="p">.</span><span class="nx">clientHeight</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">getContent</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;qmri-mosaic-inner&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">scrollWidth</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">scrollHeight</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">w</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">apply</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">x</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;qmri-mosaic-inner&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">inner</span><span class="p">)</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`translate(</span><span class="si">${</span><span class="nx">x</span><span class="si">}</span><span class="sb">px,</span><span class="si">${</span><span class="nx">y</span><span class="si">}</span><span class="sb">px)`</span><span class="p">;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">onDragStart</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;qmri-mosaic-inner&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">inner</span><span class="p">)</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="s1">&#39;mosaic-dragging&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">onDragEnd</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;qmri-mosaic-inner&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">inner</span><span class="p">)</span><span class="w"> </span><span class="nx">inner</span><span class="p">.</span><span class="nx">classList</span><span class="p">.</span><span class="nx">remove</span><span class="p">(</span><span class="s1">&#39;mosaic-dragging&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div>
+<p>Replace all mosaic pan references. Delete old <code>_mosaicPanX</code>, <code>_mosaicPanY</code>, <code>_mosaicPanDrag</code>, <code>_mosaicClampPan()</code>, <code>_mosaicApplyPan()</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Run tests and verify in browser</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code></p>
+<p>Manual verification:
+- Normal mode: right-click drag to pan when zoomed in
+- Compare mode: drag to pan when zoomed
+- qMRI mosaic mode: drag to pan when content overflows</p>
+<ul>
+<li>[ ] <strong>Step 7: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: replace 3 pan implementations with PanManager class&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="task-3-add-fetchpixelinfo-helper">Task 3: Add <code>fetchPixelInfo()</code> helper</h2>
+<p>Extract the shared pixel hover logic into a reusable function.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Define the fetchPixelInfo helper</strong></li>
+</ul>
+<p>Insert near the existing <code>showPixelInfo()</code> function (around line 5670).</p>
+<div class="highlight"><pre><span></span><code><span class="cm">/**</span>
+<span class="cm"> * Fetch and display pixel info for a canvas hover event.</span>
+<span class="cm"> * Encapsulates the throttle + coordinate computation + API call + display pattern.</span>
+<span class="cm"> *</span>
+<span class="cm"> * @param {Object} opts</span>
+<span class="cm"> * @param {MouseEvent} opts.event — the mousemove event</span>
+<span class="cm"> * @param {HTMLCanvasElement} opts.canvas — the canvas being hovered</span>
+<span class="cm"> * @param {string} opts.sid — session ID</span>
+<span class="cm"> * @param {number} opts.dimX — x dimension index</span>
+<span class="cm"> * @param {number} opts.dimY — y dimension index</span>
+<span class="cm"> * @param {number[]} opts.indices — current slice indices</span>
+<span class="cm"> * @param {number} opts.imgW — image width in pixels</span>
+<span class="cm"> * @param {number} opts.imgH — image height in pixels</span>
+<span class="cm"> * @param {HTMLElement} opts.displayEl — element to show the value in</span>
+<span class="cm"> * @param {function} [opts.onResult] — called with (data, px, py) on successful fetch</span>
+<span class="cm"> * @returns {boolean} true if fetch was initiated (not throttled)</span>
+<span class="cm"> */</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">_pixelHoverThrottle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="kd">function</span><span class="w"> </span><span class="nx">fetchPixelInfo</span><span class="p">(</span><span class="nx">opts</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_pixelHoverThrottle</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">_pixelHoverThrottle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_pixelHoverThrottle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="mf">50</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">rect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">px</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">floor</span><span class="p">((</span><span class="nx">opts</span><span class="p">.</span><span class="nx">event</span><span class="p">.</span><span class="nx">clientX</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">left</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">imgW</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">width</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">py</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">floor</span><span class="p">((</span><span class="nx">opts</span><span class="p">.</span><span class="nx">event</span><span class="p">.</span><span class="nx">clientY</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">top</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">imgH</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">rect</span><span class="p">.</span><span class="nx">height</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">px</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">px</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">imgW</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">py</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">py</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">imgH</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">params</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">URLSearchParams</span><span class="p">({</span>
+<span class="w">        </span><span class="nx">dim_x</span><span class="o">:</span><span class="w"> </span><span class="nb">String</span><span class="p">(</span><span class="nx">opts</span><span class="p">.</span><span class="nx">dimX</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">dim_y</span><span class="o">:</span><span class="w"> </span><span class="nb">String</span><span class="p">(</span><span class="nx">opts</span><span class="p">.</span><span class="nx">dimY</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">indices</span><span class="o">:</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">indices</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">px</span><span class="o">:</span><span class="w"> </span><span class="nb">String</span><span class="p">(</span><span class="nx">px</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">py</span><span class="o">:</span><span class="w"> </span><span class="nb">String</span><span class="p">(</span><span class="nx">py</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">complex_mode</span><span class="o">:</span><span class="w"> </span><span class="nx">complexMode</span><span class="p">,</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">logScale</span><span class="p">)</span><span class="w"> </span><span class="nx">params</span><span class="p">.</span><span class="nx">set</span><span class="p">(</span><span class="s1">&#39;log_scale&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;1&#39;</span><span class="p">);</span>
+
+<span class="w">    </span><span class="nx">fetch</span><span class="p">(</span><span class="sb">`/pixel/</span><span class="si">${</span><span class="nx">opts</span><span class="p">.</span><span class="nx">sid</span><span class="si">}</span><span class="sb">?</span><span class="si">${</span><span class="nx">params</span><span class="si">}</span><span class="sb">`</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="nx">then</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">ok</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">json</span><span class="p">()</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="nx">then</span><span class="p">(</span><span class="nx">d</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">d</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">fmt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">v</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kd">const</span><span class="w"> </span><span class="nx">av</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">abs</span><span class="p">(</span><span class="nx">v</span><span class="p">);</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">av</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;0&#39;</span><span class="p">;</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">av</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">1e4</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">(</span><span class="nx">av</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">1e-2</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">av</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">))</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">v</span><span class="p">.</span><span class="nx">toExponential</span><span class="p">(</span><span class="mf">3</span><span class="p">);</span>
+<span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">v</span><span class="p">.</span><span class="nx">toPrecision</span><span class="p">(</span><span class="mf">4</span><span class="p">)).</span><span class="nx">toString</span><span class="p">();</span>
+<span class="w">            </span><span class="p">};</span>
+<span class="w">            </span><span class="nx">showPixelInfo</span><span class="p">(</span><span class="nx">opts</span><span class="p">.</span><span class="nx">displayEl</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">(</span><span class="nx">d</span><span class="p">.</span><span class="nx">value</span><span class="p">),</span><span class="w"> </span><span class="nx">px</span><span class="p">,</span><span class="w"> </span><span class="nx">py</span><span class="p">);</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">opts</span><span class="p">.</span><span class="nx">onResult</span><span class="p">)</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">onResult</span><span class="p">(</span><span class="nx">d</span><span class="p">,</span><span class="w"> </span><span class="nx">px</span><span class="p">,</span><span class="w"> </span><span class="nx">py</span><span class="p">);</span>
+<span class="w">        </span><span class="p">})</span>
+<span class="w">        </span><span class="p">.</span><span class="k">catch</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{});</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>NOTE: Uses a single shared throttle instead of per-mode throttle variables. This is fine because only one mode is active at a time.</p>
+<ul>
+<li>[ ] <strong>Step 2: Replace normal mode pixel hover</strong></li>
+</ul>
+<p>Find the canvas mousemove handler (around line 7021). Replace the inline pixel fetch code with:</p>
+<div class="highlight"><pre><span></span><code><span class="nx">fetchPixelInfo</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">event</span><span class="o">:</span><span class="w"> </span><span class="nx">e</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">canvas</span><span class="o">:</span><span class="w"> </span><span class="nx">canvas</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">sid</span><span class="o">:</span><span class="w"> </span><span class="nx">sid</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">dimX</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_x</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">dimY</span><span class="o">:</span><span class="w"> </span><span class="nx">dim_y</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">indices</span><span class="o">:</span><span class="w"> </span><span class="nx">indices</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">imgW</span><span class="o">:</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">width</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">imgH</span><span class="o">:</span><span class="w"> </span><span class="nx">canvas</span><span class="p">.</span><span class="nx">height</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">displayEl</span><span class="o">:</span><span class="w"> </span><span class="nx">piEl</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">onResult</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">d</span><span class="p">,</span><span class="w"> </span><span class="nx">px</span><span class="p">,</span><span class="w"> </span><span class="nx">py</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// Update axes labels, crosshair, etc. (keep existing post-fetch logic)</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div>
+<p>Keep the existing post-fetch logic (axes label updates, crosshair positioning) in the <code>onResult</code> callback.</p>
+<ul>
+<li>[ ] <strong>Step 3: Replace multi-view pixel hover</strong></li>
+</ul>
+<p>Find the per-view mousemove handler (around line 8924). Replace with <code>fetchPixelInfo(...)</code> using view-specific parameters.</p>
+<ul>
+<li>[ ] <strong>Step 4: Replace qMRI pixel hover</strong></li>
+</ul>
+<p>Find the qMRI mousemove handler (around line 9142). Replace with <code>fetchPixelInfo(...)</code>. Note: qMRI fetches for ALL views at the same pixel — the <code>onResult</code> callback should trigger fetches for other views.</p>
+<ul>
+<li>[ ] <strong>Step 5: Replace compare pixel hover</strong></li>
+</ul>
+<p>Find the compare mousemove handler (around line 11188). Replace with <code>fetchPixelInfo(...)</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Delete old throttle variables</strong></li>
+</ul>
+<p>Remove <code>pixelHoverPending</code>, <code>mvPixelPending</code>, <code>qvPixelPending</code> declarations.</p>
+<ul>
+<li>[ ] <strong>Step 7: Run tests and verify</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code></p>
+<p>Manual: hover over canvas in each mode — pixel value should display.</p>
+<ul>
+<li>[ ] <strong>Step 8: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: replace 4 pixel hover implementations with fetchPixelInfo helper&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="task-4-add-geteggsanchor-to-moderegistry-and-simplify-positioneggs">Task 4: Add <code>getEggsAnchor()</code> to ModeRegistry and simplify positionEggs</h2>
+<p>Extract the per-mode anchor element query logic from <code>positionEggs()</code> into the ModeRegistry.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Add <code>getEggsAnchorBottom()</code> to ModeRegistry</strong></li>
+</ul>
+<p>Each mode branch in <code>positionEggs()</code> queries different elements to find the bottom edge to position eggs below. Extract this:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Add to ModeRegistry:</span>
+<span class="nx">getEggsAnchorBottom</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">mvCbWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mv-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">mvCbWrap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">mvCbWrap</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">height</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">12</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">mvCanvases</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.mv-canvas&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">mvCanvases</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">mvCanvases</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">maxB</span><span class="p">)</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">36</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">views</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">qmriViews</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">compareMvViews</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nx">compareQmriViews</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">views</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">views</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">views</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">v</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">v</span><span class="p">.</span><span class="nx">canvas</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">v</span><span class="p">.</span><span class="nx">canvas</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">maxB</span><span class="p">)</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">});</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">36</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">slimWrap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;slim-cb-wrap&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">slimWrap</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">slimWrap</span><span class="p">.</span><span class="nx">offsetParent</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">slimWrap</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">().</span><span class="nx">bottom</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">12</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="c1">// Check per-pane colorbars (diff mode)</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">paneCbs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-pane-cb-island&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">paneCbs</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">paneCbs</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">el</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">el</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">maxB</span><span class="p">)</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">maxB</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">8</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="c1">// Fallback to pane canvases</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">panes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">querySelectorAll</span><span class="p">(</span><span class="s1">&#39;.compare-pane.active&#39;</span><span class="p">);</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">panes</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">panes</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="nx">p</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">getBoundingClientRect</span><span class="p">();</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">maxB</span><span class="p">)</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">bottom</span><span class="p">;</span><span class="w"> </span><span class="p">});</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">maxB</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">36</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// Normal mode</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// handled specially (fullscreen vs normal)</span>
+<span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Simplify positionEggs()</strong></li>
+</ul>
+<p>Replace the 4 mode branches with:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">function</span><span class="w"> </span><span class="nx">positionEggs</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">eggsEl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;mode-eggs&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">eggsEl</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">children</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">_fullscreenActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// Fullscreen normal mode: special inline positioning (keep existing logic)</span>
+<span class="w">        </span><span class="c1">// ... existing fullscreen branch ...</span>
+<span class="w">        </span><span class="k">return</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// All other modes: position below the anchor element</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">anchorBottom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">ModeRegistry</span><span class="p">.</span><span class="nx">getEggsAnchorBottom</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">anchorBottom</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">bottom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">flexDirection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">alignItems</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="kd">const</span><span class="w"> </span><span class="nx">eggsTop</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span><span class="nx">anchorBottom</span><span class="p">,</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">innerHeight</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">26</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">top</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">eggsTop</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;px&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">left</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;50%&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">eggsEl</span><span class="p">.</span><span class="nx">style</span><span class="p">.</span><span class="nx">transform</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;translateX(-50%)&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// Normal non-fullscreen mode (keep existing logic)</span>
+<span class="w">        </span><span class="c1">// ... existing normal branch ...</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Run tests and verify</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code></p>
+<p>Manual: check eggs positioning in each mode (the small LOG/complex/mask indicator dots below canvases).</p>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: simplify positionEggs with ModeRegistry.getEggsAnchorBottom()&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="task-5-add-keyboard-dispatch-helpers-to-moderegistry">Task 5: Add keyboard dispatch helpers to ModeRegistry</h2>
+<p>Add helpers that encapsulate common keyboard handler mode checks, reducing the scattered per-mode guards.</p>
+<p><strong>Files:</strong>
+- Modify: <code>src/arrayview/_viewer.html</code></p>
+<ul>
+<li>[ ] <strong>Step 1: Add mode query helpers to ModeRegistry</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="c1">// Add to ModeRegistry:</span>
+
+<span class="cm">/** Whether any multi-pane mode is active (blocks certain single-view shortcuts). */</span>
+<span class="nx">get</span><span class="w"> </span><span class="nx">isMultiPane</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareQmriActive</span><span class="p">;</span>
+<span class="p">},</span>
+
+<span class="cm">/** Whether a grid-based mode is active (qMRI, compare-qMRI, compare-mv). */</span>
+<span class="nx">get</span><span class="w"> </span><span class="nx">isGrid</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareQmriActive</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">compareMvActive</span><span class="p">;</span>
+<span class="p">},</span>
+
+<span class="cm">/** Get the active mode name as a string. */</span>
+<span class="nx">get</span><span class="w"> </span><span class="nx">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareQmriActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;compareQmri&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareMvActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;compareMv&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">multiViewActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;multiView&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">compareActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;compare&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">qmriActive</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;qmri&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="s1">&#39;normal&#39;</span><span class="p">;</span>
+<span class="p">},</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Replace scattered mode guard patterns in keyboard handler</strong></li>
+</ul>
+<p>Search for patterns like:
+<div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">multiViewActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">qmriActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareMvActive</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">compareQmriActive</span><span class="p">)</span>
+</code></pre></div>
+Replace with <code>if (!ModeRegistry.isMultiPane)</code> or similar.</p>
+<p>Search for the <code>compareQmriActive || compareMvActive || multiViewActive || ...</code> patterns used for zoom and replace them (already done in Task 1 via <code>ModeRegistry.scaleAll()</code>).</p>
+<p>Be CONSERVATIVE — only replace patterns that map cleanly to the new helpers. Don't force-fit complex conditionals.</p>
+<ul>
+<li>[ ] <strong>Step 3: Run tests and verify</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code></p>
+<ul>
+<li>[ ] <strong>Step 4: Commit</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: add ModeRegistry helpers for keyboard handler mode checks&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="task-6-final-cleanup-and-verification">Task 6: Final cleanup and verification</h2>
+<ul>
+<li>[ ] <strong>Step 1: Run full test suite</strong></li>
+</ul>
+<p>Run: <code>uv run pytest tests/test_api.py -x -q</code>
+Expected: All 93 pass</p>
+<ul>
+<li>[ ] <strong>Step 2: Start server and verify in browser</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import arrayview, numpy as np; arrayview.view(np.random.rand(100,100), window=False); import time; time.sleep(60)&quot;</span>
+</code></pre></div>
+<p>Open browser, check:
+- [ ] No JS console errors
+- [ ] Normal view works (zoom +/-, pan, pixel hover, eggs position)
+- [ ] Multi-view (v) works (zoom, pixel hover)
+- [ ] Compare (b) works (zoom, pan, pixel hover)
+- [ ] qMRI (q) works if data available
+- [ ] Keyboard shortcuts work in all modes</p>
+<ul>
+<li>[ ] <strong>Step 3: Run visual smoke test</strong></li>
+</ul>
+<p>Run: <code>uv run python tests/visual_smoke.py</code>
+Review: <code>smoke_output/</code> directory</p>
+<ul>
+<li>[ ] <strong>Step 4: Commit any fixes</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>src/arrayview/_viewer.html
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: final cleanup after mode dispatch refactor&quot;</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.sections", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
