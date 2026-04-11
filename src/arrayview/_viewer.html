@@ -4786,6 +4786,77 @@
         ];
         // ── end ColorBar class ────────────────────────────────────────────────
 
+        // ── View Component System ──
+        //
+        // Primitive layer for composing viewing modes from a single View primitive.
+        // See docs/superpowers/plans/2026-04-11-view-component-architecture.md for
+        // the full architecture.
+        //
+        // Load order:
+        //   1. DisplayState factory
+        //   2. Slicer implementations
+        //   3. Layer implementations
+        //   4. View class
+        //   5. LayoutStrategy implementations
+        //   6. ModeManager singleton
+        //   7. Legacy shims (temporary — deleted in Phase 17)
+
+        // ─ 1. DisplayState ─────────────────────────────────────────────────
+
+        function makeDisplayState(overrides) {
+            overrides = overrides || {};
+            return Object.assign({
+                // Dynamic range
+                vmin: null,
+                vmax: null,
+                quantileIdx: -1,
+                windowLocked: false,
+
+                // Colormap
+                cmapIdx: 0,
+                customCmapName: null,
+                customGradientStops: null,
+
+                // Display modifiers
+                logScale: false,
+                complexMode: 0,
+                projectionMode: 0,
+                projectionDim: -1,
+                alphaThreshold: 0,
+
+                // Render mode
+                renderMode: 'scalar',
+
+                // Slicing
+                sliceIndices: [],
+                currentSliceDim: 0,
+                flipAxes: {},
+
+                // Orientation
+                obliqueVecs: null,
+
+                // Overlay (server-composited)
+                overlaySids: [],
+                overlayAlpha: 0.45,
+                overlayVisible: true,
+
+                // Hover / UI
+                pixelInfoVisible: true,
+            }, overrides);
+        }
+
+        function serializeDisplayState(s) {
+            return JSON.stringify(s);
+        }
+
+        function deserializeDisplayState(str) {
+            return Object.assign(makeDisplayState(), JSON.parse(str));
+        }
+
+        function mergeDisplayState(base, patch) {
+            return Object.assign({}, base, patch);
+        }
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.
