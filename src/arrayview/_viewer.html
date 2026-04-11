@@ -5411,6 +5411,38 @@
             }
         }
 
+        class QmriLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'qmri'; }
+
+            getViews(sessions, savedStates) {
+                const session = sessions[0];
+                const n = session.ndim > 0 ? session.shape?.[qmriDim] ?? 4 : 4;
+                return Array.from({ length: n }, (_, i) => {
+                    const saved = savedStates?.[i];
+                    const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                    return new View({
+                        id: 'qmri-' + i, role: 'qmri',
+                        session: session, displayState: ds,
+                        slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('qmri-wrap') || document.body,
+                    });
+                });
+            }
+
+            arrangeViews(views, root) {
+                views.forEach((v, i) => {
+                    const canvas = qmriViews[i]?.canvas;
+                    if (canvas) { v.canvas = canvas; v.wrapper = canvas.parentElement; }
+                });
+            }
+
+            scaleViews(views) {
+                if (typeof qvScaleAllCanvases === 'function') qvScaleAllCanvases();
+            }
+
+            destroy(views) { super.destroy(views); }
+        }
+
         // ─ 6. ModeManager singleton ───────────────────────────────────────
 
         const modeManager = {
@@ -5669,7 +5701,11 @@
                 });
             }
             if (qmriActive) {
-                qmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+                qmriViews.forEach((v, i) => {
+                    v.lockedVmin = null; v.lockedVmax = null;
+                    const qv = modeManager.currentViews[i];
+                    if (qv) { qv.displayState.vmin = null; qv.displayState.vmax = null; }
+                });
             }
             if (compareMvActive) {
                 compareMvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
@@ -10398,6 +10434,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         return;
                     }
                     // In qMRI mode, hovering a specific pane: expand + cycle quantile
+                    // Phase 12 TODO: replace _hoveredQmriView with modeManager.getViewUnderMouse()
+                    // The mouseenter/mouseleave events on qmriViews canvases still set _hoveredQmriView (in enterQmri).
                     if (qmriActive && _hoveredQmriView) {
                         const hv = _hoveredQmriView;
                         const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
@@ -10410,6 +10448,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             const q = cb.cycleQuantile();
                             if (q) {
                                 hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
+                                const _hvIdx = qmriViews.indexOf(hv);
+                                if (_hvIdx >= 0) { const _qv = modeManager.currentViews[_hvIdx]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; } }
                                 hv.seq++; hv.rendering = false; hv.pending = false;
                                 qvRender(hv);
                                 cb.ensureAnimating();
@@ -10428,10 +10468,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             showStatus('histogram');
                         } else {
                             let label = null;
-                            for (const v of qmriViews) {
+                            for (const [_qi, v] of qmriViews.entries()) {
                                 if (!v._colorBar) continue;
                                 const q = v._colorBar.cycleQuantile();
-                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating(); }
+                                if (q) {
+                                    v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label;
+                                    const _qv = modeManager.currentViews[_qi]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; }
+                                    v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating();
+                                }
                                 v._colorBar.startAutoDismiss();
                             }
                             if (label) showToast(_rangeStatusStr(label, null, null));
@@ -10446,10 +10490,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             showStatus('histogram');
                         } else {
                             let label = null;
-                            for (const v of qmriViews) {
+                            for (const [_qi, v] of qmriViews.entries()) {
                                 if (!v._mosaicColorBar) continue;
                                 const q = v._mosaicColorBar.cycleQuantile();
-                                if (q) { v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label; v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating(); }
+                                if (q) {
+                                    v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label;
+                                    const _qv = modeManager.currentViews[_qi]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; }
+                                    v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating();
+                                }
                                 v._mosaicColorBar.startAutoDismiss();
                             }
                             if (label) showToast(_rangeStatusStr(label, null, null));
@@ -13412,7 +13460,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         getStops: () => COLORMAP_GRADIENT_STOPS[view.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
                         getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
-                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        setWindow: (lo, hi) => {
+                            view.lockedVmin = lo; view.lockedVmax = hi;
+                            const _qv = modeManager.currentViews[viewIdx]; if (_qv) { _qv.displayState.vmin = lo; _qv.displayState.vmax = hi; }
+                        },
                         fetchHistogram: async () => {
                             const fixedPairs = [];
                             fixedPairs.push(qmriDim + ':' + view.qmriIdx);
@@ -13518,6 +13569,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
             const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
             showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
+            // Phase 8: sync modeManager
+            {
+                const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
+                const _qViews = qmriViews.map((v, i) => {
+                    const ds = makeDisplayState({ vmin: v.lockedVmin, vmax: v.lockedVmax });
+                    const qv = new View({ id: 'qmri-' + i, role: 'qmri', session: _session,
+                        displayState: ds, slicer: new FreeSliceSlicer(), container: document.body });
+                    qv.canvas = v.canvas || null;
+                    qv.wrapper = v.canvas?.parentElement || null;
+                    if (v._colorBar) qv.colorBar = v._colorBar;
+                    qv._initialized = true;
+                    v._initialized = true;  // mark legacy view as having a twin
+                    return qv;
+                });
+                modeManager.currentViews = _qViews;
+                modeManager.currentLayout = new QmriLayout();
+                modeManager.modeName = 'qmri';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'qmri' } }));
+            }
         }
 
         function exitQmri() {
@@ -13537,6 +13607,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             renderInfo();
             showStatus('qMRI mode: off');
+            // Phase 8: restore modeManager to normal
+            try {
+                const _sess = { sid: sid, ndim: shape.length, isComplex: isComplex };
+                modeManager.enterMode(new NormalLayout(), [_sess]);
+            } catch(e) { console.warn('Phase 8 exitQmri modeManager restore failed:', e); }
         }
 
         // --------------- Compare + qMRI combined mode ---------------
@@ -14508,7 +14583,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         getStops: () => COLORMAP_GRADIENT_STOPS[v.colormap] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                         getRange: () => ({ vmin: v.vmin, vmax: v.vmax }),
                         getWindow: () => ({ vmin: v.lockedVmin ?? v.vmin, vmax: v.lockedVmax ?? v.vmax }),
-                        setWindow: (lo, hi) => { v.lockedVmin = lo; v.lockedVmax = hi; },
+                        setWindow: (lo, hi) => {
+                            v.lockedVmin = lo; v.lockedVmax = hi;
+                            const _qv = modeManager.currentViews[idx]; if (_qv) { _qv.displayState.vmin = lo; _qv.displayState.vmax = hi; }
+                        },
                         fetchHistogram: async () => {
                             const fixedPairs = [];
                             fixedPairs.push(qmriDim + ':' + v.qmriIdx);
