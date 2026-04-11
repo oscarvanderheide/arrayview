@@ -788,7 +788,7 @@
         .qv-label { font-size: 16px; color: var(--fg); flex-shrink: 0; letter-spacing: 0.05em; }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
-        .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
+        .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
         .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; }
         .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
         .qv-cb-labels { display: none; }
@@ -5036,7 +5036,30 @@
                 this._cache = null;
             }
             isVisible(view, ds) { return this.vfieldSid != null; }
-            async draw(ctx, view, ds) { /* Phase 13 */ }
+            async draw(ctx, view, ds) {
+                if (!hasVectorfield || !vfieldVisible) return;
+                const role = view?.role;
+                if (role === 'normal') {
+                    drawVectorOverlay();
+                } else if (role === 'multiview') {
+                    const legacyView = view._mvLegacyView;
+                    if (!legacyView) return;
+                    const index = mvViews.indexOf(legacyView);
+                    if (index < 0) return;
+                    mvDrawVectorOverlay(legacyView, index);
+                } else if (role === 'compare') {
+                    const index = modeManager.currentViews.indexOf(view);
+                    if (index < 0) return;
+                    _cmpDrawVectorOverlay(index);
+                } else if (role === 'qmri') {
+                    const index = modeManager.currentViews.indexOf(view);
+                    if (index < 0) return;
+                    const legacyView = qmriViews[index];
+                    if (!legacyView) return;
+                    _qmriDrawVectorOverlay(legacyView, index);
+                }
+                // other roles (mip, compareMv, compareQmri): not applicable
+            }
             destroy() { this._cache = null; }
         }
 
@@ -6429,6 +6452,115 @@
         function mvDrawAllVectorOverlays() {
             if (!multiViewActive || !hasVectorfield || !vfieldVisible) return;
             mvViews.forEach((v, i) => mvDrawVectorOverlay(v, i));
+        }
+
+        /** Get or create a vfield overlay canvas positioned over a compare pane canvas. */
+        function _getCmpVfieldCanvas(targetCv) {
+            const parent = targetCv.parentElement; // .compare-canvas-inner (position:relative)
+            if (!parent) return null;
+            let ov = parent.querySelector('.cmp-vfield-overlay');
+            if (!ov) {
+                ov = document.createElement('canvas');
+                ov.className = 'cmp-vfield-overlay';
+                ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;';
+                parent.appendChild(ov);
+            }
+            return ov;
+        }
+
+        /** Get or create a vfield overlay canvas positioned over a qMRI pane canvas. */
+        function _getQvVfieldCanvas(targetCv) {
+            const parent = targetCv.parentElement; // .qv-canvas-wrap (position:relative via CSS)
+            if (!parent) return null;
+            let ov = parent.querySelector('.qv-vfield-overlay');
+            if (!ov) {
+                ov = document.createElement('canvas');
+                ov.className = 'qv-vfield-overlay';
+                ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;';
+                parent.appendChild(ov);
+            }
+            return ov;
+        }
+
+        const _cmpVfieldCache = new Map();   // paneIndex → {key, data}
+        const _cmpVfieldAborts = new Map();  // paneIndex → AbortController
+
+        /** Fetch and render vector field overlay for a single compare pane. */
+        async function _cmpDrawVectorOverlay(paneIndex) {
+            const cv = compareCanvases[paneIndex];
+            if (!cv) return;
+            const ovCanvas = _getCmpVfieldCanvas(cv);
+            if (!hasVectorfield || !vfieldVisible) {
+                if (ovCanvas) ovCanvas.style.display = 'none';
+                return;
+            }
+            const paneSid = compareDisplaySids[paneIndex] || sid;
+            const relevantIdx = indices.filter((_, i) => i !== dim_x && i !== dim_y).join(',');
+            const params = new URLSearchParams({
+                dim_x: String(dim_x), dim_y: String(dim_y),
+                indices: indices.join(','), t_index: String(vfieldT),
+                density_offset: String(vfDensityLevel),
+            });
+            const fetchUrl = `/vectorfield/${paneSid}?${params}`;
+            const cacheKey = `${paneSid},${dim_x},${dim_y},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+            const cached = _cmpVfieldCache.get(paneIndex);
+            if (cached && cached.key === cacheKey) {
+                _renderVfieldArrows(ovCanvas, cv, cached.data, flipDims[dim_x] || false, flipDims[dim_y] || false);
+                return;
+            }
+            _cmpVfieldAborts.get(paneIndex)?.abort();
+            const ac = new AbortController();
+            _cmpVfieldAborts.set(paneIndex, ac);
+            try {
+                const res = await proxyFetch(fetchUrl, { signal: ac.signal });
+                if (!res.ok || ac.signal.aborted) return;
+                const data = await res.json();
+                if (ac.signal.aborted) return;
+                _cmpVfieldCache.set(paneIndex, { key: cacheKey, data });
+                _renderVfieldArrows(ovCanvas, cv, data, flipDims[dim_x] || false, flipDims[dim_y] || false);
+            } catch (e) {
+                if (e.name !== 'AbortError') { /* ignore */ }
+            }
+        }
+
+        const _qmriVfieldCache = new Map();   // viewIndex → {key, data}
+        const _qmriVfieldAborts = new Map();  // viewIndex → AbortController
+
+        /** Fetch and render vector field overlay for a single qMRI pane. */
+        async function _qmriDrawVectorOverlay(v, viewIndex) {
+            const ovCanvas = _getQvVfieldCanvas(v.canvas);
+            if (!hasVectorfield || !vfieldVisible) {
+                if (ovCanvas) ovCanvas.style.display = 'none';
+                return;
+            }
+            const qIndices = [...indices];
+            qIndices[qmriDim] = v.qmriIdx;
+            const relevantIdx = qIndices.filter((_, i) => i !== dim_x && i !== dim_y).join(',');
+            const params = new URLSearchParams({
+                dim_x: String(dim_x), dim_y: String(dim_y),
+                indices: qIndices.join(','), t_index: String(vfieldT),
+                density_offset: String(vfDensityLevel),
+            });
+            const fetchUrl = `/vectorfield/${sid}?${params}`;
+            const cacheKey = `${sid},${dim_x},${dim_y},${relevantIdx},${vfieldT},${vfDensityLevel}`;
+            const cached = _qmriVfieldCache.get(viewIndex);
+            if (cached && cached.key === cacheKey) {
+                _renderVfieldArrows(ovCanvas, v.canvas, cached.data, flipDims[dim_x] || false, flipDims[dim_y] || false);
+                return;
+            }
+            _qmriVfieldAborts.get(viewIndex)?.abort();
+            const ac = new AbortController();
+            _qmriVfieldAborts.set(viewIndex, ac);
+            try {
+                const res = await proxyFetch(fetchUrl, { signal: ac.signal });
+                if (!res.ok || ac.signal.aborted) return;
+                const data = await res.json();
+                if (ac.signal.aborted) return;
+                _qmriVfieldCache.set(viewIndex, { key: cacheKey, data });
+                _renderVfieldArrows(ovCanvas, v.canvas, data, flipDims[dim_x] || false, flipDims[dim_y] || false);
+            } catch (e) {
+                if (e.name !== 'AbortError') { /* ignore */ }
+            }
         }
 
         function applyMvFlips(v, imageData, w, h) {

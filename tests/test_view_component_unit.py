@@ -153,3 +153,13 @@ def test_layout_strategy_base_throws(loaded_viewer, sid_3d):
         } catch (e) { return e.message; }
     }""")
     assert "not implemented" in result.lower()
+
+
+def test_vectorfield_layer_draw_is_implemented(loaded_viewer, sid_3d):
+    """VectorFieldLayer.draw() must be implemented (no longer the Phase 13 stub)."""
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const layer = new VectorFieldLayer({ vfieldSid: 'test' });
+        return layer.draw.toString().includes('Phase 13') === false;
+    }""")
+    assert result is True
