@@ -4907,6 +4907,63 @@
             }
         }
 
+        // ─ 3. Layer implementations ───────────────────────────────────────
+
+        // Layers are duck-typed, not subclassed. Each must expose:
+        //   name: string
+        //   draw(ctx, view, displayState) → void
+        //   destroy() → void
+        //   isVisible?(view, displayState) → bool
+        //   handlePointerEvent?(event, view) → bool (true = consumed)
+        //   serialize?() → object (optional, for state persistence)
+
+        class ImageLayer {
+            constructor() {
+                this.name = 'image';
+                this._lastBitmap = null;
+                this._pendingFetch = null;
+            }
+            isVisible() { return true; }
+            async draw(ctx, view, ds) {
+                // Fetch slice via slicer, draw to ctx. Detailed implementation
+                // lands in Phase 2 when the first real View is wired up.
+            }
+            destroy() {
+                if (this._lastBitmap) { this._lastBitmap.close?.(); this._lastBitmap = null; }
+                this._pendingFetch = null;
+            }
+        }
+
+        class VectorFieldLayer {
+            constructor(opts) {
+                this.name = 'vectorfield';
+                this.vfieldSid = opts?.vfieldSid ?? null;
+                this._cache = null;
+            }
+            isVisible(view, ds) { return this.vfieldSid != null; }
+            async draw(ctx, view, ds) { /* Phase 13 */ }
+            destroy() { this._cache = null; }
+        }
+
+        class OverlayLayer {
+            constructor() { this.name = 'overlay'; }
+            isVisible(view, ds) { return ds.overlaySids && ds.overlaySids.length > 0 && ds.overlayVisible; }
+            async draw(ctx, view, ds) { /* Phase 4 — no-op; compositing is server-side */ }
+            destroy() {}
+        }
+
+        class CrosshairLayer {
+            constructor() { this.name = 'crosshair'; this._alpha = 0; }
+            isVisible() { return this._alpha > 0.01; }
+            async draw(ctx, view, ds) { /* Phase 3 */ }
+            destroy() {}
+        }
+
+        class RoiLayer { constructor() { this.name = 'roi'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class RulerLayer { constructor() { this.name = 'ruler'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class LineProfileLayer { constructor() { this.name = 'lineprofile'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class MiniMapLayer { constructor() { this.name = 'minimap'; } isVisible() { return false; } async draw() {} destroy() {} }
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.

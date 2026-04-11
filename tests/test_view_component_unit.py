@@ -57,3 +57,18 @@ def test_orthogonal_slicer_axial(loaded_viewer, sid_3d):
     }""")
     assert result["params"]["axis"] == "axial"
     assert result["params"]["index"] == 10   # axial slices along first spatial axis
+
+
+def test_image_layer_is_duck_typed(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const layer = new ImageLayer();
+        return {
+            name: layer.name,
+            hasDraw: typeof layer.draw === 'function',
+            hasDestroy: typeof layer.destroy === 'function',
+        };
+    }""")
+    assert result["name"] == "image"
+    assert result["hasDraw"] is True
+    assert result["hasDestroy"] is True
