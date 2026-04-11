@@ -121,3 +121,17 @@ def test_v_key_exits_multiview_back_to_normal(loaded_viewer, sid_3d):
     result = page.evaluate("() => ({mode: modeManager.modeName, count: modeManager.currentViews.length})")
     assert result["mode"] == "normal"
     assert result["count"] == 1
+
+
+def test_mv_views_have_crosshair_layer(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    result = page.evaluate("""() => modeManager.currentViews.map(v => ({
+        id: v.id,
+        hasCrosshair: !!v.findLayer('crosshair'),
+    }))""")
+    assert len(result) == 3
+    assert all(r["hasCrosshair"] for r in result)

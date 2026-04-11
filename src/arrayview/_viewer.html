@@ -4954,10 +4954,38 @@
         }
 
         class CrosshairLayer {
-            constructor() { this.name = 'crosshair'; this._alpha = 0; }
-            isVisible() { return this._alpha > 0.01; }
-            async draw(ctx, view, ds) { /* Phase 3 */ }
-            destroy() {}
+            constructor() {
+                this.name = 'crosshair';
+                this._alpha = 0;
+                this._targetAlpha = 0;
+                this._animFrame = null;
+            }
+
+            draw(ctx, view, ds) {
+                if (this._alpha <= 0.01) return;
+                // Draw crosshair lines at canvas center (or at crosshair position in ds).
+                // Note: in multiview mode the legacy mvDrawFrame path draws the crosshair
+                // on a separate overlay canvas using _mvCrosshairAlpha; this draw() path
+                // is used when a View is rendered directly via the component system.
+                const w = ctx.canvas.width, h = ctx.canvas.height;
+                const cx = w / 2, cy = h / 2;
+                ctx.save();
+                ctx.globalAlpha = this._alpha;
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+                ctx.moveTo(0, cy); ctx.lineTo(w, cy);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            isVisible(view, ds) { return this._alpha > 0.01; }
+
+            destroy() {
+                if (this._animFrame) { cancelAnimationFrame(this._animFrame); this._animFrame = null; }
+            }
         }
 
         class RoiLayer { constructor() { this.name = 'roi'; } isVisible() { return false; } async draw() {} destroy() {} }
