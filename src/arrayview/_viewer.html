@@ -5459,6 +5459,14 @@
             destroy(views) { super.destroy(views); }
         }
 
+        class MipLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'mip'; }
+            getViews(sessions, savedStates) { return []; }  // stub — legacy WebGL manages the canvas
+            arrangeViews(views, root) {}
+            scaleViews(views) {}
+            destroy(views) { super.destroy(views); }
+        }
+
         // ─ 6. ModeManager singleton ───────────────────────────────────────
 
         const modeManager = {
@@ -13267,6 +13275,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mipAttachEvents();
 
             showStatus('MIP — drag to rotate, scroll to zoom, p/Esc to exit', 3000);
+
+            // Phase 11: sync modeManager
+            {
+                const mipCanvas = document.getElementById('mip-canvas');
+                const mipView = new View({ id: 'mip', role: 'mip',
+                    session: { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex },
+                    displayState: makeDisplayState({ vmin: manualVmin, vmax: manualVmax }),
+                    slicer: new FreeSliceSlicer(), container: document.body });
+                mipView.canvas = mipCanvas || null;
+                mipView._initialized = true;
+                modeManager.currentViews = [mipView];
+                modeManager.currentLayout = new MipLayout();
+                modeManager.modeName = 'mip';
+                document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'mip' } }));
+            }
         }
 
         function exitMipMode() {
@@ -13297,6 +13320,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (window._mvColorBar) window._mvColorBar.draw();
 
             showStatus('MIP: off');
+
+            // Phase 11: restore modeManager to multiview
+            modeManager.modeName = 'multiview';
+            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'multiview' } }));
         }
 
         // Mouse interaction
