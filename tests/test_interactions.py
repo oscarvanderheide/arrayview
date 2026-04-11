@@ -287,6 +287,27 @@ class TestDisplaySettings:
         status = _get_status(page)
         assert "dynamic range" in status.lower() or "range" in status.lower()
 
+    def test_D_toggles_range_lock(self, loaded_viewer, sid_2d):
+        """D key toggles range lock — first press unlocks, second press re-locks."""
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        # First press: locked → unlocked
+        page.keyboard.press("D")
+        page.wait_for_timeout(400)
+        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
+        assert "unlocked" in toast.lower(), f"Expected 'unlocked' toast, got: '{toast}'"
+        # Second press: unlocked → locked
+        page.keyboard.press("D")
+        page.wait_for_timeout(400)
+        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
+        assert "locked" in toast.lower() and "unlocked" not in toast.lower(), \
+            f"Expected 'range: locked' toast on second press, got: '{toast}'"
+        # D should never open inline prompt
+        prompt_visible = page.evaluate(
+            "() => { const p = document.getElementById('inline-prompt'); return p && p.classList.contains('visible'); }"
+        )
+        assert not prompt_visible, "D should not open inline prompt"
+
     def test_L_log_scale_on_shows_log_egg(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
@@ -699,23 +720,23 @@ class TestModeGuards:
             "fixed" in status.lower() or "qmri" in status.lower()
         ), f"Expected colormap-blocked status in qMRI, got: '{status}'"
 
-    def test_D_blocked_in_qmri(self, loaded_viewer, sid_4d):
+    def test_D_toggles_lock_in_qmri(self, loaded_viewer, sid_4d):
+        """D toggles range lock in all modes including qMRI."""
         page = loaded_viewer(sid_4d)
         self._enter_qmri(page, sid_4d)
         _focus_kb(page)
         page.keyboard.press("D")
-        page.wait_for_timeout(300)
-        # inline-prompt uses classList 'visible' not inline style.display
+        page.wait_for_timeout(400)
+        # D should NOT open inline prompt
         prompt_visible = page.evaluate(
             "() => { const p = document.getElementById('inline-prompt'); return p && p.classList.contains('visible'); }"
         )
-        assert not prompt_visible, "D should not open inline prompt in qMRI mode"
-        status = _get_status(page)
-        assert (
-            "range" in status.lower()
-            or "qmri" in status.lower()
-            or "map" in status.lower()
-        ), f"Expected D-blocked status in qMRI, got: '{status}'"
+        assert not prompt_visible, "D should not open inline prompt"
+        # D should show a toggle toast
+        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
+        assert "range" in toast.lower() and ("lock" in toast.lower() or "unlock" in toast.lower()), (
+            f"Expected range lock toast, got: '{toast}'"
+        )
 
     def test_f_fft_blocked_in_qmri(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
@@ -1716,26 +1737,28 @@ class TestColorbarInteractions:
         self, loaded_viewer, sid_2d
     ):
         """Colorbar wheel zooms the range (requires manualVmin set first).
-        Use D key to set [0.2, 0.8] then wheel to zoom → labels showing vmin/vmax should change.
+        Double-click vmin/vmax labels to set [0.2, 0.8] then wheel to zoom → labels should change.
         (Checking pixel RGB is unreliable because zoom is centered on range midpoint,
         so a symmetric array pixel stays at 50% of the new range.)"""
         page = loaded_viewer(sid_2d)
         canvas_cb = page.locator("canvas#slim-cb")
         if not canvas_cb.is_visible():
             pytest.skip("Colorbar not visible")
-        # Set manual range [0.2, 0.8] via D key
-        _focus_kb(page)
-        page.keyboard.press("D")
-        page.wait_for_selector("#inline-prompt.visible", timeout=2000)
-        page.fill("#inline-prompt-input", "0.2")
+        # Set manual range [0.2, 0.8] via double-click on vmin/vmax labels
+        vmin_label = page.locator("#slim-cb-vmin")
+        vmin_label.dblclick()
+        page.wait_for_selector(".cb-val-popup-wrap", timeout=2000)
+        page.fill(".slim-cb-val-input", "0.2")
         page.keyboard.press("Enter")
-        page.wait_for_selector("#inline-prompt.visible", timeout=2000)
-        page.fill("#inline-prompt-input", "0.8")
+        vmax_label = page.locator("#slim-cb-vmax")
+        vmax_label.dblclick()
+        page.wait_for_selector(".cb-val-popup-wrap", timeout=2000)
+        page.fill(".slim-cb-val-input", "0.8")
         page.keyboard.press("Enter")
         page.wait_for_timeout(600)
-        # Verify the labels show the expected vmin/vmax
+        # Verify the labels show the expected vmin/vmax (inline spans, not #slim-cb-labels which is hidden)
         labels_before = page.evaluate(
-            "() => document.getElementById('slim-cb-labels')?.textContent"
+            "() => (document.getElementById('slim-cb-vmin')?.textContent || '') + '|' + (document.getElementById('slim-cb-vmax')?.textContent || '')"
         )
         # Hover over slim colorbar canvas and scroll — this ZOOMS the window
         cb_box = canvas_cb.bounding_box()
@@ -1745,13 +1768,13 @@ class TestColorbarInteractions:
         page.mouse.wheel(0, 200)  # scroll down → expand range (factor=1.1)
         page.wait_for_timeout(600)
         labels_after = page.evaluate(
-            "() => document.getElementById('slim-cb-labels')?.textContent"
+            "() => (document.getElementById('slim-cb-vmin')?.textContent || '') + '|' + (document.getElementById('slim-cb-vmax')?.textContent || '')"
         )
         assert labels_before != labels_after, (
             f"Colorbar labels should change after wheel scroll.\n"
             f"Before: {labels_before!r}\n"
             f"After: {labels_after!r}\n"
-            "Check that manualVmin was set (D key worked) and wheel event fires on #slim-cb."
+            "Check that manualVmin was set (dblclick on vmin/vmax label worked) and wheel event fires on #slim-cb."
         )
 
     def test_colorbar_double_click_resets(self, loaded_viewer, sid_2d):
@@ -1789,7 +1812,6 @@ class TestColorbarInteractions:
         ("c", "qmri", "q", "#qmri-view-wrap canvas", "colormap"),
         ("C", "qmri", "q", "#qmri-view-wrap canvas", "colormap"),
         ("f", "qmri", "q", "#qmri-view-wrap canvas", "fft"),
-        ("D", "qmri", "q", "#qmri-view-wrap canvas", "range"),
         ("g", "multiview", "v", "#multi-view-wrap.active", "gif"),
         ("N", "multiview", "v", "#multi-view-wrap.active", "export"),
         ("z", "multiview", "v", "#multi-view-wrap.active", "mosaic"),

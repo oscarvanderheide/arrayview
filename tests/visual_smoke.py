@@ -37,7 +37,7 @@ DISPLAY
   c               cycle colormap            ✓ 02-03
   C               custom colormap (dialog)  ✗ (requires dialog input)
   d               cycle dynamic range       ✓ 17, 74 (height regression)
-  D               manual vmin/vmax (dialog) ✓ 44 (inline prompt)
+  D               toggle range lock         ✓ 44 (D unlocks → k changes vmin/vmax per slice)
    B               compare picker (dialog)   ✗ (requires dialog interaction)
    P               unified picker – compare  ✓ 45 (uni-picker opens in Side-by-side mode; disabled in inline embed; enabled in native shell iframe)
    Cmd+O / Ctrl+O  unified picker – open     ✓ 45 (uni-picker cycles to open mode; disabled in inline embed; enabled in native shell iframe)
@@ -296,6 +296,11 @@ def run_smoke(page, base, client, tmp):
     # Second 4D qMRI array for compare-qMRI and compare-multiview tests
     arr4d_b = rng.standard_normal((5, 20, 32, 32)).astype(np.float32) * 0.8 + 0.1
     sid4d_b = _load(client, arr4d_b, "arr4d_b", tmp)
+    # 4D array with wildly different scale per dim-0 index (for D-unlock test)
+    arr4d_varied = np.zeros((5, 4, 32, 32), dtype=np.float32)
+    for i in range(5):
+        arr4d_varied[i] = rng.standard_normal((4, 32, 32)).astype(np.float32) * (10**i)
+    sid4d_varied = _load(client, arr4d_varied, "arr4d_varied", tmp)
     # A 3D array with same spatial dims as arr3d for compare-multiview
     arr3d_b = rng.standard_normal((20, 64, 64)).astype(np.float32) * 0.7 + 0.2
     sid3d_b = _load(client, arr3d_b, "arr3d_b", tmp)
@@ -679,19 +684,22 @@ def run_smoke(page, base, client, tmp):
     _press(page, "H", wait=200)  # re-enable
     _shot(page, "43c_hover_tooltip_back_on")
 
-    # ── 44: D key — manual vmin/vmax via inline prompt ───────────────────────
-    _goto(page, base, sid2d)
+    # ── 44: D key — toggle range lock ───────────────────────────────────────
+    # Uses arr4d_varied where each dim-0 index has 10× different scale, so
+    # per-slice vmin/vmax differ dramatically across navigation.
+    _goto(page, base, sid4d_varied)
     _focus(page)
-    _press(page, "D", wait=400)  # opens inline prompt for vmin
-    _shot(page, "44a_D_vmin_prompt")
-    page.locator("#inline-prompt-input").fill("0.2")
-    page.keyboard.press("Enter")
-    page.wait_for_timeout(400)  # opens inline prompt for vmax
-    _shot(page, "44b_D_vmax_prompt")
-    page.locator("#inline-prompt-input").fill("0.8")
-    page.keyboard.press("Enter")
-    page.wait_for_timeout(400)
-    _shot(page, "44c_D_range_locked")
+    _press(page, "d", wait=600)  # open histogram
+    _press(page, "d", wait=600)  # cycle to 1-99% quantile (volume range)
+    _shot(page, "44a_D_locked_volume_range")
+    _press(page, "D", wait=400)  # unlock — should immediately re-render per-slice
+    _shot(page, "44b_D_unlocked_per_slice")
+    _press(page, "k", wait=400)  # scroll to next slice along dim 0
+    _shot(page, "44c_D_unlocked_after_k")
+    _press(page, "k", wait=400)  # scroll again — vmin/vmax should change again
+    _shot(page, "44d_D_unlocked_after_k2")
+    _press(page, "D", wait=400)  # re-lock
+    _shot(page, "44e_D_relocked")
 
     # ── 45: unified picker — Cmd+O/Ctrl+O and P keys open #uni-picker ───────────────────
     # Cycle: open → compare → overlay → open…

@@ -272,6 +272,12 @@
         .active-vfield-t { font-weight: bold; }
         .dim-sep { color: var(--muted); opacity: 0.4; font-weight: normal; }
         .spatial-dim { color: var(--spatial-dim); font-weight: bold; }
+        @keyframes hist-scope-pulse {
+            0%   { text-shadow: 0 0 10px var(--active-dim); }
+            60%  { text-shadow: 0 0 5px var(--active-dim); }
+            100% { text-shadow: none; }
+        }
+        .dim-label.hist-scope-pulse { animation: hist-scope-pulse 500ms ease-out forwards; }
         .muted { color: var(--muted); }
         .dim-label {
             cursor: pointer; padding: 1px 5px; margin: 0 -5px;
@@ -1851,6 +1857,7 @@
         const PROJECTION_LABELS = ['MAX', 'MIN', 'MEAN', 'STD', 'SOS', 'SUM'];
         const PROJECTION_COLORS = ['#4cc9f0', '#ff6b6b', '#80ed99', '#c77dff', '#ffa62b'];
         let alphaLevel = 0; // 0=off, 1=on (transparent below vmin)
+        let rangeLocked = true; // when true, d-set limits never auto-recompute on navigation
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
         let rasResampleActive = false;
         let multiViewActive = false;
@@ -3576,7 +3583,9 @@
             slimCbCanvas.style.width = '';
             slimCbCanvas.style.display = '';
             if (wrap) wrap.style.display = '';
-            // Auto-refresh histogram when expanded but data is stale
+            // Auto-refresh histogram display when expanded but data is stale
+            // (volume changed via fixed-dim navigation). Does NOT touch vmin/vmax —
+            // those are managed by _maybeAutoRecomputeRange in unlocked mode.
             if (primaryCb._expanded && !_histFetching) {
                 const stale = !_histData || (!compareActive && _histDataVersion !== _expectedHistKey());
                 if (stale) {
@@ -3584,7 +3593,10 @@
                     const fetcher = compareActive ? _fetchHistogramCompare : () => _fetchVolumeHistogram(_volHistSpatialOpts());
                     fetcher().then((d) => {
                         if (d && !compareActive) _histData = d;
-                        if (primaryCb._expanded) { _buildKDE(); drawSlimColorbar(cbMarkerFrac); }
+                        if (primaryCb._expanded) {
+                            _buildKDE();
+                            drawSlimColorbar(cbMarkerFrac);
+                        }
                     });
                 }
             }
@@ -4914,6 +4926,118 @@
                 parts.push(`${i}:${indices[i]}`);
             }
             return `${dx}:${dy}:${sd}:${parts.join(',')}:${complexMode}`;
+        }
+
+        /**
+         * In unlocked mode, clear manualVmin/manualVmax so the next render
+         * uses the server's per-slice 1-99% range (effectively recomputing
+         * vmin/vmax from whatever data is currently visible). Called from
+         * navigation paths so every j/k/h/l press in unlocked mode picks up
+         * the new slice's range.
+         */
+        function _maybeAutoRecomputeRange() {
+            if (rangeLocked) return;
+            manualVmin = null;
+            manualVmax = null;
+            cmpManualVmin.fill(null);
+            cmpManualVmax.fill(null);
+            if (multiViewActive) {
+                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+            }
+        }
+
+        /** Briefly pulse the dimbar labels that were sampled for the volume histogram. */
+        function _pulseHistDims() {
+            const info = document.getElementById('info');
+            if (!info) return;
+            let scopeDims;
+            if (multiViewActive && mvDims && mvDims.length === 3) {
+                scopeDims = [...mvDims];
+            } else {
+                const sd = dim_z >= 0 ? dim_z : current_slice_dim;
+                scopeDims = [dim_x, dim_y];
+                if (sd >= 0 && sd !== dim_x && sd !== dim_y) scopeDims.push(sd);
+            }
+            scopeDims.forEach(d => {
+                const el = info.querySelector(`[data-dim="${d}"]`);
+                if (!el) return;
+                el.classList.remove('hist-scope-pulse');
+                void el.offsetWidth; // force reflow so animation restarts
+                el.classList.add('hist-scope-pulse');
+            });
+            setTimeout(() => {
+                scopeDims.forEach(d => {
+                    const el = info && info.querySelector(`[data-dim="${d}"]`);
+                    if (el) el.classList.remove('hist-scope-pulse');
+                });
+            }, 600);
+        }
+
+        const _QUANTILE_PRESETS = [
+            { label: 'full range', lo: 0,    hi: 1    },
+            { label: '1\u201399%', lo: 0.01, hi: 0.99 },
+            { label: '5\u201395%', lo: 0.05, hi: 0.95 },
+            { label: '10\u201390%', lo: 0.10, hi: 0.90 },
+        ];
+
+        /**
+         * Cycle to the next quantile preset and apply it to _histData,
+         * setting manualVmin/manualVmax (and per-pane/per-view equivalents).
+         * Returns the applied preset, or null if no histogram data is available.
+         */
+        function _cycleQuantilePreset() {
+            if (!_histData || !_histData.counts) return null;
+            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
+            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            if (preset.lo === 0 && preset.hi === 1) {
+                manualVmin = _histData.vmin;
+                manualVmax = _histData.vmax;
+            } else {
+                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                const total = counts.reduce((a, b) => a + b, 0);
+                let cumLo = 0, cumHi = 0;
+                let qLo = dmin, qHi = dmax;
+                for (let i = 0; i < counts.length; i++) {
+                    cumLo += counts[i];
+                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+                }
+                for (let i = counts.length - 1; i >= 0; i--) {
+                    cumHi += counts[i];
+                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                }
+                manualVmin = qLo;
+                manualVmax = qHi;
+            }
+            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+            if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
+            return preset;
+        }
+
+        /**
+         * (Re)start the 3-second auto-dismiss timer for the expanded histogram.
+         * If the mouse is still hovering when the timer fires, defer until mouseleave.
+         */
+        function _restartHistAutoDismiss() {
+            if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
+            _histAutoDismissTimer = setTimeout(() => {
+                _histAutoDismissTimer = null;
+                if (!primaryCb._mouseOver && primaryCb._expanded) {
+                    lebesgueMode = false;
+                    primaryCb._expanded = false;
+                    _clearLebesgueOverlay();
+                    const tz = document.getElementById('slim-cb-tri-zone');
+                    if (tz) tz.classList.remove('expanded');
+                    primaryCb.startAnim(false);
+                    if (multiViewActive || compareMvActive) {
+                        drawMvColorbar();
+                    } else {
+                        drawSlimColorbar(cbMarkerFrac);
+                    }
+                } else if (primaryCb._mouseOver && primaryCb._expanded) {
+                    _histAutoDismissPending = true;
+                }
+            }, 3000);
         }
 
         /** Fetch histogram for all compare sessions and merge bins element-wise. */
@@ -7154,8 +7278,7 @@
 
         function updateView() {
             renderInfo();
-            // Invalidate cached histogram data so next colorbar hover re-fetches
-            _histDataVersion = null;
+            _maybeAutoRecomputeRange();
             // Lebesgue / hover caches are version-keyed, so stale entries are
             // never served for the wrong slice.  Don't eagerly clear — the old
             // data remains harmless while the async re-fetch is in flight, and
@@ -9589,51 +9712,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (rgbMode) return;
 
                     if (lebesgueMode && _histData) {
+                        _pulseHistDims();
                         // Re-fetch if histogram data is stale for current dim config
                         if (_histDataVersion !== _expectedHistKey()) {
                             const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                             if (volData) { _histData = volData; _buildKDE(); }
                         }
                         // Histogram mode open: cycle quantile presets with smooth indicator updates
-                        const _QUANTILE_PRESETS = [
-                            { label: 'full range', lo: 0, hi: 1 },
-                            { label: '1–99%', lo: 0.01, hi: 0.99 },
-                            { label: '5–95%', lo: 0.05, hi: 0.95 },
-                            { label: '10–90%', lo: 0.10, hi: 0.90 },
-                        ];
-                        if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
-                        window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
-                        const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-                        if (preset.lo === 0 && preset.hi === 1) {
-                            // Use histogram's true data range, not null (which falls back to per-slice 1-99%)
-                            manualVmin = _histData.vmin; manualVmax = _histData.vmax;
-                        } else {
-                            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                            const total = counts.reduce((a, b) => a + b, 0);
-                            let cumLo = 0, cumHi = 0;
-                            let qLo = dmin, qHi = dmax;
-                            for (let i = 0; i < counts.length; i++) {
-                                cumLo += counts[i];
-                                if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                            }
-                            for (let i = counts.length - 1; i >= 0; i--) {
-                                cumHi += counts[i];
-                                if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                            }
-                            manualVmin = qLo;
-                            manualVmax = qHi;
+                        const preset = _cycleQuantilePreset();
+                        if (preset) {
+                            proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                            primaryCb.ensureAnimating();
+                            showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                         }
-                        cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                        // Sync per-view locked ranges so multiview renders use the new values
-                        if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
-                        proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                        primaryCb.ensureAnimating();
-                        showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                     } else {
                         // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
                         if (!primaryCb._expanded) {
                             // First press: expand histogram
                             _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
+                            _pulseHistDims();
                             _computeCbExpandedH();
                             primaryCb._expanded = true;
                             const triZone = document.getElementById('slim-cb-tri-zone');
@@ -9654,112 +9751,42 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 drawSlimColorbar(cbMarkerFrac);
                             }
                             showStatus('histogram');
-                            // Auto-dismiss after 3s; if mouse still over, defer until mouseleave
-                            if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                            _histAutoDismissTimer = setTimeout(() => {
-                                _histAutoDismissTimer = null;
-                                if (!primaryCb._mouseOver && primaryCb._expanded) {
-                                    lebesgueMode = false;
-                                    primaryCb._expanded = false;
-                                    _clearLebesgueOverlay();
-                                    const tz = document.getElementById('slim-cb-tri-zone');
-                                    if (tz) tz.classList.remove('expanded');
-                                    primaryCb.startAnim(false);
-                                    if (multiViewActive || compareMvActive) {
-                                        drawMvColorbar();
-                                    } else {
-                                        drawSlimColorbar(cbMarkerFrac);
-                                    }
-                                } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                                    _histAutoDismissPending = true;
-                                }
-                            }, 3000);
+                            _restartHistAutoDismiss();
                         } else {
                             // Subsequent presses: cycle quantile presets
+                            _pulseHistDims();
                             // Re-fetch if histogram data is stale for current dim config
                             if (!_histData || _histDataVersion !== _expectedHistKey()) {
                                 const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
                                 if (volData) { _histData = volData; _buildKDE(); }
                             }
-                            const _QUANTILE_PRESETS = [
-                                { label: 'full range', lo: 0, hi: 1 },
-                                { label: '1\u201399%', lo: 0.01, hi: 0.99 },
-                                { label: '5\u201395%', lo: 0.05, hi: 0.95 },
-                                { label: '10\u201390%', lo: 0.10, hi: 0.90 },
-                            ];
-                            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
-                            window._dQuantileIdx = (window._dQuantileIdx + 1) % _QUANTILE_PRESETS.length;
-                            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
-                            if (preset.lo === 0 && preset.hi === 1) {
-                                // Use histogram's true data range, not null (which falls back to per-slice 1-99%)
-                                if (_histData) { manualVmin = _histData.vmin; manualVmax = _histData.vmax; }
-                                else { manualVmin = null; manualVmax = null; }
-                            } else if (_histData && _histData.counts) {
-                                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
-                                const total = counts.reduce((a, b) => a + b, 0);
-                                let cumLo = 0, cumHi = 0;
-                                let qLo = dmin, qHi = dmax;
-                                for (let i = 0; i < counts.length; i++) {
-                                    cumLo += counts[i];
-                                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
-                                }
-                                for (let i = counts.length - 1; i >= 0; i--) {
-                                    cumHi += counts[i];
-                                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
-                                }
-                                manualVmin = qLo; manualVmax = qHi;
+                            const preset = _cycleQuantilePreset();
+                            if (preset) {
+                                proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
+                                primaryCb.ensureAnimating();
+                                showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
                             }
-                            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                            // Sync per-view locked ranges so multiview renders use the new values
-                            if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
-                            proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                            primaryCb.ensureAnimating();
-                            showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
-                            // Reset auto-dismiss timer; if mouse still over, defer until mouseleave
-                            if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
-                            _histAutoDismissTimer = setTimeout(() => {
-                                _histAutoDismissTimer = null;
-                                if (!primaryCb._mouseOver && primaryCb._expanded) {
-                                    lebesgueMode = false;
-                                    primaryCb._expanded = false;
-                                    _clearLebesgueOverlay();
-                                    const tz = document.getElementById('slim-cb-tri-zone');
-                                    if (tz) tz.classList.remove('expanded');
-                                    primaryCb.startAnim(false);
-                                    if (multiViewActive || compareMvActive) {
-                                        drawMvColorbar();
-                                    } else {
-                                        drawSlimColorbar(cbMarkerFrac);
-                                    }
-                                } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                                    _histAutoDismissPending = true;
-                                }
-                            }, 3000);
+                            _restartHistAutoDismiss();
                         }
                     }
                     saveState();
                 },
             },
-            'range.promptManual': {
-                title: 'Prompt for manual vmin/vmax',
+            'range.toggleLock': {
+                title: 'Toggle range lock',
                 when: [],
-                run: async (ctx, e) => {
-                    if (qmriActive || compareQmriActive) { showStatus('manual range: maps have independent ranges in qMRI mode'); return; } // kept inline: emits toast
-                    const v1 = await showInlinePrompt('vmin:', _cbFmtPlain(currentVmin));
-                    if (v1 === null) return;
-                    const v2 = await showInlinePrompt('vmax:', _cbFmtPlain(currentVmax));
-                    if (v2 === null) return;
-                    const mn = parseFloat(v1), mx = parseFloat(v2);
-                    if (isNaN(mn) || isNaN(mx) || mn >= mx) { showStatus('Invalid range'); return; }
-                    manualVmin = mn; manualVmax = mx; currentVmin = mn; currentVmax = mx;
-                    cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-                    mvViews.forEach(v => { v.lockedVmin = mn; v.lockedVmax = mx; v.seq++; });
-                    proxyFetch(`/clearcache/${sid}`).then(() => {
-                        mvViews.forEach(v => { v.rendering = false; v.pending = false; });
-                        updateView();
-                    });
-                    drawSlimColorbar(cbMarkerFrac);
-                    showStatus(`range locked: ${_cbFmtPlain(mn)} – ${_cbFmtPlain(mx)}`);
+                run: (ctx, e) => {
+                    rangeLocked = !rangeLocked;
+                    showToast(rangeLocked ? 'range: locked' : 'range: unlocked');
+                    if (!rangeLocked) {
+                        // Immediately re-render with per-slice values
+                        if (multiViewActive) {
+                            _maybeAutoRecomputeRange();
+                            mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        } else {
+                            updateView();
+                        }
+                    }
                 },
             },
             'alpha.cycleLevel': {
@@ -10237,6 +10264,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
                         indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        _maybeAutoRecomputeRange();
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         _debouncedHoverPrefetch();
@@ -10268,6 +10296,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
                         indices[activeDim] = Math.max(0, indices[activeDim] - 1);
+                        _maybeAutoRecomputeRange();
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         _debouncedHoverPrefetch();
@@ -10359,7 +10388,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
             { key: 'd', command: 'histogram.openOrCycle' },
-            { key: 'D', command: 'range.promptManual' },
+            { key: 'D', command: 'range.toggleLock' },
             { key: 'j', command: 'slice.prev' },
             { key: 'ArrowDown', command: 'slice.prev' },
             { key: 'k', command: 'slice.next' },
@@ -10472,7 +10501,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Cycle colormap', hint: 'grayscale, viridis, turbo, and more' },
-                            { key: 'd', action: 'Cycle display range presets', hint: 'clips outliers — press repeatedly to tighten' },
+                            { key: 'd', action: 'Open histogram / cycle quantile presets', hint: 'first press shows the volume histogram; repeat to tighten outliers' },
+                            { key: 'D', action: 'Toggle range lock', hint: 'unlock to make vmin/vmax follow the current slice; lock (default) to freeze' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
                             { key: 'b', action: 'Toggle canvas borders' },
@@ -14308,14 +14338,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cb._expandedH = _cbExpandedH || CB_DEFAULT_EXPANDED_H;
             cb.draw();
             cb.updateLabels();
-            // Auto-refresh histogram when expanded but data is stale
+            // Auto-refresh histogram display when expanded but data is stale
+            // (volume changed via fixed-dim navigation). Does NOT touch vmin/vmax.
             if (primaryCb._expanded && !_histFetching) {
-                const stale = !_histData || _histDataVersion !== _expectedHistKey();
+                const stale = !_histData || (_histDataVersion !== _expectedHistKey());
                 if (stale) {
                     _histData = null; _kdeSmooth = null;
                     _fetchVolumeHistogram(_volHistSpatialOpts()).then((d) => {
                         if (d) _histData = d;
-                        if (primaryCb._expanded) { _buildKDE(); drawMvColorbar(); }
+                        if (primaryCb._expanded) {
+                            _buildKDE();
+                            drawMvColorbar();
+                        }
                     });
                 }
             }

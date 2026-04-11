@@ -8,7 +8,7 @@
 ## Dynamic range
 
 `d` cycles quantile presets: 0–100%, 1–99%, 5–95%, 10–90%. Expands the colorbar into a histogram.
-`D` sets vmin/vmax manually — locked until next `d`.
+`D` toggles range lock. Locked (default): the range from `d` stays fixed during navigation. Unlocked: vmin/vmax auto-recompute per slice.
 
 ## Window / level
 
