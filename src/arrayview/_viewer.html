@@ -5535,6 +5535,19 @@
             forEachView(fn) { this.currentViews.forEach(fn); },
         };
 
+        // ─ 7. LAYOUT_REGISTRY ─────────────────────────────────────────────
+        const LAYOUT_REGISTRY = {
+            'normal':       () => new NormalLayout(),
+            'multiview':    () => new MultiViewLayout(),
+            'compare':      () => new CompareLayout(),
+            'compare-mv':   () => new CompareMvLayout(),
+            'compare-qmri': () => new CompareQmriLayout(),
+            'qmri':         () => new QmriLayout(),
+            'qmri-mosaic':  () => new QmriLayout(),   // mosaic is a QmriLayout variant
+            'mip':          () => new MipLayout(),
+            'diff':         () => new CompareLayout(), // diff is a CompareLayout sub-mode
+        };
+
         // Track mouse so getViewUnderMouse works
         document.addEventListener('mousemove', e => {
             modeManager._lastMouseXY = { x: e.clientX, y: e.clientY };
@@ -7901,6 +7914,9 @@
                 manualVmin,
                 manualVmax,
                 vfieldVisible,
+                // Phase 15: View component state (per-pane, for future applyStateSnapshot)
+                viewStates: modeManager.currentViews.map(v => v.serialize()),
+                mmModeName: modeManager.modeName,
             };
         }
 
@@ -8018,6 +8034,23 @@
             else if (colormap_idx !== -1) {
                 customColormap = null;
                 customGradientStops = null;
+            }
+            // Phase 15: restore per-pane view states if present
+            if (Array.isArray(s.viewStates) && s.viewStates.length > 0
+                && modeManager.currentViews.length === s.viewStates.length) {
+                s.viewStates.forEach((savedState, i) => {
+                    const v = modeManager.currentViews[i];
+                    if (v && savedState) {
+                        // displayState is stored as a JSON string by View.serialize()
+                        const ds = (typeof savedState.displayState === 'string')
+                            ? JSON.parse(savedState.displayState)
+                            : (savedState.displayState || savedState);
+                        if (Number.isFinite(ds.vmin)) v.displayState.vmin = ds.vmin;
+                        if (Number.isFinite(ds.vmax)) v.displayState.vmax = ds.vmax;
+                        if (Number.isInteger(ds.cmapIdx)) v.displayState.cmapIdx = ds.cmapIdx;
+                        if (typeof ds.logScale === 'boolean') v.displayState.logScale = ds.logScale;
+                    }
+                });
             }
             return true;
         }

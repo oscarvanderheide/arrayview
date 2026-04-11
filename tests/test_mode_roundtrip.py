@@ -204,7 +204,9 @@ HANGING_COMBOS = {
 
 
 # Fields allowed to differ in every diff (timing/internal, not user-facing state).
-IGNORED_FIELDS_GLOBAL: set[str] = set()
+# viewStates/mmModeName are Phase 15 additions that mirror existing fields
+# (manualVmin/vmax, logScale, colormap_idx) already tracked per-field above.
+IGNORED_FIELDS_GLOBAL: set[str] = {"viewStates", "mmModeName"}
 
 # Fields each perturbation is DELIBERATELY supposed to change. These are the
 # user-visible side-effects of the key press itself; preserving them across

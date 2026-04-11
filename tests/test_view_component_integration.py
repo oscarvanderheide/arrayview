@@ -325,3 +325,19 @@ def test_mip_mode_populates_modemanager(loaded_viewer, sid_3d):
     page.wait_for_timeout(500)
     assert result.get("mode") == "mip"
     assert result.get("count") >= 1
+
+
+def test_state_snapshot_includes_view_states(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""() => {
+        const snap = collectStateSnapshot();
+        return {
+            hasViewStates: Array.isArray(snap.viewStates),
+            hasModeName: typeof snap.mmModeName === 'string',
+            viewCount: snap.viewStates?.length ?? 0,
+        };
+    }""")
+    assert result["hasViewStates"] is True
+    assert result["hasModeName"] is True
+    assert result["viewCount"] >= 1
