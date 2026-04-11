@@ -3050,7 +3050,7 @@
                     getStops: () => _diffCenterColormapStops || COLORMAP_GRADIENT_STOPS[diffMode === 1 ? 'RdBu_r' : 'afmhot'] || COLORMAP_GRADIENT_STOPS['gray'] || [],
                     getRange: () => ({ vmin: _lastDiffVmin, vmax: _lastDiffVmax }),
                     getWindow: () => ({ vmin: _diffManualVmin ?? _lastDiffVmin, vmax: _diffManualVmax ?? _lastDiffVmax }),
-                    setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; },
+                    setWindow: (lo, hi) => { _diffManualVmin = lo; _diffManualVmax = hi; { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } } },
                     fetchHistogram: () => _fetchDiffHistogram(),
                     onWindowChange: () => { fetchAndDrawDiff(); },
                 });
@@ -3070,6 +3070,7 @@
             }
             _diffCenterCb = null;
             _diffManualVmin = null; _diffManualVmax = null;
+            { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } }
             _updateComparePaneSyncPairing();
         }
 
@@ -3149,6 +3150,38 @@
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
+            // Phase 5: sync diff center pane into modeManager
+            if (diffMode > 0 && compareActive) {
+                // Add or update a center diff View in modeManager.currentViews
+                let centerView = modeManager.getViewById('compare-diff-center');
+                if (!centerView) {
+                    const ds = makeDisplayState({ vmin: _diffManualVmin, vmax: _diffManualVmax });
+                    const sessions = modeManager.currentViews.slice(0,2).map(v => v.session);
+                    centerView = new View({
+                        id: 'compare-diff-center', role: 'diff-center',
+                        session: sessions[0] || modeManager.currentViews[0]?.session,
+                        displayState: ds, slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('compare-wrap') || document.body,
+                    });
+                    centerView._initialized = true;
+                    // Find the diff center canvas
+                    const diffPane = document.getElementById('compare-diff-pane');
+                    if (diffPane) {
+                        centerView.canvas = diffPane.querySelector('canvas');
+                        centerView.wrapper = diffPane;
+                    }
+                    if (_diffCenterCb) centerView.colorBar = _diffCenterCb;
+                    modeManager.currentViews.push(centerView);
+                } else {
+                    // Update existing
+                    centerView.displayState.vmin = _diffManualVmin;
+                    centerView.displayState.vmax = _diffManualVmax;
+                    if (_diffCenterCb && !centerView.colorBar) centerView.colorBar = _diffCenterCb;
+                }
+            } else {
+                // Remove diff center view if present
+                modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-diff-center');
+            }
         }
 
         function _positionCompareModeStrip(el) {
@@ -10280,6 +10313,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) {
                                     _diffManualVmin = q.vmin;
                                     _diffManualVmax = q.vmax;
+                                    { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } }
                                     _diffCenterCb.draw();
                                     _diffCenterCb.ensureAnimating();
                                     fetchAndDrawDiff();
