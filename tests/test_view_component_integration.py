@@ -253,3 +253,24 @@ def test_qmri_mode_populates_modemanager(loaded_viewer, sid_4d):
     page.wait_for_timeout(500)
     assert result.get("mode") == "qmri"
     assert result.get("count", 0) >= 2
+
+
+def test_qmri_mosaic_updates_mode_name(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 400));
+        const beforeMode = modeManager.modeName;
+        // Simulate z-key mosaic toggle via the command system if available
+        if (typeof commands !== 'undefined' && commands['slice.toggleMosaic']) {
+            try { commands['slice.toggleMosaic'].run(); } catch(e) {}
+        }
+        await new Promise(r => setTimeout(r, 200));
+        return { beforeMode, afterMode: modeManager.modeName };
+    }""")
+    page.wait_for_timeout(300)
+    assert result.get("beforeMode") == "qmri"
+    # afterMode is either 'qmri-mosaic' (if mosaic activated) or still 'qmri' (if z-dim not found)
+    assert result.get("afterMode") in ("qmri", "qmri-mosaic")

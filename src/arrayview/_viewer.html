@@ -10120,6 +10120,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             qvScaleAllCanvases();
                             qmriViews.forEach(v => qvRender(v));
                             showStatus('qMRI mosaic: off');
+                            // Phase 9: restore qmri modeName
+                            modeManager.modeName = 'qmri';
+                            modeManager.currentViews.forEach((v, i) => {
+                                const legacyV = qmriViews[i];
+                                if (legacyV?._colorBar) v.colorBar = legacyV._colorBar;
+                            });
+                            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'qmri' } }));
                         } else {
                             // Find z-dim: not dim_x, not dim_y, not qmriDim
                             if (shape.length < 4) { showStatus('mosaic: need 4D+ array'); return; }
@@ -10134,6 +10141,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             qvScaleAllCanvases();
                             qmriViews.forEach(v => qvRender(v));
                             showStatus(`qMRI mosaic: ${shape[zd]} z-slices`);
+                            // Phase 9: update modeManager modeName and colorBars
+                            modeManager.modeName = 'qmri-mosaic';
+                            modeManager.currentViews.forEach((v, i) => {
+                                const legacyV = qmriViews[i];
+                                if (legacyV?._mosaicColorBar) v.colorBar = legacyV._mosaicColorBar;
+                            });
+                            document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'qmri-mosaic' } }));
                         }
                         return;
                     }
