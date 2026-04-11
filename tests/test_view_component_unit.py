@@ -131,15 +131,16 @@ def test_view_rgb_capabilities(loaded_viewer, sid_3d):
     assert result["log"] is False
 
 
-def test_mode_manager_empty_initial_state(loaded_viewer, sid_3d):
+def test_mode_manager_initial_state(loaded_viewer, sid_3d):
+    """After boot, modeManager has exactly one view in normal mode."""
     page = loaded_viewer(sid_3d)
     result = page.evaluate("""() => ({
         exists: typeof modeManager !== 'undefined',
-        views: modeManager.getAllViews(),
+        viewCount: modeManager.getAllViews().length,
         mode: modeManager.modeName,
     })""")
     assert result["exists"] is True
-    assert result["views"] == []
+    assert result["viewCount"] == 1  # boot enters NormalLayout
     assert result["mode"] == "normal"
 
 

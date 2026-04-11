@@ -1557,6 +1557,7 @@
             document.body.classList.add('fullscreen-mode');
         }
         const sid = urlParams.get('sid');
+        window.currentSid = sid;  // expose for page.evaluate() access in tests and embeds
         const overlay_sid = urlParams.get('overlay_sid') || null;
         // overlay_colors: comma-separated hex palette for multiple overlays (auto-assigned if absent)
         const _OVERLAY_PALETTE = ['ff4444','44cc44','4488ff','ffcc00','ff44ff','44ffff'];
@@ -6704,6 +6705,9 @@
             // initialize per-dimension flip flags
             flipDims = {};
             for (let i = 0; i < shape.length; i++) flipDims[i] = false;
+            // Phase 2: enter normal mode via modeManager (before restoreState so shims are live)
+            const _bootSession = { sid: sid, ndim: shape.length, isComplex: isComplex, isRgb: rgbMode };
+            await modeManager.enterMode(new NormalLayout(), [_bootSession]);
             restoreStateFromSessionStorage();
             if (stateParam) {
                 const decodedUrlState = decodeStateParam(stateParam);
