@@ -1852,6 +1852,7 @@
         let _cmvPrevSquareStretch = false;
         let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
         let _comparePrevZoom = 1.0;  // saved on enterCompareMode, restored on exitCompareMode
+        let _comparePrevNormalView = null; // Phase 4: saved primary View, restored on exitCompareMode
         let _eggsVisible = true;
         // (auto-compact check removed — fullscreen mode is automatic via zoom)
         let _complexEggVisible = false;
@@ -11674,6 +11675,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 updateView();
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
                 showStatus(`compare: ${compareName}`);
+                // Phase 4: sync modeManager
+                {
+                    // Save the existing primary View on first enter so exitCompareMode can restore it.
+                    if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
+                    const _cmpSids = compareSidList.length ? [targetSid, sid] : [targetSid];
+                    const _cmpN = Math.max(2, _cmpSids.length);
+                    const _cmpClips = document.querySelectorAll('.compare-canvas-clip');
+                    const _cmpViews = Array.from({ length: _cmpN }, (_, i) => {
+                        const clip = _cmpClips[i] || null;
+                        const canvas = clip ? clip.querySelector('canvas') : null;
+                        const ds = makeDisplayState({ vmin: cmpManualVmin[i], vmax: cmpManualVmax[i] });
+                        const _cmpSid = i === 0 ? sid : (compareSidList[i - 1] || targetSid);
+                        const session = { sid: _cmpSid, ndim: shape.length, isComplex };
+                        const v = new View({ id: 'compare-' + i, role: 'compare', session, displayState: ds,
+                            slicer: new FreeSliceSlicer(), container: clip || document.body });
+                        v.canvas = canvas || null;
+                        v.wrapper = clip || null;
+                        v._initialized = true;  // skip init() — legacy DOM already set up
+                        return v;
+                    });
+                    modeManager.currentViews = _cmpViews;
+                    modeManager.currentLayout = new CompareLayout();
+                    modeManager.modeName = 'compare';
+                    document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+                }
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -11720,6 +11746,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
                 const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
                 showStatus(`compare: ${names.join(' · ')}`);
+                // Phase 4: sync modeManager
+                {
+                    // Save the existing primary View on first enter so exitCompareMode can restore it.
+                    if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
+                    const _cmpN = sids.length;
+                    const _cmpClips = document.querySelectorAll('.compare-canvas-clip');
+                    const _cmpViews = Array.from({ length: _cmpN }, (_, i) => {
+                        const clip = _cmpClips[i] || null;
+                        const canvas = clip ? clip.querySelector('canvas') : null;
+                        const ds = makeDisplayState({ vmin: cmpManualVmin[i], vmax: cmpManualVmax[i] });
+                        const session = { sid: sids[i], ndim: shape.length, isComplex };
+                        const v = new View({ id: 'compare-' + i, role: 'compare', session, displayState: ds,
+                            slicer: new FreeSliceSlicer(), container: clip || document.body });
+                        v.canvas = canvas || null;
+                        v.wrapper = clip || null;
+                        v._initialized = true;  // skip init() — legacy DOM already set up
+                        return v;
+                    });
+                    modeManager.currentViews = _cmpViews;
+                    modeManager.currentLayout = new CompareLayout();
+                    modeManager.modeName = 'compare';
+                    document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+                }
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -12312,6 +12361,43 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _updateHeaderNameForCompare();
             updateView();
             showStatus('compare: off');
+            // Phase 4: sync modeManager back to normal (same shallow pattern as exitMultiView)
+            {
+                // Null out compare View references before discarding so nothing
+                // inadvertently touches legacy DOM or colorbars (already cleaned up above).
+                modeManager.currentViews.forEach(v => {
+                    v.canvas = null; v.wrapper = null; v.colorBar = null;
+                    v.layers.forEach(l => l.destroy());
+                    v.layers = [];
+                    v._initialized = false;
+                });
+                // Restore the pre-compare normal View if we saved one, otherwise rebuild.
+                if (_comparePrevNormalView) {
+                    modeManager.currentViews = [_comparePrevNormalView];
+                    _comparePrevNormalView = null;
+                } else {
+                    const _mmSession = { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                    const _nmView = new View({
+                        id: 'normal',
+                        role: 'primary',
+                        session: _mmSession,
+                        displayState: makeDisplayState(),
+                        slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('canvas-wrap') || document.body,
+                    });
+                    const _existingCanvas = document.getElementById('canvas');
+                    if (_existingCanvas) {
+                        _nmView.canvas = _existingCanvas;
+                        _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
+                    }
+                    _nmView.colorBar = primaryCb;
+                    _nmView._initialized = true;
+                    modeManager.currentViews = [_nmView];
+                }
+                modeManager.currentLayout = new NormalLayout();
+                modeManager.modeName = 'normal';
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            }
         }
 
         // --------------- Multi-view (3-plane) ---------------
