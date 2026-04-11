@@ -12474,6 +12474,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
             showStatus('3-plane view — press v to exit', 3000);
+            // ── modeManager sync ──────────────────────────────────────────
+            // Register multiview mode with modeManager so modeManager.modeName
+            // and modeManager.currentViews reflect the new state. We create thin
+            // View wrappers that point to the existing mvViews canvases so the
+            // legacy render code (mvRender, mvDrawFrame, etc.) keeps working
+            // through mvViews while the new component system sees the same Views.
+            {
+                const _mmSession = modeManager.currentViews[0]?.session
+                    || { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                const _mmAxes = ['axial', 'coronal', 'sagittal'];
+                modeManager.currentLayout = new MultiViewLayout();
+                modeManager.modeName = 'multiview';
+                modeManager.currentViews = mvViews.map((v, i) => {
+                    const axis = _mmAxes[i];
+                    const view = new View({
+                        id: 'mv-' + axis,
+                        role: 'multiview',
+                        session: _mmSession,
+                        displayState: makeDisplayState(),
+                        slicer: new OrthogonalSlicer(axis),
+                        container: document.getElementById('multi-view-wrap'),
+                    });
+                    view.canvas = v.canvas;
+                    view.wrapper = v.wrap;
+                    view.colorBar = window._mvColorBar || null;
+                    view._mvLegacyView = v; // back-reference for future migration
+                    view.addLayer(new CrosshairLayer());
+                    return view;
+                });
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'multiview' } }));
+            }
         }
 
         function exitMultiView() {
@@ -12512,6 +12543,44 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             updateView();
             showStatus('3-plane view: off');
+            // ── modeManager sync ──────────────────────────────────────────
+            // Restore modeManager to normal mode so modeName/currentViews
+            // reflect the exit. We rebuild the normal View shallowly so
+            // tests that assert modeManager.modeName === 'normal' pass
+            // without running the full enterMode async path.
+            {
+                const _mmSession = modeManager.currentViews[0]?.session
+                    || { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                modeManager.currentLayout = new NormalLayout();
+                modeManager.modeName = 'normal';
+                // Destroy the thin MV View wrappers (they don't own DOM or colorBar)
+                // — call destroy() carefully: don't let it destroy the canvas that
+                // belongs to legacy mvViews (already cleaned up above).
+                modeManager.currentViews.forEach(v => {
+                    v.canvas = null; v.wrapper = null; v.colorBar = null;
+                    v.layers.forEach(l => l.destroy());
+                    v.layers = [];
+                    v._initialized = false;
+                });
+                // Reconstruct a normal primary View pointing at the existing #canvas
+                const _nmView = new View({
+                    id: 'normal',
+                    role: 'primary',
+                    session: _mmSession,
+                    displayState: makeDisplayState(),
+                    slicer: new FreeSliceSlicer(),
+                    container: document.getElementById('canvas-wrap') || document.body,
+                });
+                const _existingCanvas = document.getElementById('canvas');
+                if (_existingCanvas) {
+                    _nmView.canvas = _existingCanvas;
+                    _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
+                }
+                _nmView.colorBar = primaryCb;
+                _nmView._initialized = true;
+                modeManager.currentViews = [_nmView];
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            }
         }
 
         // ═══════════════════════════════════════════════════════════

@@ -97,3 +97,27 @@ def test_multiview_layout_creates_three_views(loaded_viewer, sid_3d):
     axes = page.evaluate("() => modeManager.currentViews.map(v => v.slicer.axis)")
     assert count == 3
     assert set(axes) == {"axial", "coronal", "sagittal"}
+
+
+def test_v_key_enters_multiview_via_mode_manager(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    result = page.evaluate("() => ({mode: modeManager.modeName, count: modeManager.currentViews.length})")
+    assert result["mode"] == "multiview"
+    assert result["count"] == 3
+
+
+def test_v_key_exits_multiview_back_to_normal(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    page.keyboard.press("v")
+    page.wait_for_timeout(500)
+    result = page.evaluate("() => ({mode: modeManager.modeName, count: modeManager.currentViews.length})")
+    assert result["mode"] == "normal"
+    assert result["count"] == 1
