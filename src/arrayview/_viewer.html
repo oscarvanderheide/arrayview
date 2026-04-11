@@ -4964,6 +4964,135 @@
         class LineProfileLayer { constructor() { this.name = 'lineprofile'; } isVisible() { return false; } async draw() {} destroy() {} }
         class MiniMapLayer { constructor() { this.name = 'minimap'; } isVisible() { return false; } async draw() {} destroy() {} }
 
+        // ─ 4. View class ──────────────────────────────────────────────────
+
+        class View {
+            constructor(opts) {
+                this.id = opts.id;
+                this.role = opts.role;
+                this.session = opts.session;
+                this.displayState = opts.displayState ?? makeDisplayState();
+                this.slicer = opts.slicer;
+                this.parentContainer = opts.container;
+
+                this.canvas = null;
+                this.wrapper = null;
+                this.colorBar = null;
+                this.layers = [new ImageLayer()];
+                this.scale = { cssW: 0, cssH: 0, bufW: 0, bufH: 0, zoom: 1 };
+
+                this._listeners = [];
+                this._renderQueued = false;
+                this._initialized = false;
+            }
+
+            // ── Capabilities ──
+            supportsDynamicRange() { return this.displayState.renderMode !== 'rgb'; }
+            supportsColormap()     { return this.displayState.renderMode !== 'rgb'; }
+            supportsLogScale()     {
+                return this.displayState.renderMode === 'scalar' && !(this.session.isComplex && this.displayState.complexMode !== 0);
+            }
+            supportsComplexMode()  { return !!this.session.isComplex; }
+            supportsProjection()   { return this.displayState.renderMode === 'scalar'; }
+            supportsColorbar()     { return this.supportsDynamicRange(); }
+
+            // ── Lifecycle (detailed bodies land in Phase 2) ──
+            async init() {
+                if (this._initialized) return;
+                this._initialized = true;
+                // Phase 2 fills this in: create DOM, ColorBar, attach listeners, initial render
+            }
+            destroy() {
+                for (const { target, type, fn } of this._listeners) target.removeEventListener(type, fn);
+                this._listeners = [];
+                for (const layer of this.layers) layer.destroy();
+                this.layers = [];
+                if (this.colorBar) { this.colorBar.destroy?.(); this.colorBar = null; }
+                if (this.wrapper && this.wrapper.parentNode) this.wrapper.parentNode.removeChild(this.wrapper);
+                this._initialized = false;
+            }
+
+            // ── Rendering (detailed bodies land in Phase 2) ──
+            async render() { /* Phase 2 */ }
+            requestRender() {
+                if (this._renderQueued) return;
+                this._renderQueued = true;
+                requestAnimationFrame(() => { this._renderQueued = false; this.render(); });
+            }
+            scaleTo(cssW, cssH) {
+                this.scale.cssW = cssW;
+                this.scale.cssH = cssH;
+                if (this.canvas) {
+                    this.canvas.style.width = cssW + 'px';
+                    this.canvas.style.height = cssH + 'px';
+                    const dpr = window.devicePixelRatio || 1;
+                    this.canvas.width = cssW * dpr;
+                    this.canvas.height = cssH * dpr;
+                    this.scale.bufW = this.canvas.width;
+                    this.scale.bufH = this.canvas.height;
+                }
+            }
+
+            // ── Actions ──
+            cycleDynamicRange(direction) {
+                if (!this.supportsDynamicRange()) { showStatus('dynamic range not available in ' + this.displayState.renderMode); return; }
+                if (this.colorBar && typeof this.colorBar.cycleQuantile === 'function') {
+                    this.colorBar.cycleQuantile(direction || 1);
+                }
+                this.requestRender();
+            }
+            cycleColormap(direction) {
+                if (!this.supportsColormap()) { showStatus('colormaps fixed in ' + this.displayState.renderMode); return; }
+                const n = (typeof COLORMAPS !== 'undefined' && COLORMAPS.length) || 1;
+                this.displayState.cmapIdx = (this.displayState.cmapIdx + (direction || 1) + n) % n;
+                this.requestRender();
+            }
+            toggleLogScale() {
+                if (!this.supportsLogScale()) { showStatus('log scale not available here'); return; }
+                this.displayState.logScale = !this.displayState.logScale;
+                this.requestRender();
+            }
+            cycleComplexMode() {
+                if (!this.supportsComplexMode()) return;
+                this.displayState.complexMode = (this.displayState.complexMode + 1) % 4;
+                this.requestRender();
+            }
+            cycleProjection(direction) {
+                if (!this.supportsProjection()) return;
+                this.displayState.projectionMode = (this.displayState.projectionMode + (direction || 1) + 7) % 7;
+                this.requestRender();
+            }
+            resetView() {
+                this.displayState.vmin = null;
+                this.displayState.vmax = null;
+                this.displayState.quantileIdx = -1;
+                this.displayState.windowLocked = false;
+                this.requestRender();
+            }
+            getHoverInfo(clientX, clientY) {
+                // Phase 2: implement pixel readout
+                return null;
+            }
+
+            // ── Layer management ──
+            addLayer(layer) { this.layers.push(layer); this.requestRender(); }
+            removeLayer(name) {
+                const idx = this.layers.findIndex(l => l.name === name);
+                if (idx >= 0) { this.layers[idx].destroy(); this.layers.splice(idx, 1); this.requestRender(); }
+            }
+            findLayer(name) { return this.layers.find(l => l.name === name); }
+
+            // ── Serialization ──
+            serialize() {
+                return {
+                    id: this.id,
+                    role: this.role,
+                    sid: this.session.sid,
+                    displayState: serializeDisplayState(this.displayState),
+                };
+            }
+        }
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.

@@ -72,3 +72,60 @@ def test_image_layer_is_duck_typed(loaded_viewer, sid_3d):
     assert result["name"] == "image"
     assert result["hasDraw"] is True
     assert result["hasDestroy"] is True
+
+
+def test_view_construction_and_capabilities(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const view = new View({
+            id: 'test-view',
+            role: 'primary',
+            session: {sid: 'test-sid', ndim: 3, isComplex: false},
+            displayState: makeDisplayState(),
+            slicer: new FreeSliceSlicer(),
+            container: container,
+        });
+        return {
+            id: view.id,
+            role: view.role,
+            caps: {
+                dr: view.supportsDynamicRange(),
+                cm: view.supportsColormap(),
+                log: view.supportsLogScale(),
+                cx: view.supportsComplexMode(),
+                proj: view.supportsProjection(),
+            },
+            layerCount: view.layers.length,
+        };
+    }""")
+    assert result["id"] == "test-view"
+    assert result["role"] == "primary"
+    assert result["caps"]["dr"] is True
+    assert result["caps"]["cm"] is True
+    assert result["caps"]["log"] is True
+    assert result["caps"]["cx"] is False
+    assert result["caps"]["proj"] is True
+
+
+def test_view_rgb_capabilities(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const view = new View({
+            id: 'rgb',
+            role: 'primary',
+            session: {sid: 'x', ndim: 3, isComplex: false},
+            displayState: makeDisplayState({renderMode: 'rgb'}),
+            slicer: new FreeSliceSlicer(),
+            container: document.createElement('div'),
+        });
+        return {
+            dr: view.supportsDynamicRange(),
+            cm: view.supportsColormap(),
+            log: view.supportsLogScale(),
+        };
+    }""")
+    assert result["dr"] is False
+    assert result["cm"] is False
+    assert result["log"] is False
