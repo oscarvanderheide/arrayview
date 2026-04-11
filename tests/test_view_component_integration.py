@@ -185,3 +185,22 @@ def test_cmp_vmin_dual_write(loaded_viewer, sid_2d):
     # The dual-write (Task 4.3) keeps displayState.vmin in sync with future writes.
     assert result is not None
     assert result["exists"] is True
+
+
+def test_diff_mode_adds_center_view(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterCompareModeByMultipleSids !== 'function') return { error: 'no enterCompare' };
+        await enterCompareModeByMultipleSids([window.currentSid, window.currentSid]);
+        // Set diff mode (1 = A-B)
+        if (typeof _setCompareCenterMode === 'function') _setCompareCenterMode(1);
+        return {
+            mode: modeManager.modeName,
+            count: modeManager.currentViews.length,
+            hasDiffCenter: !!modeManager.getViewById('compare-diff-center'),
+        };
+    }""")
+    page.wait_for_timeout(300)
+    assert result.get("mode") == "compare"
+    assert result.get("hasDiffCenter") is True
