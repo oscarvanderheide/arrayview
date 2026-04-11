@@ -239,3 +239,17 @@ def test_wipe_mode_adds_center_view(loaded_viewer, sid_2d):
     assert result.get("mode") == "compare"
     assert result.get("hasComposite") is True
     assert result.get("compositeMode") == "wipe"
+
+
+def test_qmri_mode_populates_modemanager(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 400));
+        return { mode: modeManager.modeName, count: modeManager.currentViews.length };
+    }""")
+    page.wait_for_timeout(500)
+    assert result.get("mode") == "qmri"
+    assert result.get("count", 0) >= 2
