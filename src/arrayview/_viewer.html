@@ -5274,6 +5274,49 @@
             }
         }
 
+        class CompareLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'compare'; }
+
+            getViews(sessions, savedStates) {
+                return sessions.map((session, i) => {
+                    const saved = savedStates?.[i];
+                    const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                    return new View({
+                        id: 'compare-' + i,
+                        role: 'compare',
+                        session: session,
+                        displayState: ds,
+                        slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('compare-wrap') || document.body,
+                    });
+                });
+            }
+
+            arrangeViews(views, root) {
+                // In compare mode, pane canvases are managed by the legacy compareScaleCanvases().
+                // We bind each View to the existing .compare-canvas-clip > canvas at position i.
+                const clips = document.querySelectorAll('.compare-canvas-clip');
+                views.forEach((v, i) => {
+                    const clip = clips[i];
+                    if (clip) {
+                        const canvas = clip.querySelector('canvas');
+                        if (canvas) {
+                            v.canvas = canvas;
+                            v.wrapper = clip;
+                        }
+                    }
+                });
+            }
+
+            scaleViews(views) {
+                if (typeof compareScaleCanvases === 'function') compareScaleCanvases();
+            }
+
+            destroy(views) {
+                super.destroy(views);
+            }
+        }
+
         // ─ 6. ModeManager singleton ───────────────────────────────────────
 
         const modeManager = {
