@@ -5497,7 +5497,11 @@
             cmpManualVmin.fill(null);
             cmpManualVmax.fill(null);
             if (multiViewActive) {
-                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+                mvViews.forEach((v, i) => {
+                    v.lockedVmin = null; v.lockedVmax = null;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) { mv.displayState.vmin = null; mv.displayState.vmax = null; }
+                });
             }
             if (qmriActive) {
                 qmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
@@ -5574,7 +5578,11 @@
                 manualVmax = qHi;
             }
             cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-            if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
+            if (multiViewActive) mvViews.forEach((v, i) => {
+                v.lockedVmin = manualVmin; v.lockedVmax = manualVmax;
+                const mv = modeManager.currentViews[i];
+                if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
+            });
             return preset;
         }
 
@@ -12288,7 +12296,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     },
                     setWindow: (lo, hi) => {
                         manualVmin = lo; manualVmax = hi;
-                        mvViews.forEach(v => { v.lockedVmin = lo; v.lockedVmax = hi; });
+                        mvViews.forEach((v, i) => {
+                            v.lockedVmin = lo; v.lockedVmax = hi;
+                            const mv = modeManager.currentViews[i];
+                            if (mv) { mv.displayState.vmin = lo; mv.displayState.vmax = hi; }
+                        });
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
