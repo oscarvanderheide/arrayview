@@ -4944,6 +4944,15 @@
             if (multiViewActive) {
                 mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
             }
+            if (qmriActive) {
+                qmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+            }
+            if (compareMvActive) {
+                compareMvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+            }
+            if (compareQmriActive) {
+                compareQmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+            }
         }
 
         /** Briefly pulse the dimbar labels that were sampled for the volume histogram. */
@@ -9780,9 +9789,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showToast(rangeLocked ? 'range: locked' : 'range: unlocked');
                     if (!rangeLocked) {
                         // Immediately re-render with per-slice values
+                        _maybeAutoRecomputeRange();
                         if (multiViewActive) {
-                            _maybeAutoRecomputeRange();
                             mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                        } else if (qmriActive) {
+                            qmriViews.forEach(v => qvRender(v));
+                        } else if (compareMvActive) {
+                            compareMvViews.forEach(v => compareMvRender(v));
+                        } else if (compareQmriActive) {
+                            compareQmriViews.forEach(v => compareQmriRender(v));
                         } else {
                             updateView();
                         }
@@ -11706,8 +11721,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const v0 = mvViews.find(v => v.lastW);
                         return v0 ? { vmin: v0.vmin, vmax: v0.vmax } : { vmin: 0, vmax: 1 };
                     },
-                    getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
-                    setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
+                    getWindow: () => {
+                        const v0 = mvViews.find(v => v.lastW);
+                        if (v0) return { vmin: v0.lockedVmin ?? v0.vmin, vmax: v0.lockedVmax ?? v0.vmax };
+                        return { vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax };
+                    },
+                    setWindow: (lo, hi) => {
+                        manualVmin = lo; manualVmax = hi;
+                        mvViews.forEach(v => { v.lockedVmin = lo; v.lockedVmax = hi; });
+                    },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
                     onBinHover: (binIdx, frac) => {
@@ -12870,9 +12892,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     params.set('projection_mode', String(projectionMode));
                     params.set('projection_dim', String(projectionDim));
                 }
+                if (v.lockedVmin != null) {
+                    params.set('vmin_override', String(v.lockedVmin));
+                    params.set('vmax_override', String(v.lockedVmax));
+                }
                 const frame = await fetchSliceFrame(params, v.sid);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin;
+                    v.lockedVmax = v.vmax;
+                }
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width;
                 v.lastH = frame.height;
@@ -13505,6 +13535,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const frame = await fetchSliceFrame(params);
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin;
+                    v.lockedVmax = v.vmax;
+                }
                 v.lastImageData = frame.imageData;
                 v.lastW = frame.width;
                 v.lastH = frame.height;
@@ -13798,6 +13832,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (h32[0] === v.seq) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
+                if (v.lockedVmin === undefined || v.lockedVmin === null) {
+                    v.lockedVmin = v.vmin;
+                    v.lockedVmax = v.vmax;
+                }
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
                 v.lastImageData = new ImageData(rgba, width, height);
                 v.lastW = width; v.lastH = height;
