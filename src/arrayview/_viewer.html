@@ -4857,6 +4857,56 @@
             return Object.assign({}, base, patch);
         }
 
+        // ─ 2. Slicer implementations ──────────────────────────────────────
+
+        // Slicer base: subclasses must implement getRequest(session, displayState) → {sid, params}
+        class Slicer {
+            getRequest(session, displayState) {
+                throw new Error('Slicer.getRequest not implemented');
+            }
+            getDimCount(session) { return session.ndim; }
+            getValidDimsFor(purpose) { return null; }  // null = "all dims"
+        }
+
+        class FreeSliceSlicer extends Slicer {
+            getRequest(session, ds) {
+                return {
+                    sid: session.sid,
+                    params: {
+                        slice: ds.sliceIndices.slice(),
+                        sliceDim: ds.currentSliceDim,
+                        cmapIdx: ds.cmapIdx,
+                        vmin: ds.vmin,
+                        vmax: ds.vmax,
+                        logScale: ds.logScale,
+                        complexMode: ds.complexMode,
+                        projectionMode: ds.projectionMode,
+                        projectionDim: ds.projectionDim,
+                        renderMode: ds.renderMode,
+                        alphaThreshold: ds.alphaThreshold,
+                        overlaySids: ds.overlaySids,
+                        overlayAlpha: ds.overlayAlpha,
+                    },
+                };
+            }
+        }
+
+        class OrthogonalSlicer extends Slicer {
+            constructor(axis) {
+                super();
+                this.axis = axis;  // 'axial' | 'coronal' | 'sagittal'
+            }
+            _axisDim() {
+                return { axial: 0, coronal: 1, sagittal: 2 }[this.axis];
+            }
+            getRequest(session, ds) {
+                const req = new FreeSliceSlicer().getRequest(session, ds);
+                req.params.axis = this.axis;
+                req.params.index = ds.sliceIndices[this._axisDim()];
+                return req;
+            }
+        }
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.

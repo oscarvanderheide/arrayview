@@ -33,3 +33,27 @@ def test_display_state_overrides(loaded_viewer, sid_3d):
     # other fields still defaulted
     assert result["vmax"] is None
     assert result["quantileIdx"] == -1
+
+
+def test_free_slice_slicer_request(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const slicer = new FreeSliceSlicer();
+        const ds = makeDisplayState({sliceIndices: [5, 0, 0], currentSliceDim: 0});
+        const session = {sid: 'test-sid', ndim: 3};
+        return slicer.getRequest(session, ds);
+    }""")
+    assert result["sid"] == "test-sid"
+    assert result["params"]["slice"] == [5, 0, 0]
+    assert result["params"]["sliceDim"] == 0
+
+
+def test_orthogonal_slicer_axial(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        const slicer = new OrthogonalSlicer('axial');
+        const ds = makeDisplayState({sliceIndices: [10, 20, 30]});
+        return slicer.getRequest({sid: 'test', ndim: 3}, ds);
+    }""")
+    assert result["params"]["axis"] == "axial"
+    assert result["params"]["index"] == 10   # axial slices along first spatial axis
