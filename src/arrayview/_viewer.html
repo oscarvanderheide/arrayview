@@ -4996,11 +4996,25 @@
             supportsProjection()   { return this.displayState.renderMode === 'scalar'; }
             supportsColorbar()     { return this.supportsDynamicRange(); }
 
-            // ── Lifecycle (detailed bodies land in Phase 2) ──
+            // ── Lifecycle ──
             async init() {
                 if (this._initialized) return;
                 this._initialized = true;
-                // Phase 2 fills this in: create DOM, ColorBar, attach listeners, initial render
+                if (!this.canvas) {
+                    this.wrapper = document.createElement('div');
+                    this.wrapper.className = 'av-view-wrap';
+                    this.canvas = document.createElement('canvas');
+                    this.canvas.className = 'av-view-canvas';
+                    this.wrapper.appendChild(this.canvas);
+                    this.parentContainer.appendChild(this.wrapper);
+                }
+                if (!this.colorBar && this.role === 'primary' && typeof primaryCb !== 'undefined') {
+                    this.colorBar = primaryCb;
+                }
+                if (this.layers.length === 0) {
+                    this.addLayer(new ImageLayer());
+                }
+                this._attachListeners();
             }
             destroy() {
                 for (const { target, type, fn } of this._listeners) target.removeEventListener(type, fn);
@@ -5012,8 +5026,30 @@
                 this._initialized = false;
             }
 
-            // ── Rendering (detailed bodies land in Phase 2) ──
-            async render() { /* Phase 2 */ }
+            _attachListeners() {
+                if (!this.canvas) return;
+                const onMove = (e) => this._onMouseMove(e);
+                this.canvas.addEventListener('mousemove', onMove);
+                this._listeners.push({ target: this.canvas, type: 'mousemove', fn: onMove });
+            }
+
+            _onMouseMove(e) {
+                // Placeholder — Phase 2.3 implementation
+            }
+
+            // ── Rendering ──
+            async render() {
+                if (!this.canvas || !this.session) return;
+                // Build request parameters from displayState + slicer
+                const req = this.slicer.getRequest(this.session, this.displayState);
+                // Delegate to existing HTTP/WS render path for the actual fetch+draw.
+                // This is a transitional implementation — Phase 4+ will fetch via slicer directly.
+                _legacyUpdateView();
+                // Colorbar update (if colorBar is bound)
+                if (this.colorBar && typeof this.colorBar.draw === 'function') {
+                    this.colorBar.draw();
+                }
+            }
             requestRender() {
                 if (this._renderQueued) return;
                 this._renderQueued = true;
@@ -5101,6 +5137,39 @@
             arrangeViews(views, rootContainer) { throw new Error('LayoutStrategy.arrangeViews not implemented'); }
             scaleViews(views, rootContainer) { /* default no-op; subclasses override */ }
             destroy(views) { for (const v of views) v.destroy(); }
+        }
+
+        class NormalLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'normal'; }
+
+            getViews(sessions, savedStates) {
+                const session = sessions[0];
+                const saved = savedStates && savedStates[0];
+                const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                return [new View({
+                    id: 'normal',
+                    role: 'primary',
+                    session: session,
+                    displayState: ds,
+                    slicer: new FreeSliceSlicer(),
+                    container: document.getElementById('canvas-wrap') || document.body,
+                })];
+            }
+
+            arrangeViews(views, root) {
+                // Reuse the existing #canvas and #canvas-wrap for back-compat with
+                // all legacy DOM queries.
+                const view = views[0];
+                const existing = document.getElementById('canvas');
+                if (existing && existing.tagName === 'CANVAS') {
+                    view.canvas = existing;
+                    view.wrapper = existing.closest('#canvas-wrap') || existing.parentElement;
+                }
+            }
+
+            scaleViews(views) {
+                if (typeof scaleCanvas === 'function') scaleCanvas();
+            }
         }
 
         // ─ 6. ModeManager singleton ───────────────────────────────────────
