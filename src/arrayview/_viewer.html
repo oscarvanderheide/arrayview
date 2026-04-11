@@ -5173,6 +5173,79 @@
             }
         }
 
+        class MultiViewLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'multiview'; }
+
+            getViews(sessions, savedStates) {
+                const session = sessions[0];
+                const axes = ['axial', 'coronal', 'sagittal'];
+                return axes.map((axis, i) => {
+                    const saved = savedStates?.[i];
+                    const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                    const view = new View({
+                        id: 'mv-' + axis,
+                        role: 'multiview',
+                        session: session,
+                        displayState: ds,
+                        slicer: new OrthogonalSlicer(axis),
+                        container: document.getElementById('multi-view-wrap'),
+                    });
+                    view.addLayer(new CrosshairLayer());
+                    return view;
+                });
+            }
+
+            arrangeViews(views, root) {
+                const wrap = document.getElementById('multi-view-wrap');
+                if (!wrap) throw new Error('multi-view-wrap not found');
+                wrap.classList.add('active');
+                // Create mv-panes row if not present
+                let panesRow = document.getElementById('mv-panes');
+                if (!panesRow) {
+                    panesRow = document.createElement('div');
+                    panesRow.id = 'mv-panes';
+                    wrap.appendChild(panesRow);
+                }
+                views.forEach((v, i) => {
+                    let slot = panesRow.querySelectorAll('.mv-canvas-wrap')[i];
+                    if (!slot) {
+                        slot = document.createElement('div');
+                        slot.className = 'mv-canvas-wrap';
+                        panesRow.appendChild(slot);
+                    }
+                    let canvas = slot.querySelector('.mv-canvas');
+                    if (!canvas) {
+                        canvas = document.createElement('canvas');
+                        canvas.className = 'mv-canvas';
+                        slot.appendChild(canvas);
+                    }
+                    v.canvas = canvas;
+                    v.wrapper = slot;
+
+                    // Crosshair hover
+                    const ch = v.findLayer('crosshair');
+                    if (ch) {
+                        v.canvas.addEventListener('mouseenter', () => { ch._alpha = 1; v.requestRender(); });
+                        v.canvas.addEventListener('mouseleave', () => { ch._alpha = 0; v.requestRender(); });
+                    }
+                });
+            }
+
+            scaleViews(views) {
+                if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+            }
+
+            destroy(views) {
+                super.destroy(views);
+                const wrap = document.getElementById('multi-view-wrap');
+                if (wrap) {
+                    wrap.classList.remove('active');
+                    const panes = document.getElementById('mv-panes');
+                    if (panes) panes.remove();
+                }
+            }
+        }
+
         // ─ 6. ModeManager singleton ───────────────────────────────────────
 
         const modeManager = {

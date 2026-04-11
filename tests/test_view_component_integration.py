@@ -83,3 +83,17 @@ def test_update_view_calls_render_on_primary_view(loaded_viewer, sid_3d):
     # renderCount may be 0 immediately because requestRender is async,
     # but the important thing is updateView() didn't throw and view exists
     assert result >= 0
+
+
+def test_multiview_layout_creates_three_views(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.evaluate("""async () => {
+        const s = modeManager.currentViews[0].session;
+        await modeManager.enterMode(new MultiViewLayout(), [s]);
+    }""")
+    page.wait_for_timeout(400)
+    count = page.evaluate("() => modeManager.currentViews.length")
+    axes = page.evaluate("() => modeManager.currentViews.map(v => v.slicer.axis)")
+    assert count == 3
+    assert set(axes) == {"axial", "coronal", "sagittal"}
