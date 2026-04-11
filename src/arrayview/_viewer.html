@@ -2183,6 +2183,11 @@
                     [cmpManualVmin[idx], cmpManualVmin[srcIdx]];
                 [cmpManualVmax[srcIdx], cmpManualVmax[idx]] =
                     [cmpManualVmax[idx], cmpManualVmax[srcIdx]];
+                // Phase 4 dual-write: swap displayStates to match pane swap
+                { const _va = modeManager.currentViews[srcIdx], _vb = modeManager.currentViews[idx];
+                  if (_va && _vb) { [modeManager.currentViews[srcIdx], modeManager.currentViews[idx]] = [_vb, _va]; }
+                  else if (_va) { _va.displayState.vmin = cmpManualVmin[srcIdx]; _va.displayState.vmax = cmpManualVmax[srcIdx]; }
+                  else if (_vb) { _vb.displayState.vmin = cmpManualVmin[idx]; _vb.displayState.vmax = cmpManualVmax[idx]; } }
                 applyCompareLayout();
                 drawCompareFramesFromCache();
                 drawAllComparePaneCbs();
@@ -2229,6 +2234,8 @@
                 const newHalf = (win * factor) / 2;
                 cmpManualVmin[i] = center - newHalf;
                 cmpManualVmax[i] = center + newHalf;
+                // Phase 4 dual-write
+                { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = cmpManualVmin[i]; _v.displayState.vmax = cmpManualVmax[i]; } }
                 drawComparePaneCb(i);
                 compareRender();
             }, { passive: false });
@@ -2246,6 +2253,8 @@
                 if (window._comparePaneCbs && window._comparePaneCbs[i]) return;
                 cmpManualVmin[i] = null;
                 cmpManualVmax[i] = null;
+                // Phase 4 dual-write
+                { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = null; _v.displayState.vmax = null; } }
                 drawComparePaneCb(i);
                 compareRender();
             });
@@ -2335,6 +2344,8 @@
                     _cmpCbDragX = e.clientX;
                     cmpManualVmin[i] = vmin - (dx / cbW) * win;
                     cmpManualVmax[i] = vmax - (dx / cbW) * win;
+                    // Phase 4 dual-write
+                    { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = cmpManualVmin[i]; _v.displayState.vmax = cmpManualVmax[i]; } }
                     drawComparePaneCb(i);
                     compareRender();
                 }
@@ -2974,7 +2985,9 @@
                         const f = compareFrames[idx];
                         return { vmin: cmpManualVmin[idx] ?? (f ? f.vmin : currentVmin), vmax: cmpManualVmax[idx] ?? (f ? f.vmax : currentVmax) };
                     },
-                    setWindow: (lo, hi) => { cmpManualVmin[idx] = lo; cmpManualVmax[idx] = hi; },
+                    setWindow: (lo, hi) => { cmpManualVmin[idx] = lo; cmpManualVmax[idx] = hi;
+                        // Phase 4 dual-write
+                        const _v = modeManager.currentViews[idx]; if (_v) { _v.displayState.vmin = lo; _v.displayState.vmax = hi; } },
                     fetchHistogram: () => _fetchHistogramCompare(),
                     onWindowChange: () => { compareRender(); },
                 }));
@@ -10288,6 +10301,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 if (q) {
                                     cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
                                     cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
+                                    // Phase 4 dual-write
+                                    [0, 1].forEach(i => { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = q.vmin; _v.displayState.vmax = q.vmax; } });
                                     _cmpLeftCb.draw(); _cmpRightCb?.draw();
                                     _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
                                     compareRender();
