@@ -7771,6 +7771,15 @@
         /* ── JS: Rendering Pipeline (updateView, play, screenshot) ── */
 
         function updateView() {
+            const view = modeManager.currentViews[0];
+            if (view && modeManager.modeName === 'normal') {
+                view.requestRender();
+                return;
+            }
+            _legacyUpdateView();
+        }
+
+        function _legacyUpdateView() {
             renderInfo();
             _maybeAutoRecomputeRange();
             // Lebesgue / hover caches are version-keyed, so stale entries are
