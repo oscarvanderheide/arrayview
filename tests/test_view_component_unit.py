@@ -129,3 +129,26 @@ def test_view_rgb_capabilities(loaded_viewer, sid_3d):
     assert result["dr"] is False
     assert result["cm"] is False
     assert result["log"] is False
+
+
+def test_mode_manager_empty_initial_state(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => ({
+        exists: typeof modeManager !== 'undefined',
+        views: modeManager.getAllViews(),
+        mode: modeManager.modeName,
+    })""")
+    assert result["exists"] is True
+    assert result["views"] == []
+    assert result["mode"] == "normal"
+
+
+def test_layout_strategy_base_throws(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    result = page.evaluate("""() => {
+        try {
+            new LayoutStrategy().getViews([]);
+            return 'no-throw';
+        } catch (e) { return e.message; }
+    }""")
+    assert "not implemented" in result.lower()

@@ -5093,6 +5093,66 @@
             }
         }
 
+        // ─ 5. LayoutStrategy ──────────────────────────────────────────────
+
+        class LayoutStrategy {
+            constructor() { this.name = 'base'; }
+            getViews(sessions, savedStates) { throw new Error('LayoutStrategy.getViews not implemented'); }
+            arrangeViews(views, rootContainer) { throw new Error('LayoutStrategy.arrangeViews not implemented'); }
+            scaleViews(views, rootContainer) { /* default no-op; subclasses override */ }
+            destroy(views) { for (const v of views) v.destroy(); }
+        }
+
+        // ─ 6. ModeManager singleton ───────────────────────────────────────
+
+        const modeManager = {
+            currentLayout: null,
+            currentViews: [],
+            modeName: 'normal',
+            _lastMouseXY: null,
+
+            async enterMode(layoutStrategy, sessions, savedStates) {
+                // Step 1: capture state from outgoing Views (if any)
+                const preservedStates = this.currentViews.map(v => v.serialize());
+                // Step 2: destroy outgoing layout
+                if (this.currentLayout) this.currentLayout.destroy(this.currentViews);
+                // Step 3: construct incoming
+                this.currentLayout = layoutStrategy;
+                this.currentViews = layoutStrategy.getViews(sessions, savedStates || preservedStates);
+                // Step 4: arrange DOM
+                const root = document.getElementById('app') || document.body;
+                layoutStrategy.arrangeViews(this.currentViews, root);
+                // Step 5: init each view in parallel
+                await Promise.all(this.currentViews.map(v => v.init()));
+                // Step 6: update mode name
+                this.modeName = layoutStrategy.name;
+                // Step 7: dispatch event so reconcilers and islands can reposition
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: this.modeName } }));
+            },
+
+            getAllViews() { return this.currentViews; },
+            getViewById(id) { return this.currentViews.find(v => v.id === id) || null; },
+
+            getViewUnderMouse() {
+                if (!this._lastMouseXY) return null;
+                const { x, y } = this._lastMouseXY;
+                const el = document.elementFromPoint(x, y);
+                if (!el) return null;
+                return this.currentViews.find(v => v.canvas && (v.canvas === el || v.canvas.contains(el) || v.wrapper?.contains(el))) || null;
+            },
+
+            getFocusedView() {
+                return this.getViewUnderMouse() || this.currentViews[0] || null;
+            },
+
+            forEachView(fn) { this.currentViews.forEach(fn); },
+        };
+
+        // Track mouse so getViewUnderMouse works
+        document.addEventListener('mousemove', e => {
+            modeManager._lastMouseXY = { x: e.clientX, y: e.clientY };
+        }, { passive: true, capture: true });
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.
