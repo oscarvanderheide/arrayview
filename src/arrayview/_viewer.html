@@ -1768,7 +1768,7 @@
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
         let currentVmin = 0, currentVmax = 1;
-        let manualVmin = null, manualVmax = null;
+        // manualVmin / manualVmax: shimmed in section 7 — delegates to primary View's DisplayState
         // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
         const cmpManualVmin = Array(6).fill(null);
         const cmpManualVmax = Array(6).fill(null);
@@ -5300,6 +5300,32 @@
         });
         let _cbWindowChangeRafId = null;
         window._primaryCb = primaryCb;
+
+        // ─ 7. Legacy shims (temporary — removed in Phase 17) ──────────────────────
+        // Legacy code reads/writes globals like `manualVmin`. We redirect these to
+        // the primary View's DisplayState so legacy and new code share one source
+        // of truth. Shims are configurable so they can be overridden or deleted.
+
+        (function installShims() {
+            function primaryDS() {
+                const v = modeManager.currentViews[0];
+                return v ? v.displayState : null;
+            }
+
+            const shims = [
+                ['manualVmin', 'vmin'],
+                ['manualVmax', 'vmax'],
+            ];
+
+            for (const [globalName, dsField] of shims) {
+                Object.defineProperty(window, globalName, {
+                    configurable: true,
+                    enumerable: false,
+                    get() { return primaryDS()?.[dsField] ?? null; },
+                    set(v) { const ds = primaryDS(); if (ds) ds[dsField] = v; },
+                });
+            }
+        })();
 
         // _cbStartAnim, _cbAnimStep, _cbMorphDraw removed (Task 4) — primaryCb handles all rendering/animation
 
