@@ -33,4 +33,5 @@ site/
 van_gogh/
 cig_presentation/
 docs/superpowers
-.playwright-mcp/.worktrees
+.playwright-mcp/
+dev/TODO.md
