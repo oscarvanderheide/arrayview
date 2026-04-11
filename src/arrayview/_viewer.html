@@ -3206,6 +3206,29 @@
             } else {
                 modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-reg-center');
             }
+            // Phase 7: sync wipe/flicker/checker center pane
+            const _compositeMode = _wipeActive ? 'wipe' : _flickerActive ? 'flicker' : _checkerActive ? 'checker' : null;
+            if (_compositeMode && compareActive) {
+                let compView = modeManager.getViewById('compare-composite-center');
+                if (!compView) {
+                    const ds = makeDisplayState();
+                    ds._compositeMode = _compositeMode;
+                    compView = new View({
+                        id: 'compare-composite-center', role: 'composite-center',
+                        session: modeManager.currentViews[0]?.session,
+                        displayState: ds, slicer: new FreeSliceSlicer(),
+                        container: document.getElementById('compare-wrap') || document.body,
+                    });
+                    compView._initialized = true;
+                    const wipePane = document.getElementById('compare-wipe-pane');
+                    if (wipePane) { compView.canvas = wipePane.querySelector('canvas'); compView.wrapper = wipePane; }
+                    modeManager.currentViews.push(compView);
+                } else {
+                    compView.displayState._compositeMode = _compositeMode;
+                }
+            } else {
+                modeManager.currentViews = modeManager.currentViews.filter(v => v.id !== 'compare-composite-center');
+            }
         }
 
         function _positionCompareModeStrip(el) {
