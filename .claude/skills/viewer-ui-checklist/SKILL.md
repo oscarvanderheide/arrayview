@@ -1,13 +1,15 @@
 ---
 name: viewer-ui-checklist
-description: Use when adding keyboard shortcuts, changing layout, or making any UI change to arrayview. Ensures visual_smoke.py, help overlay, and README stay in sync.
+description: Use when adding keyboard shortcuts, changing layout, or making any UI change to arrayview. Ensures visual_smoke.py, help overlay, and docs/ stay in sync.
 ---
 
 # ArrayView UI Checklist
 
 ## Rule
 
-Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the help overlay, and (when user-facing) `README.md` before the task is complete.
+Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the help overlay, and the relevant `docs/*.md` page before the task is complete.
+
+`README.md` is intentionally minimal and stable — do **not** add per-feature shortcuts or behavior to it. User-facing docs live in `docs/` and are organized by topic (`display.md`, `viewing.md`, `comparing.md`, `loading.md`, `measurement.md`, `remote.md`, `configuration.md`).
 
 ## What counts as a UI change
 
@@ -40,8 +42,16 @@ Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the h
    - Include a `hint` for non-obvious shortcuts
    - Use the `docs-style` skill for formatting rules
 
-6. **Update `README.md`** if the change is user-facing (new CLI flag, new API, new mode)
+6. **Update the matching `docs/*.md` page** for any user-facing change. Pick the page by topic:
+   - `display.md` — colormaps, range, log scale, themes, masking, layout toggles
+   - `viewing.md` — navigation, zoom, slice/dim shortcuts, multiview, projections
+   - `comparing.md` — compare mode, overlay, diff, registration
+   - `loading.md` — file formats, CLI, Python/Julia/MATLAB API
+   - `measurement.md` — ROI, hover, pixel info
+   - `remote.md` — VS Code Remote, tunneling
+   - `configuration.md` — settings, env vars, persistence
    - Use the `docs-style` skill for formatting rules
+   - Do **not** touch `README.md` for per-feature changes — it's intentionally stable
 
 ## Red flags — STOP
 

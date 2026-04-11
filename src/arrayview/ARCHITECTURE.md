@@ -137,7 +137,7 @@ Pill-shaped badges below the canvas showing active visualization transforms. **C
 Floating UI panels that appear/disappear based on context: ROI statistics, segmentation controls, colorbar hover, dimension sliders. Must be tested across all viewing modes (normal, immersive, multiview, compare).
 
 ### Command Registry
-All keybinds flow through a VS Code-style command registry in `_viewer.html`. Three tables: `commands` (id → `{title, when, run}`), `keybinds` (key+modifiers → command id), and `makeContext(state)` (mode/state flag bag). `dispatchCommand(e)` is wired as a prefix to the keydown handler; on a match it evaluates `when` against the context and runs the command, otherwise falls through. The help overlay is auto-generated from command `title` fields — never hand-edit it. A `/`-triggered command palette fuzzy-searches all commands. Cross-mode enablement is guarded by `tests/test_command_reachability.py`.
+All keybinds flow through a VS Code-style command registry in `_viewer.html`. Three tables: `commands` (id → `{title, when, run}`), `keybinds` (key+modifiers → command id), and `makeContext(state)` (mode/state flag bag). `dispatchCommand(e)` is wired as a prefix to the keydown handler; on a match it evaluates `when` against the context and runs the command, otherwise falls through. The help overlay is rendered at runtime from the `GUIDE_TABS` static data structure in `_viewer.html` — when adding or changing a keybind, update `GUIDE_TABS` manually. A `/`-triggered command palette fuzzy-searches all commands. Cross-mode enablement is guarded by `tests/test_command_reachability.py`.
 
 ### Reconcilers
 Functions in the "UI Validation and Reconciliation" section (~line 13666) that enforce consistent UI state. When mode changes happen, reconcilers update visibility of containers, colorbars, dynamic islands, and compare sub-mode UI. There are four:
@@ -160,7 +160,7 @@ A dedicated daemon thread (`_session.py`) runs all CPU-heavy rendering off the a
 Must verify island positioning and visibility across normal, immersive, multiview, and compare modes. Islands use absolute/fixed positioning that breaks if parent containers change.
 
 ### Keybind Changes
-Keybinds live in the `commands` + `keybinds` tables, not in the keydown handler. Adding or changing a keybind means editing those tables and (if needed) extending `makeContext` / `evalWhen`. The help overlay regenerates itself from command `title` fields — do not edit overlay HTML directly.
+Keybinds live in the `commands` + `keybinds` tables, not in the keydown handler. Adding or changing a keybind means editing those tables and (if needed) extending `makeContext` / `evalWhen`. The help overlay renders from `GUIDE_TABS` — update that data structure when adding or changing keybinds, do not edit overlay HTML directly.
 
 ### Layout Debugging
 When debugging layout issues: identify the root cause (which scale function, which reconciler, which CSS rule) before applying fixes. Symptoms in one mode often originate from shared code affecting all modes.

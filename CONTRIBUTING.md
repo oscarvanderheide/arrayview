@@ -45,8 +45,7 @@ Bug fixes and internal refactors can go straight to a PR.
   ```js
   if (currentMode !== 'compare') return;
   ```
-- Document the new shortcut in the help overlay (`#help-overlay` in
-  `_viewer.html`).
+- Add the new shortcut to `GUIDE_TABS` in `_viewer.html` — the help overlay renders from that data structure at runtime, do not edit the overlay HTML directly.
 
 ## Popup menus and overlays
 
