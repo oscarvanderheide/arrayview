@@ -1,0 +1,114 @@
+VIEW-COMPONENT REFACTOR — CURRENT STATE AND NEXT STEPS
+========================================================
+Written by Claude Code, 2026-04-11
+
+==========================================================
+CURRENT STATE
+==========================================================
+
+Main branch is fully up to date.
+
+COMPLETED PHASES (1–15, merged to main):
+  Phase 1  — Foundation (View/DisplayState/Layer/Slicer/LayoutStrategy/ModeManager primitives)
+  Phase 2  — Normal mode boot sequence
+  Phase 3  — MultiView sync block
+  Phase 4  — Compare mode sync block
+  Phase 5  — Diff center view
+  Phase 6  — Registration center view
+  Phase 7  — Wipe/flicker/checker center views
+  Phase 8  — qMRI mode sync block
+  Phase 9  — qMRI mosaic sync block
+  Phase 10 — CompareMV and CompareQmri sync blocks
+  Phase 11 — MIP mode sync block
+  Phase 12 — SKIPPED (see below)
+  Phase 13 — VectorFieldLayer.draw() + per-pane vfield helpers
+  Phase 14 — Cross-mode parametrized test harness (tests/test_cross_mode_parametrized.py)
+  Phase 15 — State snapshot augmentation (LAYOUT_REGISTRY, viewStates field)
+  Phase 16 — Already complete (ColorBar migration was done 2026-04-03 in separate work)
+  Phase 17 — BLOCKED (see below)
+
+Test baseline: ~74 passed, 6 skipped, 0 failures
+
+==========================================================
+BLOCKED / PENDING
+==========================================================
+
+PHASE 12 — Keybind Collapse
+Status: BLOCKED — REQUIRES HUMAN DECISION
+
+  The plan says to replace command bodies with view.method() calls:
+    commands['logscale.toggle'].run = () => {
+        const view = modeManager.getFocusedView();
+        view?.toggleLogScale();
+    }
+
+  The problem: View.render() still delegates to _legacyUpdateView(), which
+  reads legacy globals (logScale, colormap_idx, complexMode, etc.) — NOT
+  displayState. So calling view.toggleLogScale() updates displayState.logScale
+  but has no effect on rendering. Nothing would visually change.
+
+  To unblock Phase 12:
+    Option A: Wire the render pipeline to read from displayState. This is the
+              correct long-term fix but is a large change not spec'd in Phases 1-17.
+    Option B: Make view.toggleLogScale() also dual-write to the legacy global.
+              Quick fix: adds view.toggleLogScale() to the Phase 2 pattern.
+    Option C: Skip Phase 12 entirely and do it in a future refactor cycle.
+
+  Recommendation: Option B (dual-write). For each View method, also write the
+  legacy global so _legacyUpdateView() picks it up. This extends the shim
+  pattern from Phase 2 to all action methods.
+
+PHASE 17 — Final Cleanup
+Status: BLOCKED — requires Phase 12 first
+
+  Phase 17 deletes the shim layer and legacy globals. Can't do that until the
+  render pipeline reads from displayState (Phase 12 prerequisite above).
+
+==========================================================
+WHAT'S LEFT
+==========================================================
+
+Phase 12 (with dual-write fix):
+  1. In each of the 10 mode-branching commands, replace with view.method()
+  2. Each view.method() dual-writes to the legacy global for rendering
+  3. Example:
+       'logscale.toggle': { run: () => {
+           const view = modeManager.getFocusedView();
+           if (!view) return;
+           view.toggleLogScale();          // updates displayState
+           logScale = view.displayState.logScale;  // dual-write for render
+           updateView();
+       }}
+  4. For complex commands (histogram.openOrCycle, mode.toggleMultiview):
+     add view.method() ALONGSIDE the existing code (not replacing it).
+
+Phase 14 guard deletions (after Phase 12):
+  - Delete: if (rgbMode) { showStatus('complex mode: not available for RGB'); return; }
+  - Delete: if (rgbMode) { showStatus('log scale: not available for RGB'); return; }
+  - These are now handled by view.supportsComplexMode() / view.supportsLogScale()
+
+Phase 17 (after Phase 12):
+  - Delete Section 7 shim IIFE (window.manualVmin / window.manualVmax)
+  - Delete multiViewActive, compareActive, qmriActive globals
+  - Delete dead enter/exit functions
+
+==========================================================
+ARCHITECTURE SUMMARY
+==========================================================
+
+Every enter/exit function now has a sync block at the end that populates
+modeManager.currentViews and sets modeManager.modeName. The modeManager
+provides:
+  - getViewUnderMouse()    — for per-pane hover targeting
+  - getFocusedView()       — for keyboard command dispatch
+  - getViewById(id)        — for diff/registration center views
+  - currentViews[]         — all active views with displayState and colorBar
+  - modeName               — 'normal'|'multiview'|'compare'|'qmri'|'mip'|...
+
+The render pipeline (View.render() → _legacyUpdateView()) still reads from
+legacy globals. The shim layer (Section 7) keeps manualVmin/manualVmax
+synchronized between the two systems.
+
+The full plan is at:
+  docs/superpowers/plans/2026-04-11-view-component-architecture.md
+(git-ignored, local only)
