@@ -4786,6 +4786,373 @@
         ];
         // ── end ColorBar class ────────────────────────────────────────────────
 
+        // ── View Component System ──
+        //
+        // Primitive layer for composing viewing modes from a single View primitive.
+        // See docs/superpowers/plans/2026-04-11-view-component-architecture.md for
+        // the full architecture.
+        //
+        // Load order:
+        //   1. DisplayState factory
+        //   2. Slicer implementations
+        //   3. Layer implementations
+        //   4. View class
+        //   5. LayoutStrategy implementations
+        //   6. ModeManager singleton
+        //   7. Legacy shims (temporary — deleted in Phase 17)
+
+        // ─ 1. DisplayState ─────────────────────────────────────────────────
+
+        function makeDisplayState(overrides) {
+            overrides = overrides || {};
+            return Object.assign({
+                // Dynamic range
+                vmin: null,
+                vmax: null,
+                quantileIdx: -1,
+                windowLocked: false,
+
+                // Colormap
+                cmapIdx: 0,
+                customCmapName: null,
+                customGradientStops: null,
+
+                // Display modifiers
+                logScale: false,
+                complexMode: 0,
+                projectionMode: 0,
+                projectionDim: -1,
+                alphaThreshold: 0,
+
+                // Render mode
+                renderMode: 'scalar',
+
+                // Slicing
+                sliceIndices: [],
+                currentSliceDim: 0,
+                flipAxes: {},
+
+                // Orientation
+                obliqueVecs: null,
+
+                // Overlay (server-composited)
+                overlaySids: [],
+                overlayAlpha: 0.45,
+                overlayVisible: true,
+
+                // Hover / UI
+                pixelInfoVisible: true,
+            }, overrides);
+        }
+
+        function serializeDisplayState(s) {
+            return JSON.stringify(s);
+        }
+
+        function deserializeDisplayState(str) {
+            return Object.assign(makeDisplayState(), JSON.parse(str));
+        }
+
+        function mergeDisplayState(base, patch) {
+            return Object.assign({}, base, patch);
+        }
+
+        // ─ 2. Slicer implementations ──────────────────────────────────────
+
+        // Slicer base: subclasses must implement getRequest(session, displayState) → {sid, params}
+        class Slicer {
+            getRequest(session, displayState) {
+                throw new Error('Slicer.getRequest not implemented');
+            }
+            getDimCount(session) { return session.ndim; }
+            getValidDimsFor(purpose) { return null; }  // null = "all dims"
+        }
+
+        class FreeSliceSlicer extends Slicer {
+            getRequest(session, ds) {
+                return {
+                    sid: session.sid,
+                    params: {
+                        slice: ds.sliceIndices.slice(),
+                        sliceDim: ds.currentSliceDim,
+                        cmapIdx: ds.cmapIdx,
+                        vmin: ds.vmin,
+                        vmax: ds.vmax,
+                        logScale: ds.logScale,
+                        complexMode: ds.complexMode,
+                        projectionMode: ds.projectionMode,
+                        projectionDim: ds.projectionDim,
+                        renderMode: ds.renderMode,
+                        alphaThreshold: ds.alphaThreshold,
+                        overlaySids: ds.overlaySids,
+                        overlayAlpha: ds.overlayAlpha,
+                    },
+                };
+            }
+        }
+
+        class OrthogonalSlicer extends Slicer {
+            constructor(axis) {
+                super();
+                this.axis = axis;  // 'axial' | 'coronal' | 'sagittal'
+            }
+            _axisDim() {
+                return { axial: 0, coronal: 1, sagittal: 2 }[this.axis];
+            }
+            getRequest(session, ds) {
+                const req = new FreeSliceSlicer().getRequest(session, ds);
+                req.params.axis = this.axis;
+                req.params.index = ds.sliceIndices[this._axisDim()];
+                return req;
+            }
+        }
+
+        // ─ 3. Layer implementations ───────────────────────────────────────
+
+        // Layers are duck-typed, not subclassed. Each must expose:
+        //   name: string
+        //   draw(ctx, view, displayState) → void
+        //   destroy() → void
+        //   isVisible?(view, displayState) → bool
+        //   handlePointerEvent?(event, view) → bool (true = consumed)
+        //   serialize?() → object (optional, for state persistence)
+
+        class ImageLayer {
+            constructor() {
+                this.name = 'image';
+                this._lastBitmap = null;
+                this._pendingFetch = null;
+            }
+            isVisible() { return true; }
+            async draw(ctx, view, ds) {
+                // Fetch slice via slicer, draw to ctx. Detailed implementation
+                // lands in Phase 2 when the first real View is wired up.
+            }
+            destroy() {
+                if (this._lastBitmap) { this._lastBitmap.close?.(); this._lastBitmap = null; }
+                this._pendingFetch = null;
+            }
+        }
+
+        class VectorFieldLayer {
+            constructor(opts) {
+                this.name = 'vectorfield';
+                this.vfieldSid = opts?.vfieldSid ?? null;
+                this._cache = null;
+            }
+            isVisible(view, ds) { return this.vfieldSid != null; }
+            async draw(ctx, view, ds) { /* Phase 13 */ }
+            destroy() { this._cache = null; }
+        }
+
+        class OverlayLayer {
+            constructor() { this.name = 'overlay'; }
+            isVisible(view, ds) { return ds.overlaySids && ds.overlaySids.length > 0 && ds.overlayVisible; }
+            async draw(ctx, view, ds) { /* Phase 4 — no-op; compositing is server-side */ }
+            destroy() {}
+        }
+
+        class CrosshairLayer {
+            constructor() { this.name = 'crosshair'; this._alpha = 0; }
+            isVisible() { return this._alpha > 0.01; }
+            async draw(ctx, view, ds) { /* Phase 3 */ }
+            destroy() {}
+        }
+
+        class RoiLayer { constructor() { this.name = 'roi'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class RulerLayer { constructor() { this.name = 'ruler'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class LineProfileLayer { constructor() { this.name = 'lineprofile'; } isVisible() { return false; } async draw() {} destroy() {} }
+        class MiniMapLayer { constructor() { this.name = 'minimap'; } isVisible() { return false; } async draw() {} destroy() {} }
+
+        // ─ 4. View class ──────────────────────────────────────────────────
+
+        class View {
+            constructor(opts) {
+                this.id = opts.id;
+                this.role = opts.role;
+                this.session = opts.session;
+                this.displayState = opts.displayState ?? makeDisplayState();
+                this.slicer = opts.slicer;
+                this.parentContainer = opts.container;
+
+                this.canvas = null;
+                this.wrapper = null;
+                this.colorBar = null;
+                this.layers = [new ImageLayer()];
+                this.scale = { cssW: 0, cssH: 0, bufW: 0, bufH: 0, zoom: 1 };
+
+                this._listeners = [];
+                this._renderQueued = false;
+                this._initialized = false;
+            }
+
+            // ── Capabilities ──
+            supportsDynamicRange() { return this.displayState.renderMode !== 'rgb'; }
+            supportsColormap()     { return this.displayState.renderMode !== 'rgb'; }
+            supportsLogScale()     {
+                return this.displayState.renderMode === 'scalar' && !(this.session.isComplex && this.displayState.complexMode !== 0);
+            }
+            supportsComplexMode()  { return !!this.session.isComplex; }
+            supportsProjection()   { return this.displayState.renderMode === 'scalar'; }
+            supportsColorbar()     { return this.supportsDynamicRange(); }
+
+            // ── Lifecycle (detailed bodies land in Phase 2) ──
+            async init() {
+                if (this._initialized) return;
+                this._initialized = true;
+                // Phase 2 fills this in: create DOM, ColorBar, attach listeners, initial render
+            }
+            destroy() {
+                for (const { target, type, fn } of this._listeners) target.removeEventListener(type, fn);
+                this._listeners = [];
+                for (const layer of this.layers) layer.destroy();
+                this.layers = [];
+                if (this.colorBar) { this.colorBar.destroy?.(); this.colorBar = null; }
+                if (this.wrapper && this.wrapper.parentNode) this.wrapper.parentNode.removeChild(this.wrapper);
+                this._initialized = false;
+            }
+
+            // ── Rendering (detailed bodies land in Phase 2) ──
+            async render() { /* Phase 2 */ }
+            requestRender() {
+                if (this._renderQueued) return;
+                this._renderQueued = true;
+                requestAnimationFrame(() => { this._renderQueued = false; this.render(); });
+            }
+            scaleTo(cssW, cssH) {
+                this.scale.cssW = cssW;
+                this.scale.cssH = cssH;
+                if (this.canvas) {
+                    this.canvas.style.width = cssW + 'px';
+                    this.canvas.style.height = cssH + 'px';
+                    const dpr = window.devicePixelRatio || 1;
+                    this.canvas.width = cssW * dpr;
+                    this.canvas.height = cssH * dpr;
+                    this.scale.bufW = this.canvas.width;
+                    this.scale.bufH = this.canvas.height;
+                }
+            }
+
+            // ── Actions ──
+            cycleDynamicRange(direction) {
+                if (!this.supportsDynamicRange()) { showStatus('dynamic range not available in ' + this.displayState.renderMode); return; }
+                if (this.colorBar && typeof this.colorBar.cycleQuantile === 'function') {
+                    this.colorBar.cycleQuantile(direction || 1);
+                }
+                this.requestRender();
+            }
+            cycleColormap(direction) {
+                if (!this.supportsColormap()) { showStatus('colormaps fixed in ' + this.displayState.renderMode); return; }
+                const n = (typeof COLORMAPS !== 'undefined' && COLORMAPS.length) || 1;
+                this.displayState.cmapIdx = (this.displayState.cmapIdx + (direction || 1) + n) % n;
+                this.requestRender();
+            }
+            toggleLogScale() {
+                if (!this.supportsLogScale()) { showStatus('log scale not available here'); return; }
+                this.displayState.logScale = !this.displayState.logScale;
+                this.requestRender();
+            }
+            cycleComplexMode() {
+                if (!this.supportsComplexMode()) return;
+                this.displayState.complexMode = (this.displayState.complexMode + 1) % 4;
+                this.requestRender();
+            }
+            cycleProjection(direction) {
+                if (!this.supportsProjection()) return;
+                this.displayState.projectionMode = (this.displayState.projectionMode + (direction || 1) + 7) % 7;
+                this.requestRender();
+            }
+            resetView() {
+                this.displayState.vmin = null;
+                this.displayState.vmax = null;
+                this.displayState.quantileIdx = -1;
+                this.displayState.windowLocked = false;
+                this.requestRender();
+            }
+            getHoverInfo(clientX, clientY) {
+                // Phase 2: implement pixel readout
+                return null;
+            }
+
+            // ── Layer management ──
+            addLayer(layer) { this.layers.push(layer); this.requestRender(); }
+            removeLayer(name) {
+                const idx = this.layers.findIndex(l => l.name === name);
+                if (idx >= 0) { this.layers[idx].destroy(); this.layers.splice(idx, 1); this.requestRender(); }
+            }
+            findLayer(name) { return this.layers.find(l => l.name === name); }
+
+            // ── Serialization ──
+            serialize() {
+                return {
+                    id: this.id,
+                    role: this.role,
+                    sid: this.session.sid,
+                    displayState: serializeDisplayState(this.displayState),
+                };
+            }
+        }
+
+        // ─ 5. LayoutStrategy ──────────────────────────────────────────────
+
+        class LayoutStrategy {
+            constructor() { this.name = 'base'; }
+            getViews(sessions, savedStates) { throw new Error('LayoutStrategy.getViews not implemented'); }
+            arrangeViews(views, rootContainer) { throw new Error('LayoutStrategy.arrangeViews not implemented'); }
+            scaleViews(views, rootContainer) { /* default no-op; subclasses override */ }
+            destroy(views) { for (const v of views) v.destroy(); }
+        }
+
+        // ─ 6. ModeManager singleton ───────────────────────────────────────
+
+        const modeManager = {
+            currentLayout: null,
+            currentViews: [],
+            modeName: 'normal',
+            _lastMouseXY: null,
+
+            async enterMode(layoutStrategy, sessions, savedStates) {
+                // Step 1: capture state from outgoing Views (if any)
+                const preservedStates = this.currentViews.map(v => v.serialize());
+                // Step 2: destroy outgoing layout
+                if (this.currentLayout) this.currentLayout.destroy(this.currentViews);
+                // Step 3: construct incoming
+                this.currentLayout = layoutStrategy;
+                this.currentViews = layoutStrategy.getViews(sessions, savedStates || preservedStates);
+                // Step 4: arrange DOM
+                const root = document.getElementById('app') || document.body;
+                layoutStrategy.arrangeViews(this.currentViews, root);
+                // Step 5: init each view in parallel
+                await Promise.all(this.currentViews.map(v => v.init()));
+                // Step 6: update mode name
+                this.modeName = layoutStrategy.name;
+                // Step 7: dispatch event so reconcilers and islands can reposition
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: this.modeName } }));
+            },
+
+            getAllViews() { return this.currentViews; },
+            getViewById(id) { return this.currentViews.find(v => v.id === id) || null; },
+
+            getViewUnderMouse() {
+                if (!this._lastMouseXY) return null;
+                const { x, y } = this._lastMouseXY;
+                const el = document.elementFromPoint(x, y);
+                if (!el) return null;
+                return this.currentViews.find(v => v.canvas && (v.canvas === el || v.canvas.contains(el) || v.wrapper?.contains(el))) || null;
+            },
+
+            getFocusedView() {
+                return this.getViewUnderMouse() || this.currentViews[0] || null;
+            },
+
+            forEachView(fn) { this.currentViews.forEach(fn); },
+        };
+
+        // Track mouse so getViewUnderMouse works
+        document.addEventListener('mousemove', e => {
+            modeManager._lastMouseXY = { x: e.clientX, y: e.clientY };
+        }, { passive: true, capture: true });
+
         // ── Primary ColorBar instance (normal mode) ─────────────────────────
         // Adopts the existing #slim-cb-wrap DOM elements. interactive: true
         // — the ColorBar class handles all hover, drag, dblclick, mouseenter/leave.
