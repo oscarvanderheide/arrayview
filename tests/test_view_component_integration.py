@@ -83,3 +83,55 @@ def test_update_view_calls_render_on_primary_view(loaded_viewer, sid_3d):
     # renderCount may be 0 immediately because requestRender is async,
     # but the important thing is updateView() didn't throw and view exists
     assert result >= 0
+
+
+def test_multiview_layout_creates_three_views(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.evaluate("""async () => {
+        const s = modeManager.currentViews[0].session;
+        await modeManager.enterMode(new MultiViewLayout(), [s]);
+    }""")
+    page.wait_for_timeout(400)
+    count = page.evaluate("() => modeManager.currentViews.length")
+    axes = page.evaluate("() => modeManager.currentViews.map(v => v.slicer.axis)")
+    assert count == 3
+    assert set(axes) == {"axial", "coronal", "sagittal"}
+
+
+def test_v_key_enters_multiview_via_mode_manager(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    result = page.evaluate("() => ({mode: modeManager.modeName, count: modeManager.currentViews.length})")
+    assert result["mode"] == "multiview"
+    assert result["count"] == 3
+
+
+def test_v_key_exits_multiview_back_to_normal(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    page.keyboard.press("v")
+    page.wait_for_timeout(500)
+    result = page.evaluate("() => ({mode: modeManager.modeName, count: modeManager.currentViews.length})")
+    assert result["mode"] == "normal"
+    assert result["count"] == 1
+
+
+def test_mv_views_have_crosshair_layer(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    page.focus("#keyboard-sink")
+    page.keyboard.press("v")
+    page.wait_for_timeout(800)
+    result = page.evaluate("""() => modeManager.currentViews.map(v => ({
+        id: v.id,
+        hasCrosshair: !!v.findLayer('crosshair'),
+    }))""")
+    assert len(result) == 3
+    assert all(r["hasCrosshair"] for r in result)

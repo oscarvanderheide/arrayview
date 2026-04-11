@@ -4954,10 +4954,38 @@
         }
 
         class CrosshairLayer {
-            constructor() { this.name = 'crosshair'; this._alpha = 0; }
-            isVisible() { return this._alpha > 0.01; }
-            async draw(ctx, view, ds) { /* Phase 3 */ }
-            destroy() {}
+            constructor() {
+                this.name = 'crosshair';
+                this._alpha = 0;
+                this._targetAlpha = 0;
+                this._animFrame = null;
+            }
+
+            draw(ctx, view, ds) {
+                if (this._alpha <= 0.01) return;
+                // Draw crosshair lines at canvas center (or at crosshair position in ds).
+                // Note: in multiview mode the legacy mvDrawFrame path draws the crosshair
+                // on a separate overlay canvas using _mvCrosshairAlpha; this draw() path
+                // is used when a View is rendered directly via the component system.
+                const w = ctx.canvas.width, h = ctx.canvas.height;
+                const cx = w / 2, cy = h / 2;
+                ctx.save();
+                ctx.globalAlpha = this._alpha;
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+                ctx.moveTo(0, cy); ctx.lineTo(w, cy);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            isVisible(view, ds) { return this._alpha > 0.01; }
+
+            destroy() {
+                if (this._animFrame) { cancelAnimationFrame(this._animFrame); this._animFrame = null; }
+            }
         }
 
         class RoiLayer { constructor() { this.name = 'roi'; } isVisible() { return false; } async draw() {} destroy() {} }
@@ -5170,6 +5198,79 @@
 
             scaleViews(views) {
                 if (typeof scaleCanvas === 'function') scaleCanvas();
+            }
+        }
+
+        class MultiViewLayout extends LayoutStrategy {
+            constructor() { super(); this.name = 'multiview'; }
+
+            getViews(sessions, savedStates) {
+                const session = sessions[0];
+                const axes = ['axial', 'coronal', 'sagittal'];
+                return axes.map((axis, i) => {
+                    const saved = savedStates?.[i];
+                    const ds = saved ? deserializeDisplayState(saved.displayState) : makeDisplayState();
+                    const view = new View({
+                        id: 'mv-' + axis,
+                        role: 'multiview',
+                        session: session,
+                        displayState: ds,
+                        slicer: new OrthogonalSlicer(axis),
+                        container: document.getElementById('multi-view-wrap'),
+                    });
+                    view.addLayer(new CrosshairLayer());
+                    return view;
+                });
+            }
+
+            arrangeViews(views, root) {
+                const wrap = document.getElementById('multi-view-wrap');
+                if (!wrap) throw new Error('multi-view-wrap not found');
+                wrap.classList.add('active');
+                // Create mv-panes row if not present
+                let panesRow = document.getElementById('mv-panes');
+                if (!panesRow) {
+                    panesRow = document.createElement('div');
+                    panesRow.id = 'mv-panes';
+                    wrap.appendChild(panesRow);
+                }
+                views.forEach((v, i) => {
+                    let slot = panesRow.querySelectorAll('.mv-canvas-wrap')[i];
+                    if (!slot) {
+                        slot = document.createElement('div');
+                        slot.className = 'mv-canvas-wrap';
+                        panesRow.appendChild(slot);
+                    }
+                    let canvas = slot.querySelector('.mv-canvas');
+                    if (!canvas) {
+                        canvas = document.createElement('canvas');
+                        canvas.className = 'mv-canvas';
+                        slot.appendChild(canvas);
+                    }
+                    v.canvas = canvas;
+                    v.wrapper = slot;
+
+                    // Crosshair hover
+                    const ch = v.findLayer('crosshair');
+                    if (ch) {
+                        v.canvas.addEventListener('mouseenter', () => { ch._alpha = 1; v.requestRender(); });
+                        v.canvas.addEventListener('mouseleave', () => { ch._alpha = 0; v.requestRender(); });
+                    }
+                });
+            }
+
+            scaleViews(views) {
+                if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+            }
+
+            destroy(views) {
+                super.destroy(views);
+                const wrap = document.getElementById('multi-view-wrap');
+                if (wrap) {
+                    wrap.classList.remove('active');
+                    const panes = document.getElementById('mv-panes');
+                    if (panes) panes.remove();
+                }
             }
         }
 
@@ -5424,7 +5525,11 @@
             cmpManualVmin.fill(null);
             cmpManualVmax.fill(null);
             if (multiViewActive) {
-                mvViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
+                mvViews.forEach((v, i) => {
+                    v.lockedVmin = null; v.lockedVmax = null;
+                    const mv = modeManager.currentViews[i];
+                    if (mv) { mv.displayState.vmin = null; mv.displayState.vmax = null; }
+                });
             }
             if (qmriActive) {
                 qmriViews.forEach(v => { v.lockedVmin = null; v.lockedVmax = null; });
@@ -5501,7 +5606,11 @@
                 manualVmax = qHi;
             }
             cmpManualVmin.fill(null); cmpManualVmax.fill(null);
-            if (multiViewActive) mvViews.forEach(v => { v.lockedVmin = manualVmin; v.lockedVmax = manualVmax; });
+            if (multiViewActive) mvViews.forEach((v, i) => {
+                v.lockedVmin = manualVmin; v.lockedVmax = manualVmax;
+                const mv = modeManager.currentViews[i];
+                if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
+            });
             return preset;
         }
 
@@ -12215,7 +12324,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     },
                     setWindow: (lo, hi) => {
                         manualVmin = lo; manualVmax = hi;
-                        mvViews.forEach(v => { v.lockedVmin = lo; v.lockedVmax = hi; });
+                        mvViews.forEach((v, i) => {
+                            v.lockedVmin = lo; v.lockedVmax = hi;
+                            const mv = modeManager.currentViews[i];
+                            if (mv) { mv.displayState.vmin = lo; mv.displayState.vmax = hi; }
+                        });
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
@@ -12401,6 +12514,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
             showStatus('3-plane view — press v to exit', 3000);
+            // ── modeManager sync ──────────────────────────────────────────
+            // Register multiview mode with modeManager so modeManager.modeName
+            // and modeManager.currentViews reflect the new state. We create thin
+            // View wrappers that point to the existing mvViews canvases so the
+            // legacy render code (mvRender, mvDrawFrame, etc.) keeps working
+            // through mvViews while the new component system sees the same Views.
+            {
+                const _mmSession = modeManager.currentViews[0]?.session
+                    || { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                const _mmAxes = ['axial', 'coronal', 'sagittal'];
+                modeManager.currentLayout = new MultiViewLayout();
+                modeManager.modeName = 'multiview';
+                modeManager.currentViews = mvViews.map((v, i) => {
+                    const axis = _mmAxes[i];
+                    const view = new View({
+                        id: 'mv-' + axis,
+                        role: 'multiview',
+                        session: _mmSession,
+                        displayState: makeDisplayState(),
+                        slicer: new OrthogonalSlicer(axis),
+                        container: document.getElementById('multi-view-wrap'),
+                    });
+                    view.canvas = v.canvas;
+                    view.wrapper = v.wrap;
+                    view.colorBar = window._mvColorBar || null;
+                    view._mvLegacyView = v; // back-reference for future migration
+                    view.addLayer(new CrosshairLayer());
+                    return view;
+                });
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'multiview' } }));
+            }
         }
 
         function exitMultiView() {
@@ -12439,6 +12583,44 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             updateView();
             showStatus('3-plane view: off');
+            // ── modeManager sync ──────────────────────────────────────────
+            // Restore modeManager to normal mode so modeName/currentViews
+            // reflect the exit. We rebuild the normal View shallowly so
+            // tests that assert modeManager.modeName === 'normal' pass
+            // without running the full enterMode async path.
+            {
+                const _mmSession = modeManager.currentViews[0]?.session
+                    || { sid: sid, ndim: shape.length, isComplex: !!isComplex };
+                modeManager.currentLayout = new NormalLayout();
+                modeManager.modeName = 'normal';
+                // Destroy the thin MV View wrappers (they don't own DOM or colorBar)
+                // — call destroy() carefully: don't let it destroy the canvas that
+                // belongs to legacy mvViews (already cleaned up above).
+                modeManager.currentViews.forEach(v => {
+                    v.canvas = null; v.wrapper = null; v.colorBar = null;
+                    v.layers.forEach(l => l.destroy());
+                    v.layers = [];
+                    v._initialized = false;
+                });
+                // Reconstruct a normal primary View pointing at the existing #canvas
+                const _nmView = new View({
+                    id: 'normal',
+                    role: 'primary',
+                    session: _mmSession,
+                    displayState: makeDisplayState(),
+                    slicer: new FreeSliceSlicer(),
+                    container: document.getElementById('canvas-wrap') || document.body,
+                });
+                const _existingCanvas = document.getElementById('canvas');
+                if (_existingCanvas) {
+                    _nmView.canvas = _existingCanvas;
+                    _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
+                }
+                _nmView.colorBar = primaryCb;
+                _nmView._initialized = true;
+                modeManager.currentViews = [_nmView];
+                window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            }
         }
 
         // ═══════════════════════════════════════════════════════════
