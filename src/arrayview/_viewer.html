@@ -7286,13 +7286,16 @@
             if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
 
             // Open WebSocket early — server pushes metadata as first text message.
-            if (!httpTransport) initWebSocket();
+            // (Skip for postMessage transport — VS Code extension proxies binary
+            // frames only; the server's JSON metadata push won't arrive.)
+            const _useWsMeta = !httpTransport && !postMessageTransport;
+            if (_useWsMeta) initWebSocket();
 
             reportParent('metadata-request', { sid });
 
             // Race: WS metadata push vs HTTP fallback (2 s timeout for WS).
             let data;
-            if (!httpTransport) {
+            if (_useWsMeta) {
                 const httpFallback = new Promise(r => setTimeout(r, 2000)).then(() =>
                     proxyFetch(`/metadata/${sid}`).then(res => res.ok ? res.json() : null)
                 );
@@ -7381,9 +7384,9 @@
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
-            if (httpTransport) initWebSocket();
+            if (!_useWsMeta) initWebSocket();
             _metadataProcessed = true;
-            if (!httpTransport && wsReady) updateView();
+            if (_useWsMeta && wsReady) updateView();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();

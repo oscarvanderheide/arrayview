@@ -1,5 +1,6 @@
 """Rendering pipeline: colormaps, LUTs, slice extraction, RGBA, mosaic, RGB, preload."""
 
+import threading
 import time
 
 import numpy as np
@@ -15,6 +16,7 @@ from arrayview._session import (
 LUTS: dict = {}
 
 _mpl_colormaps = None
+_luts_lock = threading.Lock()
 
 
 def _init_luts():
@@ -22,37 +24,40 @@ def _init_luts():
     global _mpl_colormaps
     if LUTS:
         return  # already initialised
-    import qmricolors as _qc  # noqa: F401 — registers lipari, navia
-    from matplotlib import colormaps
-    from matplotlib.colors import LinearSegmentedColormap
+    with _luts_lock:
+        if LUTS:
+            return  # double-checked locking
+        import qmricolors as _qc  # noqa: F401 — registers lipari, navia
+        from matplotlib import colormaps
+        from matplotlib.colors import LinearSegmentedColormap
 
-    _mpl_colormaps = colormaps
-    for name in COLORMAPS:
-        lut = np.concatenate(
+        _mpl_colormaps = colormaps
+        for name in COLORMAPS:
+            lut = np.concatenate(
+                [
+                    (colormaps[name](np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
+                    np.full((256, 1), 255, dtype=np.uint8),
+                ],
+                axis=1,
+            )
+            LUTS[name] = lut
+        for name in COLORMAPS:
+            COLORMAP_GRADIENT_STOPS[name] = _lut_to_gradient_stops(LUTS[name])
+
+        # Black-center diverging colormap (blue → black → red) for diff A−B
+        _bkdiv = LinearSegmentedColormap.from_list(
+            "RdBu_r_black",
+            [(0.0, (0.0, 0.3, 1.0)), (0.5, (0.0, 0.0, 0.0)), (1.0, (1.0, 0.2, 0.0))],
+        )
+        _bkdiv_lut = np.concatenate(
             [
-                (colormaps[name](np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
+                (_bkdiv(np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
                 np.full((256, 1), 255, dtype=np.uint8),
             ],
             axis=1,
         )
-        LUTS[name] = lut
-    for name in COLORMAPS:
-        COLORMAP_GRADIENT_STOPS[name] = _lut_to_gradient_stops(LUTS[name])
-
-    # Black-center diverging colormap (blue → black → red) for diff A−B
-    _bkdiv = LinearSegmentedColormap.from_list(
-        "RdBu_r_black",
-        [(0.0, (0.0, 0.3, 1.0)), (0.5, (0.0, 0.0, 0.0)), (1.0, (1.0, 0.2, 0.0))],
-    )
-    _bkdiv_lut = np.concatenate(
-        [
-            (_bkdiv(np.arange(256) / 255.0) * 255).astype(np.uint8)[:, :3],
-            np.full((256, 1), 255, dtype=np.uint8),
-        ],
-        axis=1,
-    )
-    LUTS["RdBu_r_black"] = _bkdiv_lut
-    COLORMAP_GRADIENT_STOPS["RdBu_r_black"] = _lut_to_gradient_stops(_bkdiv_lut)
+        LUTS["RdBu_r_black"] = _bkdiv_lut
+        COLORMAP_GRADIENT_STOPS["RdBu_r_black"] = _lut_to_gradient_stops(_bkdiv_lut)
 
 
 def _lut_to_gradient_stops(lut, n=32):
