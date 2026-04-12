@@ -328,16 +328,17 @@
             50%       { opacity: 1;    }
         }
         /* Counter-clockwise rotation: b0→b3→b6→b7→b8→b5→b2→b1, center stays bright */
-        .av-logo-loading #logo-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
-        .av-logo-loading #logo-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
-        .av-logo-loading #logo-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
-        .av-logo-loading #logo-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
-        .av-logo-loading #logo-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
-        .av-logo-loading #logo-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
-        .av-logo-loading #logo-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
-        .av-logo-loading #logo-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        .av-logo-loading #logo-b0, .av-logo-loading #load-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
+        .av-logo-loading #logo-b3, .av-logo-loading #load-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .av-logo-loading #logo-b6, .av-logo-loading #load-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .av-logo-loading #logo-b7, .av-logo-loading #load-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .av-logo-loading #logo-b8, .av-logo-loading #load-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
+        .av-logo-loading #logo-b5, .av-logo-loading #load-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .av-logo-loading #logo-b2, .av-logo-loading #load-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .av-logo-loading #logo-b1, .av-logo-loading #load-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         /* When loading stops, perimeter blocks restore to full opacity cleanly */
-        #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8 {
+        #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8,
+        #load-b0, #load-b1, #load-b2, #load-b3, #load-b5, #load-b6, #load-b7, #load-b8 {
             transition: opacity 0.3s ease;
         }
         /* ── CSS: Compare, Overlay, and Prompt Styles ────────────── */
@@ -1344,7 +1345,7 @@
         .gallery-export:hover, .gallery-close:hover { color: var(--text); }
     </style>
 </head>
-<body>
+<body class="__BODY_CLASS__">
 <div id="wrapper">
     <div id="array-name">
         <svg id="av-logo-svg" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
@@ -1607,7 +1608,7 @@
         <canvas id="mip-canvas"></canvas>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
-        <div id="loading-overlay"></div>
+        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
         <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
@@ -1726,6 +1727,10 @@
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
         const _DEBUG_UI = urlParams.get('debug_ui') === '1';
+
+        let _metadataResolve = null;
+        const _metadataFromWs = new Promise(r => { _metadataResolve = r; });
+        let _metadataProcessed = false;
 
         /* ── VS Code postMessage transport plumbing ── */
         let _vscodeApi = null;
@@ -6798,10 +6803,21 @@
                 wsReady = true;
                 setStatus('');
                 sink.focus();
-                updateView();
+                if (_metadataProcessed) updateView();  // reconnect: metadata already known
             };
 
             ws.onmessage = (event) => {
+                // Text message: server pushes metadata as first JSON message
+                if (typeof event.data === 'string') {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'metadata' && _metadataResolve) {
+                            _metadataResolve(msg);
+                            _metadataResolve = null;
+                        }
+                    } catch (_) {}
+                    return;
+                }
                 const buf = event.data;
                 const headerU32 = new Uint32Array(buf, 0, 3);
                 const seq    = headerU32[0];
@@ -7266,26 +7282,44 @@
         /* ── JS: Initialization and Metadata Fetch ────────────────── */
 
         async function init() {
-            // ── Loading screen: show pulsing logo while fetching data ──
-            const _loadingOverlay = document.getElementById('loading-overlay');
-            if (sid) {
-                document.body.classList.add('av-loading');
-                const loadLogo = document.getElementById('av-logo-svg').cloneNode(true);
-                loadLogo.removeAttribute('id');
-                loadLogo.classList.add('av-load-logo', 'av-logo-loading');
-                _loadingOverlay.appendChild(loadLogo);
+            // Loading spinner is in static HTML — body.av-loading set by server template.
+            if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
+
+            // Open WebSocket early — server pushes metadata as first text message.
+            if (!httpTransport) initWebSocket();
+
+            reportParent('metadata-request', { sid });
+
+            // Race: WS metadata push vs HTTP fallback (2 s timeout for WS).
+            let data;
+            if (!httpTransport) {
+                const httpFallback = new Promise(r => setTimeout(r, 2000)).then(() =>
+                    proxyFetch(`/metadata/${sid}`).then(res => res.ok ? res.json() : null)
+                );
+                data = await Promise.race([_metadataFromWs, httpFallback]);
+                if (!data) {
+                    // Both failed — try direct HTTP without timeout
+                    const res = await proxyFetch(`/metadata/${sid}`);
+                    if (!res.ok) {
+                        reportParent('metadata-http-error', { status: res.status, sid });
+                        const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
+                        document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                        return;
+                    }
+                    data = await res.json();
+                }
+            } else {
+                // HTTP transport mode (VS Code) — use traditional fetch
+                const res = await proxyFetch(`/metadata/${sid}`);
+                if (!res.ok) {
+                    reportParent('metadata-http-error', { status: res.status, sid });
+                    const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
+                    document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
+                    return;
+                }
+                data = await res.json();
             }
 
-            if (!sid) { hideLoadingOverlay(); drawPlasmaDemo(); return; }
-            reportParent('metadata-request', { sid });
-            const res = await proxyFetch(`/metadata/${sid}`);
-            if (!res.ok) {
-                reportParent('metadata-http-error', { status: res.status, sid });
-                const msg = res.status === 404 ? 'Session not found or expired.' : `Server error ${res.status} — check Python console for details.`;
-                document.getElementById('loading-overlay').innerHTML = `<div style="color:#c55;font-size:18px;font-family:monospace">${msg}</div>`;
-                return;
-            }
-            const data = await res.json();
             reportParent('metadata-loaded', {
                 sid,
                 shape: data.shape,
@@ -7304,10 +7338,8 @@
             if (data.name) {
                 _sessionName = data.name;
                 document.getElementById('array-name-text').textContent = data.name;
-                const loadNameEl = document.createElement('div');
-                loadNameEl.className = 'av-load-name';
-                loadNameEl.textContent = data.name;
-                _loadingOverlay.appendChild(loadNameEl);
+                const loadNameEl = document.querySelector('#loading-overlay .av-load-name');
+                if (loadNameEl) loadNameEl.textContent = data.name;
             }
             _isWelcomeScreen = data.name === 'welcome';
             if (_isWelcomeScreen) {
@@ -7349,11 +7381,30 @@
                 if (decodedUrlState) applyStateSnapshot(decodedUrlState);
             }
             if (!compareSid && compareSidList.length) compareSid = compareSidList[0];
-            initWebSocket();
+            if (httpTransport) initWebSocket();
+            _metadataProcessed = true;
+            if (!httpTransport && wsReady) updateView();
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();
             if (compareSid && !multiViewActive && !qmriActive) enterCompareModeBySid(compareSid);
+
+            // Shell-lite: when viewer is top-level (not in shell iframe), listen for
+            // new-tab signals so CLI tab injection still works.
+            if (window === window.top && !postMessageTransport) {
+                try {
+                    const _shellProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const _shellWs = new WebSocket(`${_shellProto}//${location.host}/ws/shell`);
+                    _shellWs.onmessage = (e) => {
+                        try {
+                            const msg = JSON.parse(e.data);
+                            if (msg.type === 'new_tab' && msg.url) {
+                                window.open(msg.url, '_blank');
+                            }
+                        } catch (_) {}
+                    };
+                } catch (_) {}
+            }
         }
 
         function getModeLabel() {
