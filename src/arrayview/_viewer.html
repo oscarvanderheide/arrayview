@@ -3730,17 +3730,7 @@
         }
         function _showPreloadToast(msg) {
             _preloadMsg = msg || null;
-            const t = document.getElementById('toast');
-            if (!t) return;
-            // Don't overwrite a regular toast that's currently showing
-            if (_toastTimer && t.textContent !== _preloadMsg) return;
-            if (msg) {
-                t.textContent = msg;
-                t.classList.add('visible');
-            } else {
-                t.classList.remove('visible');
-                _preloadMsg = null;
-            }
+            // Preload status is silent — never show toast to user.
         }
 
         let cbHovered = false;
