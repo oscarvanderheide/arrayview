@@ -205,7 +205,7 @@
             transition: opacity 0.3s ease;
         }
         .cb-col {
-            flex: 1; min-width: 60px; position: relative;
+            width: 250px; position: relative;
             height: 18px; overflow: visible;
         }
         .cb-canvas {
@@ -858,7 +858,7 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; margin-top: 10px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; width: 60%; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; margin-top: 10px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -1115,7 +1115,6 @@
             position: absolute !important; bottom: 10px !important; left: 50% !important;
             transform: translateX(-50%) !important;
             margin: 0 !important; padding: 6px 14px !important;
-            max-width: min(60%, 350px) !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -1135,7 +1134,6 @@
             opacity: 1 !important; position: absolute !important; bottom: 6px !important;
             left: 50% !important; transform: translateX(-50%) !important;
             margin: 0 !important; padding: 4px 10px !important;
-            max-width: min(80%, 250px) !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -3588,15 +3586,19 @@
                 if (cbIsland) cbIsland.style.display = 'none';
                 return;
             }
-            // Size the island to match the compare canvas viewport width
+            // Size the island: fixed target width, clamped to pane
             const inner = cv.closest('.compare-canvas-inner');
             const vpW = inner && inner.dataset.vpW ? parseInt(inner.dataset.vpW) : 0;
-            const cssW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
-            if (!colorbarVisible() || !cssW || cssW < 10 || !compareFrames[idx]) {
+            const paneW = vpW > 0 ? Math.min(parseInt(cv.style.width), vpW) : parseInt(cv.style.width);
+            if (!colorbarVisible() || !paneW || paneW < 10 || !compareFrames[idx]) {
                 if (cbIsland) cbIsland.style.display = 'none';
                 return;
             }
-            const islandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
+            const islandW = cbTargetWidth(paneW);
+            if (islandW == null) {
+                if (cbIsland) cbIsland.style.display = 'none';
+                return;
+            }
             if (cbIsland) { cbIsland.style.display = ''; cbIsland.style.width = islandW + 'px'; }
             cbCanvas.style.display = '';
             // Delegate rendering to the persistent per-pane ColorBar instance.
@@ -3810,15 +3812,11 @@
             // ── Fullscreen overlay colorbar mode ──────────────────────
             if (_fullscreenActive) {
                 // Fullscreen: use morph draw, then position anchored to bottom
-                const cbRefW = compareActive ? window.innerWidth : (vpEl ? vpEl.offsetWidth : Math.round(canvasRect.width));
-                // Cap width: use pane viewport width if available, otherwise % of reference
-                let maxCbW = 350;
-                if (compareActive) {
-                    const firstInner = document.querySelector('.compare-canvas-inner');
-                    const vpW = firstInner && firstInner.dataset.vpW ? parseInt(firstInner.dataset.vpW) : 0;
-                    if (vpW > 0) maxCbW = Math.round(vpW * 0.6);
+                const fsCbW = cbTargetWidth(window.innerWidth);
+                if (fsCbW == null) {
+                    if (wrap) wrap.style.display = 'none';
+                    return;
                 }
-                const fsCbW = Math.max(160, Math.min(Math.round(cbRefW * 0.60), maxCbW));
                 if (wrap) {
                     wrap.classList.remove('compact-vertical', 'compact-overlay');
                     wrap.style.left = '50%';
@@ -3872,13 +3870,13 @@
             const _nvmax = document.getElementById('slim-cb-vmax');
             if (_nvmin) _nvmin.style.display = '';
             if (_nvmax) _nvmax.style.display = '';
-            const rawW = compareActive ? Math.round(canvasRect.width)
-                : multiViewActive ? Math.round(canvasRect.width)
-                : (vpEl ? vpEl.offsetWidth : (parseInt(canvas.style.width) || Math.round(canvasRect.width)));
-            // Cap colorbar width: 500px in compare mode, 900px in normal mode
-            const cssW = compareActive ? Math.max(120, Math.min(rawW, window.innerWidth - 40, 500))
-                : Math.max(120, Math.min(rawW, window.innerWidth - 40, 900));
-            if (!cssW || cssW < 10) return;
+            const cbW = cbTargetWidth(window.innerWidth);
+            if (cbW == null) {
+                if (wrap) wrap.style.display = 'none';
+                return;
+            }
+            if (wrap) wrap.style.display = '';
+            const cssW = cbW;
             const stripH = CB_COLLAPSED_H + (_cbExpandedH - CB_COLLAPSED_H) * primaryCb._animT;
             // Mirror the gap between name-bar/title bottom and canvas top
             let chromeGap;
@@ -3910,7 +3908,7 @@
                 // endpoint the class-switch callbacks snapped it to.
                 if (!(_immersiveDriveTween && !_fullscreenActive)) {
                     wrap.style.top  = cbTop + 'px';
-                    wrap.style.width = Math.max(160, cssW) + 'px';
+                    wrap.style.width = cssW + 'px';
                 }
                 wrap.style.left = '50%';
                 wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
@@ -4035,6 +4033,14 @@
         const CB_DEFAULT_EXPANDED_H = 18;
         const CB_KDE_NPTS = 300;
         const CB_HIT_RADIUS = 7;
+        const CB_TARGET_W = 250;  // ideal horizontal colorbar width (px)
+        const CB_MIN_W    = 150;  // hide colorbar when pane is narrower than this
+
+        /** Return target colorbar width for a given pane width, or null to hide. */
+        function cbTargetWidth(paneWidth) {
+            if (paneWidth < CB_MIN_W) return null;
+            return Math.min(CB_TARGET_W, paneWidth);
+        }
 
         /**
          * Reusable colorbar widget with morph renderer (flat bar → histogram shape).
@@ -14809,7 +14815,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         allowOverflowRecalc: false,
                     }
                 );
-                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = r.cssW + 'px';
+                if (v._colorBar && v._colorBar.wrap) {
+                    const cqPaneW = parseInt(r.cssW) || 0;
+                    const cqCbW = cbTargetWidth(cqPaneW);
+                    v._colorBar.wrap.style.display = cqCbW == null ? 'none' : '';
+                    if (cqCbW != null) v._colorBar.wrap.style.width = cqCbW + 'px';
+                }
             }
             // Size column headers to match pane widths
             const headerLabels = document.querySelectorAll('.cq-header-label');
@@ -15666,8 +15677,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         allowOverflowRecalc: false,
                     }
                 );
-                // Keep colorbar island width in sync with canvas width
-                if (v._colorBar && v._colorBar.wrap) v._colorBar.wrap.style.width = v.canvas.style.width;
+                // Keep colorbar island width clamped to target
+                if (v._colorBar && v._colorBar.wrap) {
+                    const qvPaneW = parseInt(v.canvas.style.width) || 0;
+                    const qvCbW = cbTargetWidth(qvPaneW);
+                    v._colorBar.wrap.style.display = qvCbW == null ? 'none' : '';
+                    if (qvCbW != null) v._colorBar.wrap.style.width = qvCbW + 'px';
+                }
             }
             // For n=5: size the invisible placeholder to match a real pane so rows are equal width
             if (n === 5) {
@@ -16309,10 +16325,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     v.wrap.style.height = v.canvas.style.height;
                 }
             }
-            // Match multiview colorbar width to one pane
+            // Match multiview colorbar width to one pane (clamped to CB_TARGET_W)
             const mvCbW = document.getElementById('mv-cb-wrap');
-            if (mvCbW && squareStretch) mvCbW.style.width = T + 'px';
-            else if (mvCbW) mvCbW.style.width = '';
+            if (mvCbW) {
+                const mvCbTarget = cbTargetWidth(T);
+                if (mvCbTarget == null) {
+                    mvCbW.style.display = 'none';
+                } else {
+                    mvCbW.style.display = '';
+                    mvCbW.style.width = mvCbTarget + 'px';
+                }
+            }
 
             fixWrapperAlignment();
             positionEggs();
