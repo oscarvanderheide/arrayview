@@ -1769,7 +1769,8 @@
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
         let currentVmin = 0, currentVmax = 1;
-        // manualVmin / manualVmax: shimmed in section 7 — delegates to primary View's DisplayState
+        let manualVmin = null, manualVmax = null;
+        // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
         // Per-pane manual ranges for compare mode (index matches comparePaneCbs)
         const cmpManualVmin = Array(6).fill(null);
         const cmpManualVmax = Array(6).fill(null);
@@ -5573,7 +5574,7 @@
             getStops:  () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
             getRange:  () => ({ vmin: currentVmin, vmax: currentVmax }),
             getWindow: () => ({ vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax }),
-            setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; },
+            setWindow: (lo, hi) => { manualVmin = lo; manualVmax = hi; { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } } },
             fetchHistogram: () => compareActive ? _fetchHistogramCompare() : _fetchVolumeHistogram(_volHistSpatialOpts()),
             onAnimFrame: (cb) => {
                 // Layout recalculation during expand/collapse animation
@@ -5632,31 +5633,9 @@
         let _cbWindowChangeRafId = null;
         window._primaryCb = primaryCb;
 
-        // ─ 7. Legacy shims (temporary — removed in Phase 17) ──────────────────────
-        // Legacy code reads/writes globals like `manualVmin`. We redirect these to
-        // the primary View's DisplayState so legacy and new code share one source
-        // of truth. Shims are configurable so they can be overridden or deleted.
-
-        (function installShims() {
-            function primaryDS() {
-                const v = modeManager.currentViews[0];
-                return v ? v.displayState : null;
-            }
-
-            const shims = [
-                ['manualVmin', 'vmin'],
-                ['manualVmax', 'vmax'],
-            ];
-
-            for (const [globalName, dsField] of shims) {
-                Object.defineProperty(window, globalName, {
-                    configurable: true,
-                    enumerable: false,
-                    get() { return primaryDS()?.[dsField] ?? null; },
-                    set(v) { const ds = primaryDS(); if (ds) ds[dsField] = v; },
-                });
-            }
-        })();
+        // ─ 7. Legacy shims deleted in Phase 17 ─────────────────────────────────────
+        // manualVmin/manualVmax are now regular let declarations (see Viewer State
+        // Variables). All write sites have explicit dual-writes to displayState.
 
         // _cbStartAnim, _cbAnimStep, _cbMorphDraw removed (Task 4) — primaryCb handles all rendering/animation
 
@@ -5751,6 +5730,7 @@
             if (rangeLocked) return;
             manualVmin = null;
             manualVmax = null;
+            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; } }
             cmpManualVmin.fill(null);
             cmpManualVmax.fill(null);
             if (multiViewActive) {
@@ -5822,6 +5802,7 @@
             if (preset.lo === 0 && preset.hi === 1) {
                 manualVmin = _histData.vmin;
                 manualVmax = _histData.vmax;
+                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             } else {
                 const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
                 const total = counts.reduce((a, b) => a + b, 0);
@@ -5837,6 +5818,7 @@
                 }
                 manualVmin = qLo;
                 manualVmax = qHi;
+                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             }
             cmpManualVmin.fill(null); cmpManualVmax.fill(null);
             if (multiViewActive) mvViews.forEach((v, i) => {
@@ -6647,6 +6629,7 @@
                         if (manualVmin === null) {
                             manualVmin = serverVmin;
                             manualVmax = serverVmax;
+                            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             currentVmin = serverVmin;
                             currentVmax = serverVmax;
                         }
@@ -6797,6 +6780,7 @@
                     if (manualVmin === null) {
                         manualVmin = vmin;
                         manualVmax = vmax;
+                        { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                     }
                 }
 
@@ -6887,6 +6871,7 @@
                         if (!alreadySync) {
                             manualVmin = uVmin;
                             manualVmax = uVmax;
+                            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
                             compareRendering = false;
                             await compareRender();
                             return;
@@ -7969,6 +7954,7 @@
             if (Number.isFinite(s.manualVmin) && Number.isFinite(s.manualVmax) && s.manualVmax > s.manualVmin) {
                 manualVmin = s.manualVmin;
                 manualVmax = s.manualVmax;
+                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             }
 
             if (Number.isInteger(s.dim_x) && s.dim_x >= 0 && s.dim_x < shape.length) dim_x = s.dim_x;
@@ -8753,6 +8739,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const w = Math.max(width * 0.001, width);
             manualVmin = center - w / 2;
             manualVmax = center + w / 2;
+            { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; } }
             primaryCb.ensureAnimating();
             _bcRedrawCb();
         }
@@ -10919,6 +10906,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 isComplex = d.is_complex || false;
                                 if (!isComplex && complexMode >= REAL_MODES.length) complexMode = 0;
                                 manualVmin = manualVmax = null;
+                                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; } }
                                 updateView(); triggerPreload();
                                 renderEggs();
                             }).catch(() => hideFftSpinner());
@@ -10934,6 +10922,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 isComplex = d.is_complex || false;
                                 complexMode = 0;
                                 manualVmin = manualVmax = null;
+                                { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; } }
                                 updateView(); triggerPreload();
                                 renderEggs();
                             }).catch(() => hideFftSpinner());
