@@ -1840,6 +1840,42 @@
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
         let immersiveTl = null; // GSAP timeline that fully drives the immersive crossfade
+
+        // ── Startup animation ──────────────────────────────────────────────
+        let _startupAnimPlayed = false; // once per page load — not reset on data refresh (by design)
+        let _startupAnimTl = null;
+
+        function _playStartupAnimation() {
+            if (_startupAnimPlayed) return;
+            _startupAnimPlayed = true;
+
+            const canvasWrap = document.getElementById('canvas-wrap');
+            const arrayName  = document.getElementById('array-name');
+            const info       = document.getElementById('info');
+            const cbWrap     = document.getElementById('slim-cb-wrap');
+            const helpHint   = document.getElementById('help-hint');
+            const cbVisible  = cbWrap && cbWrap.style.display !== 'none';
+
+            // Seize opacity immediately so CSS transition doesn't race GSAP
+            gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0 });
+            if (cbVisible) gsap.set(cbWrap, { opacity: 0 });
+
+            // Set starting transforms
+            gsap.set(arrayName, { y: -11 });
+            gsap.set(info,      { y: -11 });
+            if (cbVisible) gsap.set(cbWrap, { y: 14 });
+            gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
+
+            _startupAnimTl = gsap.timeline({ onComplete: () => { _startupAnimTl = null; } });
+
+            _startupAnimTl
+                .to(canvasWrap, { opacity: 1, duration: 0.60, ease: 'power2.out' }, 0)
+                .to(arrayName,  { opacity: 1, y: 0, duration: 0.40, ease: 'power3.out' }, 0.70)
+                .to(info,       { opacity: 1, y: 0, duration: 0.40, ease: 'power3.out' }, 0.75)
+                .to(cbVisible ? cbWrap : [],
+                                { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 1.00)
+                .to(helpHint,   { opacity: 1, scale: 1, duration: 0.30, ease: 'back.out(1.8)' }, 1.28);
+        }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
         let _immTargetZoom = 1.0; // cached zoom target at start of transition (_calcAutoFitZoom(..., true) * 1.005)
         let _immDriveDir = 1; // +1 = driving toward immersive, -1 = driving toward normal — read by midpoint .call()
@@ -6647,6 +6683,7 @@
                             const ol = document.getElementById('loading-overlay');
                             ol.style.opacity = '0';
                             document.body.classList.remove('av-loading');
+                            _playStartupAnimation();
                             ol.addEventListener('transitionend', () => { ol.style.display = 'none'; }, { once: true });
                         }
                         scaleCanvas(width, height);
@@ -16598,6 +16635,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             tl.call(() => {
                 const entering = _immDriveDir >= 0;
                 if (entering) {
+                    if (_startupAnimTl) { _startupAnimTl.kill(); _startupAnimTl = null; }
                     _fullscreenActive = true;
                     document.body.classList.add('fullscreen-mode');
                     if (titleEl) {
