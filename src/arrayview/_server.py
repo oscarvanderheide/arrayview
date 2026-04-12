@@ -332,11 +332,26 @@ async def shell_websocket(ws: WebSocket):
 @app.websocket("/ws/{sid}")
 async def websocket_endpoint(ws: WebSocket, sid: str):
     session = SESSIONS.get(sid)
+    # Wait for pending session (data still loading in background thread)
+    if not session and sid in PENDING_SESSIONS:
+        for _ in range(1200):  # up to 120 s
+            await asyncio.sleep(0.1)
+            session = SESSIONS.get(sid)
+            if session:
+                break
     if not session:
         await ws.close()
         return
 
     await ws.accept()
+
+    # Push metadata as first message — saves the client an HTTP round-trip.
+    try:
+        meta = _build_metadata(session)
+        await ws.send_json({"type": "metadata", **meta})
+    except Exception:
+        pass  # non-fatal; client falls back to HTTP /metadata endpoint
+
     _session_mod.VIEWER_SOCKETS += 1
     _session_mod.VIEWER_SIDS.add(sid)
     loop = asyncio.get_running_loop()
@@ -743,11 +758,40 @@ def _vfield_n_times(session) -> int:
     return int((_get_vfield_layout(session) or {}).get("n_times", 1))
 
 
+def _build_metadata(session) -> dict:
+    """Build metadata dict for a session (shared by HTTP and WebSocket paths)."""
+    meta = {
+        "shape": [
+            int(s)
+            for s in (
+                session.spatial_shape
+                if session.rgb_axis is not None
+                else session.shape
+            )
+        ],
+        "is_complex": bool(np.iscomplexobj(session.data)),
+        "name": session.name,
+        "has_vectorfield": session.vfield is not None,
+        "vfield_n_times": _vfield_n_times(session),
+        "is_rgb": session.rgb_axis is not None,
+    }
+    if getattr(session, "spatial_meta", None) is not None:
+        sm = session.spatial_meta
+        meta["spatial_meta"] = {
+            "voxel_sizes": list(sm["voxel_sizes"]),
+            "axis_labels": list(sm["axis_labels"]),
+            "is_oblique": bool(sm["is_oblique"]),
+        }
+        meta["ras_resample_active"] = bool(
+            getattr(session, "ras_resample_active", False)
+        )
+    return meta
+
+
 @app.get("/metadata/{sid}")
 async def get_metadata(sid: str):
     session = SESSIONS.get(sid)
     if not session and sid in PENDING_SESSIONS:
-        # Session is still loading in a background thread — poll until ready (max 120 s).
         for _ in range(1200):
             await asyncio.sleep(0.1)
             session = SESSIONS.get(sid)
@@ -756,32 +800,7 @@ async def get_metadata(sid: str):
     if not session:
         return Response(status_code=404)
     try:
-        meta_dict = {
-            "shape": [
-                int(s)
-                for s in (
-                    session.spatial_shape
-                    if session.rgb_axis is not None
-                    else session.shape
-                )
-            ],
-            "is_complex": bool(np.iscomplexobj(session.data)),
-            "name": session.name,
-            "has_vectorfield": session.vfield is not None,
-            "vfield_n_times": _vfield_n_times(session),
-            "is_rgb": session.rgb_axis is not None,
-        }
-        if getattr(session, "spatial_meta", None) is not None:
-            sm = session.spatial_meta
-            meta_dict["spatial_meta"] = {
-                "voxel_sizes": list(sm["voxel_sizes"]),
-                "axis_labels": list(sm["axis_labels"]),
-                "is_oblique": bool(sm["is_oblique"]),
-            }
-            meta_dict["ras_resample_active"] = bool(
-                getattr(session, "ras_resample_active", False)
-            )
-        return meta_dict
+        return _build_metadata(session)
     except Exception as e:
         import traceback
 
@@ -3469,6 +3488,7 @@ def get_ui(sid: str = None):
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
+        .replace("__BODY_CLASS__", "av-loading" if sid else "")
     )
     headers = {"Cache-Control": "no-store"}
     return HTMLResponse(content=html, headers=headers)
