@@ -9811,6 +9811,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                     customColormap = null; customGradientStops = null;
                     colormap_idx = (colormap_idx === -1 ? 0 : (colormap_idx + 1) % COLORMAPS.length);
+                    modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });  // Phase 12: dual-write
                     proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                     refreshAxesColor();
                     _mipOnColormapChange();
@@ -10531,12 +10532,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; } // kept inline: emits toast
-                    if (rgbMode) { showStatus('complex mode: not available for RGB'); return; } // kept inline: emits toast
+                    const _view = modeManager.getFocusedView();
+                    // Phase 12: use view capability check; fall back to legacy rgbMode guard
+                    if (_view ? !_view.supportsComplexMode() : rgbMode) {
+                        showStatus('complex mode: not available here');
+                        return;
+                    }
                     const modeCount = isComplex ? COMPLEX_MODES.length : REAL_MODES.length;
                     complexMode = (complexMode + 1) % modeCount;
+                    if (_view) _view.displayState.complexMode = complexMode;  // Phase 12: dual-write
                     complexModeEverUsed = true;
                     _invalidateVolHistCache();
                     manualVmin = manualVmax = null;
+                    if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
                     _eggsVisible = true;
                     _complexEggVisible = true;
                     clearTimeout(_complexFadeTimer); _complexFadeTimer = null;
@@ -10814,9 +10822,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Toggle log-scale intensity',
                 when: [],
                 run: (ctx, e) => {
-                    if (rgbMode) { showStatus('log scale: not available for RGB'); return; } // kept inline: emits toast
+                    const _view = modeManager.getFocusedView();
+                    // Phase 12: use view capability check; fall back to legacy rgbMode guard
+                    if (_view ? !_view.supportsLogScale() : rgbMode) {
+                        showStatus('log scale: not available here');
+                        return;
+                    }
                     logScale = !logScale;
+                    if (_view) _view.displayState.logScale = logScale;  // Phase 12: dual-write
                     manualVmin = manualVmax = null;
+                    if (_view) { _view.displayState.vmin = null; _view.displayState.vmax = null; }
                     _eggsVisible = true;
                     proxyFetch(`/clearcache/${sid}`); updateView(); triggerPreload();
                     renderInfo();
@@ -10846,6 +10861,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         projectionMode = 0;
                         projectionDim = -1;
                     }
+                    modeManager.forEachView(v => { v.displayState.projectionMode = projectionMode; });  // Phase 12: dual-write
                     _eggsVisible = true;
                     updateView();
                     renderEggs();
