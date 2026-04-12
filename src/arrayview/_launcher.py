@@ -1517,10 +1517,9 @@ def _view_subprocess(
         can_native = _can_native_window()
         _early_cli_window_opened = False
         if window and can_native and not force_vscode and not inline:
-            encoded_name_early = urllib.parse.quote(name)
-            url_shell_early = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name_early}"
+            url_viewer_early = f"http://localhost:{port}/?sid={sid}"
             _early_cli_window_opened = _open_webview_cli(
-                url_shell_early, 1400, 900, loading_port=port
+                url_viewer_early, 1400, 900, loading_port=port
             )
 
         if not _wait_for_port(port, timeout=15.0, tcp_only=True):
@@ -1652,6 +1651,15 @@ def _serve_daemon(
         ),
         daemon=True,
     ).start()
+
+    # Pre-warm colormap LUTs in background (saves ~200 ms on first frame render).
+    def _warm_luts():
+        try:
+            from arrayview._render import _init_luts
+            _init_luts()
+        except Exception:
+            pass
+    threading.Thread(target=_warm_luts, daemon=True).start()
 
     def _load():
         from arrayview._io import load_data, load_data_with_meta
@@ -2769,9 +2777,9 @@ def arrayview():
     # init_sid; compare params are injected after the server starts (see below).
     _cli_early_window = False
     if use_webview and overlay_sid is None and not is_remote and not compare_files:
-        url_shell_early = f"http://localhost:{args.port}/shell?init_sid={sid}&init_name={encoded_name}"
+        url_viewer_early = f"http://localhost:{args.port}/?sid={sid}"
         _cli_early_window = _open_webview_cli(
-            url_shell_early, 1400, 900, loading_port=args.port
+            url_viewer_early, 1400, 900, loading_port=args.port
         )
 
     if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
