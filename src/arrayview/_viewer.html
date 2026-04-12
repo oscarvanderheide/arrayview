@@ -492,6 +492,148 @@
         #cmd-palette-list .cmd-cat { color: var(--muted); font-size: 10px; text-transform: uppercase; min-width: 64px; }
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
+        #special-modes-shelf {
+            display: none; position: fixed; inset: 0;
+            background: linear-gradient(180deg, transparent 0%, var(--overlay-bg) 42%, var(--overlay-bg) 100%);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 40; justify-content: center; align-items: flex-end;
+            padding: 18px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+        }
+        #special-modes-shelf.visible { display: flex; }
+        #special-modes-sheet {
+            width: min(720px, 100%); max-width: calc(100vw - 24px);
+            background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            padding: 10px 12px 14px;
+            box-sizing: border-box;
+            box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+            transform: translateY(24px);
+            opacity: 0;
+            transition: transform 180ms ease, opacity 180ms ease;
+        }
+        #special-modes-shelf.visible #special-modes-sheet {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        #special-modes-grabber {
+            width: 42px; height: 4px; border-radius: 999px;
+            background: var(--border); opacity: 0.9;
+            margin: 0 auto 14px;
+        }
+        #special-modes-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .smode-tile {
+            appearance: none;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+            box-shadow: inset 0 0 0 1px var(--border-subtle);
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            min-height: 106px;
+            padding: 12px;
+            text-align: left;
+            transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        #special-modes-shelf.visible .smode-tile {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #special-modes-grid .smode-tile:nth-child(1) { transition-delay: 40ms; }
+        #special-modes-grid .smode-tile:nth-child(2) { transition-delay: 55ms; }
+        #special-modes-grid .smode-tile:nth-child(3) { transition-delay: 70ms; }
+        #special-modes-grid .smode-tile:nth-child(4) { transition-delay: 85ms; }
+        #special-modes-grid .smode-tile:nth-child(5) { transition-delay: 100ms; }
+        #special-modes-grid .smode-tile:nth-child(6) { transition-delay: 115ms; }
+        #special-modes-grid .smode-tile:nth-child(7) { transition-delay: 130ms; }
+        #special-modes-grid .smode-tile:nth-child(8) { transition-delay: 145ms; }
+        .smode-tile:hover,
+        .smode-tile.nav {
+            border-color: var(--active-dim);
+            transform: translateY(-1px);
+        }
+        .smode-tile.nav {
+            box-shadow: inset 0 0 0 1px var(--active-dim);
+        }
+        .smode-tile.is-active {
+            border-color: var(--active-dim);
+            box-shadow: inset 0 0 0 1px var(--active-dim);
+        }
+        .smode-tile.is-disabled,
+        .smode-tile:disabled {
+            cursor: default;
+            opacity: 0.42;
+            transform: none;
+        }
+        .smode-icon {
+            width: 42px; height: 42px;
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            box-shadow: inset 0 0 0 1px var(--border-subtle);
+            color: var(--active-dim);
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .smode-tile.is-active .smode-icon,
+        .smode-tile.nav .smode-icon {
+            border-color: var(--active-dim);
+        }
+        .smode-body {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+            width: 100%;
+        }
+        .smode-label {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .smode-state {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .smode-dot {
+            width: 6px; height: 6px; border-radius: 999px;
+            border: 1px solid var(--border);
+            background: transparent;
+            flex-shrink: 0;
+        }
+        .smode-tile.is-active .smode-dot {
+            background: var(--active-dim);
+            border-color: var(--active-dim);
+        }
+        .smode-meta {
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (min-width: 720px) {
+            #special-modes-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1521,6 +1663,12 @@
                 <a class="help-footer-link" href="https://oscarvanderheide.github.io/arrayview/" target="_blank" rel="noopener">Full reference →</a>
             </div>
         </div>
+    </div>
+</div>
+<div id="special-modes-shelf">
+    <div id="special-modes-sheet" role="dialog" aria-modal="true" aria-label="Special modes">
+        <div id="special-modes-grabber"></div>
+        <div id="special-modes-grid"></div>
     </div>
 </div>
 <div id="cmd-palette">
@@ -8678,6 +8826,89 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         let paletteOpen = false;
+        let specialModesOpen = false;
+        let _specialModesBuilt = false;
+        let _specialModesNavIdx = 0;
+        const SPECIAL_MODE_TILES = [
+            {
+                id: 'multiview',
+                label: 'Ortho',
+                glyph: '3P',
+                keyHint: 'v',
+                command: 'multiview.toggle',
+                isEnabled: () => shape.length >= 3 || multiViewActive || compareMvActive,
+                isActive: () => multiViewActive || compareMvActive,
+            },
+            {
+                id: 'compare',
+                label: 'Compare',
+                glyph: 'AB',
+                keyHint: 'pick',
+                isEnabled: () => !isInlineEmbed,
+                isActive: () => compareActive,
+                run: async () => {
+                    if (compareActive) {
+                        crossfade(() => exitCompareMode());
+                        return;
+                    }
+                    await enterComparePrompt();
+                },
+            },
+            {
+                id: 'qmri',
+                label: 'qMRI',
+                glyph: 'qM',
+                keyHint: 'q',
+                command: 'qmri.cycle',
+                isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
+                isActive: () => qmriActive || compareQmriActive,
+            },
+            {
+                id: 'roi',
+                label: 'ROI',
+                glyph: '[]',
+                keyHint: 'R',
+                command: 'roi.cycleMode',
+                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
+                isActive: () => rectRoiMode,
+            },
+            {
+                id: 'segmentation',
+                label: 'Segment',
+                glyph: 'SG',
+                keyHint: 'S',
+                command: 'segmentation.cycle',
+                isEnabled: () => _segMode || (!compareActive && !multiViewActive && !qmriActive),
+                isActive: () => _segMode,
+            },
+            {
+                id: 'projection',
+                label: 'Project',
+                glyph: 'PR',
+                keyHint: 'p',
+                command: 'projection.cycle',
+                isEnabled: () => projectionMode > 0 || mipActive || shape.length >= 3,
+                isActive: () => projectionMode > 0 || mipActive,
+            },
+            {
+                id: 'fft',
+                label: 'FFT',
+                glyph: 'FT',
+                keyHint: 'f',
+                command: 'fft.toggle',
+                isEnabled: () => true,
+                isActive: () => _fftActive,
+            },
+            {
+                id: 'overlay',
+                label: 'Overlay',
+                glyph: 'OV',
+                keyHint: 'O',
+                command: 'overlay.cycleVisibility',
+                isEnabled: () => !!overlay_sid || hasVectorfield,
+                isActive: () => (!!overlay_sid && _overlayVisibility !== 'none') || (hasVectorfield && vfieldVisible),
+            },
+        ];
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
 
@@ -8698,6 +8929,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function setHelpVisible(visible) {
             if (visible && !_helpBuilt) {
                 try { buildHelpOverlay(); _helpBuilt = true; } catch (err) { console.warn('help build failed', err); }
+            }
+            if (visible) {
+                closeCommandPalette();
+                closeSpecialModesShelf();
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
@@ -11400,6 +11635,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     return;
                 },
             },
+            'specialmodes.open': {
+                title: 'Open special modes shelf',
+                when: ['!specialModesOpen'],
+                run: (ctx, e) => { openSpecialModesShelf(); },
+            },
+            'specialmodes.close': {
+                title: 'Close special modes shelf',
+                when: ['specialModesOpen'],
+                run: (ctx, e) => { closeSpecialModesShelf(); },
+            },
             'palette.open': {
                 title: 'Open command palette',
                 when: ['!paletteOpen'],
@@ -11407,7 +11652,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
         };
         const keybinds = [
-            { key: '/', command: 'palette.open' },
+            { key: '/', command: 'specialmodes.close' },
+            { key: '/', command: 'specialmodes.open' },
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
@@ -11499,6 +11745,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
+                specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
             };
         }
 
@@ -11526,11 +11773,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         ]
                     },
                     {
-                        title: 'Info & Search',
+                        title: 'Info & Modes',
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Command palette', hint: 'search all available commands' },
+                            { key: '/', action: 'Special modes shelf', hint: 'launch ortho, compare, qMRI, ROI, segmentation, FFT, and overlays' },
                         ]
                     },
                     {
@@ -11801,6 +12048,231 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         }
 
+        function _specialModesButtons() {
+            return Array.from(document.querySelectorAll('#special-modes-grid .smode-tile'));
+        }
+
+        function _specialModesTileEnabled(tile, ctx) {
+            if (tile.command) {
+                const cmd = commands[tile.command];
+                if (!cmd || !evalWhen(cmd.when, ctx)) return false;
+            }
+            if (tile.isEnabled && !tile.isEnabled(ctx)) return false;
+            return true;
+        }
+
+        function _specialModesSetNavIndex(index) {
+            const buttons = _specialModesButtons();
+            if (!buttons.length || index < 0 || index >= buttons.length) return;
+            _specialModesNavIdx = index;
+            buttons.forEach((button, i) => button.classList.toggle('nav', i === index));
+            const active = buttons[index];
+            if (active) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+
+        function _specialModesFirstEnabled() {
+            const buttons = _specialModesButtons();
+            for (let i = 0; i < buttons.length; i++) {
+                if (!buttons[i].disabled) return i;
+            }
+            return -1;
+        }
+
+        function _refreshSpecialModesShelf() {
+            if (!_specialModesBuilt) return;
+            const ctx = makeContext(null);
+            const buttons = _specialModesButtons();
+            buttons.forEach((button, index) => {
+                const tile = SPECIAL_MODE_TILES[index];
+                const enabled = _specialModesTileEnabled(tile, ctx);
+                const active = !!(tile.isActive && tile.isActive(ctx));
+                const meta = button.querySelector('.smode-meta');
+                button.disabled = !enabled;
+                button.classList.toggle('is-disabled', !enabled);
+                button.classList.toggle('is-active', active);
+                button.title = tile.keyHint && tile.keyHint.length === 1
+                    ? `${tile.label} (${tile.keyHint})`
+                    : tile.label;
+                if (meta) {
+                    if (!enabled) meta.textContent = 'unavailable';
+                    else if (active) meta.textContent = 'active';
+                    else meta.textContent = tile.keyHint || 'open';
+                }
+            });
+            const nextIndex = (buttons[_specialModesNavIdx] && !buttons[_specialModesNavIdx].disabled)
+                ? _specialModesNavIdx
+                : _specialModesFirstEnabled();
+            if (nextIndex >= 0) _specialModesSetNavIndex(nextIndex);
+        }
+
+        function _buildSpecialModesShelf() {
+            const grid = document.getElementById('special-modes-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            SPECIAL_MODE_TILES.forEach((tile, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'smode-tile';
+                button.dataset.smodeId = tile.id;
+                button.innerHTML = `
+                    <span class="smode-icon" aria-hidden="true">${tile.glyph}</span>
+                    <span class="smode-body">
+                        <span class="smode-label">${tile.label}</span>
+                        <span class="smode-state">
+                            <span class="smode-dot"></span>
+                            <span class="smode-meta"></span>
+                        </span>
+                    </span>`;
+                button.addEventListener('mousedown', (e) => e.preventDefault());
+                button.addEventListener('mouseenter', () => {
+                    if (!button.disabled) _specialModesSetNavIndex(index);
+                });
+                button.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (button.disabled) return;
+                    await _runSpecialModesTile(index);
+                });
+                grid.appendChild(button);
+            });
+            _specialModesBuilt = true;
+            _refreshSpecialModesShelf();
+        }
+
+        async function _runSpecialModesTile(index) {
+            const tile = SPECIAL_MODE_TILES[index];
+            if (!tile) return;
+            closeSpecialModesShelf();
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            try {
+                if (tile.run) {
+                    await tile.run(makeContext(null));
+                    return;
+                }
+                if (!tile.command || !commands[tile.command]) return;
+                const maybePromise = commands[tile.command].run(makeContext(null), null);
+                if (maybePromise && typeof maybePromise.then === 'function') await maybePromise;
+            } catch (err) {
+                console.warn('special modes tile failed', tile.id, err);
+            }
+        }
+
+        function _specialModesMove(step) {
+            const buttons = _specialModesButtons();
+            if (!buttons.length) return;
+            const len = buttons.length;
+            if (Math.abs(step) === 1) {
+                let idx = _specialModesNavIdx;
+                for (let tries = 0; tries < len; tries++) {
+                    idx = (idx + step + len) % len;
+                    if (!buttons[idx].disabled) {
+                        _specialModesSetNavIndex(idx);
+                        return;
+                    }
+                }
+                return;
+            }
+            let idx = Math.max(0, Math.min(len - 1, _specialModesNavIdx + step));
+            const dir = step > 0 ? 1 : -1;
+            while (idx >= 0 && idx < len) {
+                if (!buttons[idx].disabled) {
+                    _specialModesSetNavIndex(idx);
+                    return;
+                }
+                idx += dir;
+            }
+            _specialModesMove(dir);
+        }
+
+        function _specialModesFindQuickKey(key) {
+            const target = String(key || '').toLowerCase();
+            if (!target || target.length !== 1) return -1;
+            for (let i = 0; i < SPECIAL_MODE_TILES.length; i++) {
+                const quick = SPECIAL_MODE_TILES[i].keyHint || '';
+                if (quick.length === 1 && quick.toLowerCase() === target) return i;
+            }
+            return -1;
+        }
+
+        function _specialModesKey(e) {
+            if (e.key === 'Escape' || e.key === '/') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeSpecialModesShelf();
+                return true;
+            }
+            if (e.key === '?') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeSpecialModesShelf();
+                setHelpVisible(true);
+                return true;
+            }
+            if (e.key === 'ArrowRight' || e.key === 'l') {
+                e.preventDefault();
+                e.stopPropagation();
+                _specialModesMove(1);
+                return true;
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'h') {
+                e.preventDefault();
+                e.stopPropagation();
+                _specialModesMove(-1);
+                return true;
+            }
+            if (e.key === 'ArrowDown' || e.key === 'j') {
+                e.preventDefault();
+                e.stopPropagation();
+                _specialModesMove(window.matchMedia('(min-width: 720px)').matches ? 4 : 2);
+                return true;
+            }
+            if (e.key === 'ArrowUp' || e.key === 'k') {
+                e.preventDefault();
+                e.stopPropagation();
+                _specialModesMove(window.matchMedia('(min-width: 720px)').matches ? -4 : -2);
+                return true;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                void _runSpecialModesTile(_specialModesNavIdx);
+                return true;
+            }
+            const quickIndex = _specialModesFindQuickKey(e.key);
+            if (quickIndex >= 0) {
+                const buttons = _specialModesButtons();
+                if (buttons[quickIndex] && !buttons[quickIndex].disabled) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _specialModesSetNavIndex(quickIndex);
+                    void _runSpecialModesTile(quickIndex);
+                    return true;
+                }
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            return true;
+        }
+
+        function openSpecialModesShelf() {
+            if (specialModesOpen) return;
+            closeCommandPalette();
+            if (!_specialModesBuilt) _buildSpecialModesShelf();
+            specialModesOpen = true;
+            document.getElementById('special-modes-shelf').classList.add('visible');
+            _refreshSpecialModesShelf();
+            const first = _specialModesFirstEnabled();
+            if (first >= 0) _specialModesSetNavIndex(first);
+            setTimeout(() => sink.focus(), 0);
+        }
+
+        function closeSpecialModesShelf() {
+            if (!specialModesOpen) return;
+            specialModesOpen = false;
+            document.getElementById('special-modes-shelf').classList.remove('visible');
+            _specialModesButtons().forEach(button => button.classList.remove('nav'));
+            try { sink.focus(); } catch (_) {}
+        }
+
         // Command palette -----------------------------------------------------
         function formatKeybind(b) {
             const parts = [];
@@ -11904,6 +12376,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function openCommandPalette() {
             if (paletteOpen) return;
             if (!_paletteBuilt) { _paletteBuild(); _paletteBuilt = true; }
+            closeSpecialModesShelf();
             const root = document.getElementById('cmd-palette');
             const input = document.getElementById('cmd-palette-input');
             paletteOpen = true;
@@ -11993,6 +12466,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             e.preventDefault();
             e.stopImmediatePropagation();
             if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
+            if (specialModesOpen) {
+                if (_specialModesKey(e)) return;
+                return;
+            }
             if (helpOverlay.classList.contains('visible')) {
                 if (e.key === 'Escape') {
                     setHelpVisible(false);
@@ -15814,6 +16291,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
         });
+        document.getElementById('special-modes-shelf').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('special-modes-shelf')) closeSpecialModesShelf();
+        });
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
@@ -17225,6 +17705,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileLayout();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            _refreshSpecialModesShelf();
         }
 
         // ── Layout container visibility reconciler ───────────────────

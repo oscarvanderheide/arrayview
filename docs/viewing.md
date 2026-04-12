@@ -33,4 +33,4 @@ The default view. Shows a single 2D slice. Scroll to move through slices. `h`/`l
 
 ## Navigation
 
-Scroll through slices. `0` to fit. `?` for all keys.
+Scroll through slices. `/` opens the special modes shelf for ortho, compare, qMRI, ROI, segmentation, FFT, projections, and overlays. The direct keys still work. `0` resets the zoom. `?` shows the full key guide.

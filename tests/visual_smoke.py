@@ -30,6 +30,7 @@ AXES & VIEWS
   V               3-plane custom dims       ✓ 41 (inline prompt, type dims)
   o               reset oblique (multiview) ✓ 23 (enter mv, rotate, reset)
   q               qMRI mode & toggle        ✓ 10-12, 12a-c (toggle compact/full)
+    /               special modes shelf       ✓ 28b
   a               stretch to square (all)   ✓ 66 (a in normal, mv, compare; default on in mv)
 
 DISPLAY
@@ -517,10 +518,13 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "27_data_info_overlay")
     _press(page, "Escape", wait=300)
 
-    # ── 28: help overlay (?) ─────────────────────────────────────────────────
+    # ── 28: help overlay (?) + special modes shelf (/) ──────────────────────
     _press(page, "?", wait=400)
     _shot(page, "28_help_overlay")
     _press(page, "?")
+    _press(page, "/", wait=400)
+    _shot(page, "28b_special_modes_shelf")
+    _press(page, "Escape", wait=300)
 
     # ── 29-31: medical image sizes ────────────────────────────────────────────
     # 192×192×96 volume: check default canvas fill and sizing

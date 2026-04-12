@@ -53,7 +53,7 @@ ESSENTIAL_COMMANDS = [
     "info.toggle",
     "screenshot.save",
     "hoverinfo.toggle",
-    "palette.open",
+    "specialmodes.open",
 ]
 
 

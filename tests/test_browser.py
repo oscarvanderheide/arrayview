@@ -228,6 +228,19 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert not page.is_visible("#help-overlay.visible")
 
+    def test_slash_opens_special_modes_shelf_and_enters_multiview(
+        self, loaded_viewer, sid_3d
+    ):
+        page = loaded_viewer(sid_3d)
+        assert not page.is_visible("#special-modes-shelf.visible")
+        _focus_kb(page)
+        page.keyboard.press("/")
+        page.wait_for_selector("#special-modes-shelf.visible", timeout=2_000)
+        assert page.locator("#special-modes-grid .smode-tile").count() == 8
+        page.click('button[data-smode-id="multiview"]')
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        assert not page.is_visible("#special-modes-shelf.visible")
+
     def test_help_overlay_tabs_switch_sections(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
