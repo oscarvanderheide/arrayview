@@ -967,16 +967,15 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             position: fixed; inset: 0; z-index: 5; pointer-events: none;
         }
-        #loading-overlay {
-            transition: opacity 0.3s ease;
-        }
         #loading-overlay .av-load-logo {
             width: 64px; height: 64px;
         }
         #loading-overlay .av-load-name {
             margin-top: 14px; font-size: 11px; color: var(--muted);
             letter-spacing: 0.1em; text-transform: uppercase;
+            opacity: 0; transition: opacity 0.4s ease;
         }
+        #loading-overlay .av-load-name.visible { opacity: 1; }
         #fft-spinner-overlay {
             display: none; position: fixed; inset: 0; z-index: 50;
             align-items: center; justify-content: center;
@@ -1996,11 +1995,16 @@
         // ── Startup animation ──────────────────────────────────────────────
         let _startupAnimPlayed = false; // once per page load — not reset on data refresh (by design)
         let _startupAnimTl = null;
+        const _loadingShowTime = performance.now(); // page load = spinner visible
+        const _MIN_SPINNER_MS = 800; // minimum spinner dwell — prevents "flash of spinner"
 
         function _playStartupAnimation() {
             if (_startupAnimPlayed) return;
             _startupAnimPlayed = true;
 
+            const ol         = document.getElementById('loading-overlay');
+            const loadLogo   = ol.querySelector('.av-load-logo');
+            const loadName   = ol.querySelector('.av-load-name');
             const canvasWrap = document.getElementById('canvas-wrap');
             const arrayName  = document.getElementById('array-name');
             const info       = document.getElementById('info');
@@ -2012,21 +2016,59 @@
             gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0 });
             if (cbVisible) gsap.set(cbWrap, { opacity: 0 });
 
-            // Set starting transforms
-            gsap.set(arrayName, { y: -11 });
-            gsap.set(info,      { y: -11 });
-            if (cbVisible) gsap.set(cbWrap, { y: 14 });
+            // Set starting transforms for Act 3 (chrome assembly)
+            gsap.set(arrayName, { y: -8 });
+            gsap.set(info,      { y: -8 });
+            if (cbVisible) gsap.set(cbWrap, { y: 12 });
             gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
 
-            _startupAnimTl = gsap.timeline({ onComplete: () => { _startupAnimTl = null; } });
+            _startupAnimTl = gsap.timeline({ onComplete: () => {
+                _startupAnimTl = null;
+                ol.style.display = 'none';
+            }});
 
+            // ── Act 1: Logo settles (stops pulsing, all blocks snap to full) ──
+            // Stop the CSS pulse animation and snap all blocks to full opacity
+            _startupAnimTl.call(() => {
+                if (loadLogo) loadLogo.classList.remove('av-logo-loading');
+            }, null, 0);
+            // Brief hold — user registers "loading complete"
+            // (the 0.25s is the settle time for blocks to reach full opacity via CSS transition)
+
+            // ── Act 2: Overlay exits, canvas revealed ──────────────────────
+            // Logo + name scale down gently and fade out together
+            if (loadLogo) {
+                _startupAnimTl.to(loadLogo, {
+                    opacity: 0, scale: 0.6, duration: 0.35, ease: 'power2.in'
+                }, 0.30);
+            }
+            if (loadName) {
+                _startupAnimTl.to(loadName, {
+                    opacity: 0, duration: 0.20, ease: 'power2.in'
+                }, 0.30);
+            }
+            // Canvas fades in as overlay exits — cross-dissolve
+            _startupAnimTl.to(canvasWrap, {
+                opacity: 1, duration: 0.50, ease: 'power2.out'
+            }, 0.40);
+            // Remove av-loading class at the midpoint of the cross-dissolve
+            _startupAnimTl.call(() => {
+                document.body.classList.remove('av-loading');
+            }, null, 0.50);
+
+            // ── Act 3: Chrome assembles around canvas ──────────────────────
+            // Each element arrives with a gentle slide + fade, clearly staggered
             _startupAnimTl
-                .to(canvasWrap, { opacity: 1, duration: 0.60, ease: 'power2.out' }, 0)
-                .to(arrayName,  { opacity: 1, y: 0, duration: 0.40, ease: 'power3.out' }, 0.70)
-                .to(info,       { opacity: 1, y: 0, duration: 0.40, ease: 'power3.out' }, 0.75)
-                .to(cbVisible ? cbWrap : [],
-                                { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 1.00)
-                .to(helpHint,   { opacity: 1, scale: 1, duration: 0.30, ease: 'back.out(1.8)' }, 1.28);
+                .to(arrayName, { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 0.85)
+                .to(info,      { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 0.92);
+            if (cbVisible) {
+                _startupAnimTl.to(cbWrap, {
+                    opacity: 1, y: 0, duration: 0.36, ease: 'power3.out'
+                }, 1.05);
+            }
+            _startupAnimTl.to(helpHint, {
+                opacity: 1, scale: 1, duration: 0.28, ease: 'back.out(1.7)'
+            }, 1.20);
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
         let _immTargetZoom = 1.0; // cached zoom target at start of transition (_calcAutoFitZoom(..., true) * 1.005)
@@ -6854,15 +6896,14 @@
                         // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
                         // sees the real childrenH and computes the correct paddingTop.
                         if (document.getElementById('loading-overlay').style.display !== 'none') {
-                            // Show canvas-wrap immediately (still invisible due to av-loading opacity:0)
+                            // Make canvas-wrap layoutable NOW (still opacity:0 via av-loading)
+                            // so scaleCanvas below can compute correct dimensions.
                             document.getElementById('canvas-wrap').style.display = '';
                             if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
-                            // Fade out overlay, fade in wrapper contents
-                            const ol = document.getElementById('loading-overlay');
-                            ol.style.opacity = '0';
-                            document.body.classList.remove('av-loading');
-                            _playStartupAnimation();
-                            ol.addEventListener('transitionend', () => { ol.style.display = 'none'; }, { once: true });
+                            // Enforce minimum spinner dwell so it feels intentional, not glitchy.
+                            const _elapsed = performance.now() - _loadingShowTime;
+                            const _delay = Math.max(0, _MIN_SPINNER_MS - _elapsed);
+                            setTimeout(() => _playStartupAnimation(), _delay);
                         }
                         scaleCanvas(width, height);
                         if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
@@ -7342,7 +7383,7 @@
                 _sessionName = data.name;
                 document.getElementById('array-name-text').textContent = data.name;
                 const loadNameEl = document.querySelector('#loading-overlay .av-load-name');
-                if (loadNameEl) loadNameEl.textContent = data.name;
+                if (loadNameEl) { loadNameEl.textContent = data.name; loadNameEl.classList.add('visible'); }
             }
             _isWelcomeScreen = data.name === 'welcome';
             if (_isWelcomeScreen) {

@@ -153,29 +153,8 @@ def _get_icon_png_path() -> str | None:
 
 _LOADING_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#0c0c0c;display:flex;align-items:center;justify-content:center;flex-direction:column}
-@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}
-.b0{animation:p 1.2s 0s ease-in-out infinite}
-.b3{animation:p 1.2s .15s ease-in-out infinite}
-.b6{animation:p 1.2s .3s ease-in-out infinite}
-.b7{animation:p 1.2s .45s ease-in-out infinite}
-.b8{animation:p 1.2s .6s ease-in-out infinite}
-.b5{animation:p 1.2s .75s ease-in-out infinite}
-.b2{animation:p 1.2s .9s ease-in-out infinite}
-.b1{animation:p 1.2s 1.05s ease-in-out infinite}
-</style></head><body>
-<svg width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-<rect width="16" height="16" rx="2.5" fill="#0c0c0c"/>
-<rect class="b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/>
-<rect class="b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/>
-<rect class="b2" x="11" y="2" width="3" height="3" fill="#c77dff"/>
-<rect class="b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/>
-<rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/>
-<rect class="b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/>
-<rect class="b6" x="2" y="11" width="3" height="3" fill="#4895ef"/>
-<rect class="b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/>
-<rect class="b8" x="11" y="11" width="3" height="3" fill="#f8961e"/>
-</svg></body></html>"""
+html,body{width:100%;height:100%;background:#0c0c0c}
+</style></head><body></body></html>"""
 
 
 def _open_webview(
