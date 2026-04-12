@@ -211,8 +211,8 @@ def _recommend_colormap_reason(data) -> str:
     if dtype.kind == "i":
         return "RdBu_r (signed integer dtype)"
     if dtype.kind == "f":
-        sample = np.array(data).ravel()[:10000]
-        sample = np.nan_to_num(sample)
+        # Slice before materializing — avoids a full-array copy for mmap-backed arrays
+        sample = np.nan_to_num(np.asarray(data.ravel()[:10000]))
         if sample.size > 0 and float(sample.min()) < 0:
             return "RdBu_r (signed data — vmin < 0)"
     return "gray (default — unsigned/positive data)"
