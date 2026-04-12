@@ -1755,7 +1755,6 @@
         // _cbHoverTimer removed (Task 4) — class handles auto-dismiss
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
         // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
-        let _histAutoDismissPending = false; // true when auto-dismiss fired but mouse was over histogram
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
@@ -4700,6 +4699,7 @@
                 // Mouseenter/leave on wrap
                 this.wrap.addEventListener('mouseenter', () => {
                     this._mouseOver = true;
+                    if (this.opts.onMouseEnter) this.opts.onMouseEnter();
                 });
                 this.wrap.addEventListener('mouseleave', () => {
                     this._mouseOver = false;
@@ -4719,6 +4719,7 @@
                             this.collapse();
                         }, 200);
                     }
+                    if (this.opts.onMouseLeave) this.opts.onMouseLeave();
                 });
 
                 // Global mousemove and mouseup
@@ -5649,6 +5650,19 @@
                 if (_cbTip) _cbTip.style.display = 'none';
                 _redrawActiveColorbar();
             },
+            onMouseEnter: () => {
+                // Pause the 'd'-key auto-dismiss timer while the user hovers
+                if (!_lebesgueManual && _histAutoDismissTimer) {
+                    clearTimeout(_histAutoDismissTimer);
+                    _histAutoDismissTimer = null;
+                }
+            },
+            onMouseLeave: () => {
+                // Restart fresh 3-second timer when mouse leaves after 'd'-key open
+                if (!_lebesgueManual && lebesgueMode && primaryCb._expanded) {
+                    _restartHistAutoDismiss();
+                }
+            },
             onBinHover: (binIdx, frac) => {
                 if (!lebesgueMode) return;
                 if (binIdx < 0) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; return; }
@@ -5873,9 +5887,11 @@
             if (_histAutoDismissTimer) clearTimeout(_histAutoDismissTimer);
             _histAutoDismissTimer = setTimeout(() => {
                 _histAutoDismissTimer = null;
+                // If mouse is over, onMouseLeave will restart the timer when it leaves.
                 if (!primaryCb._mouseOver && primaryCb._expanded) {
                     lebesgueMode = false;
                     primaryCb._expanded = false;
+                    primaryCb._manualExpand = false;
                     _clearLebesgueOverlay();
                     const tz = document.getElementById('slim-cb-tri-zone');
                     if (tz) tz.classList.remove('expanded');
@@ -5885,8 +5901,6 @@
                     } else {
                         drawSlimColorbar(cbMarkerFrac);
                     }
-                } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                    _histAutoDismissPending = true;
                 }
             }, 3000);
         }
@@ -8791,13 +8805,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!primaryCb._mouseOver && primaryCb._expanded) {
                     lebesgueMode = false;
                     primaryCb._expanded = false;
+                    primaryCb._manualExpand = false;
                     _clearLebesgueOverlay();
                     const tz = document.getElementById('slim-cb-tri-zone');
                     if (tz) tz.classList.remove('expanded');
                     primaryCb.startAnim(false);
                     _bcRedrawCb();
-                } else if (primaryCb._mouseOver && primaryCb._expanded) {
-                    _histAutoDismissPending = true;
                 }
             }, 3000);
         }
@@ -10763,6 +10776,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             _pulseHistDims();
                             _computeCbExpandedH();
                             primaryCb._expanded = true;
+                            primaryCb._manualExpand = true; // prevent 200ms auto-close; global timer owns dismissal
                             const triZone = document.getElementById('slim-cb-tri-zone');
                             if (triZone) triZone.classList.add('expanded');
                             if (compareActive) {
