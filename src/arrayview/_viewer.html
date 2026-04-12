@@ -327,15 +327,15 @@
             0%, 100% { opacity: 0.25; }
             50%       { opacity: 1;    }
         }
-        /* Counter-clockwise rotation: b0→b3→b6→b7→b8→b5→b2→b1, center stays bright */
+        /* Clockwise rotation: b0→b1→b2→b5→b8→b7→b6→b3, center stays bright */
         .av-logo-loading #logo-b0, .av-logo-loading #load-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
-        .av-logo-loading #logo-b3, .av-logo-loading #load-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
-        .av-logo-loading #logo-b6, .av-logo-loading #load-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
-        .av-logo-loading #logo-b7, .av-logo-loading #load-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .av-logo-loading #logo-b1, .av-logo-loading #load-b1 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .av-logo-loading #logo-b2, .av-logo-loading #load-b2 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .av-logo-loading #logo-b5, .av-logo-loading #load-b5 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
         .av-logo-loading #logo-b8, .av-logo-loading #load-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
-        .av-logo-loading #logo-b5, .av-logo-loading #load-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
-        .av-logo-loading #logo-b2, .av-logo-loading #load-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
-        .av-logo-loading #logo-b1, .av-logo-loading #load-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        .av-logo-loading #logo-b7, .av-logo-loading #load-b7 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .av-logo-loading #logo-b6, .av-logo-loading #load-b6 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .av-logo-loading #logo-b3, .av-logo-loading #load-b3 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         /* When loading stops, perimeter blocks restore to full opacity cleanly */
         #logo-b0, #logo-b1, #logo-b2, #logo-b3, #logo-b5, #logo-b6, #logo-b7, #logo-b8,
         #load-b0, #load-b1, #load-b2, #load-b3, #load-b5, #load-b6, #load-b7, #load-b8 {
@@ -989,13 +989,13 @@
         }
         .fft-spinner-ring svg { width: 40px; height: 40px; }
         .fft-spinner-ring #fft-b0 { animation: av-logo-pulse 1.2s 0.00s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b7 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b1 { animation: av-logo-pulse 1.2s 0.15s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b2 { animation: av-logo-pulse 1.2s 0.30s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b5 { animation: av-logo-pulse 1.2s 0.45s ease-in-out infinite; }
         .fft-spinner-ring #fft-b8 { animation: av-logo-pulse 1.2s 0.60s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b5 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b2 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
-        .fft-spinner-ring #fft-b1 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b7 { animation: av-logo-pulse 1.2s 0.75s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b6 { animation: av-logo-pulse 1.2s 0.90s ease-in-out infinite; }
+        .fft-spinner-ring #fft-b3 { animation: av-logo-pulse 1.2s 1.05s ease-in-out infinite; }
         #empty-hint {
             display: none; position: fixed; inset: 0; z-index: 2;
             align-items: center; justify-content: center; pointer-events: none;
