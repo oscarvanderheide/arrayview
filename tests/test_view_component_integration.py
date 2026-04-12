@@ -43,7 +43,8 @@ def test_setwindow_dual_write_propagates_to_displaystate(loaded_viewer, sid_3d):
     result = page.evaluate("""async () => {
         const s = { sid: window.currentSid ?? sid, ndim: shape.length, isComplex: isComplex };
         await modeManager.enterMode(new NormalLayout(), [s]);
-        primaryCb.opts.setWindow(42, 99);
+        // _primaryCb is the window-exposed handle (window._primaryCb = primaryCb)
+        _primaryCb.opts.setWindow(42, 99);
         return {
             vmin: modeManager.currentViews[0].displayState.vmin,
             vmax: modeManager.currentViews[0].displayState.vmax,
