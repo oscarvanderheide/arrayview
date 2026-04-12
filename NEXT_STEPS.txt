@@ -26,7 +26,7 @@ ALL PHASES COMPLETE OR ACCOUNTED FOR:
   Phase 14 — Cross-mode parametrized test harness
   Phase 15 — State snapshot augmentation (LAYOUT_REGISTRY, viewStates field)
   Phase 16 — Already complete (ColorBar migration done 2026-04-03)
-  Phase 17 — Partial: ARCHITECTURE.md updated, code cleanup deferred (see below)
+  Phase 17 — Partial: ARCHITECTURE.md updated; shim deleted, dual-writes added (Steps 1+2 complete)
 
 
 ==========================================================
@@ -38,21 +38,12 @@ Phases 12 and 17 are partially complete. What's left:
 PROBLEM: View.render() still delegates to _legacyUpdateView(), which reads
 from legacy globals (logScale, colormap_idx, complexMode, projectionMode,
 manualVmin, manualVmax). The new view.displayState fields are populated
-by dual-writes in commands (Phase 12) and kept in sync by the shim layer
-(Section 7 IIFE), but the render function doesn't read from displayState yet.
+by dual-writes in commands (Phase 12) and all 11 manualVmin/manualVmax
+write sites now have explicit dual-writes (Phase 17 Steps 1+2 complete).
+The Section 7 shim IIFE has been deleted; manualVmin/manualVmax are now
+regular let declarations at line ~1772.
 
 TO FINISH PHASE 17:
-
-  Step 1 — Audit all 27 write sites for manualVmin/manualVmax:
-    grep -n "manualVmin\s*=" src/arrayview/_viewer.html
-  For each without a dual-write, add:
-    { const _dv = modeManager.getFocusedView(); if (_dv) _dv.displayState.vmin = manualVmin; }
-
-  Step 2 — Delete the shim IIFE in Section 7 (~lines 5636-5659):
-    Once all 27 write sites have dual-writes, the shim is redundant.
-    After deletion, add back:
-      let manualVmin = null, manualVmax = null;
-    (As regular variables — reads/writes go to the local scope now.)
 
   Step 3 — Delete legacy mode flag globals:
     multiViewActive, compareActive, qmriActive, mipActive (100+ read sites each)
