@@ -37,24 +37,30 @@ def test_normal_view_has_canvas_and_colorbar(loaded_viewer, sid_3d):
     assert result["hasImageLayer"] is True
 
 
-def test_manual_vmin_delegates_to_view(loaded_viewer, sid_3d):
+def test_setwindow_dual_write_propagates_to_displaystate(loaded_viewer, sid_3d):
+    """Phase 17: setWindow() dual-write syncs manualVmin to displayState.vmin."""
     page = loaded_viewer(sid_3d)
-    page.evaluate("""async () => {
+    result = page.evaluate("""async () => {
         const s = { sid: window.currentSid ?? sid, ndim: shape.length, isComplex: isComplex };
         await modeManager.enterMode(new NormalLayout(), [s]);
-        window.manualVmin = 42;
+        primaryCb.opts.setWindow(42, 99);
+        return {
+            vmin: modeManager.currentViews[0].displayState.vmin,
+            vmax: modeManager.currentViews[0].displayState.vmax,
+        };
     }""")
-    result = page.evaluate("() => modeManager.currentViews[0].displayState.vmin")
-    assert result == 42
+    assert result["vmin"] == 42
+    assert result["vmax"] == 99
 
 
-def test_view_vmin_propagates_to_global(loaded_viewer, sid_3d):
+def test_displaystate_vmin_readable_directly(loaded_viewer, sid_3d):
+    """Phase 17: displayState.vmin can be set and read back directly."""
     page = loaded_viewer(sid_3d)
     result = page.evaluate("""async () => {
         const s = { sid: window.currentSid ?? sid, ndim: shape.length, isComplex: isComplex };
         await modeManager.enterMode(new NormalLayout(), [s]);
         modeManager.currentViews[0].displayState.vmin = 99;
-        return window.manualVmin;
+        return modeManager.currentViews[0].displayState.vmin;
     }""")
     assert result == 99
 
