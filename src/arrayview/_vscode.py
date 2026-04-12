@@ -473,41 +473,6 @@ def _find_current_vscode_window_id() -> str | None:
         _vprint(f"[ArrayView] window-match: WINNER={best_window} score={best_score}", flush=True)
         return best_window
 
-    # Fallback: no ppids in registrations (older extension version) or no match.
-    # Use process start time proximity as a heuristic.
-    from arrayview._platform import _in_vscode_terminal
-
-    if _in_vscode_terminal():
-        try:
-            terminal_ppid = os.getppid()
-            r2 = subprocess.run(
-                ["ps", "-o", "lstart=", "-p", str(terminal_ppid)],
-                capture_output=True, text=True, timeout=1,
-            )
-            term_start = r2.stdout.strip()
-            closest_id: str | None = None
-            closest_delta = float("inf")
-            for window_id, ext_pid, _ in windows:
-                if not ext_pid:
-                    continue
-                try:
-                    r = subprocess.run(
-                        ["ps", "-o", "lstart=", "-p", str(ext_pid)],
-                        capture_output=True, text=True, timeout=1,
-                    )
-                    ext_start = r.stdout.strip()
-                    if ext_start and term_start and ext_start <= term_start:
-                        delta = abs(hash(ext_start) - hash(term_start))
-                        if closest_id is None or delta < closest_delta:
-                            closest_id = window_id
-                            closest_delta = delta
-                except Exception:
-                    continue
-            if closest_id:
-                return closest_id
-        except Exception:
-            pass
-
     return None
 
 
@@ -547,7 +512,7 @@ def _find_arrayview_window_id() -> str | None:
         return -1
 
     pid = os.getpid()
-    for _ in range(12):
+    for _ in range(20):
         pid = _ppid(pid)
         if pid <= 1:
             break
@@ -572,6 +537,49 @@ def _find_arrayview_window_id() -> str | None:
                     return token[len("ARRAYVIEW_WINDOW_ID="):]
         except Exception:
             pass
+
+    # tmux: process tree is detached from VS Code terminal; check all session clients.
+    if os.environ.get("TERM_PROGRAM") == "tmux":
+        try:
+            r_sid = subprocess.run(
+                ["tmux", "display-message", "-p", "#{session_id}"],
+                capture_output=True, text=True, timeout=2,
+            )
+            session_id = r_sid.stdout.strip()
+            if session_id:
+                r_clients = subprocess.run(
+                    ["tmux", "list-clients", "-t", session_id, "-F", "#{client_pid}"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                for line in r_clients.stdout.strip().splitlines():
+                    try:
+                        client_pid = int(line.strip())
+                    except ValueError:
+                        continue
+                    if client_pid <= 1:
+                        continue
+                    # Linux: /proc/<pid>/environ
+                    try:
+                        with open(f"/proc/{client_pid}/environ", "rb") as fh:
+                            for entry in fh.read().split(b"\0"):
+                                if entry.startswith(b"ARRAYVIEW_WINDOW_ID="):
+                                    return entry[len(b"ARRAYVIEW_WINDOW_ID="):].decode()
+                    except Exception:
+                        pass
+                    # macOS: ps ewwww
+                    try:
+                        r = subprocess.run(
+                            ["ps", "ewwww", "-p", str(client_pid)],
+                            capture_output=True, text=True, timeout=3,
+                        )
+                        for token in r.stdout.split():
+                            if token.startswith("ARRAYVIEW_WINDOW_ID="):
+                                return token[len("ARRAYVIEW_WINDOW_ID="):]
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     return None
 
 
@@ -790,36 +798,39 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                 # still be alive but is no longer connected to a VS Code client.
                 # Detect this by looking for a newer registration from the same
                 # server (same first ppid — the tunnel/server parent process).
-                _env_ts = _reg_data.get("ts", 0)
-                _env_ppids = _reg_data.get("ppids", [])
-                try:
-                    for _fname in os.listdir(signal_dir):
-                        if not (_fname.startswith("window-") and _fname.endswith(".json")):
-                            continue
-                        _other_wid = _fname[7:-5]
-                        if _other_wid == env_wid:
-                            continue
-                        with open(os.path.join(signal_dir, _fname)) as _f:
-                            _other = json.load(_f)
-                        _other_ts = _other.get("ts", 0)
-                        _other_ppids = _other.get("ppids", [])
-                        if (
-                            _other_ts > _env_ts
-                            and len(_env_ppids) >= 1
-                            and len(_other_ppids) >= 1
-                            and _env_ppids[0] == _other_ppids[0]
-                        ):
-                            _vprint(
-                                f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} is stale "
-                                f"(newer registration {_other_wid} found), redirecting",
-                                flush=True,
-                            )
-                            env_wid = _other_wid
-                            _reg_data = _other
-                            uses_pid = _other.get("fallbackId", False)
-                            _env_ts = _other_ts
-                except Exception:
-                    pass
+                # Only needed for PID-based IDs (fallbackId=True); hookTag IDs
+                # are unique per IPC socket and never go stale across restarts.
+                if uses_pid:
+                    _env_ts = _reg_data.get("ts", 0)
+                    _env_ppids = _reg_data.get("ppids", [])
+                    try:
+                        for _fname in os.listdir(signal_dir):
+                            if not (_fname.startswith("window-") and _fname.endswith(".json")):
+                                continue
+                            _other_wid = _fname[7:-5]
+                            if _other_wid == env_wid:
+                                continue
+                            with open(os.path.join(signal_dir, _fname)) as _f:
+                                _other = json.load(_f)
+                            _other_ts = _other.get("ts", 0)
+                            _other_ppids = _other.get("ppids", [])
+                            if (
+                                _other_ts > _env_ts
+                                and len(_env_ppids) >= 1
+                                and len(_other_ppids) >= 1
+                                and _env_ppids[0] == _other_ppids[0]
+                            ):
+                                _vprint(
+                                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} is stale "
+                                    f"(newer registration {_other_wid} found), redirecting",
+                                    flush=True,
+                                )
+                                env_wid = _other_wid
+                                _reg_data = _other
+                                uses_pid = _other.get("fallbackId", False)
+                                _env_ts = _other_ts
+                    except Exception:
+                        pass
 
                 _prefix = "pid" if uses_pid else "ipc"
                 filenames = (f"open-request-{_prefix}-{env_wid}.json",)
