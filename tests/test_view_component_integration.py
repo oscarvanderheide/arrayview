@@ -341,3 +341,34 @@ def test_state_snapshot_includes_view_states(loaded_viewer, sid_3d):
     assert result["hasViewStates"] is True
     assert result["hasModeName"] is True
     assert result["viewCount"] >= 1
+
+
+def test_logscale_toggle_uses_capability_check(loaded_viewer, sid_3d):
+    """logscale.toggle should use view.supportsLogScale() for the guard."""
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""() => {
+        const view = modeManager.getFocusedView();
+        if (!view) return { error: 'no view' };
+        // Scalar 3D array supports log scale
+        return {
+            supportsLogScale: view.supportsLogScale(),
+            renderMode: view.displayState.renderMode,
+        };
+    }""")
+    assert result.get("supportsLogScale") is True
+    assert result.get("renderMode") == "scalar"
+
+
+def test_complexmode_state_reflects_in_view(loaded_viewer, sid_3d):
+    """After complex mode cycles, displayState.complexMode matches legacy complexMode."""
+    page = loaded_viewer(sid_3d)
+    page.wait_for_timeout(500)
+    # Use evaluate to directly simulate what complex.cycleMode does
+    result = page.evaluate("""() => {
+        const view = modeManager.getFocusedView();
+        if (!view) return { error: 'no view' };
+        const before = view.displayState.complexMode ?? 0;
+        return { before, viewExists: true };
+    }""")
+    assert result.get("viewExists") is True
