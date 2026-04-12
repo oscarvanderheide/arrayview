@@ -103,16 +103,21 @@ The frontend is a single self-contained HTML file (~15k lines). No build step, n
 
 Each viewing mode uses a specific scale function and reconciler set:
 
-| Mode | Scale function | Layout | Reconciler notes |
-|------|---------------|--------|------------------|
-| Normal | `scaleCanvas()` | Single canvas, colorbar below | Base reconciler |
-| Immersive (Zen) | `scaleCanvas()` | Canvas fills viewport, UI hidden | Animated enter/exit, dimbar+colorbar drag |
-| Compact | `scaleCanvas()` | Reduced chrome | K-key toggle |
-| Multiview (3-pane oblique) | `mvScaleAllCanvases()` | 3 canvases (axial/coronal/sagittal) | Layout container visibility reconciler |
-| Compare | `compareScaleCanvases()` | 2+ side-by-side panes | Compare sub-mode reconciler (diff/overlay/wipe/flicker/checkerboard) |
-| Diff | `compareScaleCanvases()` | Compare variant — center pane shows A-B | Diff colorbar instances |
-| Registration | `compareScaleCanvases()` | Compare variant — overlay blend | Cross-fade overlay |
-| qMRI | `qvScaleAllCanvases()` | Multi-map quantitative display | Separate scale pipeline |
+| Mode | Scale function | `modeManager.modeName` | Notes |
+|------|---------------|------------------------|-------|
+| Normal | `scaleCanvas()` | `'normal'` | Single canvas, colorbar below |
+| Immersive (Zen) | `scaleCanvas()` | `'normal'` | Canvas fills viewport, UI hidden |
+| Compact | `scaleCanvas()` | `'normal'` | K-key toggle, reduced chrome |
+| Multiview (3-pane oblique) | `mvScaleAllCanvases()` | `'multiview'` | 3 Views: axial/coronal/sagittal |
+| Compare | `compareScaleCanvases()` | `'compare'` | N Views, one per SID |
+| Diff | `compareScaleCanvases()` | `'compare'` | Compare + center diff View |
+| Registration | `compareScaleCanvases()` | `'compare'` | Compare + center blend View |
+| Wipe/Flicker/Checker | `compareScaleCanvases()` | `'compare'` | Compare + composite center View |
+| Compare + MV | `compareMvScaleAllCanvases()` | `'compare-mv'` | N×3 pane grid |
+| Compare + qMRI | `compareQmriScaleAllCanvases()` | `'compare-qmri'` | N×K pane grid |
+| qMRI | `qvScaleAllCanvases()` | `'qmri'` | K Views, one per parameter map |
+| qMRI Mosaic | `qvScaleAllCanvases()` | `'qmri-mosaic'` | Mosaic variant of qMRI |
+| MIP (3-D volume) | N/A (WebGL) | `'mip'` | Single View wrapping WebGL canvas |
 
 ### CSS Architecture
 
@@ -135,6 +140,30 @@ Pill-shaped badges below the canvas showing active visualization transforms. **C
 
 ### Dynamic Islands
 Floating UI panels that appear/disappear based on context: ROI statistics, segmentation controls, colorbar hover, dimension sliders. Must be tested across all viewing modes (normal, immersive, multiview, compare).
+
+### View Component System (Phases 1–15)
+
+A refactoring in progress that introduces a View/Layer/Slicer/LayoutStrategy/ModeManager model alongside the legacy code. Every mode now registers its views with `modeManager` without replacing the legacy render pipeline.
+
+**Key primitives (all in `_viewer.html`):**
+
+| Primitive | What it owns |
+|-----------|-------------|
+| `makeDisplayState(overrides)` | Plain-object factory: `{vmin, vmax, cmapIdx, logScale, complexMode, renderMode, projectionMode, …}` |
+| `class View` | Canvas + ColorBar + DisplayState + Slicer + Layers[]. Has `init()`, `render()`, `requestRender()`, capability checks |
+| `class Slicer` | `FreeSliceSlicer`, `OrthogonalSlicer(axis)` — encapsulates how to fetch slice data |
+| `class Layer` | `CrosshairLayer`, `VectorFieldLayer`, `OverlayLayer` — duck-typed, composable render features |
+| `class LayoutStrategy` | `NormalLayout`, `MultiViewLayout`, `CompareLayout`, `QmriLayout`, `MipLayout`, etc. |
+| `const modeManager` | Singleton: `{currentViews[], currentLayout, modeName, enterMode(), getFocusedView(), getViewUnderMouse(), …}` |
+| `const LAYOUT_REGISTRY` | Maps mode name → `() => new XxxLayout()` factory |
+
+**Sync-block pattern:** Every `enterXxx()` function ends with a block that creates thin `View` wrappers over existing legacy canvases/colorbars and populates `modeManager.currentViews` + `modeName`. The legacy render pipeline is unchanged.
+
+**Dual-write pattern:** Where commands update legacy globals (`logScale`, `colormap_idx`, `complexMode`, `projectionMode`), they also write to `view.displayState.xField` so both systems stay in sync.
+
+**Shim layer (Section 7):** `Object.defineProperty(window, 'manualVmin', …)` intercepts all bare writes to `manualVmin` / `manualVmax` (27 sites) and routes them to `modeManager.currentViews[0].displayState.vmin/vmax`. To be deleted in a future cleanup after all write sites have explicit dual-writes.
+
+**Status:** Phases 1–15 complete. Phase 12 (keybind collapse) and Phase 17 (final cleanup) pending completion of render-pipeline migration from legacy globals to `displayState`.
 
 ### Command Registry
 All keybinds flow through a VS Code-style command registry in `_viewer.html`. Three tables: `commands` (id → `{title, when, run}`), `keybinds` (key+modifiers → command id), and `makeContext(state)` (mode/state flag bag). `dispatchCommand(e)` is wired as a prefix to the keydown handler; on a match it evaluates `when` against the context and runs the command, otherwise falls through. The help overlay is rendered at runtime from the `GUIDE_TABS` static data structure in `_viewer.html` — when adding or changing a keybind, update `GUIDE_TABS` manually. A `/`-triggered command palette fuzzy-searches all commands. Cross-mode enablement is guarded by `tests/test_command_reachability.py`.
