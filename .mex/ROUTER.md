@@ -14,7 +14,7 @@ edges:
     condition: when setting up the dev environment or running the project for the first time
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-13
+last_updated: 2026-04-14
 ---
 
 # Session Bootstrap
@@ -42,7 +42,7 @@ Then read this file fully before doing anything else in this session.
 
 **Not yet built:**
 - Independent split view for mismatched-shape arrays (designed, shelved — see memory file `project_independent_split_view.md`)
-- Smooth immersive transition during continuous trackpad zoom (deferred — see memory)
+- Smooth immersive transition during continuous trackpad zoom (in progress — `feat/immersive-animation-redesign`; Tasks 1–9 complete; `_scrubDetached` flag freezes chrome during scrub; `#info` detach-freezes at `_buildImmersiveTl`; `drawSlimColorbar` guarded by `_scrubDetached`; fix: `_resetImmersiveTransforms` only clears detach-style properties from `#info` (not cbWrap) so colorbar doesn't jump; `scaleAll` called inside reverse-completion setTimeout so colorbar repositions immediately after reset)
 - Admin/config UI — config is file-based (`~/.arrayview/config.toml`) only
 
 **Known issues:**
