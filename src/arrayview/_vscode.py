@@ -819,7 +819,15 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                 # server (same first ppid — the tunnel/server parent process).
                 # Only needed for PID-based IDs (fallbackId=True); hookTag IDs
                 # are unique per IPC socket and never go stale across restarts.
-                if uses_pid:
+                #
+                # Skip on macOS: all extension hosts are direct children of the
+                # same main Electron process (ppids[0] == Electron PID for every
+                # window), so the "same ppids[0]" heuristic matches ALL concurrent
+                # windows and incorrectly redirects signals to the wrong window.
+                # The stable window ID feature (v0.14.0+) already handles restart
+                # continuity on macOS via EnvironmentVariableCollection, making
+                # this stale-redirect unnecessary there.
+                if uses_pid and sys.platform != "darwin":
                     _env_ts = _reg_data.get("ts", 0)
                     _env_ppids = _reg_data.get("ppids", [])
                     try:
