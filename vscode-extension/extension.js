@@ -489,6 +489,7 @@ class ArrayViewEditorProvider {
 
 let version = 'unknown';
 let isProcessingSignal = false;
+let logWindowId = '';
 let lastHandledRequestId = null;
 let lastHandledUrl = null;
 let lastHandledAt = 0;
@@ -597,9 +598,10 @@ function startRelayServer() {
 }
 
 function log(message) {
-    const line = `[${new Date().toISOString()}] ${message}\n`;
+    const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
+    const line = `[${new Date().toISOString()}] ${prefix}${message}\n`;
     try { fs.appendFileSync(LOG_FILE, line); } catch (_) {}
-    console.log(`[arrayview-opener] ${message}`);
+    console.log(`[arrayview-opener] ${prefix}${message}`);
 }
 
 function isExpiredSignal(data) {
@@ -901,6 +903,7 @@ function activate(context) {
     // solving multi-window targeting in tunnels where IPC hooks and PID
     // ancestry are shared across windows.
     const windowId = OWN_HOOK_TAG || String(process.pid);
+    logWindowId = windowId;
     try {
         const envCollection = context.environmentVariableCollection;
         envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
