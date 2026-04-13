@@ -906,6 +906,14 @@ def _handle_get_viewer_html(msg: dict) -> None:
     from arrayview._session import COLORMAPS
 
     template = _pkg_files("arrayview").joinpath("_viewer.html").read_text(encoding="utf-8")
+    # In the direct webview (postMessage transport) GSAP cannot be loaded via
+    # <script src="/gsap.min.js"> — the webview origin is vscode-webview://…,
+    # not the FastAPI server.  Inline the vendored copy instead.
+    gsap_js = _pkg_files("arrayview").joinpath("gsap.min.js").read_text(encoding="utf-8")
+    template = template.replace(
+        '<script src="/gsap.min.js"></script>',
+        f"<script>{gsap_js}</script>",
+    )
 
     _cfg_colormaps = get_viewer_colormaps()
     _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
@@ -938,6 +946,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
+        .replace("__BODY_CLASS__", "av-loading" if sid else "")
     )
 
     _write_json({"html": html})
