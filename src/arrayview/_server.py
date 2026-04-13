@@ -775,6 +775,9 @@ def _build_metadata(session) -> dict:
         "vfield_n_times": _vfield_n_times(session),
         "is_rgb": session.rgb_axis is not None,
     }
+    default_dims = _session_mod._default_start_dims_for_data(session.data)
+    if default_dims is not None:
+        meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
     if getattr(session, "spatial_meta", None) is not None:
         sm = session.spatial_meta
         meta["spatial_meta"] = {

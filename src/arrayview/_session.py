@@ -218,6 +218,46 @@ def _recommend_colormap_reason(data) -> str:
     return "gray (default — unsigned/positive data)"
 
 
+def _default_start_dims_for_data(data) -> tuple[int, int] | None:
+    """Return a startup dim override for pathological large-stride memmaps.
+
+    Keep the existing shape-based heuristic for normal arrays. Only override the
+    ambiguous 4D+ C-order memmap case where the legacy fallback would pick the
+    first two dims even though the trailing plane is dramatically cheaper to
+    read from disk.
+    """
+    if not isinstance(data, np.memmap):
+        return None
+    shape = tuple(int(s) for s in getattr(data, "shape", ()))
+    if len(shape) < 4:
+        return None
+    flags = getattr(data, "flags", None)
+    if flags is None or not bool(flags.c_contiguous) or bool(flags.f_contiguous):
+        return None
+
+    dim_x, dim_y = 0, 1
+    sorted_dims = sorted(enumerate(shape), key=lambda item: -item[1])
+    top2 = sorted((sorted_dims[0][0], sorted_dims[1][0]))
+    trailing = (len(shape) - 2, len(shape) - 1)
+    if top2 == [trailing[0], trailing[1]]:
+        dim_x, dim_y = trailing
+    legacy = (dim_x, dim_y)
+    if legacy != (0, 1):
+        return None
+
+    if min(shape[trailing[0]], shape[trailing[1]]) * 2 < max(shape):
+        return None
+
+    strides = tuple(abs(int(s)) for s in getattr(data, "strides", ()))
+    if len(strides) != len(shape):
+        return None
+    legacy_cost = max(strides[legacy[0]], strides[legacy[1]])
+    trailing_cost = max(strides[trailing[0]], strides[trailing[1]])
+    if legacy_cost >= trailing_cost * 16:
+        return trailing
+    return None
+
+
 SESSIONS = {}
 
 COLORMAPS = [

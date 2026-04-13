@@ -7389,7 +7389,14 @@
             // Sane spatial dim defaults: last two dims if they are significantly larger
             // (e.g. (3,4,120,120) → dim_x=2, dim_y=3), otherwise fallback to first two.
             dim_x = 0; dim_y = 1;
-            if (shape.length >= 3) {
+            if (Array.isArray(data.default_dims) && data.default_dims.length === 2) {
+                const _dx = Number(data.default_dims[0]);
+                const _dy = Number(data.default_dims[1]);
+                if (Number.isInteger(_dx) && Number.isInteger(_dy) && _dx >= 0 && _dy >= 0 &&
+                    _dx < shape.length && _dy < shape.length && _dx !== _dy) {
+                    dim_x = _dx; dim_y = _dy;
+                }
+            } else if (shape.length >= 3) {
                 const sorted = shape.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]);
                 const top2 = [sorted[0][1], sorted[1][1]].sort((a, b) => a - b);
                 if (top2[0] === shape.length - 2 && top2[1] === shape.length - 1) {
