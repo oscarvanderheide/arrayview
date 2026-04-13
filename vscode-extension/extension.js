@@ -902,12 +902,51 @@ function activate(context) {
     // Python reads this env var to know which targeted signal file to write,
     // solving multi-window targeting in tunnels where IPC hooks and PID
     // ancestry are shared across windows.
-    const windowId = OWN_HOOK_TAG || String(process.pid);
+    // --- Determine stable window ID ---
+    // Priority: 1) IPC hookTag (stable by nature), 2) previously persisted
+    // ARRAYVIEW_WINDOW_ID (survives extension host restarts because VS Code
+    // persists EnvironmentVariableCollection per-window), 3) current PID (fallback).
+    let windowId;
+    const envCollection = context.environmentVariableCollection;
+    if (OWN_HOOK_TAG) {
+        // hookTag is already stable (same IPC socket path → same SHA256 hash)
+        windowId = OWN_HOOK_TAG;
+    } else {
+        // macOS local: reuse the previous window ID stored in the persistent env
+        // collection so terminals that already have ARRAYVIEW_WINDOW_ID set
+        // continue to target the correct registration after an extension restart.
+        let previousId = null;
+        try {
+            const entry = envCollection.get('ARRAYVIEW_WINDOW_ID');
+            if (entry && entry.value) previousId = entry.value;
+        } catch (_) {}
+
+        if (previousId && previousId !== String(process.pid)) {
+            // Make sure no OTHER currently-alive window already owns this ID.
+            const regPath = path.join(SIGNAL_DIR, `window-${previousId}.json`);
+            let otherOwns = false;
+            try {
+                if (fs.existsSync(regPath)) {
+                    const regData = JSON.parse(fs.readFileSync(regPath, 'utf8'));
+                    if (regData.pid && regData.pid !== process.pid && isProcessAlive(regData.pid)) {
+                        otherOwns = true;
+                    }
+                }
+            } catch (_) {}
+            windowId = otherOwns ? String(process.pid) : previousId;
+            if (!otherOwns) {
+                log(`ENV: reusing previous ARRAYVIEW_WINDOW_ID=${windowId} (stable across restart)`);
+            } else {
+                log(`ENV: previous ID ${previousId} owned by another window, using pid=${windowId}`);
+            }
+        } else {
+            windowId = previousId || String(process.pid);
+        }
+    }
     logWindowId = windowId;
     try {
-        const envCollection = context.environmentVariableCollection;
         envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
-        log(`ENV: set ARRAYVIEW_WINDOW_ID=${windowId} in terminal env`);
+        log(`ENV: set ARRAYVIEW_WINDOW_ID=${windowId}`);
     } catch (e) {
         log(`ENV: failed to set ARRAYVIEW_WINDOW_ID: ${e.message}`);
     }
