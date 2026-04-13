@@ -13,6 +13,8 @@ slice requests, and is length-prefixed JSON for metadata/register/sessions.
 """
 
 import json
+import io
+import arrayview._session as _session_mod
 import os
 import select
 import struct
@@ -292,6 +294,13 @@ def _handle_metadata(msg: dict) -> None:
             "has_vectorfield": session.vfield is not None,
             "vfield_n_times": _vfield_n_times(session),
             "is_rgb": session.rgb_axis is not None,
+            **(
+                {
+                    "default_dims": [int(d) for d in default_dims]
+                }
+                if (default_dims := _session_mod._default_start_dims_for_data(session.data)) is not None
+                else {}
+            ),
         }
     )
 
