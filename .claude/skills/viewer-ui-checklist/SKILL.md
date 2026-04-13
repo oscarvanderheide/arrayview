@@ -1,13 +1,13 @@
 ---
 name: viewer-ui-checklist
-description: Use when adding keyboard shortcuts, changing layout, or making any UI change to arrayview. Ensures visual_smoke.py, help overlay, and docs/ stay in sync.
+description: Use when the user explicitly asks to sync UI docs/help/test coverage, or when preparing a UI change for release. Ensures visual_smoke.py, help overlay, and docs/ stay in sync.
 ---
 
 # ArrayView UI Checklist
 
 ## Rule
 
-Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the help overlay, and the relevant `docs/*.md` page before the task is complete.
+This is the release/explicit-sync checklist for UI work. Do not invoke it by default for every UI edit during development. Use it when the user explicitly asks for the full sync, or when preparing a UI change for release.
 
 `README.md` is intentionally minimal and stable — do **not** add per-feature shortcuts or behavior to it. User-facing docs live in `docs/` and are organized by topic (`display.md`, `viewing.md`, `comparing.md`, `loading.md`, `measurement.md`, `remote.md`, `configuration.md`).
 
@@ -19,7 +19,7 @@ Every UI change to arrayview MUST be reflected in `tests/visual_smoke.py`, the h
 - Layout changes (canvas sizing, colorbar position, overlays)
 - New overlay, dialog, or panel
 
-## Steps (mandatory, in order)
+## Steps (when this checklist is invoked)
 
 1. **Update coverage table** at the top of `visual_smoke.py`
    - If shortcut is now testable: change `✗` to `✓ NN` with scenario number

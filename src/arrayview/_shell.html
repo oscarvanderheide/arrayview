@@ -33,17 +33,41 @@
         .tab-close:hover { opacity: 1; color: #ff6b6b; background: rgba(255,255,255,0.08); }
 
         #content { flex: 1; position: relative; background: #0c0c0c; overflow: hidden; }
+        .tab-pane {
+            position: absolute; inset: 0; visibility: hidden; background: #0c0c0c;
+        }
+        .tab-pane.active { visibility: visible; }
         iframe {
             width: 100%; height: 100%; border: none; position: absolute;
-            top: 0; left: 0; visibility: hidden; background: #0c0c0c;
+            inset: 0; visibility: visible; background: #0c0c0c;
         }
-        iframe.active { visibility: visible; }
 
         #tab-bar::-webkit-scrollbar { height: 3px; }
         #tab-bar::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+        #loading-overlay {
+            position: absolute; inset: 0; background: #0c0c0c; z-index: 100;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 16px;
+            transition: opacity 0.25s ease;
+        }
+        #loading-overlay.av-hidden { opacity: 0; pointer-events: none; }
+        #loading-spinner {
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 2px solid #1e1e1e; border-top-color: #4cc9f0;
+            animation: av-lspin 0.8s linear infinite;
+        }
+        @keyframes av-lspin { to { transform: rotate(360deg); } }
+        #loading-label {
+            color: #555; font-size: 12px; letter-spacing: 0.03em;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
     </style>
 </head>
 <body>
+    <div id="loading-overlay">
+        <div id="loading-spinner"></div>
+        <div id="loading-label">Loading ArrayView&hellip;</div>
+    </div>
     <div id="tab-bar"></div>
     <div id="content"></div>
     <script>
@@ -64,10 +88,15 @@
             btn.className = 'tab';
             btn.innerHTML = `<span>${name}</span><span class="tab-close">&times;</span>`;
 
+            const pane = document.createElement('div');
+            pane.className = 'tab-pane';
+
             const iframe = document.createElement('iframe');
             iframe.src = url || `/?sid=${sid}`;
 
-            tabs[sid] = { btn, iframe };
+            pane.appendChild(iframe);
+
+            tabs[sid] = { btn, pane, iframe };
 
             btn.onclick = () => activateTab(sid);
             btn.querySelector('.tab-close').onclick = (e) => {
@@ -76,7 +105,7 @@
             };
 
             tabBar.appendChild(btn);
-            content.appendChild(iframe);
+            content.appendChild(pane);
             activateTab(sid);
             updateTabBarVisibility();
         }
@@ -86,11 +115,11 @@
             for (let k in tabs) {
                 if (k === sid) {
                     tabs[k].btn.classList.add('active');
-                    tabs[k].iframe.classList.add('active');
+                    tabs[k].pane.classList.add('active');
                     tabs[k].iframe.contentWindow?.focus();
                 } else {
                     tabs[k].btn.classList.remove('active');
-                    tabs[k].iframe.classList.remove('active');
+                    tabs[k].pane.classList.remove('active');
                 }
             }
         }
@@ -99,7 +128,7 @@
             const tab = tabs[sid];
             if (!tab) return;
             tabBar.removeChild(tab.btn);
-            content.removeChild(tab.iframe);
+            content.removeChild(tab.pane);
             delete tabs[sid];
 
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -127,7 +156,17 @@
 
         window.addEventListener('message', (e) => {
             if (!e.data || e.data.source !== 'arrayview-viewer') return;
-            if (e.data.phase === 'tab-cycle') cycleTab(e.data.detail?.dir ?? 1);
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(e.data, '*');
+                }
+            } catch (_) {
+            }
+            const phase = e.data.phase;
+            if (phase === 'tab-cycle') {
+                cycleTab(e.data.detail?.dir ?? 1);
+                return;
+            }
         });
 
         // Mark this window as the native shell so embedded viewer iframes
@@ -153,6 +192,12 @@
                 heartbeatId = setInterval(() => {
                     if (ws.readyState === WebSocket.OPEN) ws.send('{"action":"ping"}');
                 }, 15000);
+                // Dismiss the loading overlay once the server is reachable.
+                const ov = document.getElementById('loading-overlay');
+                if (ov) {
+                    ov.classList.add('av-hidden');
+                    setTimeout(() => ov.remove(), 300);
+                }
             };
             ws.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
@@ -163,29 +208,37 @@
             };
             ws.onclose = () => {
                 clearInterval(heartbeatId);
-                setTimeout(connectShellWS, 1000);
+                setTimeout(connectShellWS, 200);
             };
         }
         connectShellWS();
+        // When served over HTTP with ?init_sid the server is already running —
+        // skip the overlay entirely (WebSocket will connect in ms anyway).
+        if (new URLSearchParams(location.search).get('init_sid')) {
+            const ov = document.getElementById('loading-overlay');
+            if (ov) ov.remove();
+        }
 
-        const params = new URLSearchParams(window.location.search);
-        const initSid = params.get('init_sid');
-        const initName = params.get('init_name');
-        const initCompareSid = params.get('init_compare_sid');
-        const initCompareSids = params.get('init_compare_sids');
-        if (initSid) {
-            let url = `/?sid=${initSid}`;
-            if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
-            addTab(initSid, initName || 'Array', url);
-        } else {
-            fetch('/sessions').then(r => r.json()).then(sessions => {
-                if (sessions.length > 0) {
-                    sessions.forEach(s => addTab(s.sid, s.name));
-                } else {
-                    // No arrays loaded yet — show the welcome/plasma screen
-                    addTab('__welcome__', '', '/');
-                }
-            }).catch(() => { addTab('__welcome__', '', '/'); });
+        if (!window.__av_inline) {
+            const params = new URLSearchParams(window.location.search);
+            const initSid = params.get('init_sid');
+            const initName = params.get('init_name');
+            const initCompareSid = params.get('init_compare_sid');
+            const initCompareSids = params.get('init_compare_sids');
+            if (initSid) {
+                let url = `/?sid=${initSid}`;
+                if (initCompareSid) url += `&compare_sid=${initCompareSid}&compare_sids=${initCompareSids}`;
+                addTab(initSid, initName || 'Array', url);
+            } else {
+                fetch('/sessions').then(r => r.json()).then(sessions => {
+                    if (sessions.length > 0) {
+                        sessions.forEach(s => addTab(s.sid, s.name));
+                    } else {
+                        // No arrays loaded yet — show the welcome/plasma screen
+                        addTab('__welcome__', '', '/');
+                    }
+                }).catch(() => { addTab('__welcome__', '', '/'); });
+            }
         }
     </script>
 </body>

@@ -1,6 +1,7 @@
 """Layer 1: HTTP API tests (no browser required, runs in seconds)."""
 
 import io
+import inspect
 
 import httpx
 import numpy as np
@@ -36,6 +37,27 @@ class TestHealth:
         r = client.get("/shell")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
+        assert "document.createElement('iframe')" in r.text
+
+    def test_launcher_cold_start_loading_infrastructure(self):
+        import arrayview._launcher as launcher
+
+        html = launcher._LOADING_HTML
+
+        assert "#0c0c0c" in html  # dark background matches viewer theme
+        assert "window.location.replace" in html  # JS navigates when server ready
+        assert callable(launcher._run_loading_server)
+        assert callable(launcher._with_loading)
+
+    def test_metadata_default_dims_match_viewer_startup_for_4d_data(self, client, tmp_path):
+        arr = (np.random.randn(22, 24, 21, 5) + 1j * np.random.randn(22, 24, 21, 5)).astype(np.complex64)
+        path = tmp_path / "startup_dims_complex.npy"
+        np.save(path, arr)
+
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        body = client.get(f"/metadata/{sid}").json()
+
+        assert body["default_dims"] == [0, 1]
 
     def test_sessions_lists_registered_sid(self, client, sid_2d):
         r = client.get("/sessions")
@@ -258,6 +280,44 @@ class TestInfo:
         assert "recommended_colormap_reason" in body
         assert isinstance(body["recommended_colormap"], str)
         assert isinstance(body["recommended_colormap_reason"], str)
+
+
+class TestThumbnail:
+    def test_thumbnail_returns_jpeg(self, client, sid_2d):
+        r = client.get(f"/thumbnail/{sid_2d}", params={"w": 240, "h": 180})
+        assert r.status_code == 200
+        assert "image/jpeg" in r.headers["content-type"]
+        img = Image.open(io.BytesIO(r.content))
+        assert img.size[0] <= 240
+        assert img.size[1] <= 180
+
+    def test_thumbnail_preserves_aspect_ratio_within_box(self, client, tmp_path):
+        arr = np.zeros((20, 10), dtype=np.float32)
+        path = tmp_path / "thumb_aspect.npy"
+        np.save(path, arr)
+
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+        r = client.get(f"/thumbnail/{sid}", params={"w": 300, "h": 300})
+        assert r.status_code == 200
+        img = Image.open(io.BytesIO(r.content))
+        assert max(img.size) == 300
+        assert min(img.size) == 150
+
+    def test_thumbnail_supports_rgb_sessions(self, client, tmp_path):
+        rgb = np.zeros((24, 32, 3), dtype=np.uint8)
+        rgb[..., 0] = np.linspace(0, 255, 32, dtype=np.uint8)
+        rgb[..., 1] = 64
+        rgb[..., 2] = 200
+        path = tmp_path / "rgb_thumb.npy"
+        np.save(path, rgb)
+
+        sid = client.post("/load", json={"filepath": str(path), "rgb": True}).json()["sid"]
+        r = client.get(f"/thumbnail/{sid}", params={"w": 160, "h": 120})
+        assert r.status_code == 200
+        assert "image/jpeg" in r.headers["content-type"]
+        img = Image.open(io.BytesIO(r.content)).convert("RGB")
+        px = np.array(img)[img.size[1] // 2, img.size[0] // 2]
+        assert int(px[2]) > int(px[1])
 
     def test_signed_data_reason_mentions_rdbu(self, client, tmp_path):
         """Signed float data (vmin < 0) → colormap reason mentions RdBu_r."""

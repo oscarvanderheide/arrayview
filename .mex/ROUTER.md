@@ -33,15 +33,20 @@ Then read this file fully before doing anything else in this session.
 - Overlays: binary mask, multi-label segmentation, float heatmap with nnInteractive integration
 - NIfTI spatial metadata display, RAS resampling
 - VS Code extension v0.14.0 — stable window ID via `EnvironmentVariableCollection`
+- Viewer first-frame handoff is immediate — no client-side startup logo intro or minimum dwell
+- Native pywebview opens immediately against a blank black page, then navigates to the live shell as soon as the local server starts accepting connections
+- Thumbnail previews use the same startup-axis heuristic as the viewer to avoid 4D last-axis smear artifacts
+- Thumbnail previews preserve slice aspect within their requested box
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
+- Cold-start loading spinner: loading page in VS Code (pre-server on ephemeral port), overlay in native shell; both hide when server is ready
 
 **Not yet built:**
-- Independent split view for mismatched-shape arrays (designed, shelved — see `project_independent_split_view.md` memory)
+- Independent split view for mismatched-shape arrays (designed, shelved — see memory file `project_independent_split_view.md`)
 - Smooth immersive transition during continuous trackpad zoom (deferred — see memory)
 - Admin/config UI — config is file-based (`~/.arrayview/config.toml`) only
 
 **Known issues:**
-- White flicker on macOS native window before loading animation appears (minor, tracked in `dev/TODO.md`)
+- ~~White flicker on macOS native window~~ — fixed: window opens early with inline shell HTML (html= param, no HTTP round-trip); WKWebView never flashes white
 - ColorBar class refactor is partially complete — some colorbars still use legacy inline code
 
 ## Routing Table

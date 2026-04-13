@@ -56,5 +56,5 @@ last_updated: 2026-04-13
 
 - Python ≥ 3.12 (union type syntax `X | Y` used throughout)
 - zarr 2.x API (not zarr 3.x — `zarr.open(mode="r")` syntax)
-- VS Code extension version tracked in `_vscode._VSCODE_EXT_VERSION = "0.14.0"`; signal filename is `open-request-v0900.json`
+- VS Code extension version tracked in `_vscode._VSCODE_EXT_VERSION = "0.14.0"`; signal filename defined by `_vscode._VSCODE_SIGNAL_FILENAME` (currently `"open-request-v0900.json"`)
 - numpy 2.x (some dtype handling relies on numpy 2 behavior)

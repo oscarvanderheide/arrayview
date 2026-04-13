@@ -60,8 +60,9 @@
         body.av-loading #array-name,
         body.av-loading #info,
         body.av-loading #canvas-wrap,
-        body.av-loading #slim-cb-wrap { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap {
+        body.av-loading #slim-cb-wrap,
+        body.av-loading #help-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -73,7 +74,7 @@
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
             position: relative;
-            transition: background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             --fly-y: 0px;
             transform: translateY(var(--fly-y, 0px));
         }
@@ -148,7 +149,7 @@
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
             text-align: center; padding: 5px 12px; position: fixed; z-index: 2;
-            transition: opacity 0.3s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            transition: opacity 0.26s ease, transform 0.26s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             border-radius: 18px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -156,6 +157,7 @@
             display: flex; align-items: center; gap: 8px;
             box-sizing: border-box;
             --fly-y: 0px;
+            transform: translateY(var(--fly-y, 0px));
         }
         :root.light #slim-cb-wrap {
             background: rgba(240, 240, 240, 0.85);
@@ -1605,7 +1607,7 @@
         <canvas id="mip-canvas"></canvas>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
-        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
+        <div id="loading-overlay"><div class="av-load-name"></div></div>
         <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
@@ -1721,6 +1723,7 @@
         const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
         const postMessageTransport = transport === 'postMessage';
+        const isElectronHost = /\bElectron\//.test(navigator.userAgent || '');
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
         const _DEBUG_UI = urlParams.get('debug_ui') === '1';
@@ -1990,83 +1993,104 @@
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
         let immersiveTl = null; // GSAP timeline that fully drives the immersive crossfade
 
-        // ── Startup animation ──────────────────────────────────────────────
+        // ── Startup loading handoff ────────────────────────────────────────
         let _startupAnimPlayed = false; // once per page load — not reset on data refresh (by design)
         let _startupAnimTl = null;
-        const _loadingShowTime = performance.now(); // page load = spinner visible
-        const _MIN_SPINNER_MS = 800; // minimum spinner dwell — prevents "flash of spinner"
+
+        function _clearStartupChromeReveal() {
+            const arrayName = document.getElementById('array-name');
+            const info = document.getElementById('info');
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            const helpHint = document.getElementById('help-hint');
+            [arrayName, info, cbWrap, helpHint].forEach(el => {
+                if (!el) return;
+                el.style.removeProperty('opacity');
+                el.style.removeProperty('--fly-y');
+                el.style.removeProperty('scale');
+                el.style.removeProperty('transformOrigin');
+            });
+        }
 
         function _playStartupAnimation() {
             if (_startupAnimPlayed) return;
             _startupAnimPlayed = true;
-
-            const ol         = document.getElementById('loading-overlay');
-            const loadLogo   = ol.querySelector('.av-load-logo');
-            const loadName   = ol.querySelector('.av-load-name');
-            const canvasWrap = document.getElementById('canvas-wrap');
-            const arrayName  = document.getElementById('array-name');
-            const info       = document.getElementById('info');
-            const cbWrap     = document.getElementById('slim-cb-wrap');
-            const helpHint   = document.getElementById('help-hint');
-            const cbVisible  = cbWrap && cbWrap.style.display !== 'none';
-
-            // Seize opacity immediately so CSS transition doesn't race GSAP
-            gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0 });
-            if (cbVisible) gsap.set(cbWrap, { opacity: 0 });
-
-            // Set starting transforms for Act 3 (chrome assembly)
-            gsap.set(arrayName, { y: -8 });
-            gsap.set(info,      { y: -8 });
-            if (cbVisible) gsap.set(cbWrap, { y: 12 });
-            gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
-
-            _startupAnimTl = gsap.timeline({ onComplete: () => {
+            if (_startupAnimTl) {
+                _startupAnimTl.kill();
                 _startupAnimTl = null;
+            }
+
+            const arrayName = document.getElementById('array-name');
+            const info = document.getElementById('info');
+            const cbWrap = document.getElementById('slim-cb-wrap');
+            const helpHint = document.getElementById('help-hint');
+            if (arrayName) {
+                arrayName.style.opacity = '0';
+                arrayName.style.setProperty('--fly-y', '-8px');
+            }
+            if (info) {
+                info.style.opacity = '0';
+                info.style.setProperty('--fly-y', '-8px');
+            }
+            if (cbWrap && getComputedStyle(cbWrap).display !== 'none') {
+                cbWrap.style.opacity = '0';
+                cbWrap.style.setProperty('--fly-y', '0px');
+            }
+            if (helpHint) {
+                helpHint.style.opacity = '0';
+                helpHint.style.scale = '0.7';
+                helpHint.style.transformOrigin = 'center center';
+            }
+
+            document.body.classList.remove('av-loading');
+
+            const ol = document.getElementById('loading-overlay');
+            if (ol) {
+                ol.style.opacity = '';
                 ol.style.display = 'none';
-            }});
-
-            // ── Act 1: Logo settles (stops pulsing, all blocks snap to full) ──
-            // Stop the CSS pulse animation and snap all blocks to full opacity
-            _startupAnimTl.call(() => {
-                if (loadLogo) loadLogo.classList.remove('av-logo-loading');
-            }, null, 0);
-            // Brief hold — user registers "loading complete"
-            // (the 0.25s is the settle time for blocks to reach full opacity via CSS transition)
-
-            // ── Act 2: Overlay exits, canvas revealed ──────────────────────
-            // Logo + name scale down gently and fade out together
-            if (loadLogo) {
-                _startupAnimTl.to(loadLogo, {
-                    opacity: 0, scale: 0.6, duration: 0.35, ease: 'power2.in'
-                }, 0.30);
             }
-            if (loadName) {
-                _startupAnimTl.to(loadName, {
-                    opacity: 0, duration: 0.20, ease: 'power2.in'
-                }, 0.30);
-            }
-            // Canvas fades in as overlay exits — cross-dissolve
-            _startupAnimTl.to(canvasWrap, {
-                opacity: 1, duration: 0.50, ease: 'power2.out'
-            }, 0.40);
-            // Remove av-loading class at the midpoint of the cross-dissolve
-            _startupAnimTl.call(() => {
-                document.body.classList.remove('av-loading');
-            }, null, 0.50);
 
-            // ── Act 3: Chrome assembles around canvas ──────────────────────
-            // Each element arrives with a gentle slide + fade, clearly staggered
-            _startupAnimTl
-                .to(arrayName, { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 0.85)
-                .to(info,      { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }, 0.92);
-            if (cbVisible) {
-                _startupAnimTl.to(cbWrap, {
-                    opacity: 1, y: 0, duration: 0.36, ease: 'power3.out'
-                }, 1.05);
-            }
-            _startupAnimTl.to(helpHint, {
-                opacity: 1, scale: 1, duration: 0.28, ease: 'back.out(1.7)'
-            }, 1.20);
+            requestAnimationFrame(() => {
+                if (_startupAnimTl) {
+                    _startupAnimTl.kill();
+                    _startupAnimTl = null;
+                }
+                const steps = [];
+                if (arrayName && getComputedStyle(arrayName).display !== 'none') {
+                    steps.push({ el: arrayName, delay: 0.00, y: '0px', duration: 0.30 });
+                }
+                if (info) {
+                    steps.push({ el: info, delay: 0.08, y: '0px', duration: 0.30 });
+                }
+                if (cbWrap && getComputedStyle(cbWrap).display !== 'none') {
+                    steps.push({
+                        el: cbWrap,
+                        delay: 0.22,
+                        duration: 0.34,
+                        ease: isElectronHost ? 'power2.out' : 'power1.out',
+                    });
+                }
+                if (helpHint && getComputedStyle(helpHint).display !== 'none') {
+                    steps.push({ el: helpHint, delay: 0.26, scale: 1, duration: 0.24, ease: 'back.out(1.6)' });
+                }
+                if (!steps.length || typeof gsap === 'undefined') {
+                    _clearStartupChromeReveal();
+                    return;
+                }
+                _startupAnimTl = gsap.timeline({ onComplete: () => {
+                    _clearStartupChromeReveal();
+                    _startupAnimTl = null;
+                }});
+                steps.forEach(step => {
+                    const vars = {
+                        opacity: 1,
+                        duration: step.duration,
+                        ease: step.ease || 'power2.out',
+                    };
+                    if (step.y !== undefined) vars['--fly-y'] = step.y;
+                    if (step.scale !== undefined) vars.scale = step.scale;
+                    _startupAnimTl.to(step.el, vars, step.delay);
+                });
+            });
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
         let _immTargetZoom = 1.0; // cached zoom target at start of transition (_calcAutoFitZoom(..., true) * 1.005)
@@ -6892,14 +6916,11 @@
                         // Show canvas-wrap BEFORE scaleCanvas so fixWrapperAlignment
                         // sees the real childrenH and computes the correct paddingTop.
                         if (document.getElementById('loading-overlay').style.display !== 'none') {
-                            // Make canvas-wrap layoutable NOW (still opacity:0 via av-loading)
-                            // so scaleCanvas below can compute correct dimensions.
+                            // Make canvas-wrap layoutable NOW so scaleCanvas below
+                            // can compute correct dimensions before the overlay drops.
                             document.getElementById('canvas-wrap').style.display = '';
                             if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
-                            // Enforce minimum spinner dwell so it feels intentional, not glitchy.
-                            const _elapsed = performance.now() - _loadingShowTime;
-                            const _delay = Math.max(0, _MIN_SPINNER_MS - _elapsed);
-                            setTimeout(() => _playStartupAnimation(), _delay);
+                            _playStartupAnimation();
                         }
                         scaleCanvas(width, height);
                         if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
@@ -7040,8 +7061,11 @@
                 lastImgW = frame.width;
                 lastImgH = frame.height;
                 crossFadeIn(frame.imageData, frame.width, frame.height);
-                document.getElementById('loading-overlay').style.display = 'none';
-                document.getElementById('canvas-wrap').style.display = '';
+                if (document.getElementById('loading-overlay').style.display !== 'none') {
+                    document.getElementById('canvas-wrap').style.display = '';
+                    if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
+                    _playStartupAnimation();
+                }
                 scaleCanvas(frame.width, frame.height);
                 drawVectorOverlay();
                 drawSlimColorbar(cbMarkerFrac);
@@ -16834,22 +16858,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         window.addEventListener('beforeunload', closeSocket);
         window.addEventListener('unload', closeSocket);
         window.addEventListener('pagehide', closeSocket);
-
-        // Animate logo while loading overlay is visible
-        (function() {
-            const overlay = document.getElementById('loading-overlay');
-            const logo = document.getElementById('av-logo-svg');
-            if (!overlay || !logo) return;
-            const updateLogoAnim = () => {
-                if (overlay.style.display === 'none') {
-                    logo.classList.remove('av-logo-loading');
-                } else {
-                    logo.classList.add('av-logo-loading');
-                }
-            };
-            new MutationObserver(updateLogoAnim).observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            updateLogoAnim();
-        })();
 
         // ═══════════════════════════════════════════════════════════════
         // NEW FEATURES BLOCK

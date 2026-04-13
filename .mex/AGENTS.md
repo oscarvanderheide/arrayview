@@ -21,7 +21,7 @@ A Python package for interactively viewing multi-dimensional arrays (numpy, NIfT
 
 - Test: `uv run pytest tests/`
 - Visual smoke: `uv run pytest tests/visual_smoke.py`
-- CLI: `uvx arrayview path/to/file.npy`
+- CLI: `uvx arrayview <file>`
 - Build: `uv build`
 - Docs: `uv run mkdocs serve`
 

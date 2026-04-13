@@ -73,13 +73,13 @@ INFO & EXPORT
   ?               help overlay              ✓ 28
   toast routing   diff/border toasts → #status (bottom-left)  ✓ 49
 
-LOADING ANIMATION
-  logo pulse-anim while loading-overlay vis ✓ 47 (js eval checks .av-logo-loading)
-  logo-b0..b8 IDs present for pulse anim   ✓ 47 (js eval checks rect IDs)
-  logo stops after canvas visible           ✓ 47
+LOADING OVERLAY
+    viewer startup logo absent                ✓ 47 (#loading-overlay has no .av-load-logo)
+    viewer overlay gone after first frame     ✓ 47
   ping-pong loading bar absent              ✓ 47 (#loading-track not in DOM)
   loading text absent                       ✓ 47 (#loading-label not in DOM)
-  startup spinner (pywebview)               ✓ 68 (_LOADING_HTML + loading_port param checks)
+    native preload shell (pywebview)          ✓ 68 (_LOADING_HTML + loading_port param checks)
+        native shell preview handoff             ✓ 68 (_SHELL_HTML contains tab-preview + frame-rendered handoff)
 
 WELCOME SCREEN / DEMO
   empty-hint visible on welcome session     ✓ 48 (check .visible on #welcome-hint + body.welcome-mode)
@@ -815,23 +815,20 @@ def run_smoke(page, base, client, tmp):
                 f"  WARNING: RGB eggs gap too small ({gap:.0f}px < 30px) — eggs may overlap canvas"
             )
 
-    # ── 47: logo animation ────────────────────────────────────────────────────
-    # Verify the logo animates (opacity pulse) while loading and stops after canvas visible.
-    # Also verify #loading-track (ping-pong bar) and #loading-label (text) are gone.
-    # Verify SVG rect IDs (logo-b0..b8) required for pulse animation.
+    # ── 47: viewer startup overlay ───────────────────────────────────────────
+    # Verify the viewer no longer ships a startup logo overlay, and that the
+    # old track/text loading affordances remain absent.
     _goto(page, base, sid2d)
-    logo_has_class = page.evaluate(
-        "() => document.getElementById('av-logo-svg').classList.contains('av-logo-loading')"
+    startup_logo_present = page.evaluate(
+        "() => !!document.querySelector('#loading-overlay .av-load-logo')"
     )
-    if logo_has_class:
-        print("  WARNING: av-logo-loading class still present after canvas loaded")
-    missing_rects = page.evaluate(
-        "() => Array.from({length:9},(_,i)=>`logo-b${i}`).filter(id=>!document.getElementById(id))"
+    if startup_logo_present:
+        print("  WARNING: startup logo still present in #loading-overlay")
+    overlay_visible = page.evaluate(
+        "() => getComputedStyle(document.getElementById('loading-overlay')).display !== 'none'"
     )
-    if missing_rects:
-        print(
-            f"  WARNING: SVG logo rect IDs missing (pulse animation broken): {missing_rects}"
-        )
+    if overlay_visible:
+        print("  WARNING: loading overlay still visible after initial render")
     loading_track_present = page.evaluate(
         "() => !!document.getElementById('loading-track')"
     )
@@ -846,7 +843,7 @@ def run_smoke(page, base, client, tmp):
         print(
             "  WARNING: #loading-label (Loading... text) still present in DOM — should have been removed"
         )
-    _shot(page, "47_logo_after_load")
+    _shot(page, "47_loading_overlay_after_load")
 
     # ── 48: demo array — RGB plasma ───────────────────────────────────────────
     # Verify the welcome demo renders as an RGB plasma animation (128×128×32×3).
@@ -1590,31 +1587,38 @@ def run_smoke(page, base, client, tmp):
     _press(page, "r", wait=200)
     _shot(page, "67b_r_rotate_back")
 
-    # ── 68: startup animation — _LOADING_HTML spinner in _launcher.py ───────────
-    print("68: startup animation — loading spinner present in _launcher.py")
-    # The spinner lives in the pywebview subprocess and is not visible in the
-    # browser smoke test (native window only).  We verify the implementation is
-    # in place by inspecting the launcher source.
+    # ── 68: native preload shell — _LOADING_HTML in _launcher.py ─────────────
+    print("68: native preload shell — _LOADING_HTML present in _launcher.py")
+    # The preload shell lives in the pywebview subprocess and is not visible in
+    # the browser smoke test (native window only). Verify it stays minimal and
+    # non-animated by inspecting the launcher source.
     import importlib, inspect
 
     launcher = importlib.import_module("arrayview._launcher")
+    server = importlib.import_module("arrayview._server")
     assert hasattr(launcher, "_LOADING_HTML"), (
         "FAIL: _LOADING_HTML missing from _launcher.py"
     )
     html = launcher._LOADING_HTML
-    assert "animation" in html, "FAIL: _LOADING_HTML has no CSS animation"
-    assert "#111" in html or "#111111" in html, (
-        "FAIL: _LOADING_HTML does not use dark background"
+    assert "animation" not in html, "FAIL: _LOADING_HTML should not animate"
+    assert "#0c0c0c" in html, (
+        "FAIL: _LOADING_HTML does not use the ArrayView dark background"
     )
-    assert "#f0c040" in html, "FAIL: _LOADING_HTML does not use ArrayView yellow"
+    assert "body></body" in html.replace(" ", ""), (
+        "FAIL: _LOADING_HTML should stay empty until the viewer URL loads"
+    )
     # Check that _open_webview accepts loading_port keyword
     sig = inspect.signature(launcher._open_webview)
     assert "loading_port" in sig.parameters, (
         "FAIL: _open_webview missing loading_port parameter"
     )
     print(
-        "  OK: _LOADING_HTML present, CSS animation + color checks pass, loading_port parameter present"
+        "  OK: _LOADING_HTML present, shell is dark + non-animated, loading_port parameter present"
     )
+    shell_html = server._SHELL_HTML
+    assert "tab-preview" in shell_html, "FAIL: _SHELL_HTML missing native preview overlay"
+    assert "frame-rendered" in shell_html, "FAIL: _SHELL_HTML missing preview handoff trigger"
+    print("  OK: _SHELL_HTML contains preview overlay + frame-rendered handoff")
 
     # ── 69: G key — compare layout toggle (horizontal / vertical / grid) ────────
     print("69: G key — compare layout toggle")

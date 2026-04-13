@@ -55,7 +55,7 @@ Frontend:
 - **`_session.py`** — `Session` class (LRU raw/rgba/mosaic caches, preload state, vfield, spatial_meta), global state (SESSIONS dict, SERVER_LOOP, VIEWER_SOCKETS), dedicated render thread, prefetch pool.
 - **`_render.py`** — `extract_slice` → `apply_complex_mode` → `apply_colormap_rgba` → `render_rgba`. Also handles `render_mosaic`, `render_rgb_rgba`, overlay compositing. Colormap LUTs built lazily via `_init_luts()`.
 - **`_platform.py`** — Environment detection: `_in_jupyter()`, `_in_vscode_terminal()`, `_is_vscode_remote()`, `_in_vscode_tunnel()`, `_can_native_window()`, `_is_julia_env()`. Includes ancestor-process walk to recover env vars stripped by `uv run`.
-- **`_vscode.py`** — VS Code extension auto-install (VSIX bundled in package), signal-file IPC (`open-request-v0900.json`), shared-memory IPC, `EnvironmentVariableCollection` window ID (stable across uv run env stripping).
+- **`_vscode.py`** — VS Code extension auto-install (VSIX bundled in package), signal-file IPC (filename defined by `_VSCODE_SIGNAL_FILENAME`), shared-memory IPC, `EnvironmentVariableCollection` window ID (stable across uv run env stripping).
 - **`_stdio_server.py`** (791 lines) — Alternative transport for VS Code direct webview. Reads JSON requests from stdin, writes binary RGBA frames to stdout. Spawned as subprocess by the VS Code extension.
 - **`_io.py`** — `load_data(filepath)` dispatcher. Handles lazy vs eager loading per format. `.nii.gz` is always materialized (gzip not seekable). `.npy` uses `mmap_mode="r"`.
 

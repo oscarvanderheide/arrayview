@@ -1,13 +1,13 @@
 ---
 name: ui-consistency-audit
-description: Use when implementing or modifying any visual feature, layout, keyboard shortcut, or mode-specific behavior in arrayview. Proactively identifies all affected mode combinations before coding, prescribes per-mode behavior, checks for UI clashes, and runs a Playwright-based visual audit after implementation. Absorbs and replaces the modes-consistency skill.
+description: Use when the user explicitly requests a full visual audit, when validating UI work for a release, or when diagnosing a cross-mode visual regression in arrayview. Proactively identifies all affected mode combinations, prescribes per-mode behavior, checks for UI clashes, and runs a Playwright-based visual audit after implementation. Absorbs and replaces the modes-consistency skill.
 ---
 
 # ArrayView UI Consistency Audit
 
 ## Rule
 
-Every visual change must be verified across **all applicable mode × array-count combinations** before it ships. This skill has two phases: a **proactive phase** (before coding) that plans the cross-mode behavior, and a **reactive phase** (after coding) that runs an automated visual audit.
+This is the **full** visual audit path. Do not invoke it by default for every UI change. During normal feature development, do targeted verification for the specific area touched. Use this skill when the user explicitly asks for a broad visual check, when a regression spans modes/layouts, or when validating UI work for a release. This skill has two phases: a **proactive phase** (before coding) that plans the cross-mode behavior, and a **reactive phase** (after coding) that runs an automated visual audit.
 
 ---
 

@@ -39,23 +39,24 @@ Key JS sections to know:
 - **ColorBar class** — shared JS class for all colorbar rendering; being migrated (partially done)
 - **Help overlay** — keyboard shortcut list; must be updated when adding shortcuts
 
-Skills to invoke first (before any frontend work):
-- `ui-consistency-audit` — identifies all affected mode combinations before coding
-- `modes-consistency` — ensures the feature works across all viewing modes
-- `viewer-ui-checklist` — keeps `visual_smoke.py`, help overlay, and docs in sync
+Skills to consider:
+- `ui-consistency-audit` — full cross-mode audit when explicitly requested, when debugging a broad visual regression, or during release validation
+- `modes-consistency` — use if the change affects mode interactions beyond a narrow UI tweak
+- `viewer-ui-checklist` — release/explicit sync for `visual_smoke.py`, help overlay, and docs
 - `frontend-designer` — for styling/layout changes
 
 ## Steps
 
-1. Invoke `ui-consistency-audit` skill to identify all affected mode combinations
+1. Scope the affected modes/panes for the specific change. If the user explicitly asked for a full visual check, or this is release validation, invoke `ui-consistency-audit`.
 2. Read the relevant CSS/JS section(s) in `_viewer.html` using `offset`/`limit`
 3. Identify the exact section separator line(s) your change will touch
 4. Make the change — edit in place, preserve section separator style
 5. If adding a keyboard shortcut: add it to the **help overlay** section too
 6. If adding a new mode: register it in the **Mode Registry**
-7. Run `uv run pytest tests/visual_smoke.py` — visual smoke test
-8. Run `uv run pytest tests/test_mode_consistency.py` — cross-mode check
-9. If the feature is documented in `docs/`: update the relevant page
+7. Run narrow verification for the touched behavior (manual check, focused test, or targeted scenario)
+8. If the user explicitly asked for a full visual check, or this is release validation, run the broader audit path (`ui-consistency-audit`, `uv run python tests/visual_smoke.py`, screenshots as relevant)
+9. If the change affects mode routing/layout behavior across modes, run `uv run pytest tests/test_mode_consistency.py`
+10. If the feature is documented in `docs/`: update the relevant page
 
 ## Gotchas
 
@@ -64,16 +65,19 @@ Skills to invoke first (before any frontend work):
 - **ColorBar class migration** — some colorbars use the new `ColorBar` JS class; some use legacy inline code. Do not mix styles in the same colorbar. Check `project_colorbar_refactor.md` memory.
 - **help overlay is not auto-generated** — it's a static list. Forgetting to update it leaves users with invisible shortcuts.
 - **No hot reload** — changes require a browser refresh. The server does not push frontend updates.
+- **Full visual audit is not the default path** — use targeted verification during development unless the user explicitly asks for the broader screenshot/audit pass or you're validating for release.
 - **`visual_smoke.py` runs Playwright** — requires `uv run playwright install chromium` first. See `context/setup.md`.
 - **CSS variable names** — dark theme palette uses `--av-*` custom properties. Do not introduce new one-off colors; use or extend the existing palette.
+- **`body.av-loading` hides real content** — `#canvas-wrap` can be layout-visible while still fully hidden. Clear `av-loading` on the first rendered frame; do not add artificial dwell around the overlay.
 
 ## Verify
 
 - [ ] Section separator style matches: `/* ── Section Name ── */` (CSS) or `// ── Section Name ──` (JS)
 - [ ] No new external JS/CSS files created — everything stays in `_viewer.html`
 - [ ] Help overlay updated if a keyboard shortcut was added or changed
-- [ ] `uv run pytest tests/visual_smoke.py` passes
-- [ ] `uv run pytest tests/test_mode_consistency.py` passes
+- [ ] Narrow verification for the touched behavior completed
+- [ ] If full visual audit was requested, or this is release validation, `ui-consistency-audit` and `uv run python tests/visual_smoke.py` pass
+- [ ] If mode routing/layout behavior changed across modes, `uv run pytest tests/test_mode_consistency.py` passes
 - [ ] New colors use `--av-*` CSS custom properties from the theme section
 
 ## Debug

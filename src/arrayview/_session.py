@@ -258,6 +258,38 @@ def _default_start_dims_for_data(data) -> tuple[int, int] | None:
     return None
 
 
+def _viewer_start_dims_for_shape(shape) -> tuple[int, int] | None:
+    """Return the default startup axes used by the viewer for a given shape."""
+    dims = tuple(int(s) for s in shape)
+    if len(dims) < 2:
+        return None
+    dim_x, dim_y = 0, 1
+    if len(dims) >= 3:
+        sorted_dims = sorted(enumerate(dims), key=lambda item: -item[1])
+        top2 = sorted((sorted_dims[0][0], sorted_dims[1][0]))
+        trailing = (len(dims) - 2, len(dims) - 1)
+        if top2 == [trailing[0], trailing[1]]:
+            dim_x, dim_y = trailing
+    return (dim_x, dim_y)
+
+
+def _startup_dims_for_data(data, shape=None) -> tuple[int, int] | None:
+    """Return the startup axes for previews and metadata.
+
+    This mirrors the viewer's startup heuristic, while still honoring the
+    memmap-specific override for pathological large-stride arrays.
+    """
+    target_shape = tuple(int(s) for s in (shape if shape is not None else getattr(data, "shape", ())))
+    if len(target_shape) < 2:
+        return None
+    data_shape = tuple(int(s) for s in getattr(data, "shape", ()))
+    if target_shape == data_shape:
+        override = _default_start_dims_for_data(data)
+        if override is not None:
+            return override
+    return _viewer_start_dims_for_shape(target_shape)
+
+
 SESSIONS = {}
 
 COLORMAPS = [

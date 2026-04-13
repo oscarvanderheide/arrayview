@@ -183,6 +183,7 @@ def _get_vfield_layout(session: Session) -> dict[str, object] | None:
 # ── Lazy PIL Import ───────────────────────────────────────────────
 
 _pil_image_mod = None
+_pil_imageops_mod = None
 
 
 def _pil_image():
@@ -193,6 +194,16 @@ def _pil_image():
 
         _pil_image_mod = Image
     return _pil_image_mod
+
+
+def _pil_imageops():
+    """Lazy PIL.ImageOps import."""
+    global _pil_imageops_mod
+    if _pil_imageops_mod is None:
+        from PIL import ImageOps
+
+        _pil_imageops_mod = ImageOps
+    return _pil_imageops_mod
 
 
 # ── Overlay Helpers ───────────────────────────────────────────────
@@ -775,7 +786,12 @@ def _build_metadata(session) -> dict:
         "vfield_n_times": _vfield_n_times(session),
         "is_rgb": session.rgb_axis is not None,
     }
-    default_dims = _session_mod._default_start_dims_for_data(session.data)
+    target_shape = (
+        session.spatial_shape if session.rgb_axis is not None else session.shape
+    )
+    default_dims = _session_mod._startup_dims_for_data(
+        session.data, target_shape
+    )
     if default_dims is not None:
         meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
     if getattr(session, "spatial_meta", None) is not None:
@@ -3205,34 +3221,56 @@ def get_sessions():
 
 @app.get("/thumbnail/{sid}")
 async def get_thumbnail(sid: str, w: int = 96, h: int = 72, session: "Session" = Depends(get_session_or_404)):
-    """Return a small JPEG thumbnail of the session's current default view."""
+    """Return a JPEG preview for the session's startup view.
 
-    ndim = len(session.shape)
+    The native shell uses this as a preload image while the live iframe warms up.
+    """
+
+    target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
+    ndim = len(target_shape)
     if ndim < 2:
         rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
     else:
-        # Default view: last two dims, middle index for all others
-        dim_x = ndim - 1
-        dim_y = ndim - 2
-        idx_list = [s // 2 for s in session.shape]
+        default_dims = _session_mod._startup_dims_for_data(session.data, target_shape)
+        if default_dims is None:
+            dim_x = ndim - 1
+            dim_y = ndim - 2
+        else:
+            dim_x = int(default_dims[0])
+            dim_y = int(default_dims[1])
+        idx_list = [int(s // 2) for s in target_shape]
         try:
-            rgba = await asyncio.to_thread(
-                render_rgba, session, dim_x, dim_y, tuple(idx_list),
-                "gray", 1, 0, False, None, None,
-            )
+            if session.rgb_axis is not None:
+                rgba = await asyncio.to_thread(
+                    render_rgb_rgba, session, dim_x, dim_y, list(idx_list)
+                )
+            else:
+                rgba = await asyncio.to_thread(
+                    render_rgba, session, dim_x, dim_y, tuple(idx_list),
+                    "gray", 1, 0, False, None, None,
+                )
         except Exception:
             rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
 
-    # Resize to thumbnail dimensions
+    # Resize into the preview box while preserving the slice aspect ratio.
     Image = _pil_image()
+    ImageOps = _pil_imageops()
     img = Image.fromarray(rgba[:, :, :3])
-    img = img.resize((w, h), Image.NEAREST if max(rgba.shape[:2]) < h else Image.LANCZOS)
+    img = ImageOps.contain(
+        img,
+        (max(1, int(w)), max(1, int(h))),
+        method=Image.NEAREST if max(rgba.shape[:2]) < h else Image.LANCZOS,
+    )
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=60)
     return Response(
         content=buf.getvalue(),
         media_type="image/jpeg",
-        headers={"Cache-Control": "max-age=30"},
+        headers={
+            "Cache-Control": "max-age=30",
+            "X-ArrayView-Width": str(img.width),
+            "X-ArrayView-Height": str(img.height),
+        },
     )
 
 

@@ -72,6 +72,11 @@ Key parameters:
 
 Drop a file onto the viewer.
 
+## Startup
+
+The first rendered frame is shown immediately. There is no client-side intro animation.
+Native windows also show a static preview while the live viewer warms up.
+
 ## Multiple Arrays
 
 ```bash

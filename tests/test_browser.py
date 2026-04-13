@@ -199,6 +199,22 @@ class TestBasicRender:
         # #loading-overlay should be hidden once canvas is showing
         assert not page.is_visible("#loading-overlay")
 
+    def test_loading_class_cleared_after_render(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        assert page.evaluate("() => !document.body.classList.contains('av-loading')")
+
+    def test_shell_init_tab_loads_without_preview_overlay(self, page, server_url, sid_2d):
+        page.goto(f"{server_url}/shell?init_sid={sid_2d}&init_name=arr2d")
+        page.wait_for_selector(".tab-pane.active iframe", timeout=5000)
+        page.wait_for_function(
+            """() => {
+                const iframe = document.querySelector('.tab-pane.active iframe');
+                return !!iframe && iframe.contentWindow && iframe.getAttribute('src') && iframe.getAttribute('src').includes(`sid=${window.location.search.match(/init_sid=([^&]+)/)[1]}`);
+            }""",
+            timeout=15000,
+        )
+        assert page.locator(".tab-preview").count() == 0
+
 
 # ---------------------------------------------------------------------------
 # Keyboard shortcuts

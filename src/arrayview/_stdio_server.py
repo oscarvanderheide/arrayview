@@ -298,7 +298,12 @@ def _handle_metadata(msg: dict) -> None:
                 {
                     "default_dims": [int(d) for d in default_dims]
                 }
-                if (default_dims := _session_mod._default_start_dims_for_data(session.data)) is not None
+                if (
+                    default_dims := _session_mod._startup_dims_for_data(
+                        session.data,
+                        session.spatial_shape if session.rgb_axis is not None else session.shape,
+                    )
+                ) is not None
                 else {}
             ),
         }

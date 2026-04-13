@@ -50,8 +50,8 @@ last_updated: 2026-04-13
 - `uv run pytest tests/ -m browser` — run browser/playwright tests only
 - `uv run pytest tests/visual_smoke.py` — run visual smoke tests
 - `uv run pytest tests/test_mode_consistency.py` — run cross-mode consistency tests
-- `uvx arrayview path/to/file.npy` — run CLI on a file
-- `uv run python -m arrayview path/to/file.npy` — alternate CLI invocation
+- `uvx arrayview <file>` — run CLI on a file
+- `uv run python -m arrayview <file>` — alternate CLI invocation
 - `uv build` — build wheel (output to `dist/`)
 - `uv run mkdocs serve` — preview docs locally
 

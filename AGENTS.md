@@ -9,11 +9,11 @@ Load the relevant skill before touching the corresponding area.
 
 | Skill | When |
 |-------|------|
-| `ui-consistency-audit` | Any visual/UI change |
+| `ui-consistency-audit` | Explicit full visual audit, cross-mode UI regression work, or pre-release validation |
 | `frontend-designer` | Styling/layout changes to `_viewer.html` |
 | `vscode-simplebrowser` | Extension, signal-file IPC, `_VSCODE_EXT_VERSION` |
 | `invocation-consistency` | Server startup, display-opening, env detection |
-| `viewer-ui-checklist` | Any UI change (smoke tests, help overlay, README sync) |
+| `viewer-ui-checklist` | Release prep for UI changes, or when syncing smoke coverage/help overlay/docs explicitly |
 | `docs-style` | README, help overlay, docstrings (formatting rules) |
 
 ## Non-Negotiables
@@ -45,12 +45,13 @@ Work in **feature branches**. Create a branch for each feature, commit work ther
 
 **Browser MCP:** Use the `chrome-devtools` MCP (not playwright) for interactive browser automation during development.
 
-**During development:** Only verify the specific feature works. Do not run the full test suite.
+**During development:** Only verify the specific feature works. Do not run the full test suite or a full visual audit unless the user explicitly asks for it.
 
-**When the user says a feature is ready to merge:**
+**When the user explicitly asks for the full validation pass or asks for a new release:**
 1. Run the full test suite
-2. Verify no regressions across modes/features
-3. Squash and merge into main — no merge commit
+2. Run the full visual audit for UI work (`/ui-consistency-audit`, smoke tests, screenshots as relevant)
+3. Verify no regressions across modes/features
+4. Squash and merge into main — no merge commit
 
 ```bash
 uv run pytest tests/test_api.py -v                    # HTTP API
@@ -60,7 +61,7 @@ uv run pytest tests/test_command_reachability.py -v   # command when-clause matr
 uv run python tests/visual_smoke.py                   # screenshots
 ```
 
-After any UI change, use `/ui-consistency-audit` to verify across all modes.
+For UI work, only use `/ui-consistency-audit` when the user explicitly asks for a full visual check, when tracking a cross-mode visual regression, or during release validation.
 
 ## Commands
 
