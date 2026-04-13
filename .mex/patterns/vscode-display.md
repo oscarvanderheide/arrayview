@@ -14,6 +14,9 @@ triggers:
   - "ARRAYVIEW_WINDOW_ID"
   - "tunnel"
   - "stdio server"
+  - "custom editor"
+  - "click to open"
+  - "ArrayViewEditorProvider"
 edges:
   - target: context/architecture.md
     condition: for display routing table and server mode overview
@@ -98,6 +101,18 @@ view(arr)
 - The VSIX is bundled inside the Python wheel (`hatchling` picks it up from `src/arrayview/`)
 - Signal filename version (`open-request-v0900.json`) is separate from extension version — only change it when the signal format is breaking-changed
 - Old signal filenames are listed in `_VSCODE_COMPAT_SIGNAL_FILENAMES` — keep them for one release cycle
+
+## Task: Direct Webview / Custom Editor (Click-to-Open)
+
+When an array file is opened via the VS Code custom editor provider (`ArrayViewEditorProvider`), the extension calls `setupArrayViewPanel()` which fetches the rendered viewer HTML from `_handle_get_viewer_html` in `_stdio_server.py` and sets it as `panel.webview.html`.
+
+**Critical difference from FastAPI path:** the webview origin is `vscode-webview://…`, not the FastAPI server. Any resource loaded via a relative URL (e.g. `<script src="/gsap.min.js">`) resolves against the webview origin and 404s silently.
+
+### Gotchas
+
+- **GSAP must be inlined.** `_handle_get_viewer_html` replaces `<script src="/gsap.min.js"></script>` with an inline `<script>` containing the vendored GSAP content. If GSAP is not available, `_playStartupAnimation()` crashes (no guard on `typeof gsap`) and the loading overlay never closes — the spinner stays visible forever even though the viewer is functional (`pointer-events: none` on the overlay).
+- **`__BODY_CLASS__` must be substituted.** `_server.py` replaces it with `"av-loading"` (or `""`) but `_stdio_server.py` must do the same. Without it, the body has the literal class `__BODY_CLASS__`, `body.av-loading` CSS rules never apply, and chrome elements are immediately visible — the startup animation has nothing to reveal.
+- **Both substitutions live in `_handle_get_viewer_html` in `_stdio_server.py`.** Keep them in sync with `_server.py`'s `serve_viewer_html`.
 
 ## Verify
 
