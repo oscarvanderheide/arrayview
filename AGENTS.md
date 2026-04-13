@@ -1,5 +1,3 @@
-Read `src/arrayview/ARCHITECTURE.md` for codebase orientation.
-
 # ArrayView
 
 I haven't written or read a single line of code in src so when you ask me questions/input,
@@ -63,3 +61,20 @@ uv run python tests/visual_smoke.py                   # screenshots
 ```
 
 After any UI change, use `/ui-consistency-audit` to verify across all modes.
+
+## Commands
+
+Always use `uv` — no system Python.
+
+- Test: `uv run pytest tests/`
+- CLI: `uvx arrayview path/to/file.npy`
+- Build: `uv build`
+
+## After Every Task
+
+Update `.mex/ROUTER.md` project state and any `.mex/` files that are now out of date. If no pattern existed for the task you just completed, create one in `.mex/patterns/`.
+
+## Navigation
+
+At the start of every session, read `.mex/ROUTER.md` before doing anything else.
+For full project context, patterns, and task guidance — everything is there.
