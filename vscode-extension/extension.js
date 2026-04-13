@@ -941,6 +941,7 @@ function activate(context) {
             }
         } else {
             windowId = previousId || String(process.pid);
+            log(`ENV: first activation or PID unchanged, using pid=${windowId}`);
         }
     }
     logWindowId = windowId;

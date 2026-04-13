@@ -1113,7 +1113,8 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                             )
                         data["broadcast"] = True
                         filenames = tuple(_wfiles_r)
-                        env_wid = _wfiles_r[0]  # prevents `if not env_wid:` fallback
+                        # env_wid is still the original stale ID (truthy), so the
+                        # `if not env_wid:` fallback below won't trigger; no clobber needed.
                         _vprint(
                             f"[ArrayView] signal: remote {len(_all_windows_r)} windows, "
                             f"broadcasting with focus guard",
