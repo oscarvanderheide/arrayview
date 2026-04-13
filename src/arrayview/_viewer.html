@@ -13588,9 +13588,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
                     _copyPixelValue(sid, view.dimX, view.dimY, indices, ipx, ipy);
                 });
-                // Show crosshair lines only when hovering over any multiview pane
+                // Show crosshair lines only when hovering over any multiview pane.
+                // During drag the mouse can leave the pane boundary without the user
+                // intentionally "leaving" — suppress fade-out while dragging.
                 pane.addEventListener('mouseenter', () => { _mvSetCrosshairTarget(1); });
-                pane.addEventListener('mouseleave', () => { _mvSetCrosshairTarget(0); });
+                pane.addEventListener('mouseleave', () => {
+                    if (!mvDraggingView && !obliqueDrag) _mvSetCrosshairTarget(0);
+                });
                 return view;
             });
             // Pre-size panes using known array shape so all panes are equal from the start.
@@ -13608,6 +13612,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     );
                 });
             }
+            // Retry any panes that haven't received their first frame after 3 s.
+            // Handles slow disk reads on large arrays and transient WS connect errors.
+            setTimeout(() => {
+                if (!multiViewActive) return;
+                mvViews.forEach(v => { if (!v.lastImageData) mvRender(v); });
+            }, 3000);
             // Set activeDim to the first non-spatial (non-mvDims) dimension
             const _firstNonSpatial = shape.findIndex((_, i) => !dims.includes(i));
             if (_firstNonSpatial >= 0) { activeDim = _firstNonSpatial; current_slice_dim = _firstNonSpatial; }
@@ -15041,9 +15051,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
                     }
-                    // Show crosshair lines only for the 3 panes of the hovered array
+                    // Show crosshair lines only for the 3 panes of the hovered array.
+                    // Suppress fade-out during drag (same fix as multiview).
                     pane.addEventListener('mouseenter', () => { _cmvSetCrosshairTarget(1, sidVal); });
-                    pane.addEventListener('mouseleave', () => { _cmvSetCrosshairTarget(0, null); });
+                    pane.addEventListener('mouseleave', () => {
+                        if (!cmvDraggingView) _cmvSetCrosshairTarget(0, null);
+                    });
                     compareMvViews.push(view);
                 }
                 wrap.appendChild(rowDiv);
@@ -15825,7 +15838,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 mvRenderHttp(v);
                 return;
             }
-            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) return;
+            if (!v.ws || v.ws.readyState !== WebSocket.OPEN) {
+                // If the pane has never received data and the WS closed (e.g. transient
+                // server error, slow connect), reconnect so it can still render.
+                if (!v.lastImageData && v.ws && v.ws.readyState === WebSocket.CLOSED) {
+                    v.ws = createTransport(sid,
+                        (event) => mvOnMessage(v, event),
+                        () => mvRender(v),
+                        () => { v.rendering = false; },
+                        () => { v.rendering = false; if (v.ws) v.ws.close(); }
+                    );
+                }
+                return;
+            }
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
             const _mvdpr = window.devicePixelRatio || 1;
@@ -16394,6 +16419,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             mvNavDragPrev = null;
             mvDraggingView = null;
             cmvDraggingView = null;
+            // Sync crosshair visibility after drag ends: the pane mouseleave was
+            // suppressed during drag, so restore the correct state now.
+            if (multiViewActive) {
+                const _overPane = document.querySelectorAll('.mv-pane:hover').length > 0;
+                _mvSetCrosshairTarget(_overPane ? 1 : 0);
+            }
+            if (compareMvActive) {
+                if (!document.querySelector('.qv-pane:hover')) _cmvSetCrosshairTarget(0, null);
+            }
         });
 
         helpOverlay.addEventListener('click', (e) => {
