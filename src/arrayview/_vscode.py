@@ -858,6 +858,56 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                     f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID → {filenames[0]}",
                     flush=True,
                 )
+            else:
+                # Registration file missing: extension host likely restarted.
+                # Task 2 (extension.js) makes the ID stable, so this should be
+                # rare.  Smart fallback based on how many windows are registered.
+                _vprint(
+                    f"[ArrayView] signal: ARRAYVIEW_WINDOW_ID={env_wid} registration "
+                    f"missing (extension likely restarted), applying smart fallback",
+                    flush=True,
+                )
+                try:
+                    _all_windows = [
+                        fn for fn in os.listdir(signal_dir)
+                        if fn.startswith("window-") and fn.endswith(".json")
+                    ]
+                except Exception:
+                    _all_windows = []
+
+                if len(_all_windows) == 1:
+                    _sole_wid = _all_windows[0][7:-5]
+                    try:
+                        with open(os.path.join(signal_dir, _all_windows[0])) as _rf:
+                            _sole_reg = json.load(_rf)
+                        _uses_pid_sole = _sole_reg.get("fallbackId", False)
+                    except Exception:
+                        _uses_pid_sole = _sole_wid.isdigit()
+                    _prefix = "pid" if _uses_pid_sole else "ipc"
+                    filenames = (f"open-request-{_prefix}-{_sole_wid}.json",)
+                    targeted_via_env = True
+                    _vprint(
+                        f"[ArrayView] signal: single window registered → {filenames[0]}",
+                        flush=True,
+                    )
+                elif len(_all_windows) > 1:
+                    _wfiles = []
+                    for _fn in _all_windows:
+                        _wid = _fn[7:-5]
+                        _wfiles.append(
+                            f"open-request-pid-{_wid}.json"
+                            if _wid.isdigit()
+                            else f"open-request-ipc-{_wid}.json"
+                        )
+                    data["broadcast"] = True
+                    filenames = tuple(_wfiles)
+                    targeted_via_env = True
+                    _vprint(
+                        f"[ArrayView] signal: {len(_all_windows)} windows registered, "
+                        f"broadcasting with focus guard",
+                        flush=True,
+                    )
+                # else: 0 windows — fall through to subsequent targeting
 
         if targeted_via_env:
             pass  # filenames already set — skip to write logic below
@@ -1023,8 +1073,54 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
                     _vprint(f"[ArrayView] signal: env window match → {_prefix}-{env_wid}", flush=True)
                     filenames = (f"open-request-{_prefix}-{env_wid}.json",)
                 else:
-                    _vprint(f"[ArrayView] signal: env window {env_wid} not registered, falling back", flush=True)
-                    env_wid = None
+                    # Registration missing for remote env wid — smart fallback.
+                    _vprint(
+                        f"[ArrayView] signal: remote env {env_wid} registration missing, "
+                        f"applying smart fallback",
+                        flush=True,
+                    )
+                    try:
+                        _all_windows_r = [
+                            fn for fn in os.listdir(signal_dir)
+                            if fn.startswith("window-") and fn.endswith(".json")
+                        ]
+                    except Exception:
+                        _all_windows_r = []
+
+                    if len(_all_windows_r) == 1:
+                        _sole_wid_r = _all_windows_r[0][7:-5]
+                        try:
+                            with open(os.path.join(signal_dir, _all_windows_r[0])) as _rf:
+                                _sole_reg_r = json.load(_rf)
+                            _uses_pid_r = _sole_reg_r.get("fallbackId", False)
+                        except Exception:
+                            _uses_pid_r = _sole_wid_r.isdigit()
+                        _prefix_r = "pid" if _uses_pid_r else "ipc"
+                        filenames = (f"open-request-{_prefix_r}-{_sole_wid_r}.json",)
+                        env_wid = _sole_wid_r  # prevents the `if not env_wid:` fallback below
+                        _vprint(
+                            f"[ArrayView] signal: remote single window → {filenames[0]}",
+                            flush=True,
+                        )
+                    elif len(_all_windows_r) > 1:
+                        _wfiles_r = []
+                        for _fn in _all_windows_r:
+                            _wid = _fn[7:-5]
+                            _wfiles_r.append(
+                                f"open-request-pid-{_wid}.json"
+                                if _wid.isdigit()
+                                else f"open-request-ipc-{_wid}.json"
+                            )
+                        data["broadcast"] = True
+                        filenames = tuple(_wfiles_r)
+                        env_wid = _wfiles_r[0]  # prevents `if not env_wid:` fallback
+                        _vprint(
+                            f"[ArrayView] signal: remote {len(_all_windows_r)} windows, "
+                            f"broadcasting with focus guard",
+                            flush=True,
+                        )
+                    else:
+                        env_wid = None  # 0 windows: keep existing fallback
 
             if not env_wid:
                 # Fallback: PID ancestry (may misfire with multiple windows)
