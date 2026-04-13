@@ -46,7 +46,9 @@ const OWN_HOOK_TAG = OWN_IPC_HOOK
     : '';
 // Targeted signal file: prefer IPC hook-based, fallback to PID-based for local desktop.
 // This enables multi-window targeting even when VSCODE_IPC_HOOK_CLI isn't available.
-const TARGETED_SIGNAL_FILE = OWN_HOOK_TAG
+// Declared as `let` so activate() can update it to the stable windowId (which may
+// differ from process.pid when the env-collection ID is reused across restarts).
+let TARGETED_SIGNAL_FILE = OWN_HOOK_TAG
     ? path.join(SIGNAL_DIR, `open-request-ipc-${OWN_HOOK_TAG}.json`)
     : path.join(SIGNAL_DIR, `open-request-pid-${process.pid}.json`);
 
@@ -945,6 +947,17 @@ function activate(context) {
         }
     }
     logWindowId = windowId;
+
+    // Update TARGETED_SIGNAL_FILE to match the stable windowId determined above.
+    // The module-level initializer used process.pid (available at load time), but
+    // windowId may be a previously-persisted ID that differs from process.pid.
+    // Python writes to open-request-pid-{windowId}.json, so the watcher must
+    // watch the same filename.
+    if (!OWN_HOOK_TAG) {
+        TARGETED_SIGNAL_FILE = path.join(SIGNAL_DIR, `open-request-pid-${windowId}.json`);
+        log(`targetedFile updated to ${path.basename(TARGETED_SIGNAL_FILE)}`);
+    }
+
     try {
         envCollection.replace('ARRAYVIEW_WINDOW_ID', windowId);
         log(`ENV: set ARRAYVIEW_WINDOW_ID=${windowId}`);
