@@ -377,11 +377,18 @@ def _configure_vscode_port_preview(port: int) -> bool:
 def _find_current_vscode_window_id() -> str | None:
     """Find the current VS Code window by matching ancestor PIDs.
 
-    On macOS, VS Code spawns per-window renderer processes. The extension host
+    On Linux, VS Code spawns per-window renderer processes. The extension host
     and the terminal's PTY host are both children of the same renderer, giving
     them a common ancestor that distinguishes them from other windows. We find
     the window whose extension host shares the closest (deepest) common ancestor
     with our own process tree.
+
+    NOTE: On macOS this does NOT work reliably — the extension host
+    (Code Helper (Plugin)) and the terminal PTY host (Code Helper) are
+    both direct children of the single main Electron process, not of
+    per-window renderers. All windows tie on ancestor depth. This function
+    returns None on macOS with 2+ windows, letting the caller fall back to
+    broadcast with focus guard.
 
     Returns the window_id (PID string or hookTag string) or None.
     """
@@ -412,6 +419,18 @@ def _find_current_vscode_window_id() -> str | None:
 
     if len(windows) == 1:
         return windows[0][0]
+
+    # On macOS, PID ancestry matching is unreliable with multiple windows:
+    # extension hosts and PTY hosts are all direct children of the main
+    # Electron process, so scoring always ties.  Return None and let the
+    # caller fall back to broadcast with focus guard.
+    if sys.platform == "darwin" and len(windows) > 1:
+        _vprint(
+            f"[ArrayView] window-match: macOS with {len(windows)} windows, "
+            f"skipping PID ancestry (ext hosts share same Electron parent)",
+            flush=True,
+        )
+        return None
 
     # Helper: get parent PID of a process (macOS/Linux)
     def _ppid(pid: int) -> int:
