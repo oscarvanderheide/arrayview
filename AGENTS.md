@@ -77,5 +77,5 @@ Update `.mex/ROUTER.md` project state and any `.mex/` files that are now out of 
 
 ## Navigation
 
-At the start of every session, read `.mex/ROUTER.md` before doing anything else.
-For full project context, patterns, and task guidance — everything is there.
+Consult `.mex/ROUTER.md` when you need project state, routing guidance, or a matching task pattern.
+Use it as a dispatcher: load only the relevant context or pattern files for the task at hand.

@@ -433,7 +433,7 @@ async function setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extra
     return bridge;
 }
 
-async function openDirectWebview(filePath, title, pythonPath, shmParams, extraArgs) {
+async function openDirectWebview(filePath, title, pythonPath, shmParams, extraArgs, floating = false) {
     const label = title || (filePath ? `ArrayView: ${path.basename(filePath)}` : (shmParams && shmParams.arrayName) || 'Array');
 
     const viewColumn = vscode.window.activeTextEditor
@@ -457,6 +457,15 @@ async function openDirectWebview(filePath, title, pythonPath, shmParams, extraAr
         throw e;
     }
     log(`DIRECT: opened "${label}" for ${filePath}`);
+
+    const cfg = vscode.workspace.getConfiguration('arrayview');
+    if ((floating || cfg.get('openInFloatingWindow')) && vscode.env.uiKind !== vscode.UIKind.Web) {
+        try {
+            await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+        } catch (e) {
+            log(`FLOAT: moveEditorToNewWindow failed: ${e}`);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -751,7 +760,7 @@ async function tryOpenSignalFile() {
 // Using createWebviewPanel instead of simpleBrowser.show lets us set a custom
 // tab title (e.g. "ArrayView: sample.npy").  The webview just wraps the
 // arrayview server URL in a full-page iframe.
-function openInWebviewPanel(url, title) {
+async function openInWebviewPanel(url, title, floating = false) {
     const label = title || 'ArrayView';
 
     // Reveal existing panel for this URL if still open.
@@ -806,6 +815,16 @@ function openInWebviewPanel(url, title) {
     _openPanels.set(url, panel);
     panel.onDidDispose(() => _openPanels.delete(url));
     log(`PANEL: created "${label}" for ${url}`);
+
+    const cfg = vscode.workspace.getConfiguration('arrayview');
+    if ((floating || cfg.get('openInFloatingWindow')) && vscode.env.uiKind !== vscode.UIKind.Web) {
+        panel.reveal();
+        try {
+            await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+        } catch (e) {
+            log(`FLOAT: moveEditorToNewWindow failed: ${e}`);
+        }
+    }
 }
 
 async function processSignalData(data) {
@@ -823,7 +842,7 @@ async function processSignalData(data) {
             // Forward extra CLI args generically — Python builds this list from
             // its argparse namespace so new flags work without extension changes.
             const extraArgs = Array.isArray(data.extraArgs) ? data.extraArgs : [];
-            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs);
+            await openDirectWebview(data.filepath, data.title, data.pythonPath, shmParams, extraArgs, !!data.floating);
             return;
         }
 
@@ -875,7 +894,7 @@ async function processSignalData(data) {
         }
 
         log(`openInWebviewPanel(${openUrl})`);
-        openInWebviewPanel(openUrl, data.title);
+        await openInWebviewPanel(openUrl, data.title, !!data.floating);
         log('openInWebviewPanel done');
     } catch (error) {
         log(`ERROR: ${error.message}`);

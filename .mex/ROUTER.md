@@ -1,6 +1,6 @@
 ---
 name: router
-description: Session bootstrap and navigation hub. Read at the start of every session before any task. Contains project state, routing table, and behavioural contract.
+description: Navigation hub for task routing, project state, and behavioural guidance. Consult it when planning work or loading task-specific context.
 edges:
   - target: context/architecture.md
     condition: when working on system design, integrations, or understanding how components connect
@@ -17,45 +17,49 @@ edges:
 last_updated: 2026-04-14
 ---
 
-# Session Bootstrap
+# arrayview — Router
 
-If you haven't already read `AGENTS.md`, read it now — it contains the project identity, non-negotiables, and commands.
+## What This Is
+Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI, zarr, etc.) with a FastAPI backend, single-file HTML/JS frontend, and multi-environment display routing (Jupyter, VS Code, SSH, native window).
 
-Then read this file fully before doing anything else in this session.
+## Non-Negotiables
+- Never split `_viewer.html` — entire frontend is one self-contained file, no build step
+- All heavy imports (numpy, matplotlib, nibabel, FastAPI, uvicorn) must be lazy — CLI fast path stays near-zero cost
+- New rendering features must be consistent across all six invocation environments
+- Global state lives in `_session.py` only — `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS` never redefined elsewhere
+- Render thread must remain a raw `threading.Thread` + `SimpleQueue`, not `concurrent.futures`
+
+## Commands
+- Test: `uv run pytest tests/`
+- Visual smoke: `uv run pytest tests/visual_smoke.py`
+- CLI: `uvx arrayview <file>`
+- Build: `uv build`
 
 ## Current Project State
 
 **Working:**
 - CLI (`uvx arrayview file.npy`) and Python API (`view(arr)`) — both stable
-- All six display environments: Jupyter inline, VS Code local (Simple Browser), VS Code tunnel (stdio), Julia, native pywebview, SSH URL print
+- All six display environments: Jupyter inline, VS Code local, VS Code tunnel (stdio), Julia, native pywebview, SSH URL print
 - File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
-- Rendering pipeline: colormaps, complex modes (mag/phase/real/imag), mosaic, RGB/RGBA, projections (max/min/mean/std/sos/sum)
-- Overlays: binary mask, multi-label segmentation, float heatmap with nnInteractive integration
-- NIfTI spatial metadata display, RAS resampling
-- VS Code extension v0.14.0 — stable window ID via `EnvironmentVariableCollection`
-- Viewer first-frame handoff is immediate — no client-side startup logo intro or minimum dwell
-- Native pywebview opens immediately against a blank black page, then navigates to the live shell as soon as the local server starts accepting connections
-- Thumbnail previews use the same startup-axis heuristic as the viewer to avoid 4D last-axis smear artifacts
-- Thumbnail previews preserve slice aspect within their requested box
+- Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
+- NIfTI spatial metadata, RAS resampling
+- VS Code extension v0.14.3 — stable window ID via `EnvironmentVariableCollection`; `arrayview.openInFloatingWindow` setting moves new tabs to a floating window; `view(arr, floating=True)` and `arrayview file.npy --floating` open in a floating window per-call regardless of global setting; `!vscode.env.remoteName` guard removed (remote VS Code supports floating windows)
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
-- Cold-start loading spinner: loading page in VS Code (pre-server on ephemeral port), overlay in native shell; both hide when server is ready
+- Colorbar island flip: `c` and `d` keys trigger 3D `rotateX` card flip (front=colorbar, back=cmap thumbnails/histogram)
+- Cold-start loading spinner in VS Code and native shell
+
+**In progress:**
+- Smooth immersive transition (`feat/immersive-animation-redesign`) — single-view pinch scrub now detaches title/dimbar/shared colorbar at scrub start, preserves frame-1 viewport position, restores scrub-start positions on reverse, and no longer supports immersive island dragging; cross-mode parity still pending
 
 **Not yet built:**
-- Independent split view for mismatched-shape arrays (designed, shelved — see memory file `project_independent_split_view.md`)
-- Smooth immersive transition during continuous trackpad zoom (in progress — `feat/immersive-animation-redesign`; Tasks 1–9 complete; `_scrubDetached` flag freezes chrome during scrub; `#info` detach-freezes at `_buildImmersiveTl`; `drawSlimColorbar` guarded by `_scrubDetached`; fix: `_resetImmersiveTransforms` only clears detach-style properties from `#info` (not cbWrap) so colorbar doesn't jump; `scaleAll` called inside reverse-completion setTimeout so colorbar repositions immediately after reset)
-- Admin/config UI — config is file-based (`~/.arrayview/config.toml`) only
-
-**Known issues:**
-- ~~White flicker on macOS native window~~ — fixed: window opens early with inline shell HTML (html= param, no HTTP round-trip); WKWebView never flashes white
-- ColorBar class refactor is partially complete — some colorbars still use legacy inline code
+- Independent split view for mismatched-shape arrays (designed, shelved)
+- Admin/config UI (file-based `~/.arrayview/config.toml` only)
 
 ## Routing Table
 
-Load the relevant file based on the current task. Always load `context/architecture.md` first if not already in context this session.
-
 | Task type | Load |
 |-----------|------|
-| Understanding how the system works | `context/architecture.md` |
+| Understanding system architecture | `context/architecture.md` |
 | Working with a specific technology | `context/stack.md` |
 | Writing or reviewing code | `context/conventions.md` |
 | Making a design decision | `context/decisions.md` |
@@ -68,14 +72,16 @@ Load the relevant file based on the current task. Always load `context/architect
 
 ## Behavioural Contract
 
-For every task, follow this loop:
-
-1. **CONTEXT** — Load the relevant context file(s) from the routing table above. Check `patterns/INDEX.md` for a matching pattern. If one exists, follow it. Narrate what you load: "Loading architecture context..."
-2. **BUILD** — Do the work. If a pattern exists, follow its Steps. If you are about to deviate from an established pattern, say so before writing any code — state the deviation and why.
-3. **VERIFY** — Load `context/conventions.md` and run the Verify Checklist item by item. State each item and whether the output passes. Do not summarise — enumerate explicitly.
-4. **DEBUG** — If verification fails or something breaks, check `patterns/INDEX.md` for a debug pattern. Follow it. Fix the issue and re-run VERIFY.
-5. **GROW** — After completing the task:
-   - If no pattern exists for this task type, create one in `patterns/` using the format in `patterns/README.md`. Add it to `patterns/INDEX.md`. Flag it: "Created `patterns/<name>.md` from this session."
-   - If a pattern exists but you deviated from it or discovered a new gotcha, update it with what you learned.
-   - If any `context/` file is now out of date because of this work, update it surgically — do not rewrite entire files.
-   - Update the "Current Project State" section above if the work was significant.
+1. **CONTEXT** — Load relevant context file(s) from the routing table. Check `patterns/INDEX.md` for a matching pattern.
+  Do not preload unrelated context files.
+2. **BUILD** — Do the work. If deviating from an established pattern, say so before writing code.
+3. **VERIFY** — If a pattern file was loaded, use its own Verify section. Otherwise run this checklist:
+   - [ ] New heavy imports are lazy (`_mod = None` / accessor function pattern)
+   - [ ] New `Session` field initialized in `__init__` and cleared in `reset_caches()` if cache-related
+   - [ ] New file format goes through `_io.load_data()`, extension added to `_SUPPORTED_EXTS`
+   - [ ] Frontend changes in `_viewer.html` only — no new JS/CSS files
+   - [ ] New rendering functions follow `extract_slice → apply_complex_mode → apply_colormap_rgba` order
+   - [ ] Environment detection changes go in `_platform.py` only
+   - [ ] Cross-mode consistency verified across all six invocation environments
+4. **DEBUG** — If verification fails, check `patterns/INDEX.md` for a debug pattern, fix, re-run VERIFY.
+5. **GROW** — After completing the task: create/update patterns, update stale context files, update "Current Project State" above if significant.

@@ -58,7 +58,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.1"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.3"  # current bundled extension version
 _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
@@ -603,7 +603,7 @@ def _find_arrayview_window_id() -> str | None:
 
 
 def _open_via_signal_file(
-    url: str, delay: float = 0.0, title: str | None = None
+    url: str, delay: float = 0.0, title: str | None = None, floating: bool = False
 ) -> bool:
     """Write the URL to the versioned ArrayView opener signal file.
 
@@ -632,6 +632,8 @@ def _open_via_signal_file(
     }
     if title:
         payload["title"] = title
+    if floating:
+        payload["floating"] = True
     return _write_vscode_signal(payload, delay=delay)
 
 
@@ -639,6 +641,7 @@ def _open_direct_via_signal_file(
     filepath: str,
     title: str | None = None,
     extra_args: list[str] | None = None,
+    floating: bool = False,
 ) -> bool:
     """Write a direct-mode signal file for the VS Code extension.
 
@@ -664,6 +667,8 @@ def _open_direct_via_signal_file(
         payload["title"] = title
     if extra_args:
         payload["extraArgs"] = extra_args
+    if floating:
+        payload["floating"] = True
     return _write_vscode_signal(payload, skip_compat=True)
 
 
@@ -671,6 +676,7 @@ def _open_direct_via_shm(
     data: "np.ndarray",
     name: str = "array",
     title: str | None = None,
+    floating: bool = False,
 ) -> bool:
     """Write a direct-mode signal file with shared memory parameters.
 
@@ -724,6 +730,8 @@ def _open_direct_via_shm(
     }
     if title:
         payload["title"] = title
+    if floating:
+        payload["floating"] = True
     return _write_vscode_signal(payload, skip_compat=True)
 
 
@@ -1184,6 +1192,7 @@ def _open_browser(
     force_vscode: bool = False,
     title: str | None = None,
     filepath: str | None = None,
+    floating: bool = False,
 ) -> None:
     """Open *url* locally, or configure VS Code remote auto-preview behavior.
 
@@ -1223,7 +1232,7 @@ def _open_browser(
                 # Direct webview mode: no ports, no WebSocket, no auth needed.
                 # The extension spawns a Python subprocess and bridges via
                 # postMessage — completely bypasses the port-forwarding issue.
-                _open_direct_via_signal_file(filepath, title=title)
+                _open_direct_via_signal_file(filepath, title=title, floating=floating)
                 _vprint(
                     "[ArrayView] Remote tunnel → direct webview mode (no port needed)",
                     flush=True,
@@ -1239,7 +1248,7 @@ def _open_browser(
                         f"  If the Simple Browser tab shows an auth page, make the port Public then reload the tab.",
                         flush=True,
                     )
-                _open_via_signal_file(url, title=title)
+                _open_via_signal_file(url, title=title, floating=floating)
                 _schedule_remote_open_retries(url, interval=10.0, count=2)
             if not ext_ok:
                 _vprint(
@@ -1256,7 +1265,7 @@ def _open_browser(
                 time.sleep(1.5)
             # Always write the signal file: the extension may already be
             # installed even if _ensure failed (e.g. `code` CLI not found).
-            _open_via_signal_file(url, title=title)
+            _open_via_signal_file(url, title=title, floating=floating)
             # Schedule a retry in case the extension was mid-reload when the
             # first signal was written (e.g. first run with old version removed).
             _schedule_remote_open_retries(url, interval=10.0, count=2)

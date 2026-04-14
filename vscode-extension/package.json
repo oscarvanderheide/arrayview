@@ -2,7 +2,7 @@
   "name": "arrayview-opener",
   "displayName": "ArrayView Opener",
   "description": "Opens ArrayView in VS Code and can promote tunnel ports to public preview",
-  "version": "0.14.1",
+  "version": "0.14.3",
   "publisher": "arrayview",
   "license": "MIT",
   "icon": "icon.png",
@@ -22,6 +22,16 @@
     "LICENSE"
   ],
   "contributes": {
+    "configuration": {
+      "title": "ArrayView",
+      "properties": {
+        "arrayview.openInFloatingWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open ArrayView tabs in a floating window."
+        }
+      }
+    },
     "commands": [
       {
         "command": "arrayview.openFile",

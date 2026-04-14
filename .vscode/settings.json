@@ -1,0 +1,211 @@
+{
+  "workbench.editorAssociations": {
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.md": "markdownEditorOptimized.editor",
+    "*.markdown": "markdownEditorOptimized.editor",
+    "*.mdx": "markdownEditorOptimized.editor",
+    "*.mdc": "markdownEditorOptimized.editor",
+    "git:*.md": "default",
+    "git:*.markdown": "default",
+    "git:*.mdx": "default",
+    "git:*.mdc": "default",
+    "git:***.markdown": "default",
+    "git:***.mdc": "default",
+    "chat-editing-text-model:*.md": "default",
+    "chat-editing-text-model:*.markdown": "default",
+    "chat-editing-text-model:*.mdx": "default",
+    "chat-editing-text-model:*.mdc": "default",
+    "chat-editing-text-model:***.markdown": "default",
+    "chat-editing-text-model:***.mdc": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/.github/workflows/copilot-instructions.md": "default",
+    ".github/workflows/copilot-instructions.md": "default",
+    "**/.github/workflows/copilot-instructions.md": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/INSTRUCTIONS.md": "default",
+    "INSTRUCTIONS.md": "default",
+    "**/INSTRUCTIONS.md": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/scripts/generate_default_dog.py": "default",
+    "scripts/generate_default_dog.py": "default",
+    "**/scripts/generate_default_dog.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/pyproject.toml": "default",
+    "pyproject.toml": "default",
+    "**/pyproject.toml": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/debug/diagnose_tunnel.py": "default",
+    "debug/diagnose_tunnel.py": "default",
+    "**/debug/diagnose_tunnel.py": "default",
+    "/Users/oscar/.claude/skills/modes-consistency/SKILL.md": "default",
+    "/Users/oscar/.claude/skills/invocation-consistency/SKILL.md": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/debug/profile_startup.py": "default",
+    "debug/profile_startup.py": "default",
+    "**/debug/profile_startup.py": "default",
+    "/tmp/check_viewer.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/tests/visual_smoke.py": "default",
+    "tests/visual_smoke.py": "default",
+    "**/tests/visual_smoke.py": "default",
+    "/tmp/debug_viewer.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/debug/bench_import.py": "default",
+    "debug/bench_import.py": "default",
+    "**/debug/bench_import.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/src/arrayview/_server.py": "default",
+    "src/arrayview/_server.py": "default",
+    "**/src/arrayview/_server.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/src/arrayview/_render.py": "default",
+    "src/arrayview/_render.py": "default",
+    "**/src/arrayview/_render.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/tests/test_api.py": "default",
+    "tests/test_api.py": "default",
+    "**/tests/test_api.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/tests/test_mode_matrix.py": "default",
+    "tests/test_mode_matrix.py": "default",
+    "**/tests/test_mode_matrix.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/README.md": "default",
+    "README.md": "default",
+    "**/README.md": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/tests/test_browser.py": "default",
+    "tests/test_browser.py": "default",
+    "**/tests/test_browser.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/src/arrayview/_launcher.py": "default",
+    "src/arrayview/_launcher.py": "default",
+    "**/src/arrayview/_launcher.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/src/arrayview/_session.py": "default",
+    "src/arrayview/_session.py": "default",
+    "**/src/arrayview/_session.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/tests/test_cli.py": "default",
+    "tests/test_cli.py": "default",
+    "**/tests/test_cli.py": "default",
+    "/Users/oscar/Projects/packages/python/arrayview/src/arrayview/_viewer.html": "default",
+    "src/arrayview/_viewer.html": "default",
+    "**/src/arrayview/_viewer.html": "default"
+  },
+  "remote.portsAttributes": {
+    "8123": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8000": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "9999": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "9876": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "9877": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18799": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18800": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18801": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18802": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18803": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18804": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18805": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18806": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8766": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18999": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "19877": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18991": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8744": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8765": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "18234": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    }
+  },
+  "search.exclude": {
+    "**/.worktrees": true,
+    "**/.worktrees/**": true
+  },
+  "files.exclude": {
+    "**/.worktrees": true
+  },
+  "files.watcherExclude": {
+    "**/.worktrees/**": true
+  }
+}

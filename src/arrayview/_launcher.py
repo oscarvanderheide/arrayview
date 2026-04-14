@@ -265,6 +265,7 @@ def _open_webview_with_fallback(
     win_w: int,
     win_h: int,
     shell_port: int | None = None,
+    floating: bool = False,
 ) -> subprocess.Popen:
     """Launch pywebview, falling back to _open_browser if the subprocess exits immediately
     OR if no viewer WebSocket connects within ~10 s (catches macOS non-framework Python
@@ -296,7 +297,7 @@ def _open_webview_with_fallback(
                 )
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(url)
+                _open_browser(url, floating=floating)
                 return
 
         # Phase 2: process is alive — wait up to 8 s for a NEW viewer WebSocket to connect.
@@ -328,7 +329,7 @@ def _open_webview_with_fallback(
                 )
                 if stderr_out:
                     _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
-                _open_browser(url)
+                _open_browser(url, floating=floating)
                 return
 
         # Phase 3: alive but no UI connection after 10 s — zombie (e.g. non-framework Python on macOS)
@@ -340,7 +341,7 @@ def _open_webview_with_fallback(
             proc.terminate()
         except Exception:
             pass
-        _open_browser(url)
+        _open_browser(url, floating=floating)
 
     threading.Thread(target=_watchdog, daemon=True).start()
     return proc
@@ -831,6 +832,7 @@ def view(
     window: str | bool | None = None,
     rgb: bool | list = False,
     overlay=None,
+    floating: bool = False,
 ):
     """
     Launch the viewer. Does not block the main Python process.
@@ -977,7 +979,7 @@ def view(
         if _is_vscode_remote():
             arr = np.array(data) if not isinstance(data, np.ndarray) else data
             _ensure_vscode_extension()
-            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}")
+            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}", floating=floating)
             print(
                 f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
                 flush=True,
@@ -1009,6 +1011,7 @@ def view(
             window=_window,
             inline=_inline,
             height=height,
+            floating=floating,
         )
 
     is_jupyter = _in_jupyter()
@@ -1054,7 +1057,7 @@ def view(
         if _is_vscode_remote():
             arr = np.array(data) if not isinstance(data, np.ndarray) else data
             _ensure_vscode_extension()
-            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}")
+            _open_direct_via_shm(arr, name=name, title=f"ArrayView: {name}", floating=floating)
             print(
                 f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
                 flush=True,
@@ -1073,6 +1076,7 @@ def view(
             name,
             port,
             window,
+            floating=floating,
         )
 
     # Zero-config SSH relay: if in a plain SSH session (not VS Code remote),
@@ -1103,7 +1107,7 @@ def view(
     # port-based path when a stale server happens to be running.
     if not inline and _is_vscode_remote() and not _in_jupyter():
         _ensure_vscode_extension()
-        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}")
+        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}", floating=floating)
         print(
             f"\n  [ArrayView] Opened in VS Code webview (direct mode, no port needed).\n",
             flush=True,
@@ -1127,7 +1131,7 @@ def view(
     # The kernel stays alive, so SHM won't be cleaned up prematurely.
     if _is_vscode_remote() and _in_jupyter():
         _ensure_vscode_extension()
-        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}")
+        _open_direct_via_shm(data, name=name, title=f"ArrayView: {name}", floating=floating)
         try:
             from IPython.display import HTML, display as _ipy_display
 
@@ -1202,7 +1206,7 @@ def view(
                 url_viewer += f"&compare_sids={','.join(_compare_sids)}"
 
             _open_browser(
-                url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}"
+                url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}", floating=floating
             )
             _print_viewer_location(url_viewer)
             if n_arrays == 1:
@@ -1322,7 +1326,7 @@ def view(
                         url_shell_early += f"&init_compare_sid={_compare_sids[0]}"
                         url_shell_early += f"&init_compare_sids={','.join(_compare_sids)}"
                     _session_mod._window_process = _open_webview_with_fallback(
-                        url_shell_early, win_w, win_h, shell_port=port
+                        url_shell_early, win_w, win_h, shell_port=port, floating=floating
                     )
                     _early_window_opened = True
             except Exception:
@@ -1415,11 +1419,11 @@ def view(
                         notified = False
                 if not notified:
                     _session_mod._window_process = _open_webview_with_fallback(
-                        url_shell, win_w, win_h, shell_port=port
+                        url_shell, win_w, win_h, shell_port=port, floating=floating
                     )
             except Exception:
                 _open_browser(
-                    _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}"
+                    _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
                 )
     else:
         if (
@@ -1433,7 +1437,7 @@ def view(
                 flush=True,
             )
         _open_browser(
-            _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}"
+            _with_loading(url_viewer), force_vscode=_force_vscode, title=f"ArrayView: {name}", floating=floating
         )
 
     _print_viewer_location(url_viewer)
@@ -1531,6 +1535,7 @@ def _view_julia(
     window: bool,
     inline: bool = False,
     height: int = 500,
+    floating: bool = False,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
     completely independent of Julia's GIL.
@@ -1549,6 +1554,7 @@ def _view_julia(
         inline=inline,
         height=height,
         force_vscode=force_vscode,
+        floating=floating,
     )
 
 
@@ -1561,6 +1567,7 @@ def _view_subprocess(
     height: int = 500,
     rgb: bool = False,
     force_vscode: bool = False,
+    floating: bool = False,
 ) -> str:
     """Run the viewer in a separate subprocess server.
 
@@ -1683,6 +1690,7 @@ def _view_subprocess(
                 force_vscode=force_vscode,
                 blocking=force_vscode,
                 title=f"ArrayView: {name}",
+                floating=floating,
             )
     else:
         # blocking=True when force_vscode so signal file is written before
@@ -1692,6 +1700,7 @@ def _view_subprocess(
             force_vscode=force_vscode,
             blocking=force_vscode,
             title=f"ArrayView: {name}",
+            floating=floating,
         )
     return ViewHandle(url_viewer, sid, port)
 
@@ -2058,6 +2067,11 @@ def arrayview():
         choices=["browser", "vscode", "native"],
         default=None,
         help="How to open the viewer: browser, vscode, or native. Overrides config (see 'arrayview config')",
+    )
+    parser.add_argument(
+        "--floating",
+        action="store_true",
+        help="Open in a VS Code floating window (requires VS Code 1.85+)",
     )
     parser.add_argument(
         "--browser",
@@ -2801,7 +2815,7 @@ def arrayview():
                 _vprint("[ArrayView] Falling back to browser", flush=True)
                 url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
-                _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file)
+                _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file, floating=args.floating)
         else:
             url = f"http://localhost:{args.port}/{qs}"
             if getattr(args, "watch", False):
@@ -2812,6 +2826,7 @@ def arrayview():
                 force_vscode=(window_mode == "vscode"),
                 title=f"ArrayView: {name}",
                 filepath=base_file,
+                floating=args.floating,
             )
         return
 
@@ -2839,6 +2854,7 @@ def arrayview():
             base_file,
             title=f"ArrayView: {name}",
             extra_args=extra_args or None,
+            floating=args.floating,
         )
         return
 
@@ -2939,6 +2955,7 @@ def arrayview():
                 blocking=False,
                 force_vscode=(window_mode == "vscode"),
                 title=f"ArrayView: {name}",
+                floating=args.floating,
             )
     else:
         if use_webview and overlay_sid:
@@ -2978,4 +2995,5 @@ def arrayview():
             blocking=True,
             force_vscode=(window_mode == "vscode"),
             title=f"ArrayView: {name}",
+            floating=args.floating,
         )
