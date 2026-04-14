@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: How code is written in arrayview — naming, structure, lazy imports, and frontend organization. Load when writing new code or reviewing existing code.
+description: How code is written in arrayview — naming, structure, lazy imports, frontend organization, and the shared Verify Checklist.
 triggers:
   - "convention"
   - "pattern"
@@ -14,9 +14,11 @@ edges:
     condition: when a convention depends on understanding the system structure
   - target: context/stack.md
     condition: when the convention is library-specific
-  - target: patterns/frontend-change.md
-    condition: when writing frontend (HTML/CSS/JS) code
-last_updated: 2026-04-13
+  - target: context/frontend.md
+    condition: when applying frontend conventions (section separators, reconcilers, command registry)
+  - target: context/render-pipeline.md
+    condition: when applying render pipeline conventions (pipeline order, cache patterns, LUT usage)
+last_updated: 2026-04-15
 ---
 
 # Conventions
@@ -77,6 +79,11 @@ Always check in this priority order. Never short-circuit.
 
 **Float rendering convention** — slices are always converted to `np.float32` before applying colormap. RGB uint8 arrays skip colormap and go directly to RGBA. Complex arrays are transformed by `apply_complex_mode()` before any colormap step.
 
+## Context Discipline
+
+- Load this as the shared reference alongside a task pattern; do not use it to fan out into more task-specific files.
+- If you need a different task workflow, go back to `ROUTER.md` or `patterns/INDEX.md` and pick one pattern deliberately.
+
 ## Verify Checklist
 
 Before presenting any code change:
@@ -86,4 +93,4 @@ Before presenting any code change:
 - [ ] Frontend changes are in `_viewer.html` only — no new JS/CSS files
 - [ ] New rendering functions follow the `extract_slice → apply_complex_mode → apply_colormap_rgba` pipeline order
 - [ ] Environment detection changes go in `_platform.py`, not inline in `_launcher.py` or `_vscode.py`
-- [ ] Cross-mode consistency: any new visual feature verified in all six invocation environments (see `invocation-consistency` skill)
+- [ ] Cross-mode consistency: any new visual feature is checked in all six invocation environments when the task or verification scope requires it

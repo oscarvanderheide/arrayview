@@ -7,18 +7,18 @@ triggers:
   - "how does X connect to Y"
   - "integration"
   - "flow"
+  - "data flow"
   - "display routing"
-  - "server mode"
 edges:
   - target: context/stack.md
     condition: when specific technology details are needed
   - target: context/decisions.md
     condition: when understanding why the architecture is structured this way
-  - target: patterns/vscode-display.md
-    condition: when working on VS Code display routing or IPC
-  - target: patterns/frontend-change.md
-    condition: when working on the frontend viewer
-last_updated: 2026-04-13
+  - target: context/frontend.md
+    condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
+  - target: context/render-pipeline.md
+    condition: when the task involves slice extraction, colormaps, caching, or the render thread
+last_updated: 2026-04-15
 ---
 
 # Architecture
@@ -26,64 +26,65 @@ last_updated: 2026-04-13
 ## System Overview
 
 ```
-CLI / Python API (arrayview file.npy  OR  view(arr))
-   ↓
-_launcher.py — detects environment, starts server, opens display
-   ├─ _platform.py    environment detection (Jupyter/VSCode/SSH/Julia/native)
-   └─ _vscode.py      VS Code extension install, signal-file IPC, browser open
+CLI / Python API (view() or uvx arrayview <file>)
+   └─ _launcher.py  →  FastAPI server (_server.py, uvicorn)   [network mode]
+                    →  _stdio_server.py                        [VS Code direct webview]
 
-Server (one of two transport modes):
-   ├─ Network mode: FastAPI (_server.py) + uvicorn → HTTP/WebSocket on localhost:PORT
-   └─ Stdio mode:  _stdio_server.py → JSON+binary over stdin/stdout (VS Code tunnel)
+Server (either mode)
+   ├─ _session.py   Session objects, global state, render thread, caches
+   ├─ _render.py    extract_slice → apply_complex_mode → render_rgba → PNG pipeline
+   └─ _io.py        load_data() — npy/npz/nii/zarr/h5/mat/tif/pt routing
 
-Server internals (both modes):
-   ├─ _session.py   Session objects, SESSIONS dict, render thread, prefetch, cache budgets
-   ├─ _render.py    extract_slice → apply_complex_mode → apply_colormap_rgba → PNG
-   └─ _io.py        load_data() for .npy/.npz/.nii/.zarr/.h5/.mat/.tiff/.pt
-
-Frontend:
-   └─ _viewer.html  Single ~15k-line self-contained HTML/CSS/JS file
-                    ← binary RGBA frames over WebSocket / postMessage
-                    → slice index, colormap, mode commands back to server
+Browser (_viewer.html — single self-contained HTML+JS+CSS file)
+   ├─ WebSocket /ws/{sid}   binary PNG slices from server
+   ├─ GET /meta/{sid}       session metadata on first load
+   └─ Canvas + UI           colorbars, eggs, dynamic islands, mode transitions
 ```
+
+A `view()` call creates a `Session`, starts the FastAPI server if not running,
+registers the session via HTTP POST `/load`, then opens a display for the detected
+environment (Jupyter inline, VS Code SimpleBrowser or direct webview, native
+pywebview, or system browser).
 
 ## Key Components
 
-- **`_launcher.py`** (2817 lines) — Main entry point. CLI parser, `view()` API, `ViewHandle`, server lifecycle (port detection, background thread start), SSH relay, demo arrays, file watching. Imports `_server` and `uvicorn` lazily to keep CLI fast path cheap.
-- **`_server.py`** (3258 lines) — FastAPI app. All REST endpoints (`/load`, `/reload`, `/seg/*`, `/resample_ras`, …) and WebSocket handler (`/ws/{sid}`). Reads from `Session` objects in `_session.SESSIONS`.
-- **`_viewer.html`** (~15,600 lines) — The entire frontend. CSS dark theme + JS viewer state machine in a single file. No build step. Organized by `/* ── Section ── */` comment separators. Receives binary RGBA frames, renders to Canvas.
-- **`_session.py`** — `Session` class (LRU raw/rgba/mosaic caches, preload state, vfield, spatial_meta), global state (SESSIONS dict, SERVER_LOOP, VIEWER_SOCKETS), dedicated render thread, prefetch pool.
-- **`_render.py`** — `extract_slice` → `apply_complex_mode` → `apply_colormap_rgba` → `render_rgba`. Also handles `render_mosaic`, `render_rgb_rgba`, overlay compositing. Colormap LUTs built lazily via `_init_luts()`.
-- **`_platform.py`** — Environment detection: `_in_jupyter()`, `_in_vscode_terminal()`, `_is_vscode_remote()`, `_in_vscode_tunnel()`, `_can_native_window()`, `_is_julia_env()`. Includes ancestor-process walk to recover env vars stripped by `uv run`.
-- **`_vscode.py`** — VS Code extension auto-install (VSIX bundled in package), signal-file IPC (filename defined by `_VSCODE_SIGNAL_FILENAME`), shared-memory IPC, `EnvironmentVariableCollection` window ID (stable across uv run env stripping).
-- **`_stdio_server.py`** (791 lines) — Alternative transport for VS Code direct webview. Reads JSON requests from stdin, writes binary RGBA frames to stdout. Spawned as subprocess by the VS Code extension.
-- **`_io.py`** — `load_data(filepath)` dispatcher. Handles lazy vs eager loading per format. `.nii.gz` is always materialized (gzip not seekable). `.npy` uses `mmap_mode="r"`.
+- **`_launcher.py`** — CLI parser, `view()` API, `ViewHandle`, server lifecycle, SSH relay, file watching. Heavy imports (`_session`, `_render`, `_io`, uvicorn) are all lazy to keep the CLI fast path near-zero cost.
+- **`_server.py`** — FastAPI app with all REST and WebSocket routes (`/meta/{sid}`, `/load`, `/slice`, `/ws/{sid}`, `/seg/*`, `/reload`, etc.). Dispatches render work to the render thread via `_render()` from `_session.py`.
+- **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
+- **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
+- **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii/.nii.gz`, `.zarr`, `.zarr.zip`, `.pt/.pth`, `.h5/.hdf5`, `.tif/.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
+- **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
+- **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, SimpleBrowser and direct webview opening.
+- **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
+- **`_viewer.html`** — The entire frontend (~15 600 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 
 ## Display Routing
 
-| Environment | Display method | Server mode |
+| Environment | Default display | Server mode |
 |---|---|---|
 | Jupyter | Inline iframe | network |
-| VS Code local terminal | Simple Browser (signal-file IPC) | network |
-| VS Code tunnel (remote) | Direct webview via stdio | stdio |
+| VS Code local | Simple Browser | network |
+| VS Code tunnel | Direct webview (stdio) | stdio |
 | Julia | System browser | network |
-| CLI / Python script (macOS/Win) | Native pywebview window | network |
-| SSH (no VS Code) | Prints URL; VS Code ext tries TCP relay | network |
+| CLI / Python script | Native pywebview | network |
+| SSH terminal | VS Code ext via TCP relay (prints URL on failure) | network |
 
-Detection lives in `_platform.py`. Opening logic in `_launcher.py` and `_vscode.py`.
+Detection logic: `_platform.py`. Display opening: `_launcher.py` + `_vscode.py`.
 
 ## External Dependencies
 
-- **FastAPI + uvicorn** — HTTP/WebSocket server. Imported lazily from `_server_mod()` in `_launcher.py` to save ~175 ms on CLI fast path (server already running).
-- **nibabel** — NIfTI loading. Lazy import inside `_io._nib()`. `.nii.gz` volumes are materialized up front; `.nii` uses mmap.
-- **matplotlib + qmricolors** — Colormap LUTs. Both deferred until first render via `_init_luts()`. `qmricolors` registers `lipari` and `navia` colormaps.
-- **pywebview** — Native window rendering on macOS/Windows/Linux. Launched in a fresh subprocess (via `_open_webview`) to avoid multiprocessing bootstrap issues from Jupyter.
-- **zarr** — Lazy array access for `.zarr` files. Used directly; no abstraction layer.
+- **FastAPI + uvicorn** — async HTTP/WebSocket server, lazy-imported in `_launcher.py`. Never call uvicorn directly — use the `_uvicorn()` accessor.
+- **nibabel** — NIfTI file loading. Lazy-imported in `_io.py` via `_nib()`. Only loaded for `.nii` / `.nii.gz`.
+- **numpy** — Core array type throughout. The only non-lazy import in the render path.
+- **matplotlib** — Colormap LUT generation only. Lazy, initialized once by `_init_luts()` in `_render.py`.
+- **qmricolors** — Registers the `lipari` and `navia` colormaps. Git dependency (`oscarvanderheide/qmricolors`).
+- **zarr** — Lazy chunk access for `.zarr` / `.zarr.zip`. Chunk presets via `zarr_chunk_preset()` in `_session.py`.
+- **pywebview** — Native OS window. Lazy, only started when `_can_native_window()` is true.
 
 ## What Does NOT Exist Here
 
-- No database — all state is in-memory (`SESSIONS` dict) and dies with the process.
-- No authentication — server binds to localhost only; no access control.
-- No async rendering — render thread is a dedicated `threading.Thread` pulling from a `SimpleQueue`; deliberately not `concurrent.futures` (immune to interpreter-shutdown executor cleanup).
-- No build step for the frontend — `_viewer.html` is a single file edited directly.
-- No separate admin / management interface — `_config.py` reads `~/.arrayview/config.toml` directly.
+- No persistent storage — sessions are in-memory only; nothing is written to disk by the server.
+- No authentication or multi-user access control — server binds to localhost.
+- No build step for the frontend — `_viewer.html` is a single static file served from package resources.
+- No background job queue — heavy ops run in the render thread or prefetch pool, both owned by `_session.py`.
+- No nnInteractive server — `_segmentation.py` is a pure HTTP client to a separately running nnInteractive process.

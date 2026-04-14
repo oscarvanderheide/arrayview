@@ -14,13 +14,15 @@ triggers:
   - "colorbar"
   - "nan"
 edges:
+  - target: context/render-pipeline.md
+    condition: always — full pipeline detail, cache structure, LUT initialization
   - target: context/architecture.md
-    condition: for the rendering pipeline flow
+    condition: for the rendering pipeline flow in the broader system
   - target: patterns/frontend-change.md
-    condition: if the bug is in _viewer.html rendering code rather than the Python pipeline
+    condition: only after Step 1 points to `_viewer.html` rather than the Python pipeline
   - target: context/conventions.md
     condition: for the Verify Checklist after fixing
-last_updated: 2026-04-13
+last_updated: 2026-04-15
 ---
 
 # Debug Render
@@ -64,6 +66,8 @@ print(rgba.shape, rgba.dtype, rgba.min(), rgba.max())
 ```
 If this fails → bug is in `_render.py`. Proceed to Step 2.
 If this succeeds → bug is in frontend WebSocket handling or canvas drawing. Skip to Step 5.
+
+Pick one path first. Do not load this pattern and `patterns/frontend-change.md` together at the start unless the task genuinely spans both sides.
 
 **Step 2 — Check for NaN/Inf in the slice**
 ```python

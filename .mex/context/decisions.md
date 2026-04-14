@@ -7,65 +7,64 @@ triggers:
   - "decision"
   - "alternative"
   - "we chose"
-  - "why not"
 edges:
   - target: context/architecture.md
     condition: when a decision relates to system structure
   - target: context/stack.md
     condition: when a decision relates to technology choice
-  - target: patterns/vscode-display.md
-    condition: when the decision involves VS Code display routing or IPC
-last_updated: 2026-04-13
+  - target: context/frontend.md
+    condition: when a decision relates to the frontend architecture or viewer modes
+last_updated: 2026-04-15
 ---
 
 # Decisions
 
 ## Decision Log
 
-### Single self-contained HTML frontend
-**Date:** 2024 (pre-git history)
+### Single self-contained _viewer.html — no build step
+**Date:** pre-2024 (initial design)
 **Status:** Active
-**Decision:** The entire frontend lives in one `_viewer.html` file with no build step.
-**Reasoning:** Zero build infrastructure. Packaged as data inside the Python wheel. Trivially served by FastAPI. Editable in any text editor with no toolchain setup. Fast iteration — change the file, reload the browser.
-**Alternatives considered:** React/Vite SPA (rejected — build step, npm dependency, complicates packaging into a Python wheel); separate CSS/JS files (rejected — adds serving complexity, breaks single-file distribution).
-**Consequences:** All CSS and JS must stay in `_viewer.html`. No code splitting. Hot module replacement is not available — browser refresh is the dev loop.
+**Decision:** The entire frontend (CSS + JS) lives in one `_viewer.html` file with no bundler or build step.
+**Reasoning:** The package is installed as a Python wheel. Shipping a single file that works as a package resource eliminates build infrastructure (npm, webpack, etc.) and makes the project trivially installable. The file is served directly from package resources via `importlib.resources`.
+**Alternatives considered:** Separate JS/CSS files with a bundler (rejected — adds npm as a required toolchain and a build step to every contribution); Jinja2 templating (rejected — adds complexity without benefit when one file is sufficient).
+**Consequences:** Frontend is ~15 600 lines in one file. All edits happen in `_viewer.html` only — never create companion JS/CSS files.
 
-### Lazy imports for all heavy dependencies
-**Date:** 2024 (pre-git history)
+### Lazy imports everywhere in _launcher.py
+**Date:** 2024 (extracted from _app.py)
 **Status:** Active
-**Decision:** numpy, matplotlib, nibabel, FastAPI, uvicorn are all imported lazily, not at module top-level.
-**Reasoning:** CLI fast path — when the server is already running, `arrayview file.npy` just posts to the existing server and exits. Cold-starting numpy + matplotlib adds ~350 ms. Lazy import keeps this near-zero.
-**Alternatives considered:** Eager imports with `__init__.py` guard (rejected — still pays cost on every CLI invocation even when server is alive).
-**Consequences:** The `_LazyMod` proxy class and `_server_mod()` / `_nib()` accessor pattern must be used consistently. Any new heavy import must be lazy.
+**Decision:** `_launcher.py` does not import numpy, _session, _render, _io, or uvicorn at module level. All are deferred to first use via accessor functions (`_server_mod()`, `_uvicorn()`, etc.) or `_LazyMod`.
+**Reasoning:** The CLI fast path — when the server is already running — only needs to send a `/load` HTTP request. Eager imports add ~300–350 ms per invocation, which is unacceptable for a tool used interactively dozens of times per session.
+**Alternatives considered:** Importing everything eagerly (rejected — too slow); using `importlib.import_module` everywhere (equivalent, but the `_mod_cache = None` + accessor pattern is more readable and explicit).
+**Consequences:** Any new heavy import added to `_launcher.py` must follow the accessor pattern. Violating this breaks the fast path.
 
-### Dedicated render thread (not `concurrent.futures`)
+### Global state lives exclusively in _session.py
+**Date:** 2024 (modular refactor from _app.py)
+**Status:** Active
+**Decision:** `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`, `_RENDER_QUEUE`, `_RENDER_THREAD` are all defined in `_session.py` and imported by name elsewhere. No other module defines or shadows these.
+**Reasoning:** Before the refactor, global state was scattered across `_app.py`. Centralizing it in one module makes concurrent access patterns explicit and prevents accidental redefinition.
+**Alternatives considered:** Thread-local storage (rejected — server loop and sessions need to be shared across threads); a dedicated `State` singleton class (rejected — no benefit over module-level globals for this use case).
+**Consequences:** Any new global mutable state must be added to `_session.py`. Never redefine these names in `_server.py`, `_launcher.py`, or anywhere else.
+
+### Render thread is threading.Thread + SimpleQueue, not concurrent.futures
 **Date:** 2024
 **Status:** Active
-**Decision:** The render thread is a raw `threading.Thread` pulling from a `_queue.SimpleQueue`, not a `ThreadPoolExecutor`.
-**Reasoning:** Python's `concurrent.futures` executor sets a `_global_shutdown` flag during interpreter exit that prevents submitting new work. Long-running Jupyter sessions hit this during kernel restart. A raw daemon thread is unaffected.
-**Alternatives considered:** `ThreadPoolExecutor` (rejected — `_global_shutdown` flag causes silent failures); `asyncio` tasks (rejected — rendering is CPU-bound; mixing into the event loop stalls the WS handler).
-**Consequences:** `_RENDER_QUEUE` and `_RENDER_THREAD` must be managed manually in `_session.py`. The `_render()` coroutine bridges between the asyncio event loop and the render thread using `Future.set_result` via `call_soon_threadsafe`.
+**Decision:** The CPU-bound render work runs in a raw `threading.Thread` driven by `_queue.SimpleQueue`, not a `ThreadPoolExecutor`.
+**Reasoning:** During Python interpreter shutdown, `concurrent.futures` sets a `_global_shutdown` flag that prevents submitting new work. Because the server can still receive requests during shutdown, this caused render failures. Raw `threading.Thread` with `daemon=True` is unaffected by the executor lifecycle.
+**Alternatives considered:** `ThreadPoolExecutor` (rejected — shutdown race); `asyncio.run_in_executor` with default executor (same issue).
+**Consequences:** The prefetch pool *does* use `concurrent.futures.ThreadPoolExecutor` (it submits non-critical background work and gracefully handles `RuntimeError` on shutdown). Only the critical render path must stay on `SimpleQueue`.
 
-### Stable VS Code window ID via EnvironmentVariableCollection (v0.14.0)
-**Date:** 2026 (recent, see commit ecd036f / 0635d80)
-**Status:** Active
-**Decision:** The VS Code extension stores a stable `ARRAYVIEW_WINDOW_ID` env var per window using `EnvironmentVariableCollection`. Python reads it to know which VS Code window to target without walking the process tree.
-**Reasoning:** PID ancestry matching is unreliable on macOS — `ps` returns a flat list with no tree structure, so walking from Python up to the VS Code window PID fails. `EnvironmentVariableCollection` survives `uv run` env stripping and is per-window, solving the multi-window targeting problem.
-**Alternatives considered:** PID ancestry walk (rejected — broken on macOS); process name heuristics (rejected — not unique); PPID-based (rejected — too shallow).
-**Consequences:** When `ARRAYVIEW_WINDOW_ID` is missing (first activation or old extension), the code falls back to stale-env heuristics. See `_vscode.py`. Extension version tracking in `_VSCODE_EXT_VERSION = "0.14.0"`.
-
-### Stdio transport for VS Code tunnel
+### stdio transport for VS Code tunnel (direct webview)
 **Date:** 2024
 **Status:** Active
-**Decision:** VS Code tunnel uses a separate stdio server (`_stdio_server.py`) where the extension spawns a Python subprocess and communicates over stdin/stdout rather than a TCP port.
-**Reasoning:** VS Code tunnel port forwarding is unreliable for localhost connections in some network configurations. Stdio transport is always available and requires no port forwarding — the extension is the process parent.
-**Alternatives considered:** TCP on forwarded port (rejected — forwarding not guaranteed); WebSocket to extension host (rejected — complex authentication).
-**Consequences:** Two entirely separate server code paths must be kept in sync feature-wise. New server features implemented in `_server.py` must also be considered for `_stdio_server.py`.
+**Decision:** When a VS Code tunnel is detected, `_stdio_server.py` replaces FastAPI+WebSocket. Messages are JSON on stdin, length-prefixed binary on stdout. The VS Code extension bridges `postMessage` ↔ subprocess stdio.
+**Reasoning:** VS Code tunnel environments block arbitrary TCP ports. The Direct WebView API bypasses the network entirely by running the viewer as a subprocess of the extension. This gives reliable display without requiring port forwarding.
+**Alternatives considered:** Port forwarding via VS Code tunnel (rejected — unreliable, depends on tunnel configuration); WebSocket over stdio tunnel (rejected — more complex than length-prefixed binary).
+**Consequences:** `_stdio_server.py` must mirror every route and feature of `_server.py`. New server features must be implemented in both. The `_vscode.py` signal-file and shared-memory IPC are part of this same display path.
 
-### pywebview in subprocess (not in-process)
-**Date:** 2024
+### UI visibility changes go through reconcilers, not ad hoc style/classList calls
+**Date:** 2025 (View Component System refactor)
 **Status:** Active
-**Decision:** `_open_webview()` always launches pywebview in a fresh `subprocess.Popen`, passing the URL as an argument.
-**Reasoning:** When called from a Jupyter kernel, multiprocessing bootstrap fails because the kernel's `__main__` is not a standard Python script. A subprocess sidesteps this entirely.
-**Alternatives considered:** `multiprocessing.Process` (rejected — Jupyter bootstrap issue); in-process pywebview (rejected — blocks the event loop, cannot coexist with uvicorn).
-**Consequences:** The webview subprocess is a dumb browser with no Python API surface. All logic stays in the server.
+**Decision:** All visibility and layout state changes in `_viewer.html` must go through the four reconciler functions (unified UI reconciler, layout container visibility, compare sub-mode state, CB/island visibility).
+**Reasoning:** Before reconcilers, mode-switch functions each managed their own ad hoc `style.display` toggles. This caused regressions where fixing one mode's layout broke another. Reconcilers enforce a single source of truth for UI state.
+**Alternatives considered:** Each mode function manages its own visibility (previous approach, rejected due to regression rate); CSS class toggling with no reconciler (rejected — same problem in a different form).
+**Consequences:** When adding a new UI element, wire it into the appropriate reconciler. Never set `style.display` or toggle classes in mode-entry/exit functions — that work belongs in the reconcilers.

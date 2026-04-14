@@ -7,54 +7,53 @@ triggers:
   - "dependency"
   - "which tool"
   - "technology"
-  - "format"
-  - "colormap"
 edges:
   - target: context/decisions.md
     condition: when the reasoning behind a tech choice is needed
   - target: context/conventions.md
     condition: when understanding how to use a technology in this codebase
   - target: context/architecture.md
-    condition: when understanding how libraries fit into the overall system
-last_updated: 2026-04-13
+    condition: when understanding how a library fits into the overall system
+last_updated: 2026-04-15
 ---
 
 # Stack
 
 ## Core Technologies
 
-- **Python 3.12+** — minimum version enforced in `pyproject.toml`; uses modern union types (`int | None`)
-- **FastAPI** — REST + WebSocket server; all routes in `_server.py`
-- **uvicorn** — ASGI server for FastAPI; lazy-imported in `_launcher.py`
-- **numpy 2.4+** — primary array type; all rendering operates on `np.float32` / `np.uint8`
-- **hatchling** — build backend; packages `src/arrayview/` including `_viewer.html` and bundled VSIX
+- **Python 3.12+** — minimum required version (`requires-python = ">=3.12"`)
+- **FastAPI** — async HTTP + WebSocket server for the network mode (`_server.py`)
+- **uvicorn** — ASGI server running FastAPI; lazy-imported via `_uvicorn()` in `_launcher.py`
+- **numpy 2.4+** — core array type; the only eager import in the render path
+- **uv** — package manager and task runner (`uv run pytest`, `uv build`, `uvx arrayview`)
 
 ## Key Libraries
 
-- **FastAPI** (not Flask, not Django) — async route handlers; WebSocket support built-in
-- **nibabel** — NIfTI loading only; lazy import (`_io._nib()`); not used for any other format
-- **zarr 2.x** — lazy array access for `.zarr`/`.zarr.zip`; opened with `mode="r"` always
-- **matplotlib** — colormap LUTs only; lazy import via `_init_luts()`; never used for rendering figures
-- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; git dependency (not PyPI)
-- **pywebview** — native window; always launched in a fresh subprocess via `_open_webview()`, not in-process
-- **h5py** — `.h5`/`.hdf5` and MATLAB v7.3 (`.mat`) fallback; always reads whole dataset with `[()]`
-- **tifffile** — TIFF loading; no alternatives considered
-- **scipy** — `.mat` v5 loading via `scipy.io.loadmat`; also used for complex structured dtype fix
-- **psutil** (optional) — RAM detection for adaptive cache budgets in `_session.py`; falls back to 8 GB if absent
-- **pywebview** — Linux requires `PyQt5` + `PyQtWebEngine` + `qtpy` (declared in pyproject as conditional deps)
-- **pytest + playwright** — browser tests in `tests/`; marked with `@pytest.mark.browser`
+- **matplotlib 3.9+** — colormap LUT generation only; lazy-initialized once by `_init_luts()` in `_render.py`. Never imported at module level.
+- **nibabel 5.3+** — NIfTI file loading (`.nii`, `.nii.gz`); lazy-imported via `_nib()` in `_io.py`.
+- **zarr 2.17+** — lazy chunk access for `.zarr` / `.zarr.zip` files; chunk preset utility in `_session.py`.
+- **pillow 12+** — PNG encoding for slice frames sent over WebSocket.
+- **pywebview 6.1+** — native OS window for CLI / script invocations; lazy, only started when `_can_native_window()` is true.
+- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; Git dependency (`oscarvanderheide/qmricolors`). Imported inside `_init_luts()`.
+- **scipy** — `.mat` file loading via `scipy.io.loadmat`; lazy in `_io.py`.
+- **h5py** — `.h5` / `.hdf5` file loading; lazy in `_io.py`.
+- **tifffile** — `.tif` / `.tiff` file loading; lazy in `_io.py`.
+- **websockets 14+** — WebSocket transport (used by uvicorn); not imported directly in application code.
+- **pytest** (not unittest) — all tests; browser tests require `pytest-playwright` and are marked `@pytest.mark.browser`.
+- **httpx** — async HTTP client used in integration tests to call the FastAPI app.
+- **psutil** — optional; used by `_total_ram_bytes()` in `_session.py` to adapt cache budgets to available RAM. Falls back to 8 GB if unavailable.
+- **PyQt5 / PyQtWebEngine / qtpy** — Linux-only; provides the Qt backend for pywebview on Linux.
 
 ## What We Deliberately Do NOT Use
 
-- **No frontend build tooling** — `_viewer.html` is a single self-contained file; no webpack, vite, or npm
-- **No Redux / state management library** — all viewer state is mutable JS variables in `_viewer.html`
-- **No SQLAlchemy / databases** — state is in-memory only; `SESSIONS` dict is the sole store
-- **No `concurrent.futures` for the render thread** — uses a raw `threading.Thread` + `SimpleQueue` to avoid `_global_shutdown` executor cleanup during interpreter exit
-- **No multiprocessing for webview** — pywebview is always a `subprocess.Popen` to avoid bootstrap errors in Jupyter
+- **No React / Vue / Svelte / bundler** — the entire frontend is a single self-contained `_viewer.html` with inline CSS and JS. No npm, no build step.
+- **No concurrent.futures for the render thread** — uses `threading.Thread` + `SimpleQueue` directly to avoid CPython's `_global_shutdown` executor cleanup racing with daemon threads during interpreter exit.
+- **No ORM / database** — sessions are in-memory Python dicts; no SQLAlchemy, no SQLite.
+- **No Redux or client-side state management library** — viewer state is plain JS variables in `_viewer.html`.
+- **No CSS framework** — all styles are custom properties in `:root`; dark theme only (`#0c0c0c` background).
 
 ## Version Constraints
 
-- Python ≥ 3.12 (union type syntax `X | Y` used throughout)
-- zarr 2.x API (not zarr 3.x — `zarr.open(mode="r")` syntax)
-- VS Code extension version tracked in `_vscode._VSCODE_EXT_VERSION = "0.14.0"`; signal filename defined by `_vscode._VSCODE_SIGNAL_FILENAME` (currently `"open-request-v0900.json"`)
-- numpy 2.x (some dtype handling relies on numpy 2 behavior)
+- Python 3.12+ required — the codebase uses `X | Y` union syntax in type hints and `match` statements.
+- zarr 2.17+ — v3 API not yet adopted; chunk preset utility is tuned for v2 behavior.
+- uvicorn 0.41 triggers a `DeprecationWarning` from websockets 14+ (legacy API); suppressed in `pyproject.toml` `filterwarnings`.

@@ -200,10 +200,7 @@
   },
   "search.exclude": {
     "**/.worktrees": true,
-    "**/.worktrees/**": true
-  },
-  "files.exclude": {
-    "**/.worktrees": true
+    "**/.worktrees.worktrees": true
   },
   "files.watcherExclude": {
     "**/.worktrees/**": true

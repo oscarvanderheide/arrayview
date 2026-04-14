@@ -12,13 +12,15 @@ triggers:
   - "mode"
   - "UI"
 edges:
+  - target: context/frontend.md
+    condition: always — mode matrix, reconcilers, command registry, View Component System
   - target: context/architecture.md
     condition: when understanding how the frontend connects to the server
   - target: context/conventions.md
-    condition: for the Verify Checklist
+    condition: for shared conventions and the Verify Checklist
   - target: patterns/debug-render.md
-    condition: when the frontend change causes visual artifacts
-last_updated: 2026-04-13
+    condition: when the change produces wrong visual output
+last_updated: 2026-04-15
 ---
 
 # Frontend Change
@@ -47,16 +49,17 @@ Skills to consider:
 
 ## Steps
 
-1. Scope the affected modes/panes for the specific change. If the user explicitly asked for a full visual check, or this is release validation, invoke `ui-consistency-audit`.
-2. Read the relevant CSS/JS section(s) in `_viewer.html` using `offset`/`limit`
-3. Identify the exact section separator line(s) your change will touch
-4. Make the change — edit in place, preserve section separator style
-5. If adding a keyboard shortcut: add it to the **help overlay** section too
-6. If adding a new mode: register it in the **Mode Registry**
-7. Run narrow verification for the touched behavior (manual check, focused test, or targeted scenario)
-8. If the user explicitly asked for a full visual check, or this is release validation, run the broader audit path (`ui-consistency-audit`, `uv run python tests/visual_smoke.py`, screenshots as relevant)
-9. If the change affects mode routing/layout behavior across modes, run `uv run pytest tests/test_mode_consistency.py`
-10. If the feature is documented in `docs/`: update the relevant page
+1. If the desired behavior is still ambiguous, ask 2-3 plain-English clarification questions before reading git history, large diffs, or broad sections of `_viewer.html`.
+2. Scope the affected modes/panes for the specific change. If the user explicitly asked for a full visual check, or this is release validation, invoke `ui-consistency-audit`.
+3. Read the relevant CSS/JS section(s) in `_viewer.html` using `offset`/`limit`
+4. Identify the exact section separator line(s) your change will touch
+5. Make the change — edit in place, preserve section separator style
+6. If adding a keyboard shortcut: add it to the **help overlay** section too
+7. If adding a new mode: register it in the **Mode Registry**
+8. Run narrow verification for the touched behavior (manual check, focused test, or targeted scenario)
+9. If the user explicitly asked for a full visual check, or this is release validation, run the broader audit path (`ui-consistency-audit`, `uv run python tests/visual_smoke.py`, screenshots as relevant)
+10. If the change affects mode routing/layout behavior across modes, run `uv run pytest tests/test_mode_consistency.py`
+11. If the feature is documented in `docs/`: update the relevant page
 
 ## Gotchas
 
@@ -65,10 +68,13 @@ Skills to consider:
 - **ColorBar class migration** — some colorbars use the new `ColorBar` JS class; some use legacy inline code. Do not mix styles in the same colorbar. Check `project_colorbar_refactor.md` memory.
 - **help overlay is not auto-generated** — it's a static list. Forgetting to update it leaves users with invisible shortcuts.
 - **No hot reload** — changes require a browser refresh. The server does not push frontend updates.
+- **Stale daemon trap** — `uv run arrayview ...` can leave `_serve_daemon` orphaned on port 8000 after the launching terminal exits. If the browser still shows old frontend code after a refresh, check `lsof -nP -iTCP:8000 -sTCP:LISTEN`, kill the old daemon PID, then launch again before trusting browser verification.
 - **Full visual audit is not the default path** — use targeted verification during development unless the user explicitly asks for the broader screenshot/audit pass or you're validating for release.
 - **`visual_smoke.py` runs Playwright** — requires `uv run playwright install chromium` first. See `context/setup.md`.
 - **CSS variable names** — dark theme palette uses `--av-*` custom properties. Do not introduce new one-off colors; use or extend the existing palette.
 - **`body.av-loading` hides real content** — `#canvas-wrap` can be layout-visible while still fully hidden. Clear `av-loading` on the first rendered frame; do not add artificial dwell around the overlay.
+- **Shared slim colorbar is already fixed-position in normal mode** — for immersive scrub, keep it in place and lower its z-index to 1; simultaneously raise `#canvas-wrap` to `position: relative; z-index: 2` so the growing pane paints above it. Clear both on `_resetImmersiveTransforms`. Do not snapshot/re-pin the cb position or create a fixed clone — causes left drift and black rectangle artifacts.
+- **Choose one path first** — if this looks like a frontend-only bug, stay in this pattern. Only jump to `patterns/debug-render.md` after you have ruled out a local `_viewer.html` fix.
 
 ## Verify
 

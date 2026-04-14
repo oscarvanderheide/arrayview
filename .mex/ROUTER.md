@@ -1,7 +1,9 @@
 ---
 name: router
-description: Navigation hub for task routing, project state, and behavioural guidance. Consult it when planning work or loading task-specific context.
+description: Navigation hub for task routing, project state, and behavioral guidance. Start here, then load the minimum extra context needed for the task.
 edges:
+  - target: context/project-state.md
+    condition: when the task depends on what is currently shipped, in progress, or recently changed
   - target: context/architecture.md
     condition: when working on system design, integrations, or understanding how components connect
   - target: context/stack.md
@@ -12,9 +14,13 @@ edges:
     condition: when making architectural choices or understanding why something is built a certain way
   - target: context/setup.md
     condition: when setting up the dev environment or running the project for the first time
+  - target: context/frontend.md
+    condition: when working on _viewer.html — modes, reconcilers, command registry, View Component System
+  - target: context/render-pipeline.md
+    condition: when working on rendering, colormaps, LUTs, caching, or the render thread
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-14
+last_updated: 2026-04-15
 ---
 
 # arrayview — Router
@@ -35,53 +41,47 @@ Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI,
 - CLI: `uvx arrayview <file>`
 - Build: `uv build`
 
+## Context Budget
+
+1. Start with this file plus **at most one pattern and one context file**.
+2. Treat frontmatter `edges` as **optional suggestions**, not a preload list.
+3. Follow **one extra edge only when blocked**. Do not recursively fan out through second-hop edges.
+4. Load `context/project-state.md` only when the task depends on current shipped or in-progress work.
+5. For UI, animation, or behavior bugs: ask plain-English clarification questions **before** reading git history, large diffs, or broad source sweeps.
+
 ## Current Project State
 
-**Working:**
-- CLI (`uvx arrayview file.npy`) and Python API (`view(arr)`) — both stable
-- All six display environments: Jupyter inline, VS Code local, VS Code tunnel (stdio), Julia, native pywebview, SSH URL print
-- File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
-- Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
-- NIfTI spatial metadata, RAS resampling
-- VS Code extension v0.14.3 — stable window ID via `EnvironmentVariableCollection`; `arrayview.openInFloatingWindow` setting moves new tabs to a floating window; `view(arr, floating=True)` and `arrayview file.npy --floating` open in a floating window per-call regardless of global setting; `!vscode.env.remoteName` guard removed (remote VS Code supports floating windows)
-- Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
-- Colorbar island flip: `c` and `d` keys trigger 3D `rotateX` card flip (front=colorbar, back=cmap thumbnails/histogram)
-- Cold-start loading spinner in VS Code and native shell
-
-**In progress:**
-- Smooth immersive transition (`feat/immersive-animation-redesign`) — single-view pinch scrub now detaches title/dimbar/shared colorbar at scrub start, preserves frame-1 viewport position, restores scrub-start positions on reverse, and no longer supports immersive island dragging; cross-mode parity still pending
-
-**Not yet built:**
-- Independent split view for mismatched-shape arrays (designed, shelved)
-- Admin/config UI (file-based `~/.arrayview/config.toml` only)
+Load `context/project-state.md` only when you need active-workstream or recent-shipping detail.
 
 ## Routing Table
 
 | Task type | Load |
 |-----------|------|
+| Checking current shipped / in-progress status | `context/project-state.md` |
 | Understanding system architecture | `context/architecture.md` |
 | Working with a specific technology | `context/stack.md` |
 | Writing or reviewing code | `context/conventions.md` |
 | Making a design decision | `context/decisions.md` |
 | Setting up or running the project | `context/setup.md` |
-| Editing `_viewer.html` (frontend) | `patterns/frontend-change.md` |
+| Editing `_viewer.html` (frontend) | `context/frontend.md` + `patterns/frontend-change.md` |
+| Render pipeline, colormaps, caching | `context/render-pipeline.md` |
 | Adding a new file format | `patterns/add-file-format.md` |
-| VS Code display / IPC issues | `patterns/vscode-display.md` |
+| Adding a server route / WebSocket endpoint | `patterns/add-server-endpoint.md` |
 | Visual bugs / render artifacts | `patterns/debug-render.md` |
+| VS Code display / IPC issues | `.claude/skills/vscode-simplebrowser/SKILL.md` |
 | Any specific task | Check `patterns/INDEX.md` for a matching pattern |
 
 ## Behavioural Contract
 
-1. **CONTEXT** — Load relevant context file(s) from the routing table. Check `patterns/INDEX.md` for a matching pattern.
-  Do not preload unrelated context files.
-2. **BUILD** — Do the work. If deviating from an established pattern, say so before writing code.
-3. **VERIFY** — If a pattern file was loaded, use its own Verify section. Otherwise run this checklist:
-   - [ ] New heavy imports are lazy (`_mod = None` / accessor function pattern)
-   - [ ] New `Session` field initialized in `__init__` and cleared in `reset_caches()` if cache-related
-   - [ ] New file format goes through `_io.load_data()`, extension added to `_SUPPORTED_EXTS`
-   - [ ] Frontend changes in `_viewer.html` only — no new JS/CSS files
-   - [ ] New rendering functions follow `extract_slice → apply_complex_mode → apply_colormap_rgba` order
-   - [ ] Environment detection changes go in `_platform.py` only
-   - [ ] Cross-mode consistency verified across all six invocation environments
-4. **DEBUG** — If verification fails, check `patterns/INDEX.md` for a debug pattern, fix, re-run VERIFY.
-5. **GROW** — After completing the task: create/update patterns, update stale context files, update "Current Project State" above if significant.
+1. **CONTEXT** — Load from the routing table. Start small: this file + one pattern + one context file is the default cap. Do not preload unrelated docs.
+2. **CLARIFY** — If the task is about UI behavior, animation, or UX expectations, ask plain-English questions before deep investigation.
+3. **BUILD** — Do the work. If deviating from an established pattern, say so before writing code.
+4. **VERIFY** — If a pattern file was loaded, use its Verify section. Otherwise use the shared Verify Checklist in `context/conventions.md`.
+5. **DEBUG** — If verification fails, check `patterns/INDEX.md` for one debug pattern, fix, then re-run VERIFY.
+6. **GROW** — After completing the task: create/update patterns, update stale context files, and update `context/project-state.md` if significant.
+
+## After Completing a Task
+
+- [ ] Update `context/project-state.md` if shipped or in-progress status changed
+- [ ] Update any stale `.mex/context/` or `.mex/patterns/` files touched by the task
+- [ ] If this revealed a repeatable workflow, add or update a pattern in `.mex/patterns/`
