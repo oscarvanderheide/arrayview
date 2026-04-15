@@ -497,146 +497,86 @@
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
         #special-modes-shelf {
             display: none; position: fixed; inset: 0;
-            background: linear-gradient(180deg, transparent 0%, var(--overlay-bg) 42%, var(--overlay-bg) 100%);
+            background: var(--overlay-bg);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-            z-index: 40; justify-content: center; align-items: flex-end;
-            padding: 18px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+            z-index: 40; justify-content: center; align-items: center;
         }
         #special-modes-shelf.visible { display: flex; }
         #special-modes-sheet {
-            width: min(720px, 100%); max-width: calc(100vw - 24px);
-            background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+            width: min(320px, calc(100vw - 32px));
+            background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 28px;
-            padding: 10px 12px 14px;
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
             box-sizing: border-box;
-            box-shadow: 0 24px 80px rgba(0,0,0,0.45);
-            transform: translateY(24px);
+            box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            transform: translateY(8px);
             opacity: 0;
-            transition: transform 180ms ease, opacity 180ms ease;
+            transition: transform 150ms ease, opacity 150ms ease;
         }
         #special-modes-shelf.visible #special-modes-sheet {
             transform: translateY(0);
             opacity: 1;
         }
         #special-modes-grabber {
-            width: 42px; height: 4px; border-radius: 999px;
-            background: var(--border); opacity: 0.9;
-            margin: 0 auto 14px;
+            font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--help-key); opacity: 0.7;
+            margin-bottom: 10px; padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-subtle);
         }
         #special-modes-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
+            display: flex;
+            flex-direction: column;
         }
         .smode-tile {
             appearance: none;
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
-            box-shadow: inset 0 0 0 1px var(--border-subtle);
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--border-subtle);
+            border-radius: 0;
             color: var(--text);
             cursor: pointer;
             display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
-            min-height: 106px;
-            padding: 12px;
+            align-items: center;
+            gap: 14px;
+            padding: 9px 2px;
             text-align: left;
-            transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+            width: 100%;
+            font-family: inherit;
             opacity: 0;
-            transform: translateY(10px);
+            transform: translateY(6px);
+            transition: opacity 140ms ease, transform 140ms ease;
         }
+        .smode-tile:last-child { border-bottom: none; }
         #special-modes-shelf.visible .smode-tile {
             opacity: 1;
             transform: translateY(0);
         }
-        #special-modes-grid .smode-tile:nth-child(1) { transition-delay: 40ms; }
-        #special-modes-grid .smode-tile:nth-child(2) { transition-delay: 55ms; }
+        #special-modes-grid .smode-tile:nth-child(1) { transition-delay: 30ms; }
+        #special-modes-grid .smode-tile:nth-child(2) { transition-delay: 50ms; }
         #special-modes-grid .smode-tile:nth-child(3) { transition-delay: 70ms; }
-        #special-modes-grid .smode-tile:nth-child(4) { transition-delay: 85ms; }
-        #special-modes-grid .smode-tile:nth-child(5) { transition-delay: 100ms; }
-        #special-modes-grid .smode-tile:nth-child(6) { transition-delay: 115ms; }
-        #special-modes-grid .smode-tile:nth-child(7) { transition-delay: 130ms; }
-        #special-modes-grid .smode-tile:nth-child(8) { transition-delay: 145ms; }
-        .smode-tile:hover,
-        .smode-tile.nav {
-            border-color: var(--active-dim);
-            transform: translateY(-1px);
-        }
-        .smode-tile.nav {
-            box-shadow: inset 0 0 0 1px var(--active-dim);
-        }
-        .smode-tile.is-active {
-            border-color: var(--active-dim);
-            box-shadow: inset 0 0 0 1px var(--active-dim);
-        }
+        .smode-tile:hover .smode-label,
+        .smode-tile.nav .smode-label { color: var(--highlight); }
         .smode-tile.is-disabled,
-        .smode-tile:disabled {
-            cursor: default;
-            opacity: 0.42;
-            transform: none;
-        }
-        .smode-icon {
-            width: 42px; height: 42px;
-            border-radius: 14px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            box-shadow: inset 0 0 0 1px var(--border-subtle);
-            color: var(--active-dim);
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
-        .smode-tile.is-active .smode-icon,
-        .smode-tile.nav .smode-icon {
-            border-color: var(--active-dim);
+        .smode-tile:disabled { cursor: default; opacity: 0.35; }
+        .smode-key {
+            flex-shrink: 0; width: 18px;
+            color: var(--help-key); font-weight: 600; font-size: 12px;
         }
         .smode-body {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            min-width: 0;
-            width: 100%;
+            flex: 1; min-width: 0;
         }
         .smode-label {
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
+            display: block; font-size: 12.5px; color: var(--text);
         }
-        .smode-state {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .smode-dot {
-            width: 6px; height: 6px; border-radius: 999px;
-            border: 1px solid var(--border);
-            background: transparent;
-            flex-shrink: 0;
-        }
-        .smode-tile.is-active .smode-dot {
-            background: var(--active-dim);
-            border-color: var(--active-dim);
+        .smode-desc {
+            display: block; font-size: 11px; color: var(--muted); margin-top: 1px;
         }
         .smode-meta {
-            color: var(--muted);
-            font-size: 10px;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            flex-shrink: 0; color: var(--muted); font-size: 11px; white-space: nowrap;
         }
-        @media (min-width: 720px) {
-            #special-modes-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-        }
+        .smode-tile.is-active .smode-meta { color: var(--active-dim); }
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1667,7 +1607,7 @@
 </div>
 <div id="special-modes-shelf">
     <div id="special-modes-sheet" role="dialog" aria-modal="true" aria-label="Special modes">
-        <div id="special-modes-grabber"></div>
+        <div id="special-modes-grabber">Plugins</div>
         <div id="special-modes-grid"></div>
     </div>
 </div>
@@ -9051,32 +8991,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _specialModesNavIdx = 0;
         const SPECIAL_MODE_TILES = [
             {
-                id: 'multiview',
-                label: 'Ortho',
-                glyph: '3P',
-                keyHint: 'v',
-                command: 'multiview.toggle',
-                isEnabled: () => shape.length >= 3 || multiViewActive || compareMvActive,
-                isActive: () => multiViewActive || compareMvActive,
-            },
-            {
-                id: 'compare',
-                label: 'Compare',
-                glyph: 'AB',
-                keyHint: 'pick',
-                isEnabled: () => !isInlineEmbed,
-                isActive: () => compareActive,
-                run: async () => {
-                    if (compareActive) {
-                        crossfade(() => exitCompareMode());
-                        return;
-                    }
-                    await enterComparePrompt();
-                },
-            },
-            {
                 id: 'qmri',
-                label: 'qMRI',
+                label: 'Quantitative MRI',
+                desc: 'fit and visualise parameter maps',
                 glyph: 'qM',
                 keyHint: 'q',
                 command: 'qmri.cycle',
@@ -9084,51 +9001,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 isActive: () => qmriActive || compareQmriActive,
             },
             {
-                id: 'roi',
-                label: 'ROI',
-                glyph: '[]',
-                keyHint: 'R',
-                command: 'roi.cycleMode',
-                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
-                isActive: () => rectRoiMode,
-            },
-            {
                 id: 'segmentation',
-                label: 'Segment',
+                label: 'Segmentations',
+                desc: 'interactive AI-assisted masking',
                 glyph: 'SG',
-                keyHint: 'S',
+                keyHint: 's',
                 command: 'segmentation.cycle',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive && !qmriActive),
                 isActive: () => _segMode,
             },
             {
-                id: 'projection',
-                label: 'Project',
-                glyph: 'PR',
-                keyHint: 'p',
-                command: 'projection.cycle',
-                isEnabled: () => projectionMode > 0 || mipActive || shape.length >= 3,
-                isActive: () => projectionMode > 0 || mipActive,
-            },
-            {
-                id: 'fft',
-                label: 'FFT',
-                glyph: 'FT',
-                keyHint: 'f',
-                command: 'fft.toggle',
-                isEnabled: () => true,
-                isActive: () => _fftActive,
-            },
-            {
-                id: 'overlay',
-                label: 'Overlay',
-                glyph: 'OV',
-                keyHint: 'O',
-                command: 'overlay.cycleVisibility',
-                isEnabled: () => !!overlay_sid || hasVectorfield,
-                isActive: () => (!!overlay_sid && _overlayVisibility !== 'none') || (hasVectorfield && vfieldVisible),
+                id: 'roi',
+                label: 'Region-of-Interest Analysis',
+                desc: 'draw regions and measure statistics',
+                glyph: '[]',
+                keyHint: 'r',
+                command: 'roi.cycleMode',
+                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
+                isActive: () => rectRoiMode,
             },
         ];
+        const PLUGIN_HELP = {
+            qmri:         'plugin-qmri',
+            segmentation: 'plugin-segmentation',
+            roi:          'plugin-roi',
+        };
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
 
@@ -11867,6 +11764,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: ['specialModesOpen'],
                 run: (ctx, e) => { closeSpecialModesShelf(); },
             },
+            'plugin.exit': {
+                title: 'Exit plugin mode',
+                when: ['anyPluginActive'],
+                run: (ctx, e) => {
+                    if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
+                    else if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
+                    else if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
+                },
+            },
             'palette.open': {
                 title: 'Open command palette',
                 when: ['!paletteOpen'],
@@ -11874,6 +11780,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
         };
         const keybinds = [
+            { key: '/', command: 'plugin.exit' },
             { key: '/', command: 'specialmodes.close' },
             { key: '/', command: 'specialmodes.open' },
             { key: 'F', command: 'mode.toggleZen' },
@@ -11968,6 +11875,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
+                anyPluginActive: (qmriActive || (typeof compareQmriActive !== 'undefined' && compareQmriActive) || rectRoiMode || (typeof _segMode !== 'undefined' && !!_segMode)),
             };
         }
 
@@ -11999,7 +11907,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Special modes shelf', hint: 'launch ortho, compare, qMRI, ROI, segmentation, FFT, and overlays' },
+                            { key: '/', action: 'Plugin modes', hint: 'launch qMRI, ROI, or segmentation — press again to exit' },
                         ]
                     },
                     {
@@ -12162,7 +12070,78 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         ]
                     }
                 ]
-            }
+            },
+            {
+                id: 'plugin-qmri', label: 'qMRI',
+                desc: 'Quantitative MRI mode — display and compare relaxometry maps (T₁, T₂, PD, etc.) across one dimension of your array.',
+                columns: 1,
+                sections: [
+                    {
+                        title: 'Navigation',
+                        entries: [
+                            { key: 'q', action: 'Enter / exit qMRI mode', hint: 'cycles through available qMRI dimensions' },
+                            { key: '/', action: 'Exit qMRI mode', hint: 'return to normal viewing' },
+                            { key: '← →', action: 'Step through slices' },
+                            { key: 'z', action: 'Mosaic — tile all parameter maps' },
+                        ]
+                    },
+                    {
+                        title: 'Display',
+                        entries: [
+                            { key: 'c', action: 'Cycle colormap for focused map' },
+                            { key: 'd', action: 'Open histogram for focused map' },
+                            { key: 'Scroll on colorbar', action: 'Adjust display range' },
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'plugin-segmentation', label: 'Segment',
+                desc: 'Interactive segmentation mode — click to place foreground/background seeds and generate a segmentation mask using nnInteractive.',
+                columns: 1,
+                sections: [
+                    {
+                        title: 'Controls',
+                        entries: [
+                            { key: 'S', action: 'Enter / cycle segmentation mode', hint: 'positive click → negative click → exit' },
+                            { key: '/', action: 'Exit segmentation mode' },
+                            { key: 'Escape', action: 'Exit segmentation mode' },
+                            { key: 'Click', action: 'Place seed point' },
+                            { key: 'u', action: 'Undo last seed' },
+                        ]
+                    },
+                    {
+                        title: 'Output',
+                        entries: [
+                            { key: 'N', action: 'Export current mask as .npy' },
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'plugin-roi', label: 'ROI',
+                desc: 'Region of interest mode — draw rectangles, ellipses, or freehand shapes to compute statistics over selected pixels.',
+                columns: 1,
+                sections: [
+                    {
+                        title: 'Drawing',
+                        entries: [
+                            { key: 'R', action: 'Enter / cycle ROI shape', hint: 'rectangle → ellipse → freehand' },
+                            { key: '/', action: 'Exit ROI mode' },
+                            { key: 'Drag', action: 'Draw ROI on canvas' },
+                            { key: 'Click ROI', action: 'Select an existing ROI' },
+                            { key: 'Delete / Backspace', action: 'Delete selected ROI' },
+                        ]
+                    },
+                    {
+                        title: 'Statistics',
+                        entries: [
+                            { key: 'Hover ROI', action: 'See mean, std, min, max in the floating panel' },
+                            { key: 'N', action: 'Export ROI mask as .npy' },
+                        ]
+                    },
+                ]
+            },
         ];
 
         function buildHelpOverlay() {
@@ -12312,13 +12291,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 button.disabled = !enabled;
                 button.classList.toggle('is-disabled', !enabled);
                 button.classList.toggle('is-active', active);
-                button.title = tile.keyHint && tile.keyHint.length === 1
-                    ? `${tile.label} (${tile.keyHint})`
-                    : tile.label;
+                button.title = tile.label;
                 if (meta) {
                     if (!enabled) meta.textContent = 'unavailable';
                     else if (active) meta.textContent = 'active';
-                    else meta.textContent = tile.keyHint || 'open';
+                    else meta.textContent = '';
                 }
             });
             const nextIndex = (buttons[_specialModesNavIdx] && !buttons[_specialModesNavIdx].disabled)
@@ -12337,14 +12314,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 button.className = 'smode-tile';
                 button.dataset.smodeId = tile.id;
                 button.innerHTML = `
-                    <span class="smode-icon" aria-hidden="true">${tile.glyph}</span>
+                    <span class="smode-key" aria-hidden="true">${tile.keyHint || ''}</span>
                     <span class="smode-body">
                         <span class="smode-label">${tile.label}</span>
-                        <span class="smode-state">
-                            <span class="smode-dot"></span>
-                            <span class="smode-meta"></span>
-                        </span>
-                    </span>`;
+                        ${tile.desc ? `<span class="smode-desc">${tile.desc}</span>` : ''}
+                    </span>
+                    <span class="smode-meta"></span>`;
                 button.addEventListener('mousedown', (e) => e.preventDefault());
                 button.addEventListener('mouseenter', () => {
                     if (!button.disabled) _specialModesSetNavIndex(index);
@@ -12687,7 +12662,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
-            if (e.key === '?') { setHelpVisible(!helpOverlay.classList.contains('visible')); return; }
+            if (e.key === '?') {
+                const _activePlugin = (qmriActive || compareQmriActive) ? 'qmri'
+                    : (typeof _segMode !== 'undefined' && _segMode) ? 'segmentation'
+                    : rectRoiMode ? 'roi'
+                    : null;
+                if (_activePlugin && PLUGIN_HELP[_activePlugin]) {
+                    const _pluginTabIdx = GUIDE_TABS.findIndex(t => t.id === PLUGIN_HELP[_activePlugin]);
+                    setHelpVisible(true);
+                    if (_pluginTabIdx >= 0) setHelpTab(_pluginTabIdx);
+                } else {
+                    setHelpVisible(!helpOverlay.classList.contains('visible'));
+                }
+                return;
+            }
             if (specialModesOpen) {
                 if (_specialModesKey(e)) return;
                 return;
