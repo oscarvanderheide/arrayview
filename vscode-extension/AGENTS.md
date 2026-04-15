@@ -1,7 +1,5 @@
 # VS Code Extension
 
-Load the `vscode-simplebrowser` skill before touching anything here.
-
 ## Key Functions (`_vscode.py`)
 
 - `_ensure_vscode_extension()` — installs VSIX only if version not on disk
@@ -12,7 +10,7 @@ Load the `vscode-simplebrowser` skill before touching anything here.
 
 ## Two Transport Modes
 
-- **Network** (default): FastAPI + WebSocket, extension opens Simple Browser tab
+- **Network** (default): FastAPI + WebSocket, extension opens webview panel tab
 - **Direct webview** (`--mode stdio`): extension spawns subprocess, PythonBridge bridges postMessage ↔ stdin/stdout
 
 `_VSCODE_EXT_VERSION` in `_vscode.py` must match `vscode-extension/package.json`.

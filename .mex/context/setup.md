@@ -59,7 +59,7 @@ No `.env` file is needed. All env vars are optional overrides; the server runs w
 
 **Port already in use:** The server binds to a random free port by default. If you see a port conflict, check for orphan `uvicorn` processes: `lsof -i :<port>`. Kill with `kill -9 <PID>`. The server is supposed to shut down automatically when all viewer windows close.
 
-**VS Code extension not loading:** Signal-file IPC can fail if the extension version is mismatched. Check `_VSCODE_EXT_VERSION` in `_vscode.py` matches the installed extension. See `.claude/skills/vscode-simplebrowser/SKILL.md` for the full diagnosis flow.
+**VS Code extension not loading:** Signal-file IPC can fail if the extension version is mismatched. Check `_VSCODE_EXT_VERSION` in `_vscode.py` matches the installed extension.
 
 **Playwright tests fail on CI:** Ensure `uv run playwright install chromium` has been run. Browser tests require a display; on headless servers they need `DISPLAY=:0` or Xvfb.
 

@@ -9,7 +9,6 @@ Load the relevant skill before touching the corresponding area.
 | Skill | When |
 |-------|------|
 | `frontend-designer` | Styling/layout changes to `_viewer.html` |
-| `vscode-simplebrowser` | Extension, signal-file IPC, `_VSCODE_EXT_VERSION` |
 | `invocation-consistency` | Server startup, display-opening, env detection |
 | `ui-consistency-audit` | Explicit full visual audit or pre-release validation |
 | `viewer-ui-checklist` | Release prep — syncing smoke/help/docs |
