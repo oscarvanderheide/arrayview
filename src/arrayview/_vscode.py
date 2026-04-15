@@ -1181,9 +1181,9 @@ def _write_vscode_signal(payload: dict, delay: float = 0.0, skip_compat: bool = 
 
 
 def _print_viewer_location(url: str) -> None:
-    """Print a viewer location hint."""
+    """Print a viewer location hint (verbose only)."""
     if not _is_vscode_remote():
-        print(f"[ArrayView] {url}", flush=True)
+        _vprint(f"[ArrayView] {url}", flush=True)
 
 
 def _open_browser(
@@ -1326,7 +1326,7 @@ def _open_browser(
                     pass
 
         # Local sessions still benefit from a clickable terminal URL.
-        print(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
+        _vprint(f"\n  \033[1;36m→ {url}\033[0m\n", flush=True)
 
     if blocking:
         _do()

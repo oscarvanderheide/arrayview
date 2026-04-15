@@ -2663,17 +2663,11 @@ def arrayview():
         from arrayview._platform import _find_vscode_ipc_hook as _check_ipc_hook
 
         if not _is_vscode_remote() and not _check_ipc_hook():
-            # IPC hook not available, but we have a fallback mechanism (PID matching)
-            # Only warn if we can't find any VS Code windows at all
-            from arrayview._vscode import _find_current_vscode_window_id
-
-            if not _find_current_vscode_window_id():
-                print(
-                    "[ArrayView] Warning: Cannot detect VS Code window.\n"
-                    "  The viewer may open in a random VS Code window.\n"
-                    "  Workaround: Use --window=browser instead.",
-                    flush=True,
-                )
+            # IPC hook not available — broadcast with focus guard handles this
+            _vprint(
+                "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
+                flush=True,
+            )
     # Explicit native is not supported in remote/tunnel environments
     if window_mode == "native" and _is_vscode_remote():
         _vprint(
