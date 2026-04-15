@@ -196,12 +196,15 @@ class TestBasicRender:
 
     def test_loading_overlay_gone_after_render(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
-        # #loading-overlay should be hidden once canvas is showing
-        assert not page.is_visible("#loading-overlay")
+        # #loading-overlay should be hidden once startup animation completes
+        page.wait_for_selector("#loading-overlay", state="hidden", timeout=5000)
 
     def test_loading_class_cleared_after_render(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
-        assert page.evaluate("() => !document.body.classList.contains('av-loading')")
+        page.wait_for_function(
+            "() => !document.body.classList.contains('av-loading')",
+            timeout=5000,
+        )
 
     def test_shell_init_tab_loads_without_preview_overlay(self, page, server_url, sid_2d):
         page.goto(f"{server_url}/shell?init_sid={sid_2d}&init_name=arr2d")

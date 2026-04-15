@@ -1553,7 +1553,7 @@
         <canvas id="mip-canvas"></canvas>
         <div id="multi-view-wrap"></div>
         <div id="qmri-view-wrap"></div>
-        <div id="loading-overlay"><div class="av-load-name"></div></div>
+        <div id="loading-overlay"><svg class="av-load-logo av-logo-loading" width="64" height="64" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="load-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="load-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="load-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="load-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="load-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="load-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="load-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="load-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="load-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg><div class="av-load-name"></div></div>
         <div id="fft-spinner-overlay"><div class="fft-spinner-ring"><svg class="av-logo-loading" width="40" height="40" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect id="fft-b0" x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect id="fft-b1" x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect id="fft-b2" x="11" y="2" width="3" height="3" fill="#c77dff"/><rect id="fft-b3" x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect id="fft-b4" x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect id="fft-b5" x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect id="fft-b6" x="2" y="11" width="3" height="3" fill="#4895ef"/><rect id="fft-b7" x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect id="fft-b8" x="11" y="11" width="3" height="3" fill="#f8961e"/></svg></div></div>
         <div id="empty-hint">
             <div id="empty-hint-inner">
@@ -1946,9 +1946,11 @@
         let _scrubInfoRect = null;
         let immersiveTl = null; // GSAP timeline that fully drives the immersive crossfade
 
-        // ── Startup loading handoff ────────────────────────────────────────
+        // ── Startup animation ──────────────────────────────────────────────
         let _startupAnimPlayed = false; // once per page load — not reset on data refresh (by design)
         let _startupAnimTl = null;
+        const _loadingShowTime = performance.now(); // page load = spinner visible
+        const _MIN_SPINNER_MS = 800; // minimum spinner dwell — prevents "flash of spinner"
 
         function _clearStartupChromeReveal() {
             const arrayName = document.getElementById('array-name');
@@ -1972,78 +1974,69 @@
                 _startupAnimTl = null;
             }
 
-            const arrayName = document.getElementById('array-name');
-            const info = document.getElementById('info');
-            const cbWrap = document.getElementById('slim-cb-wrap');
-            const helpHint = document.getElementById('help-hint');
-            if (arrayName) {
-                arrayName.style.opacity = '0';
-                arrayName.style.setProperty('--fly-y', '-8px');
+            const ol         = document.getElementById('loading-overlay');
+            const loadLogo   = ol ? ol.querySelector('.av-load-logo') : null;
+            const loadName   = ol ? ol.querySelector('.av-load-name') : null;
+            const canvasWrap = document.getElementById('canvas-wrap');
+            const arrayName  = document.getElementById('array-name');
+            const info       = document.getElementById('info');
+            const cbWrap     = document.getElementById('slim-cb-wrap');
+            const helpHint   = document.getElementById('help-hint');
+            const cbVisible  = cbWrap && getComputedStyle(cbWrap).display !== 'none';
+
+            // Seize opacity immediately so CSS transition doesn't race GSAP
+            gsap.set([canvasWrap, arrayName, info, helpHint], { opacity: 0 });
+            if (cbVisible) gsap.set(cbWrap, { opacity: 0 });
+
+            // Set starting transforms for Act 3 (chrome assembly)
+            if (arrayName) gsap.set(arrayName, { '--fly-y': '-8px' });
+            if (info)      gsap.set(info,      { '--fly-y': '-8px' });
+            if (cbVisible) gsap.set(cbWrap,    { '--fly-y': '12px' });
+            if (helpHint)  gsap.set(helpHint,  { scale: 0.55, transformOrigin: 'center center' });
+
+            _startupAnimTl = gsap.timeline({ onComplete: () => {
+                _clearStartupChromeReveal();
+                _startupAnimTl = null;
+                if (ol) ol.style.display = 'none';
+            }});
+
+            // ── Act 1: Logo settles (stops pulsing, all blocks snap to full) ──
+            _startupAnimTl.call(() => {
+                if (loadLogo) loadLogo.classList.remove('av-logo-loading');
+            }, null, 0);
+
+            // ── Act 2: Overlay exits, canvas revealed ──────────────────────
+            if (loadLogo) {
+                _startupAnimTl.to(loadLogo, {
+                    opacity: 0, scale: 0.6, duration: 0.35, ease: 'power2.in'
+                }, 0.30);
             }
-            if (info) {
-                info.style.opacity = '0';
-                info.style.setProperty('--fly-y', '-8px');
+            if (loadName) {
+                _startupAnimTl.to(loadName, {
+                    opacity: 0, duration: 0.20, ease: 'power2.in'
+                }, 0.30);
             }
-            if (cbWrap && getComputedStyle(cbWrap).display !== 'none') {
-                cbWrap.style.opacity = '0';
-                cbWrap.style.setProperty('--fly-y', '0px');
+            _startupAnimTl.to(canvasWrap, {
+                opacity: 1, duration: 0.50, ease: 'power2.out'
+            }, 0.40);
+            _startupAnimTl.call(() => {
+                document.body.classList.remove('av-loading');
+            }, null, 0.50);
+
+            // ── Act 3: Chrome assembles around canvas ──────────────────────
+            _startupAnimTl
+                .to(arrayName, { opacity: 1, '--fly-y': '0px', duration: 0.38, ease: 'power3.out' }, 0.85)
+                .to(info,      { opacity: 1, '--fly-y': '0px', duration: 0.38, ease: 'power3.out' }, 0.92);
+            if (cbVisible) {
+                _startupAnimTl.to(cbWrap, {
+                    opacity: 1, '--fly-y': '0px', duration: 0.36, ease: 'power3.out'
+                }, 1.05);
             }
             if (helpHint) {
-                helpHint.style.opacity = '0';
-                helpHint.style.scale = '0.7';
-                helpHint.style.transformOrigin = 'center center';
+                _startupAnimTl.to(helpHint, {
+                    opacity: 1, scale: 1, duration: 0.28, ease: 'back.out(1.7)'
+                }, 1.20);
             }
-
-            document.body.classList.remove('av-loading');
-
-            const ol = document.getElementById('loading-overlay');
-            if (ol) {
-                ol.style.opacity = '';
-                ol.style.display = 'none';
-            }
-
-            requestAnimationFrame(() => {
-                if (_startupAnimTl) {
-                    _startupAnimTl.kill();
-                    _startupAnimTl = null;
-                }
-                const steps = [];
-                if (arrayName && getComputedStyle(arrayName).display !== 'none') {
-                    steps.push({ el: arrayName, delay: 0.00, y: '0px', duration: 0.30 });
-                }
-                if (info) {
-                    steps.push({ el: info, delay: 0.08, y: '0px', duration: 0.30 });
-                }
-                if (cbWrap && getComputedStyle(cbWrap).display !== 'none') {
-                    steps.push({
-                        el: cbWrap,
-                        delay: 0.22,
-                        duration: 0.34,
-                        ease: isElectronHost ? 'power2.out' : 'power1.out',
-                    });
-                }
-                if (helpHint && getComputedStyle(helpHint).display !== 'none') {
-                    steps.push({ el: helpHint, delay: 0.26, scale: 1, duration: 0.24, ease: 'back.out(1.6)' });
-                }
-                if (!steps.length || typeof gsap === 'undefined') {
-                    _clearStartupChromeReveal();
-                    return;
-                }
-                _startupAnimTl = gsap.timeline({ onComplete: () => {
-                    _clearStartupChromeReveal();
-                    _startupAnimTl = null;
-                }});
-                steps.forEach(step => {
-                    const vars = {
-                        opacity: 1,
-                        duration: step.duration,
-                        ease: step.ease || 'power2.out',
-                    };
-                    if (step.y !== undefined) vars['--fly-y'] = step.y;
-                    if (step.scale !== undefined) vars.scale = step.scale;
-                    _startupAnimTl.to(step.el, vars, step.delay);
-                });
-            });
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
         let _immTargetZoom = 1.0; // cached zoom target at start of transition
@@ -6964,7 +6957,10 @@
                             // can compute correct dimensions before the overlay drops.
                             document.getElementById('canvas-wrap').style.display = '';
                             if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
-                            _playStartupAnimation();
+                            // Enforce minimum spinner dwell so it feels intentional, not glitchy.
+                            const _elapsed = performance.now() - _loadingShowTime;
+                            const _delay = Math.max(0, _MIN_SPINNER_MS - _elapsed);
+                            setTimeout(() => _playStartupAnimation(), _delay);
                         }
                         scaleCanvas(width, height);
                         if (hasVectorfield && vfieldVisible && !compareActive && !multiViewActive && !qmriActive) {
@@ -7108,7 +7104,9 @@
                 if (document.getElementById('loading-overlay').style.display !== 'none') {
                     document.getElementById('canvas-wrap').style.display = '';
                     if (_isWelcomeScreen) document.getElementById('welcome-hint').classList.add('visible');
-                    _playStartupAnimation();
+                    const _elapsed = performance.now() - _loadingShowTime;
+                    const _delay = Math.max(0, _MIN_SPINNER_MS - _elapsed);
+                    setTimeout(() => _playStartupAnimation(), _delay);
                 }
                 scaleCanvas(frame.width, frame.height);
                 drawVectorOverlay();
@@ -9048,6 +9046,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Quantitative MRI',
                 desc: 'fit and visualise parameter maps',
                 glyph: 'qM',
+                keyHint: 'q',
                 command: 'qmri.cycle',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
@@ -9057,6 +9056,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Segmentations',
                 desc: 'interactive AI-assisted masking',
                 glyph: 'SG',
+                keyHint: 's',
                 command: 'segmentation.cycle',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive && !qmriActive),
                 isActive: () => _segMode,
@@ -9066,6 +9066,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Region-of-Interest Analysis',
                 desc: 'draw regions and measure statistics',
                 glyph: '[]',
+                keyHint: 'r',
                 command: 'roi.cycleMode',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
                 isActive: () => rectRoiMode,
@@ -11872,8 +11873,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
             { key: 'Enter', command: 'slice.jumpCommit' },
-            // Order matters: seg.exit (when segMode) takes precedence over slice.cancelJump
-            { key: 'Escape', command: 'seg.exit' },
+            // Order matters: plugin.exit (any plugin) > seg.exit (segMode) > slice.cancelJump
+            { key: 'Escape', command: 'plugin.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
         ];
@@ -12027,7 +12028,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'ROI — Region of Interest',
                         subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
                         entries: [
-                            { key: '/', action: 'Enter / exit ROI mode', hint: 'open plugin shelf, then click ROI' },
+                            { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open shelf, then r' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Drag', action: 'Draw ROI region' },
                             { key: 'Right-click', action: 'Delete ROI under cursor' },
@@ -12045,7 +12046,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'Segmentation',
                         subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
                         entries: [
-                            { key: '/', action: 'Enter / exit segmentation mode', hint: 'open plugin shelf, then click Segment' },
+                            { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open shelf, then s' },
                             { key: 'Click', action: 'Add region (positive prompt)' },
                             { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -12083,7 +12084,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/', action: 'Enter / exit qMRI mode', hint: 'open plugin shelf, then click qMRI' },
+                            { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open shelf, then q' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
