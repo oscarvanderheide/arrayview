@@ -745,6 +745,12 @@
         #dynamic-island .island-title { font-weight: 600; flex-shrink: 0; }
         #dynamic-island .island-title-roi { color: #e8e8e8; }
         #dynamic-island .island-title-seg { color: #e8e8e8; }
+        #dynamic-island .island-title-qmri { color: #7ec8e3; }
+        #dynamic-island .island-cb-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; }
+        #dynamic-island .island-cb-row input[type="checkbox"] { accent-color: #7ec8e3; cursor: pointer; }
+        #dynamic-island .island-cb-row.disabled { opacity: 0.35; cursor: not-allowed; }
+        #dynamic-island .island-cb-row.disabled input { cursor: not-allowed; }
+        #dynamic-island .island-cb-label { font-size: 10px; color: #ccc; user-select: none; }
         #dynamic-island .island-dot { color: #333; flex-shrink: 0; }
         #dynamic-island .island-shapes { display: flex; align-items: center; gap: 5px; flex: 1; }
         #dynamic-island .island-shapes svg { cursor: pointer; transition: opacity 0.15s; }
@@ -2134,7 +2140,7 @@
         let qmriDim = -1;
         let qmriViews = [];
         let _hoveredQmriView = null; // which qmriViews[] entry the mouse is over (null = none)
-        let qmriCompact = false; // false = full view (all maps), true = compact (T₁, T₂, |PD| only)
+        let _qmriVisibleMaps = null; // null = show all; array of visible map indices (at least 1 must remain)
         let qmriMosaicActive = false;  // true when Z mosaic is active in qMRI mode
         let _qmriMosaicZDim = -1;      // which dimension is z in qMRI mosaic
         const MIN_MOSAIC_TILE_PX = 40; // min tile width before switching to overflow/pan
@@ -7699,9 +7705,36 @@
             const el = document.getElementById('dynamic-island');
             if (!el) return;
 
-            const active = rectRoiMode ? 'roi' : _segMode ? 'seg' : null;
+            const active = rectRoiMode ? 'roi' : _segMode ? 'seg' : qmriActive ? 'qmri' : null;
             if (!active) {
                 el.classList.remove('visible');
+                return;
+            }
+
+            // qMRI island: checkboxes to toggle visible parameter maps
+            if (active === 'qmri') {
+                const n = shape[qmriDim];
+                const allCmaps = QMRI_COLORMAPS[n];
+                const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
+                let html = `<div class="island-header">`;
+                html += `<div class="island-drag-handle"><span></span><span></span><span></span></div>`;
+                html += `<span class="island-title island-title-qmri">qMRI maps</span>`;
+                html += `</div>`;
+                html += `<div class="island-rows">`;
+                for (let i = 0; i < allCmaps.length; i++) {
+                    const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
+                    const isVisible = visibleSet.has(i);
+                    const isOnly = visibleSet.size === 1 && isVisible;
+                    const disabledClass = isOnly ? ' disabled' : '';
+                    html += `<div class="island-cb-row${disabledClass}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">`;
+                    html += `<input type="checkbox" ${isVisible ? 'checked' : ''} ${isOnly ? 'disabled' : ''} onchange="event.stopPropagation();_islandToggleQmriMap(${i})" onclick="event.stopPropagation()">`;
+                    html += `<span class="island-cb-label">${label}</span>`;
+                    html += `</div>`;
+                }
+                html += `</div>`;
+                el.innerHTML = html;
+                el.classList.add('visible');
+                _positionIsland();
                 return;
             }
 
@@ -7812,6 +7845,26 @@
             input.addEventListener('keyup', e => e.stopPropagation());
         }
         window._islandEditSegName = _islandEditSegName;
+
+        function _islandToggleQmriMap(idx) {
+            if (!qmriActive) return;
+            const n = shape[qmriDim];
+            const allIndices = Array.from({length: n}, (_, i) => i);
+            if (_qmriVisibleMaps === null) _qmriVisibleMaps = [...allIndices];
+            const pos = _qmriVisibleMaps.indexOf(idx);
+            if (pos >= 0) {
+                if (_qmriVisibleMaps.length <= 1) return; // keep at least one
+                _qmriVisibleMaps.splice(pos, 1);
+            } else {
+                _qmriVisibleMaps.push(idx);
+                _qmriVisibleMaps.sort((a, b) => a - b);
+            }
+            const savedMaps = [..._qmriVisibleMaps];
+            exitQmri(); // resets _qmriVisibleMaps to null
+            _qmriVisibleMaps = savedMaps; // restore before re-entering
+            enterQmri();
+        }
+        window._islandToggleQmriMap = _islandToggleQmriMap;
 
         /* Build a slash with a bottom-to-top gradient fill indicating scroll progress.
            fillColor = bright color for the filled portion, mutedColor for unfilled. */
@@ -8995,7 +9048,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Quantitative MRI',
                 desc: 'fit and visualise parameter maps',
                 glyph: 'qM',
-                keyHint: 'q',
                 command: 'qmri.cycle',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
@@ -9005,7 +9057,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Segmentations',
                 desc: 'interactive AI-assisted masking',
                 glyph: 'SG',
-                keyHint: 's',
                 command: 'segmentation.cycle',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive && !qmriActive),
                 isActive: () => _segMode,
@@ -9015,7 +9066,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 label: 'Region-of-Interest Analysis',
                 desc: 'draw regions and measure statistics',
                 glyph: '[]',
-                keyHint: 'r',
                 command: 'roi.cycleMode',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
                 isActive: () => rectRoiMode,
@@ -10318,10 +10368,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'roi.cycleMode': {
-                title: 'Cycle ROI shape',
+                title: 'Toggle ROI mode',
                 when: [],
                 run: (ctx, e) => {
-                    // Toggle/cycle ROI mode: off → rect → circle → freehand → floodfill → off
                     if (compareActive || multiViewActive || qmriActive) {
                         showStatus('ROI mode: not available in this mode'); return;
                     }
@@ -10332,21 +10381,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                     if (!rectRoiMode) {
                         rectRoiMode = true; _roiShape = 'rect';
-                    } else if (_roiShape === 'rect') {
-                        _roiShape = 'circle';
-                    } else if (_roiShape === 'circle') {
-                        _roiShape = 'freehand';
-                    } else if (_roiShape === 'freehand') {
-                        _roiShape = 'floodfill';
+                        canvas.style.cursor = 'crosshair';
+                        showStatus('ROI mode: rect · drag to draw');
                     } else {
                         rectRoiMode = false; _roiShape = 'rect';
                         _rois = []; _roiFreehandPts = [];
                         _floodFillTolerance = 0.1;
                         _clearRoiOverlay();
+                        canvas.style.cursor = '';
+                        showStatus('ROI mode: off');
                     }
-                    canvas.style.cursor = rectRoiMode ? 'crosshair' : 'crosshair';
-                    const modeHint = _roiShape === 'floodfill' ? 'click seed pixel · [ ] tolerance' : 'drag to draw';
-                    showStatus(rectRoiMode ? `ROI mode: ${_roiShape} · R to cycle · ${modeHint}` : 'ROI mode: off');
                     renderEggs();
                 },
             },
@@ -10827,20 +10871,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'segmentation.cycle': {
-                title: 'Cycle nnInteractive segmentation',
+                title: 'Toggle segmentation mode',
                 when: [],
                 run: (ctx, e) => {
-                    // Toggle/cycle nnInteractive segmentation mode
                     if (_segMode) {
-                        const idx = _SEG_METHODS.indexOf(_segMethod);
-                        const next = (idx + 1) % (_SEG_METHODS.length + 1);
-                        if (next >= _SEG_METHODS.length) {
-                            _segDeactivate();
-                        } else {
-                            _segMethod = _SEG_METHODS[next];
-                            _segShowMethodStatus();
-                            renderEggs();
-                        }
+                        _segDeactivate();
                     } else {
                         // Deactivate ROI if active — modes are mutually exclusive
                         if (rectRoiMode) {
@@ -11477,33 +11512,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'qmri.cycle': {
-                title: 'Enter / cycle / exit qMRI mode',
+                title: 'Enter / exit qMRI mode',
                 when: [],
                 run: (ctx, e) => {
                     crossfade(() => {
                         if (compareQmriActive) {
-                            const n = shape[compareQmriDim];
-                            if (n > 3 && !qmriCompact) {
-                                qmriCompact = true;
-                                exitCompareQmri();
-                                enterCompareQmri();
-                            } else {
-                                exitCompareQmri();
-                            }
+                            exitCompareQmri();
                         } else if (compareActive) {
-                            qmriCompact = false;
+                            _qmriVisibleMaps = null;
                             enterCompareQmri();
                         } else if (qmriActive) {
-                            const n = shape[qmriDim];
-                            if (n > 3 && !qmriCompact) {
-                                qmriCompact = true;
-                                exitQmri();
-                                enterQmri();
-                            } else {
-                                exitQmri();
-                            }
+                            exitQmri();
                         } else {
-                            qmriCompact = false;
+                            _qmriVisibleMaps = null;
                             enterQmri();
                         }
                     });
@@ -11790,7 +11811,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '=', command: 'zoom.in' },
             { key: '-', command: 'zoom.out' },
             { key: '0', command: 'zoom.reset' },
-            { key: 'R', command: 'roi.cycleMode' },
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
@@ -11816,7 +11836,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'screenshot.save' },
-            { key: 'S', command: 'segmentation.cycle' },
             { key: 'N', command: 'slice.exportNpy' },
             { key: 'g', command: 'gif.save' },
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
@@ -11843,7 +11862,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'v', command: 'multiview.toggle' },
             { key: 'V', command: 'multiview.togglePrompt' },
             { key: 'o', command: 'view.resetOrigin' },
-            { key: 'q', command: 'qmri.cycle' },
             { key: '1', command: 'slice.bufferDigit' },
             { key: '2', command: 'slice.bufferDigit' },
             { key: '3', command: 'slice.bufferDigit' },
@@ -12009,8 +12027,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'ROI — Region of Interest',
                         subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
                         entries: [
-                            { key: 'R', action: 'Toggle ROI mode' },
-                            { key: 'r', action: 'Cycle shape', hint: 'rectangle → circle → freehand → flood fill' },
+                            { key: '/', action: 'Enter / exit ROI mode', hint: 'open plugin shelf, then click ROI' },
+                            { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Drag', action: 'Draw ROI region' },
                             { key: 'Right-click', action: 'Delete ROI under cursor' },
                             { key: 'Esc', action: 'Clear all and exit' },
@@ -12027,7 +12045,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'Segmentation',
                         subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
                         entries: [
-                            { key: 'S', action: 'Toggle segmentation mode' },
+                            { key: '/', action: 'Enter / exit segmentation mode', hint: 'open plugin shelf, then click Segment' },
                             { key: 'Click', action: 'Add region (positive prompt)' },
                             { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -12065,7 +12083,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Controls',
                         entries: [
-                            { key: 'q', action: 'Enter / cycle / exit qMRI mode', hint: 'steps through available parameter types' },
+                            { key: '/', action: 'Enter / exit qMRI mode', hint: 'open plugin shelf, then click qMRI' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
@@ -12079,10 +12097,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: 'q', action: 'Enter / exit qMRI mode', hint: 'cycles through available qMRI dimensions' },
                             { key: '/', action: 'Exit qMRI mode', hint: 'return to normal viewing' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
+                        ]
+                    },
+                    {
+                        title: 'Map visibility',
+                        entries: [
+                            { key: 'Floating panel', action: 'Toggle which parameter maps are visible', hint: 'at least one map must remain visible' },
                         ]
                     },
                     {
@@ -12103,7 +12126,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Controls',
                         entries: [
-                            { key: 'S', action: 'Enter / cycle segmentation mode', hint: 'positive click → negative click → exit' },
                             { key: '/', action: 'Exit segmentation mode' },
                             { key: 'Escape', action: 'Exit segmentation mode' },
                             { key: 'Click', action: 'Place seed point' },
@@ -12126,9 +12148,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Drawing',
                         entries: [
-                            { key: 'R', action: 'Enter / cycle ROI shape', hint: 'rectangle → ellipse → freehand' },
                             { key: '/', action: 'Exit ROI mode' },
                             { key: 'Drag', action: 'Draw ROI on canvas' },
+                            { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Click ROI', action: 'Select an existing ROI' },
                             { key: 'Delete / Backspace', action: 'Delete selected ROI' },
                         ]
@@ -14370,13 +14392,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qmriActive = true;
             qmriDim = activeDim;
             
-            // Determine which maps to show based on compact mode
+            // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
-            // Compact mode: show only T₁, T₂, |PD|
-            // Indices: T₁=0, T₂=1, |PD| varies by n (n=3→2, n=4→2, n=5→3, n=6→4)
-            const pdIndex = n === 3 ? 2 : (n === 4 ? 2 : (n === 5 ? 3 : 4));
-            const compactIndices = [0, 1, pdIndex];
-            const mapIndices = (qmriCompact && n > 3) ? compactIndices : Array.from({length: n}, (_, i) => i);
+            const allIndices = Array.from({length: n}, (_, i) => i);
+            const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
 
@@ -14541,9 +14560,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             renderInfo();
             if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
-            const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
-            const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
-            showStatus(`qMRI mode${modeText} — press q to ${instruction}`, 3000);
+            showStatus(`qMRI mode — / to exit · use the panel to show/hide maps`, 3000);
+            renderIsland();
             // Phase 8: sync modeManager
             {
                 const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
@@ -14566,6 +14584,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function exitQmri() {
+            _qmriVisibleMaps = null;
             qmriActive = false;
             qmriDim = -1;
             qmriMosaicActive = false;
@@ -14582,6 +14601,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileUI();
             renderInfo();
             showStatus('qMRI mode: off');
+            renderIsland();
             // Phase 8: restore modeManager to normal
             try {
                 const _sess = { sid: sid, ndim: shape.length, isComplex: isComplex };
@@ -14609,9 +14629,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
-            const pdIndex = n === 3 ? 2 : (n === 4 ? 2 : (n === 5 ? 3 : 4));
-            const compactIndices = [0, 1, pdIndex];
-            const mapIndices = (qmriCompact && n > 3) ? compactIndices : Array.from({length: n}, (_, i) => i);
+            const allIndices = Array.from({length: n}, (_, i) => i);
+            const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
 
@@ -14760,9 +14779,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             renderInfo();
             _reconcileUI();
-            const modeText = qmriCompact && n > 3 ? ' (compact)' : '';
-            const instruction = n > 3 ? (qmriCompact ? 'exit' : 'compact / exit') : 'exit';
-            showStatus(`compare qMRI${modeText} — ${compareQmriSids.length} arrays × ${nMaps} maps — q to ${instruction}`, 3000);
+            showStatus(`compare qMRI — ${compareQmriSids.length} arrays × ${nMaps} maps — / to exit`, 3000);
             // Phase 10: sync modeManager
             {
                 const _session = { sid: sid, ndim: shape.length, shape: shape, isComplex: isComplex };
@@ -14972,6 +14989,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function compareQmriOnMessage(v, event) {
+            if (typeof event.data === 'string') return;
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
@@ -15450,6 +15468,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function compareMvOnMessage(v, event) {
+            if (typeof event.data === 'string') return;
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
@@ -15836,6 +15855,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function qvOnMessage(v, event) {
+            // Skip text messages (e.g. metadata JSON push on new WS connections)
+            if (typeof event.data === 'string') return;
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
@@ -16341,6 +16362,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function mvOnMessage(v, event) {
+            // Skip text messages (e.g. metadata JSON push on new WS connections)
+            if (typeof event.data === 'string') return;
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];

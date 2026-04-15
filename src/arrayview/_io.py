@@ -191,6 +191,14 @@ def load_data_with_meta(filepath):
 
 def load_data(filepath):
     if filepath.endswith(".npy"):
+        # Eager-load small-to-medium files into RAM.  mmap_mode="r" on a C-order
+        # 4D+ array forces scattered page faults for every orthogonal slice
+        # (elements are thousands of bytes apart), making first renders very slow.
+        # Sequential read is much faster and the PENDING_SESSIONS background thread
+        # hides the upfront cost.  Keep mmap only for files that don't fit in RAM.
+        _NPY_EAGER_LIMIT = int(os.environ.get("AV_NPY_EAGER_BYTES", 2 * 1024**3))
+        if os.path.getsize(filepath) < _NPY_EAGER_LIMIT:
+            return np.load(filepath)
         return np.load(filepath, mmap_mode="r")
     elif filepath.endswith(".npz"):
         npz = np.load(filepath)

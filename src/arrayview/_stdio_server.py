@@ -1056,12 +1056,16 @@ def run_stdio_server() -> None:
         msg_type = msg.get("type", "slice")
 
         if msg_type == "slice":
-            # Coalesce: peek for newer messages without blocking.  Stale
-            # slices get a minimal skip frame.  Non-slice requests are
-            # queued and processed AFTER the slice to preserve FIFO order
-            # (the extension matches responses to callbacks by position).
-            latest_slice = msg
-            deferred = []  # non-slice requests to process after the slice
+            # Coalesce: peek for newer messages without blocking.  Non-slice
+            # requests are queued and processed AFTER slices to preserve FIFO
+            # order (the extension matches responses to callbacks by position).
+            #
+            # Pane-aware coalescing: for the SAME (dim_x, dim_y) pane, only the
+            # latest request matters — earlier ones get a skip frame.  For
+            # DIFFERENT panes (multiview/qMRI), every pane must be rendered.
+            # All responses are emitted in arrival order to maintain FIFO.
+            pending_slices = [msg]
+            deferred = []
             while True:
                 next_raw = _try_read_line()
                 if next_raw is None:
@@ -1071,16 +1075,27 @@ def run_stdio_server() -> None:
                     continue
                 next_type = next_msg.get("type", "slice")
                 if next_type == "slice":
-                    _write_skip_response(latest_slice)
-                    latest_slice = next_msg
+                    pending_slices.append(next_msg)
                 else:
                     deferred.append((next_type, next_msg))
 
-            try:
-                _handle_slice(latest_slice)
-            except Exception as e:
-                traceback.print_exc(file=sys.stderr)
-                _write_error(str(e))
+            # Find the latest arrival index for each pane
+            latest_for_pane: dict = {}
+            for i, s in enumerate(pending_slices):
+                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                latest_for_pane[pane_key] = i
+
+            # Process in arrival order: skip stale same-pane dups, render the rest
+            for i, s in enumerate(pending_slices):
+                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                if latest_for_pane[pane_key] != i:
+                    _write_skip_response(s)
+                else:
+                    try:
+                        _handle_slice(s)
+                    except Exception as e:
+                        traceback.print_exc(file=sys.stderr)
+                        _write_error(str(e))
 
             for def_type, def_msg in deferred:
                 try:

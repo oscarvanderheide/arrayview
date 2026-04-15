@@ -120,9 +120,10 @@ def extract_slice(session, dim_x, dim_y, idx_list):
     # slicer below, so the extracted data doesn't depend on them.
     key_idx = tuple(None if i in (dim_x, dim_y) else idx_list[i] for i in range(len(idx_list)))
     key = (dim_x, dim_y, key_idx)
-    if key in session.raw_cache:
-        session.raw_cache.move_to_end(key)
-        return session.raw_cache[key]
+    with session._raw_lock:
+        if key in session.raw_cache:
+            session.raw_cache.move_to_end(key)
+            return session.raw_cache[key]
 
     slicer = [
         slice(None) if i in (dim_x, dim_y) else idx_list[i]
@@ -139,11 +140,13 @@ def extract_slice(session, dim_x, dim_y, idx_list):
     else:
         result = np.nan_to_num(extracted).astype(np.float32)
 
-    session.raw_cache[key] = result
-    session._raw_bytes += result.nbytes
-    while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
-        _, v = session.raw_cache.popitem(last=False)
-        session._raw_bytes -= v.nbytes
+    with session._raw_lock:
+        if key not in session.raw_cache:  # double-check: another worker may have populated it
+            session.raw_cache[key] = result
+            session._raw_bytes += result.nbytes
+            while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
+                _, v = session.raw_cache.popitem(last=False)
+                session._raw_bytes -= v.nbytes
     return result
 
 
@@ -168,9 +171,10 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
         for i in range(len(idx_list))
     )
     key = ("proj", dim_x, dim_y, key_idx, proj_dim, proj_mode)
-    if key in session.raw_cache:
-        session.raw_cache.move_to_end(key)
-        return session.raw_cache[key]
+    with session._raw_lock:
+        if key in session.raw_cache:
+            session.raw_cache.move_to_end(key)
+            return session.raw_cache[key]
 
     # Build slicer: display dims + projection dim get slice(None), rest use idx
     slicer = []
@@ -210,11 +214,13 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
         result = np.nan_to_num(result).astype(np.complex64)
     else:
         result = np.nan_to_num(result).astype(np.float32)
-    session.raw_cache[key] = result
-    session._raw_bytes += result.nbytes
-    while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
-        _, v = session.raw_cache.popitem(last=False)
-        session._raw_bytes -= v.nbytes
+    with session._raw_lock:
+        if key not in session.raw_cache:
+            session.raw_cache[key] = result
+            session._raw_bytes += result.nbytes
+            while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
+                _, v = session.raw_cache.popitem(last=False)
+                session._raw_bytes -= v.nbytes
     return result
 
 
@@ -346,9 +352,10 @@ def render_rgb_rgba(session, dim_x: int, dim_y: int, idx_list: list) -> np.ndarr
     ndim_actual = len(session.shape)
 
     cache_key = ("rgb", dim_x, dim_y, tuple(idx_list))
-    if cache_key in session.rgba_cache:
-        session.rgba_cache.move_to_end(cache_key)
-        return session.rgba_cache[cache_key]
+    with session._rgba_lock:
+        if cache_key in session.rgba_cache:
+            session.rgba_cache.move_to_end(cache_key)
+            return session.rgba_cache[cache_key]
 
     if rgb_axis == 0:
         actual_dim_x = dim_x + 1
@@ -392,11 +399,13 @@ def render_rgb_rgba(session, dim_x: int, dim_y: int, idx_list: list) -> np.ndarr
     rgba[:, :, :3] = arr[:, :, :3]
     rgba[:, :, 3] = arr[:, :, 3] if c == 4 else np.uint8(255)
 
-    session.rgba_cache[cache_key] = rgba
-    session._rgba_bytes += rgba.nbytes
-    while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
-        _, v = session.rgba_cache.popitem(last=False)
-        session._rgba_bytes -= v.nbytes
+    with session._rgba_lock:
+        if cache_key not in session.rgba_cache:
+            session.rgba_cache[cache_key] = rgba
+            session._rgba_bytes += rgba.nbytes
+            while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
+                _, v = session.rgba_cache.popitem(last=False)
+                session._rgba_bytes -= v.nbytes
 
     return rgba
 
@@ -425,9 +434,10 @@ def render_rgba(
             log_scale,
             getattr(session, "alpha_level", 0),
         )
-        if key in session.rgba_cache:
-            session.rgba_cache.move_to_end(key)
-            return session.rgba_cache[key]
+        with session._rgba_lock:
+            if key in session.rgba_cache:
+                session.rgba_cache.move_to_end(key)
+                return session.rgba_cache[key]
     raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
     rgba = apply_colormap_rgba(
         session,
@@ -440,11 +450,13 @@ def render_rgba(
         vmax_override=vmax_override,
     )
     if not has_override:
-        session.rgba_cache[key] = rgba
-        session._rgba_bytes += rgba.nbytes
-        while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
-            _, v = session.rgba_cache.popitem(last=False)
-            session._rgba_bytes -= v.nbytes
+        with session._rgba_lock:
+            if key not in session.rgba_cache:
+                session.rgba_cache[key] = rgba
+                session._rgba_bytes += rgba.nbytes
+                while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
+                    _, v = session.rgba_cache.popitem(last=False)
+                    session._rgba_bytes -= v.nbytes
     return rgba
 
 
@@ -678,9 +690,10 @@ def render_mosaic(
     idx_norm = list(idx_tuple)
     idx_norm[dim_z] = 0
     key = (dim_x, dim_y, dim_z, tuple(idx_norm), colormap, dr, complex_mode, log_scale, mosaic_cols, vmin_override, vmax_override)
-    if key in session.mosaic_cache:
-        session.mosaic_cache.move_to_end(key)
-        return session.mosaic_cache[key]
+    with session._mosaic_lock:
+        if key in session.mosaic_cache:
+            session.mosaic_cache.move_to_end(key)
+            return session.mosaic_cache[key]
 
     n = session.shape[dim_z]
     frames_raw = [
@@ -731,11 +744,13 @@ def render_mosaic(
     lut = LUTS.get(colormap, LUTS["gray"])
     rgba = lut[(normalized * 255).astype(np.uint8)]
     rgba[nan_mask] = [22, 22, 22, 255]
-    session.mosaic_cache[key] = rgba
-    session._mosaic_bytes += rgba.nbytes
-    while session._mosaic_bytes > session.MOSAIC_CACHE_BYTES and session.mosaic_cache:
-        _, v = session.mosaic_cache.popitem(last=False)
-        session._mosaic_bytes -= v.nbytes
+    with session._mosaic_lock:
+        if key not in session.mosaic_cache:
+            session.mosaic_cache[key] = rgba
+            session._mosaic_bytes += rgba.nbytes
+            while session._mosaic_bytes > session.MOSAIC_CACHE_BYTES and session.mosaic_cache:
+                _, v = session.mosaic_cache.popitem(last=False)
+                session._mosaic_bytes -= v.nbytes
     return rgba
 
 

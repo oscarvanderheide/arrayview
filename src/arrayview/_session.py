@@ -33,11 +33,15 @@ _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
 
 # ---------------------------------------------------------------------------
-# Render thread — bypasses concurrent.futures so it is unaffected by
+# Render thread pool — bypasses concurrent.futures so it is unaffected by
 # Python's interpreter-shutdown executor cleanup (_global_shutdown flag).
+# Multiple workers drain the same SimpleQueue so multi-pane modes (qMRI,
+# ortho) render panes in parallel instead of serially.
 # ---------------------------------------------------------------------------
 _RENDER_QUEUE: "_queue.SimpleQueue[tuple | None]" = _queue.SimpleQueue()
-_RENDER_THREAD: threading.Thread | None = None
+_RENDER_THREADS: list[threading.Thread] = []
+# 2–4 workers: enough to fill qMRI's max 6 panes without over-subscribing.
+_RENDER_WORKERS: int = max(2, min(4, os.cpu_count() or 2))
 
 
 def _render_worker() -> None:
@@ -54,13 +58,16 @@ def _render_worker() -> None:
 
 
 def _ensure_render_thread() -> None:
-    global _RENDER_THREAD
-    if _RENDER_THREAD is not None and _RENDER_THREAD.is_alive():
-        return
-    _RENDER_THREAD = threading.Thread(
-        target=_render_worker, daemon=True, name="arrayview-render"
-    )
-    _RENDER_THREAD.start()
+    global _RENDER_THREADS
+    _RENDER_THREADS = [t for t in _RENDER_THREADS if t.is_alive()]
+    while len(_RENDER_THREADS) < _RENDER_WORKERS:
+        t = threading.Thread(
+            target=_render_worker,
+            daemon=True,
+            name=f"arrayview-render-{len(_RENDER_THREADS)}",
+        )
+        t.start()
+        _RENDER_THREADS.append(t)
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +158,10 @@ class Session:
         self.raw_cache = OrderedDict()
         self.rgba_cache = OrderedDict()
         self.mosaic_cache = OrderedDict()
+        # Per-cache locks: protect OrderedDict from concurrent render workers.
+        self._raw_lock = threading.Lock()
+        self._rgba_lock = threading.Lock()
+        self._mosaic_lock = threading.Lock()
 
         # Phase 5: adaptive budgets from module-level computed constants.
         # These default to a fraction of total RAM; override via env vars.
@@ -190,10 +201,15 @@ class Session:
         Does NOT touch the RAS-resample toggle — that's independent state,
         managed exclusively by the /resample_ras endpoint.
         """
-        self.raw_cache.clear()
-        self.rgba_cache.clear()
-        self.mosaic_cache.clear()
-        self._raw_bytes = self._rgba_bytes = self._mosaic_bytes = 0
+        with self._raw_lock:
+            self.raw_cache.clear()
+            self._raw_bytes = 0
+        with self._rgba_lock:
+            self.rgba_cache.clear()
+            self._rgba_bytes = 0
+        with self._mosaic_lock:
+            self.mosaic_cache.clear()
+            self._mosaic_bytes = 0
 
     def _estimate_memory(self):
         """Estimate memory footprint in bytes (array data + cache budgets)."""
@@ -408,9 +424,10 @@ __all__ = [
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",
-    # Render thread
+    # Render thread pool
     "_RENDER_QUEUE",
-    "_RENDER_THREAD",
+    "_RENDER_THREADS",
+    "_RENDER_WORKERS",
     "_render_worker",
     "_ensure_render_thread",
     "_render",
