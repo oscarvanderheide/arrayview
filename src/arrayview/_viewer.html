@@ -1991,9 +1991,13 @@
         let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
+        let _scrubState = null;
         let _scrubDetached = false;   // true while pinch scrub has chrome detached (frozen fixed positions)
         let _scrubFrozenPt = 0;       // wrapper paddingTop captured at scrub start
         let _scrubFrozenReserve = 0;  // uiReserveV() value captured at scrub start (before any crossfadeP changes)
+        let _scrubFrozenVpTop = 0;
+        let _scrubTitleRect = null;
+        let _scrubInfoRect = null;
         let immersiveTl = null; // GSAP timeline that fully drives the immersive crossfade
 
         // ── Startup loading handoff ────────────────────────────────────────
@@ -2096,7 +2100,8 @@
             });
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
-        let _immTargetZoom = 1.0; // cached zoom target at start of transition (_calcAutoFitZoom(..., true) * 1.005)
+        let _immTargetZoom = 1.0; // cached zoom target at start of transition
+        let _pendingImmersiveTargetZoom = null; // one-shot override consumed by _buildImmersiveTl()
         let _fitZoom = 1.0; // zoom level computed by auto-fit (may be > 1.0)
         let _normalFitZoom = 1.0; // zoom floor: fit level in normal (non-immersive) layout
         let _zoomAdjustedByUser = false;
@@ -2666,8 +2671,8 @@
             if (_crossfadeP > 0) {
                 // Use the value captured at scrub start so DOM re-measurement
                 // of the fixed-positioned #info can't drift during the scrub.
-                const base = (_scrubDetached && _scrubFrozenReserve > 0)
-                    ? _scrubFrozenReserve
+                const base = (_scrubDetached && _scrubState && _scrubState.frozenReserve > 0)
+                    ? _scrubState.frozenReserve
                     : Math.max(130, h);
                 return base * (1 - _crossfadeP);
             }
@@ -2678,15 +2683,25 @@
             // Center content in the viewport-minus-bottom-reserve zone so the
             // fixed-position colorbar + eggs always have room below the canvas.
             const wrapper = document.getElementById('wrapper');
+            const viewerRow = document.getElementById('viewer-row');
 
             // During pinch scrub, chrome is detached from flow. Drive paddingTop
             // from the frozen pre-scrub value toward 0 in sync with the canvas
             // growth, then bail — no childrenH recalculation while scrubbing.
-            if (_scrubDetached) {
-                const pt = Math.max(0, Math.round(_scrubFrozenPt * (1 - _crossfadeCollapseP)));
+            if (_scrubDetached && _scrubState) {
+                const pt = Math.max(0, Math.round(_scrubState.frozenVpTop * (1 - _crossfadeP)));
                 wrapper.style.paddingTop = pt + 'px';
+                if (viewerRow) {
+                    const rowPad = Math.max(0, Math.round(8 * (1 - _crossfadeP)));
+                    viewerRow.style.paddingTop = rowPad + 'px';
+                    viewerRow.style.paddingBottom = rowPad + 'px';
+                }
                 wrapper.style.justifyContent = 'flex-start';
                 return;
+            }
+            if (viewerRow) {
+                viewerRow.style.removeProperty('padding-top');
+                viewerRow.style.removeProperty('padding-bottom');
             }
 
             let childrenH = 0;
@@ -2765,7 +2780,7 @@
                 _fitZoom = userZoom;
                 if (!_fullscreenActive) _normalFitZoom = userZoom;
                 _zoomRendered = userZoom;
-            } else if (allowOverflowRecalc && !_zoomAdjustedByUser && !_fullscreenActive) {
+            } else if (allowOverflowRecalc && !_zoomAdjustedByUser && !_fullscreenActive && !(_scrubDetached && _scrubState)) {
                 const projW = Math.round(w * baseScale * userZoom);
                 const projH = Math.round(h * baseScale * userZoom);
                 if (projW > maxW + 2 || projH > maxH + 2) {
@@ -2836,20 +2851,80 @@
             return { capped, atMax };
         }
 
+        function _calcSinglePaneViewportRect(w, h, zoom, immersive) {
+            if (!w || !h) return null;
+            const immersivePad = 12;
+            const sidePad = immersive ? immersivePad * 2 : 80;
+            const bottomReserve = immersive ? 0 : 80;
+            const uiReserve = immersive ? 0 : uiReserveV();
+            const maxW = Math.max(100, window.innerWidth - sidePad);
+            const maxH = Math.max(50, window.innerHeight - uiReserve - bottomReserve - (immersive ? immersivePad * 2 : 0));
+            const baseScale = immersive
+                ? Math.min(Math.max(100, window.innerWidth - 80) / w,
+                           Math.max(100, window.innerHeight) / h) * 0.80
+                : getBaseScale(w, h);
+            const finalScale = Math.max(0.0001, baseScale * Math.max(zoom, 0.0001));
+            let cssW = Math.round(w * finalScale);
+            let cssH = Math.round(h * finalScale);
+            if (squareStretch) {
+                const sq = Math.max(cssW, cssH);
+                cssW = sq;
+                cssH = sq;
+            }
+            let vpW = Math.min(cssW, Math.round(maxW));
+            let vpH = Math.min(cssH, Math.round(maxH));
+            if (cssH > vpH + 2) vpW = Math.min(vpW, Math.round(vpH * cssW / cssH));
+            if (cssW > vpW + 2) vpH = Math.min(vpH, Math.round(vpW * cssH / cssW));
+            return {
+                top: Math.round((window.innerHeight - vpH) / 2),
+                left: Math.round((window.innerWidth - vpW) / 2),
+                width: vpW,
+                height: vpH,
+            };
+        }
+
+        function _currentScrubViewportRect() {
+            if (!(_scrubDetached && _scrubState && _scrubState.normalVpRect && _scrubState.immersiveVpRect)) return null;
+            if (compareActive || multiViewActive || qmriActive || compareQmriActive || compareMvActive) return null;
+            const zoomP = (_immTargetZoom > _normalFitZoom)
+                ? (userZoom - _normalFitZoom) / (_immTargetZoom - _normalFitZoom)
+                : _crossfadeP;
+            const p = Math.max(0, Math.min(1, Number.isFinite(zoomP) ? zoomP : _crossfadeP));
+            const nr = _scrubState.normalVpRect;
+            const ir = _scrubState.immersiveVpRect;
+            return {
+                top: nr.top + (ir.top - nr.top) * p,
+                left: nr.left + (ir.left - nr.left) * p,
+                width: nr.width + (ir.width - nr.width) * p,
+                height: nr.height + (ir.height - nr.height) * p,
+            };
+        }
+
+        function _clearScrubViewportStyles() {
+            const vp = document.getElementById('canvas-viewport');
+            if (!vp) return;
+            vp.style.removeProperty('position');
+            vp.style.removeProperty('top');
+            vp.style.removeProperty('left');
+            vp.style.removeProperty('z-index');
+        }
+
         function scaleCanvas(w, h) {
             const immersivePad = 12;
             const cP = _crossfadeCollapseP;
             const bottomReserve = _fullscreenActive ? 0 : 80 * (1 - cP);
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
             const sidePad = _fullscreenActive ? immersivePad * 2 : (80 * (1 - cP) + immersivePad * 2 * cP);
-            const maxW = Math.max(100, window.innerWidth - sidePad);
-            const maxH = Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - immPadV);
+            const scrubVpRect = _currentScrubViewportRect();
+            const maxW = scrubVpRect ? Math.max(50, scrubVpRect.width) : Math.max(100, window.innerWidth - sidePad);
+            const maxH = scrubVpRect ? Math.max(50, scrubVpRect.height) : Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - immPadV);
             // In welcome mode cap canvas to ~50% of viewport height
             const welcomeCapH = _isWelcomeScreen ? Math.floor(window.innerHeight * 0.50) : maxH;
             const effectiveMaxH = Math.min(maxH, welcomeCapH);
+            const vpEl = document.getElementById('canvas-viewport');
             _scalePane(
                 { canvas: canvas, w: w, h: h, pan: mainPan },
-                document.getElementById('canvas-viewport'),
+                vpEl,
                 {
                     maxW: maxW,
                     maxH: effectiveMaxH,
@@ -2857,8 +2932,19 @@
                     squareStretch: squareStretch,
                     updateAutoFit: true,
                     allowOverflowRecalc: true,
+                    forceViewport: scrubVpRect ? { w: Math.round(scrubVpRect.width), h: Math.round(scrubVpRect.height) } : null,
                 }
             );
+            if (scrubVpRect && vpEl) {
+                vpEl.style.position = 'fixed';
+                vpEl.style.top = Math.round(scrubVpRect.top) + 'px';
+                vpEl.style.left = Math.round(scrubVpRect.left) + 'px';
+                vpEl.style.width = Math.round(scrubVpRect.width) + 'px';
+                vpEl.style.height = Math.round(scrubVpRect.height) + 'px';
+                vpEl.style.zIndex = '1';
+            } else {
+                _clearScrubViewportStyles();
+            }
             if (hasVectorfield) drawVectorOverlay();
             // fixWrapperAlignment must run before drawSlimColorbar so the canvas
             // is in its final viewport position before we anchor the fixed colorbar.
@@ -3826,7 +3912,7 @@
 
         function drawSlimColorbar(markerFrac) {
             // During scrub, colorbar is fading out in place — don't reposition it.
-            if (_scrubDetached) return;
+            if (_scrubDetached && _scrubState) return;
             // Per-pane colorbars must update even when shared cb is hidden
             if (compareActive) drawAllComparePaneCbs();
             if (!_sharedCbVisible) return;
@@ -5571,7 +5657,7 @@
                 // Reuse the existing #canvas and #canvas-wrap for back-compat with
                 // all legacy DOM queries.
                 const view = views[0];
-                const existing = document.getElementById('canvas');
+                const existing = document.getElementById('viewer');
                 if (existing && existing.tagName === 'CANVAS') {
                     view.canvas = existing;
                     view.wrapper = existing.closest('#canvas-wrap') || existing.parentElement;
@@ -10248,8 +10334,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _shouldEnterImmersive()) {
                         const w = lastImgW || canvas.width;
                         const h = lastImgH || canvas.height;
-                        // 0.5% past immFit: chrome fully faded in, <1px overflow
-                        _immTargetZoom = _calcAutoFitZoom(w, h, true) * 1.005;
+                        // Land one CSS pixel inside immersive fit so the first
+                        // '=' commits fullscreen without immediately showing the
+                        // minimap. The next '=' press creates true overflow.
+                        _immTargetZoom = _calcKeyboardImmersiveLandingZoom(w, h);
+                        _pendingImmersiveTargetZoom = _immTargetZoom;
                         userZoom = _immTargetZoom;
                         _zoomAdjustedByUser = true;
                         _driveImmersive(1, 0.75);
@@ -10271,12 +10360,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (_fullscreenActive) {
-                        const w = lastImgW || canvas.width;
-                        const h = lastImgH || canvas.height;
-                        const immFit = _calcAutoFitZoom(w, h, true);
-                        const immTarget = immFit * 1.005; // matches zoom.in landing
+                        const immTarget = (Number.isFinite(_immTargetZoom) && _immTargetZoom > 0)
+                            ? _immTargetZoom
+                            : _normalFitZoom;
                         const newZoom = userZoom / 1.1;
-                        if (newZoom > immFit) {
+                        if (newZoom > immTarget) {
                             // Still in overflow — zoom out 10%, snap to immTarget if close
                             userZoom = Math.max(newZoom, immTarget);
                             _zoomAdjustedByUser = true;
@@ -16703,6 +16791,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _scrubRequestedZoom = null;
                         immersiveTl.progress(rawP);
                         if (rawP >= 1) {
+                            ModeRegistry.scaleAll();
                             _settleImmersive();
                         } else if (rawP <= 0) {
                             // Fully pinched back out — kill timeline and restore chrome.
@@ -16711,8 +16800,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             _resetImmersiveTransforms(); // clears _scrubDetached, restores #info
                             _crossfadeCollapseP = 0;
                             _crossfadeP = 0;
+                            ModeRegistry.scaleAll();
+                            saveState();
+                            return;
                         }
-                        ModeRegistry.scaleAll();
+                        if (rawP < 1) ModeRegistry.scaleAll();
                         saveState();
                         return;
                     }
@@ -17020,6 +17112,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return Math.max(1.0, capScale / baseScale);
         }
 
+        function _calcKeyboardImmersiveLandingZoom(w, h) {
+            if (!w || !h) return 1;
+            const immersivePad = 12;
+            const maxW = Math.max(100, window.innerWidth - immersivePad * 2);
+            const maxH = Math.max(50, window.innerHeight - immersivePad * 2);
+            const baseScale = Math.min(Math.max(100, window.innerWidth - 80) / w,
+                                       Math.max(100, window.innerHeight) / h) * 0.80;
+            const safeCapScale = Math.min((maxW - 1) / w, (maxH - 1) / h);
+            return Math.max(1.0, safeCapScale / baseScale);
+        }
+
         function _shouldEnterImmersive() {
             // Only enter immersive when height is the binding constraint —
             // i.e. the vertical space limits fit-zoom more than horizontal.
@@ -17098,6 +17201,70 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             };
         }
 
+        function _captureScrubChromeRects() {
+            const { title, info } = _immersiveTargets();
+            _scrubTitleRect = title ? title.getBoundingClientRect() : null;
+            _scrubInfoRect = info ? info.getBoundingClientRect() : null;
+            if (_scrubState) {
+                _scrubState.titleRect = _scrubTitleRect;
+                _scrubState.infoRect = _scrubInfoRect;
+            }
+        }
+
+        function _clearScrubChromeStyles() {
+            const { title, info } = _immersiveTargets();
+            if (title) {
+                title.style.removeProperty('position');
+                title.style.removeProperty('top');
+                title.style.removeProperty('left');
+                title.style.removeProperty('width');
+                title.style.removeProperty('z-index');
+                title.style.removeProperty('box-sizing');
+                title.style.removeProperty('margin');
+                title.style.removeProperty('transform');
+                title.style.removeProperty('visibility');
+            }
+            if (info) {
+                info.style.removeProperty('position');
+                info.style.removeProperty('top');
+                info.style.removeProperty('left');
+                info.style.removeProperty('width');
+                info.style.removeProperty('z-index');
+                info.style.removeProperty('box-sizing');
+                info.style.removeProperty('margin');
+                info.style.removeProperty('transform');
+                info.style.removeProperty('visibility');
+            }
+        }
+
+        function _pinScrubChrome() {
+            const { title, info } = _immersiveTargets();
+            const titleRect = _scrubState ? _scrubState.titleRect : _scrubTitleRect;
+            const infoRect = _scrubState ? _scrubState.infoRect : _scrubInfoRect;
+            if (title && titleRect) {
+                title.style.position = 'fixed';
+                title.style.top = titleRect.top + 'px';
+                title.style.left = titleRect.left + 'px';
+                title.style.width = titleRect.width + 'px';
+                title.style.zIndex = '3';
+                title.style.boxSizing = 'border-box';
+                title.style.margin = '0';
+                title.style.transform = 'none';
+                title.style.visibility = 'visible';
+            }
+            if (info && infoRect) {
+                info.style.position = 'fixed';
+                info.style.top = infoRect.top + 'px';
+                info.style.left = infoRect.left + 'px';
+                info.style.width = infoRect.width + 'px';
+                info.style.zIndex = '3';
+                info.style.boxSizing = 'border-box';
+                info.style.margin = '0';
+                info.style.transform = 'none';
+                info.style.visibility = 'visible';
+            }
+        }
+
         function _resetImmersiveTransforms() {
             // Wipe any GSAP-animated channels on the chrome so the next
             // rebuild measures true normal-flow positions. All three
@@ -17112,6 +17279,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (!el) return;
                 el.style.removeProperty('--fly-y');
                 el.style.removeProperty('opacity');
+                el.style.removeProperty('z-index');
                 el.style.removeProperty('height');
                 el.style.removeProperty('min-height');
                 el.style.removeProperty('margin-top');
@@ -17120,17 +17288,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 el.style.removeProperty('padding-bottom');
                 el.style.removeProperty('overflow');
             });
-            // Clear detach-style inline properties from #info only — _buildImmersiveTl sets these
-            // on #info to freeze it in position. #slim-cb-wrap uses drawSlimColorbar-set top/left
-            // that must stay pinned until _scrubDetached clears; removing them causes a visible jump.
-            if (t.info) {
-                t.info.style.removeProperty('position');
-                t.info.style.removeProperty('top');
-                t.info.style.removeProperty('left');
-                t.info.style.removeProperty('width');
-                t.info.style.removeProperty('margin');
+            _clearScrubChromeStyles();
+            const viewerRow = document.getElementById('viewer-row');
+            if (viewerRow) {
+                viewerRow.style.removeProperty('padding-top');
+                viewerRow.style.removeProperty('padding-bottom');
             }
+            _clearScrubViewportStyles();
             _scrubDetached = false;
+            _scrubState = null;
             if (typeof gsap !== 'undefined') {
                 const selectors = ['.compare-title', '.compare-pane-cb-island', '#mv-cb-wrap', '.qv-cb-island', '#mini-map', '#compare-center-island'];
                 selectors.forEach(sel => {
@@ -17148,27 +17314,47 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // ── Detach chrome from flow so it can't influence layout during scrub ──
             // Snapshot positions AFTER reset so we measure natural CSS dimensions.
             const wrapper = document.getElementById('wrapper');
+            const vp = compareActive ? document.getElementById('compare-view-wrap')
+                : multiViewActive ? document.getElementById('mv-panes')
+                : qmriActive ? document.getElementById('qmri-view-wrap')
+                : document.getElementById('canvas-viewport');
+            const normalVpRect = vp ? vp.getBoundingClientRect() : null;
+            const _w = lastImgW || canvas.width;
+            const _h = lastImgH || canvas.height;
+            const pendingImmTargetZoom = _pendingImmersiveTargetZoom;
+            _pendingImmersiveTargetZoom = null;
+            if (_w && _h) {
+                const defaultImmTargetZoom = _calcAutoFitZoom(_w, _h, true) * 1.005;
+                _immTargetZoom = (Number.isFinite(pendingImmTargetZoom) && pendingImmTargetZoom > 0)
+                    ? pendingImmTargetZoom
+                    : defaultImmTargetZoom;
+            }
+            const immersiveVpRect = (!compareActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive && _w && _h)
+                ? _calcSinglePaneViewportRect(_w, _h, _immTargetZoom, true)
+                : normalVpRect ? {
+                    top: 12,
+                    left: 12,
+                    width: Math.max(50, window.innerWidth - 24),
+                    height: Math.max(50, window.innerHeight - 24),
+                } : null;
             _scrubFrozenPt = parseFloat(wrapper.style.paddingTop) || 14;
             _scrubFrozenReserve = uiReserveV(); // capture before _crossfadeP changes
-            const infoDetach = document.getElementById('info');
-            if (infoDetach) {
-                const r = infoDetach.getBoundingClientRect();
-                infoDetach.style.position = 'fixed';
-                infoDetach.style.top = r.top + 'px';
-                infoDetach.style.left = r.left + 'px';
-                infoDetach.style.width = r.width + 'px';
-                infoDetach.style.margin = '0';
-            }
+            _scrubFrozenVpTop = vp ? vp.getBoundingClientRect().top : _scrubFrozenPt;
+            _scrubState = {
+                frozenPt: _scrubFrozenPt,
+                frozenReserve: _scrubFrozenReserve,
+                frozenVpTop: _scrubFrozenVpTop,
+                titleRect: null,
+                infoRect: null,
+                normalVpRect,
+                immersiveVpRect,
+            };
+            _captureScrubChromeRects();
+            _pinScrubChrome();
             _scrubDetached = true;
 
             const { title: titleEl, info: infoEl, cb: cbWrap } = _immersiveTargets();
-
-            // Cache immersive zoom target once per build.
-            const _w = lastImgW || canvas.width;
-            const _h = lastImgH || canvas.height;
-            if (_w && _h) {
-                _immTargetZoom = _calcAutoFitZoom(_w, _h, true) * 1.005;
-            }
+            if (cbWrap) cbWrap.style.zIndex = '0';
 
             const collapseProxy = { v: 0 };
             const progressProxy = { v: 0 };
@@ -17217,35 +17403,77 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return tl;
         }
 
+        function _setImmersiveOverlayHold(els, hidden) {
+            els.filter(Boolean).forEach(el => {
+                if (hidden) {
+                    if (!Object.prototype.hasOwnProperty.call(el.dataset, 'avOverlayDisplay')) {
+                        el.dataset.avOverlayDisplay = el.style.display || '';
+                    }
+                    el.style.opacity = '0';
+                    el.style.visibility = 'hidden';
+                    el.style.display = 'none';
+                } else {
+                    if (Object.prototype.hasOwnProperty.call(el.dataset, 'avOverlayDisplay')) {
+                        const prevDisplay = el.dataset.avOverlayDisplay;
+                        if (prevDisplay) el.style.display = prevDisplay;
+                        else el.style.removeProperty('display');
+                        delete el.dataset.avOverlayDisplay;
+                    } else {
+                        el.style.removeProperty('display');
+                    }
+                    el.style.visibility = 'visible';
+                    el.style.opacity = '0';
+                }
+            });
+        }
+
         function _settleImmersive() {
             // Called when transition commits to fully immersive (progress = 1.0).
             // Handles class switch + 150ms overlay fade-in.
             if (_fullscreenActive) return; // already settled
-            _scrubDetached = false; // chrome is now officially at overlay positions
             if (_startupAnimTl) { _startupAnimTl.kill(); _startupAnimTl = null; }
-            _fullscreenActive = true;
-            document.body.classList.add('fullscreen-mode');
             const { info: infoEl, cb: cbWrap } = _immersiveTargets();
-            try { _positionFullscreenChrome(); } catch (_) {}
-            try { _reconcileCbVisibility({ animPhase: 'enter-2' }); } catch (_) {}
-            if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
-                const centerIsland = document.getElementById('compare-center-island');
-                if (centerIsland) {
-                    const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
-                    try { centerIsland.innerHTML = _centerModeIndicatorHTML(mode); } catch (_) {}
-                }
-            }
-            // 150ms fade-in for overlay elements (dimbar, colorbar, minimap, center island).
             const overlayEls = [
                 infoEl,
                 cbWrap,
                 document.getElementById('mini-map'),
                 document.getElementById('compare-center-island'),
             ].filter(Boolean);
-            if (typeof gsap !== 'undefined' && overlayEls.length) {
-                gsap.fromTo(overlayEls, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: 'power1.out', overwrite: 'auto' });
-            }
+            overlayEls.forEach(el => {
+                if (typeof gsap !== 'undefined') gsap.killTweensOf(el, 'opacity');
+            });
+            if (cbWrap) cbWrap.style.removeProperty('z-index');
+            _setImmersiveOverlayHold(overlayEls, true);
+            _clearScrubChromeStyles();
+            _scrubDetached = false; // chrome is now officially at overlay positions
+            _clearScrubViewportStyles();
+            _fullscreenActive = true;
+            document.body.classList.add('fullscreen-mode');
             try { ModeRegistry.scaleAll(); } catch (_) {}
+            _setImmersiveOverlayHold(overlayEls, true);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (!_fullscreenActive) return;
+                    _setImmersiveOverlayHold(overlayEls, false);
+                    try { _positionFullscreenChrome(); } catch (_) {}
+                    try { _reconcileCbVisibility({ animPhase: 'enter-2' }); } catch (_) {}
+                    if (compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive)) {
+                        const centerIsland = document.getElementById('compare-center-island');
+                        if (centerIsland) {
+                            const mode = diffMode > 0 ? diffMode : (_wipeActive ? 5 : (_flickerActive ? 6 : (_checkerActive ? 7 : 4)));
+                            try { centerIsland.innerHTML = _centerModeIndicatorHTML(mode); } catch (_) {}
+                        }
+                    }
+                    if (typeof gsap !== 'undefined' && overlayEls.length) {
+                        gsap.to(overlayEls, { opacity: 1, duration: 0.15, ease: 'power1.out', overwrite: 'auto' });
+                    } else {
+                        overlayEls.forEach(el => {
+                            el.style.opacity = '1';
+                            el.style.visibility = 'visible';
+                        });
+                    }
+                });
+            });
         }
 
         function _exitImmersive() {
@@ -17259,29 +17487,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (typeof gsap !== 'undefined') {
                 [document.getElementById('info'), document.getElementById('slim-cb-wrap'),
                  document.getElementById('mini-map'), document.getElementById('compare-center-island')]
-                    .filter(Boolean).forEach(el => gsap.killTweensOf(el, 'opacity'));
+                    .filter(Boolean).forEach(el => {
+                        gsap.killTweensOf(el, 'opacity');
+                        gsap.set(el, { opacity: 0 });
+                    });
             }
             _fullscreenActive = false;
             document.body.classList.remove('fullscreen-mode');
             _infoDragPos = null; _cbDragPos = null; _islandDragPos = null;
+            _setImmersiveOverlayHold([
+                document.getElementById('info'),
+                document.getElementById('slim-cb-wrap'),
+                document.getElementById('mini-map'),
+                document.getElementById('compare-center-island'),
+            ], false);
             const wrap = document.getElementById('slim-cb-wrap');
             if (wrap) {
                 wrap.classList.remove('compact-overlay');
+                wrap.style.zIndex = '0';
+                wrap.style.left = '50%';
+                wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
                 wrap.style.top = '';
                 wrap.style.bottom = '';
                 wrap.style.right = '';
                 wrap.style.width = '';
             }
+            _clearScrubChromeStyles();
+            try { drawSlimColorbar(cbMarkerFrac); } catch (_) {}
+            _pinScrubChrome();
+            if (wrap) wrap.style.visibility = 'visible';
             const infoEl2 = document.getElementById('info');
-            if (infoEl2) {
-                // Clear overlay JS-set styles AND the detach styles set at scrub start.
-                infoEl2.style.top = '';
-                infoEl2.style.left = '';
-                infoEl2.style.transform = '';
-                infoEl2.style.position = '';
-                infoEl2.style.width = '';
-                infoEl2.style.margin = '';
-            }
+            if (infoEl2) infoEl2.style.visibility = 'visible';
             // Re-freeze the scrub so the reverse path has the same locked-chrome
             // behavior. _scrubFrozenPt and _scrubFrozenReserve still hold the
             // pre-scrub values from _buildImmersiveTl() — valid for reverse.
@@ -17441,6 +17677,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     infoEl.style.top = _infoDragPos.y + 'px';
                     infoEl.style.transform = 'none';
                 } else {
+                    infoEl.style.left = '50%';
+                    infoEl.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
                     let anchorTop = vpRect.top;
                     let anchorBottom = vpRect.bottom;
                     if (compareActive) {
@@ -17486,6 +17724,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cbWrap.style.bottom = 'auto';
                     cbWrap.style.transform = 'none';
                 } else {
+                    cbWrap.style.left = '50%';
+                    cbWrap.style.right = 'auto';
+                    cbWrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
                     cbWrap.style.top = '';
                     // In compare mode, anchor to actual canvas clip bottom, not the wrap
                     let anchorBottom = vpRect.bottom;
@@ -17765,6 +18006,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // the center-mode indicator island.
         function _reconcileCbVisibility(opts) {
             const animPhase = opts && opts.animPhase;
+            if (_scrubDetached && _scrubState && !animPhase) return;
             const isCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
 
             // 1. Shared colorbar
@@ -18209,7 +18451,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function updateMiniMap() {
             if (!_miniMap || !_miniMapCtx || !_miniMapCanvas) return;
-            const suppressDuringImmersive = !!(_immersiveDriveTween || (_crossfadeP > 0 && _crossfadeP < 1));
+            const suppressDuringImmersive = !!((_scrubDetached && _scrubState) || _immersiveDriveTween || (_crossfadeP > 0 && _crossfadeP < 1));
             if (suppressDuringImmersive) {
                 _miniMap.classList.remove('visible');
                 _clearPerPaneMinimaps();
@@ -18417,6 +18659,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _setupImmersiveDrag(el, getPos, setPos, defaultCalc) {
             let dragging = false, offX = 0, offY = 0;
             el.addEventListener('mousedown', e => {
+                if (_scrubDetached && _scrubState) return;
                 if (!document.body.classList.contains('fullscreen-mode')) return;
                 if (e.button !== 0 || !e.shiftKey) return;
                 dragging = true;

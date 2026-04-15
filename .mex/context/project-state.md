@@ -26,7 +26,7 @@ last_updated: 2026-04-15
 
 ## In Progress
 
-- Smooth immersive transition — dimbar scrub geometry is now preserved explicitly and cleared before immersive overlay positioning so settle/exit no longer reuse stale pixel `left/top` values; immersive overlay positioning now waits one animation frame after the class switch before fading back in; shared slim colorbar returns to its normal slot through `drawSlimColorbar()` on reverse instead of being pixel-pinned during scrub. Trackpad/pinch feel and cross-mode parity still need manual validation.
+- Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 
 ## Not Yet Built
 
