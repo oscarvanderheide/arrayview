@@ -531,6 +531,7 @@
         }
         .smode-tile {
             appearance: none;
+            position: relative;
             background: transparent;
             border: none;
             border-bottom: 1px solid var(--border-subtle);
@@ -548,6 +549,17 @@
             transform: translateY(6px);
             transition: opacity 140ms ease, transform 140ms ease;
         }
+        .smode-tile::before {
+            content: '';
+            position: absolute;
+            top: 2px; bottom: 2px; left: -10px; right: -10px;
+            border-radius: 8px;
+            background: transparent;
+            transition: background 120ms ease;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .smode-tile > * { position: relative; z-index: 1; }
         .smode-tile:last-child { border-bottom: none; }
         #special-modes-shelf.visible .smode-tile {
             opacity: 1;
@@ -558,22 +570,21 @@
         #special-modes-grid .smode-tile:nth-child(3) { transition-delay: 70ms; }
         .smode-tile:hover .smode-label,
         .smode-tile.nav .smode-label { color: var(--highlight); }
-        .smode-tile.nav {
+        .smode-tile.nav::before {
             background: rgba(245, 200, 66, 0.06);
-            box-shadow: inset 2px 0 0 var(--highlight);
         }
         .smode-tile.is-disabled,
         .smode-tile:disabled { cursor: default; opacity: 0.35; }
-        .smode-key {
-            flex-shrink: 0; width: 18px;
-            color: var(--help-key); font-weight: 600; font-size: 12px;
-        }
         .smode-body {
             flex: 1; min-width: 0;
         }
         .smode-label {
             display: block; font-size: 12.5px; color: var(--text);
         }
+        .smode-letter {
+            color: var(--help-key); font-weight: 600;
+        }
+        .smode-tile.is-incompatible .smode-letter { color: inherit; }
         .smode-desc {
             display: block; font-size: 11px; color: var(--muted); margin-top: 1px;
         }
@@ -9234,6 +9245,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _specialModesBuilt = false;
         let _specialModesNavIdx = 0;
         let _shelfSelection = new Set(); // multi-select: plugin IDs toggled in the shelf
+        let _shelfModified = false; // true once user has pressed space / a quick-key / clicked a tile
         const SPECIAL_MODE_TILES = [
             {
                 id: 'qmri',
@@ -12642,6 +12654,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _shelfToggle(index) {
             const tile = SPECIAL_MODE_TILES[index];
             if (!tile || !_specialModesTileEnabled(tile)) return;
+            _shelfModified = true;
             const id = tile.id;
             if (_shelfSelection.has(id)) {
                 _shelfSelection.delete(id);
@@ -12693,10 +12706,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 button.type = 'button';
                 button.className = 'smode-tile';
                 button.dataset.smodeId = tile.id;
+                const label = tile.label || '';
+                const key = (tile.keyHint || '').toLowerCase();
+                let labelHtml = label;
+                if (key.length === 1) {
+                    const matchIdx = label.toLowerCase().indexOf(key);
+                    if (matchIdx >= 0) {
+                        labelHtml = label.slice(0, matchIdx)
+                            + `<span class="smode-letter">[${label[matchIdx].toUpperCase()}]</span>`
+                            + label.slice(matchIdx + 1);
+                    }
+                }
                 button.innerHTML = `
-                    <span class="smode-key" aria-hidden="true">${tile.keyHint || ''}</span>
                     <span class="smode-body">
-                        <span class="smode-label">${tile.label}</span>
+                        <span class="smode-label">${labelHtml}</span>
                         ${tile.desc ? `<span class="smode-desc">${tile.desc}</span>` : ''}
                     </span>
                     <span class="smode-check"><svg viewBox="0 0 10 10" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,5.5 4.5,8 8,2.5"/></svg></span>`;
@@ -12714,7 +12737,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Footer with keyboard hints
             const footer = document.createElement('div');
             footer.id = 'special-modes-footer';
-            footer.innerHTML = `<span><kbd>q</kbd> <kbd>r</kbd> <kbd>s</kbd> toggle</span><span><kbd>\u23ce</kbd> apply</span>`;
+            footer.innerHTML = `<span><kbd>space</kbd> toggle</span><span><kbd>\u23ce</kbd> apply</span>`;
             grid.parentNode.appendChild(footer);
             _specialModesBuilt = true;
             _refreshSpecialModesShelf();
@@ -12824,10 +12847,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _shelfToggle(_specialModesNavIdx);
                 return true;
             }
-            // Enter applies the selection and closes the shelf
+            // Enter applies the selection and closes the shelf.
+            // If the user hasn't toggled anything yet, treat Enter as "pick the hovered item"
+            // so navigating + Enter switches to a single plugin without needing Space first.
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
+                if (!_shelfModified) {
+                    const hovered = SPECIAL_MODE_TILES[_specialModesNavIdx];
+                    if (hovered && _specialModesTileEnabled(hovered)) {
+                        _shelfSelection = new Set([hovered.id]);
+                    }
+                }
                 _applyShelfSelection();
                 return true;
             }
@@ -12857,6 +12888,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (const tile of SPECIAL_MODE_TILES) {
                 if (tile.isActive && tile.isActive()) _shelfSelection.add(tile.id);
             }
+            _shelfModified = false;
             specialModesOpen = true;
             document.getElementById('special-modes-shelf').classList.add('visible');
             _refreshSpecialModesShelf();
