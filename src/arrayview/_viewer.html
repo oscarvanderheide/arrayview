@@ -9974,6 +9974,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _drawAllQvRois(previewRoi) {
             if (!qmriActive || !qmriViews.length) return;
             for (const view of qmriViews) {
+                if (!view.roiOverlay && view._cvWrap) {
+                    const ov = document.createElement('canvas');
+                    ov.className = 'qv-roi-overlay';
+                    view._cvWrap.appendChild(ov);
+                    view.roiOverlay = ov;
+                    view.roiCtx = ov.getContext('2d');
+                }
                 const ov = view.roiOverlay;
                 const rctx = view.roiCtx;
                 if (!ov || !rctx) continue;
@@ -15139,10 +15146,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
-                    // ROI overlay canvas for this pane
-                    const roiOv = document.createElement('canvas');
-                    roiOv.className = 'qv-roi-overlay';
-                    cvWrap.appendChild(roiOv);
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
                     pane.appendChild(area);
@@ -15150,7 +15153,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
-                        roiOverlay: roiOv, roiCtx: roiOv.getContext('2d'),
+                        _cvWrap: cvWrap,
+                        roiOverlay: null, roiCtx: null,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
