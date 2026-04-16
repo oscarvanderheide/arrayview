@@ -741,7 +741,25 @@
         #dynamic-island .island-title { font-weight: 600; flex-shrink: 0; }
         #dynamic-island .island-title-roi { color: #e8e8e8; }
         #dynamic-island .island-title-seg { color: #e8e8e8; }
-        #dynamic-island .island-title-qmri { color: #7ec8e3; }
+        #dynamic-island .island-title-qmri { color: #f5c842; }
+        #dynamic-island .island-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+        #dynamic-island .island-pill {
+            font-size: 10px; font-family: var(--mono);
+            padding: 3px 10px; border-radius: 6px;
+            cursor: pointer; transition: all 0.15s ease;
+            border: 1px solid transparent; user-select: none;
+        }
+        #dynamic-island .island-pill.on {
+            background: rgba(255,255,255,0.10); color: var(--fg);
+            border-color: rgba(255,255,255,0.15);
+        }
+        #dynamic-island .island-pill.off {
+            background: transparent; color: #555;
+            border-color: rgba(255,255,255,0.04);
+        }
+        #dynamic-island .island-pill.off:hover { color: #888; border-color: rgba(255,255,255,0.10); }
+        #dynamic-island .island-pill.on:hover { background: rgba(255,255,255,0.14); }
+        #dynamic-island .island-pill.only { opacity: 0.6; cursor: not-allowed; }
         #dynamic-island .island-cb-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; }
         #dynamic-island .island-cb-row input[type="checkbox"] { accent-color: #7ec8e3; cursor: pointer; }
         #dynamic-island .island-cb-row.disabled { opacity: 0.35; cursor: not-allowed; }
@@ -2095,6 +2113,7 @@
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
         let rasResampleActive = false;
         let multiViewActive = false;
+        let _mvOrientationHidden = false; // backtick toggle — hides orientation cube
         let mipActive = false;
         let mvViews = [];
         let mvDims = [];
@@ -2185,6 +2204,8 @@
             lipari: 'T\u2081', navia: 'T\u2082', gray: '|PD|',
             twilight_shifted: '\u2220PD', viridis: 'B\u2081\u207A', RdBu_r: '\u0394B\u2080',
         };
+        // Maps hidden by default — auxiliary parameters that clutter the initial view
+        const QMRI_DEFAULT_HIDDEN = new Set(['viridis', 'RdBu_r', 'twilight_shifted']);
 
         // ── Mode Registry ────────────────────────────────────────────────
         const ModeRegistry = {
@@ -7737,24 +7758,21 @@
                 return;
             }
 
-            // qMRI island: checkboxes to toggle visible parameter maps
+            // qMRI island: pill toggles for visible parameter maps
             if (active === 'qmri') {
                 const n = shape[qmriDim];
                 const allCmaps = QMRI_COLORMAPS[n];
                 const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
                 let html = `<div class="island-header">`;
-                html += `<span class="island-title island-title-qmri">qMRI maps</span>`;
+                html += `<span class="island-title island-title-qmri">Multi-parametric qMRI</span>`;
                 html += `</div>`;
-                html += `<div class="island-rows">`;
+                html += `<div class="island-pills">`;
                 for (let i = 0; i < allCmaps.length; i++) {
                     const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
                     const isVisible = visibleSet.has(i);
                     const isOnly = visibleSet.size === 1 && isVisible;
-                    const disabledClass = isOnly ? ' disabled' : '';
-                    html += `<div class="island-cb-row${disabledClass}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">`;
-                    html += `<input type="checkbox" ${isVisible ? 'checked' : ''} ${isOnly ? 'disabled' : ''} onchange="event.stopPropagation();_islandToggleQmriMap(${i})" onclick="event.stopPropagation()">`;
-                    html += `<span class="island-cb-label">${label}</span>`;
-                    html += `</div>`;
+                    const cls = isVisible ? (isOnly ? 'on only' : 'on') : 'off';
+                    html += `<div class="island-pill ${cls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
                 }
                 html += `</div>`;
                 el.innerHTML = html;
@@ -7884,9 +7902,22 @@
                 _qmriVisibleMaps.sort((a, b) => a - b);
             }
             const savedMaps = [..._qmriVisibleMaps];
-            exitQmri(); // resets _qmriVisibleMaps to null
-            _qmriVisibleMaps = savedMaps; // restore before re-entering
-            enterQmri();
+            // Update pills immediately so user sees instant feedback
+            renderIsland();
+            // Fade out the qMRI grid, rebuild, then fade back in
+            const wrap = document.getElementById('qmri-view-wrap');
+            wrap.style.transition = 'opacity 0.12s ease';
+            wrap.style.opacity = '0';
+            setTimeout(() => {
+                exitQmri(); // resets _qmriVisibleMaps to null
+                _qmriVisibleMaps = savedMaps; // restore before re-entering
+                enterQmri();
+                requestAnimationFrame(() => {
+                    const w2 = document.getElementById('qmri-view-wrap');
+                    if (w2) { w2.style.opacity = '1'; }
+                    setTimeout(() => { if (w2) { w2.style.removeProperty('transition'); w2.style.removeProperty('opacity'); } }, 150);
+                });
+            }, 120);
         }
         window._islandToggleQmriMap = _islandToggleQmriMap;
 
@@ -11824,11 +11855,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'island.toggle': {
-                title: 'Toggle plugin panel visibility',
-                when: ['anyPluginActive'],
-                run: () => {
-                    _islandUserHidden = !_islandUserHidden;
-                    renderIsland();
+                title: 'Toggle floating panel visibility',
+                when: [],
+                run: (ctx) => {
+                    if (ctx.anyPluginActive) {
+                        _islandUserHidden = !_islandUserHidden;
+                        renderIsland();
+                    }
+                    if (ctx.multiViewActive) {
+                        _mvOrientationHidden = !_mvOrientationHidden;
+                        _reconcileUI();
+                    }
                 },
             },
             'palette.open': {
@@ -11932,6 +11969,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
                 anyPluginActive: (qmriActive || (typeof compareQmriActive !== 'undefined' && compareQmriActive) || rectRoiMode || (typeof _segMode !== 'undefined' && !!_segMode)),
+                multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive),
             };
         }
 
@@ -12029,6 +12067,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: 'v', action: 'Enter or exit ortho view' },
+                            { key: '`', action: 'Toggle orientation cube' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
@@ -13573,6 +13612,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             multiViewActive = true;
+            _mvOrientationHidden = false;
             document.getElementById('mini-map').classList.remove('visible');
             _mvPrevZoom = userZoom;
             _mvPrevSquareStretch = squareStretch;
@@ -14432,10 +14472,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _qmriPrevZoom = userZoom;  // save prior zoom so exitQmri can restore (mirrors enterMultiView)
             qmriActive = true;
             qmriDim = activeDim;
-            
+
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
             const allIndices = Array.from({length: n}, (_, i) => i);
+            if (_qmriVisibleMaps === null) {
+                const core = allIndices.filter(i => !QMRI_DEFAULT_HIDDEN.has(allCmaps[i]));
+                _qmriVisibleMaps = core.length > 0 ? core : null;
+            }
             const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
@@ -14667,10 +14711,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareQmriSids = [...cmpSids];
             compareQmriActive = true;
 
-
             // Determine which maps to show
             const allCmaps = QMRI_COLORMAPS[n];
             const allIndices = Array.from({length: n}, (_, i) => i);
+            if (_qmriVisibleMaps === null) {
+                const core = allIndices.filter(i => !QMRI_DEFAULT_HIDDEN.has(allCmaps[i]));
+                _qmriVisibleMaps = core.length > 0 ? core : null;
+            }
             const mapIndices = (_qmriVisibleMaps !== null) ? _qmriVisibleMaps : allIndices;
             const cmaps = mapIndices.map(i => allCmaps[i]);
             const nMaps = cmaps.length;
@@ -18010,7 +18057,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // 4. Multiview orientation indicator
             const mvOrientation = document.getElementById('mv-orientation');
-            if (mvOrientation) mvOrientation.style.display = (multiViewActive || compareMvActive) ? 'block' : 'none';
+            if (mvOrientation) mvOrientation.style.display = ((multiViewActive || compareMvActive) && !_mvOrientationHidden) ? 'block' : 'none';
 
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
