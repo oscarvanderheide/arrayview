@@ -1227,23 +1227,19 @@ class TestQmriMode:
         assert qmri_canvases >= 4, f"Expected ≥4 qMRI canvases, got {qmri_canvases}"
 
     def test_q_exits_qmri_mode(self, loaded_viewer, sid_4d):
-        """For arr_4d (5×20×32×32), qmriDim=0 has n=5 which is >3.
-        q key cycles: enter(full) → compact → exit. Needs 3 q presses to fully exit."""
+        """q key toggles qMRI mode: enter → exit."""
         page = loaded_viewer(sid_4d)
         _focus_kb(page)
-        page.keyboard.press("q")  # enter full qMRI view
+        page.keyboard.press("q")  # enter qMRI view
         page.wait_for_selector("#qmri-view-wrap canvas", timeout=5_000)
-        page.keyboard.press("q")  # n>3 and !compact → switch to compact mode
+        page.keyboard.press("q")  # exit qMRI
         page.wait_for_timeout(400)
-        page.keyboard.press("q")  # now compact → exit qMRI
-        page.wait_for_timeout(400)
-        # #qmri-view-wrap has CSS display:none by default; when active it's display:flex
         qmri_active = page.evaluate(
             "() => { const el = document.getElementById('qmri-view-wrap'); "
             "return el ? getComputedStyle(el).display !== 'none' : false; }"
         )
         assert not qmri_active, (
-            "qMRI view should be hidden after 3 q presses (enter→compact→exit)"
+            "qMRI view should be hidden after 2 q presses (enter→exit)"
         )
         assert page.is_visible("canvas#viewer"), (
             "Main canvas should be visible after exiting qMRI"

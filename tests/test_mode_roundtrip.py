@@ -79,32 +79,8 @@ def _enter_qmri(page):
 
 
 def _exit_qmri(page):
-    # qMRI compact cycle: q again takes full -> compact (if n>3) or exits.
-    # For 5-map array, pressing q again toggles compact; pressing a third time exits.
-    # To cleanly exit, keep pressing q up to 2 more times until qmriActive is false.
-    for _ in range(3):
-        active = page.evaluate("() => (typeof qmriActive !== 'undefined') && qmriActive")
-        if not active:
-            break
-        page.keyboard.press("q")
-        _wait(page, 350)
-
-
-# --- qmri_compact: enter qMRI, then press q once more to compact; exit the same way ---
-def _enter_qmri_compact(page):
     page.keyboard.press("q")
     _wait(page, 350)
-    page.keyboard.press("q")  # full -> compact
-    _wait(page, 350)
-
-
-def _exit_qmri_compact(page):
-    for _ in range(3):
-        active = page.evaluate("() => (typeof qmriActive !== 'undefined') && qmriActive")
-        if not active:
-            break
-        page.keyboard.press("q")
-        _wait(page, 350)
 
 
 # --- mip (multiview + p) ---
@@ -167,7 +143,6 @@ MODES = {
     "multiview":    {"enter": _enter_multiview,    "exit": _exit_multiview,    "arr": "3d"},
     "compare":      {"enter": _enter_compare,      "exit": _exit_compare,      "arr": "3d-compare"},
     "qmri":         {"enter": _enter_qmri,         "exit": _exit_qmri,         "arr": "4d"},
-    "qmri_compact": {"enter": _enter_qmri_compact, "exit": _exit_qmri_compact, "arr": "4d"},
     "mip":          {"enter": _enter_mip,          "exit": _exit_mip,          "arr": "3d"},
     "projection":   {"enter": _enter_projection,   "exit": _exit_projection,   "arr": "3d"},
     "mosaic":       {"enter": _enter_mosaic,       "exit": _exit_mosaic,       "arr": "4d"},
@@ -187,11 +162,8 @@ PERTURBATIONS = {
 # (mode, perturbation) -> reason. Skips document design intent, never bugs.
 INTENTIONALLY_NOOP = {
     ("qmri",         "cycle_colormap"):      "qMRI: colormaps fixed per parameter map",
-    ("qmri_compact", "cycle_colormap"):      "qMRI: colormaps fixed per parameter map",
     ("qmri",         "toggle_log"):          "qMRI: log scale not applicable to parameter maps",
-    ("qmri_compact", "toggle_log"):          "qMRI: log scale not applicable to parameter maps",
     ("qmri",         "cycle_dynamic_range"): "qMRI: dynamic range fixed per parameter map",
-    ("qmri_compact", "cycle_dynamic_range"): "qMRI: dynamic range fixed per parameter map",
 }
 
 

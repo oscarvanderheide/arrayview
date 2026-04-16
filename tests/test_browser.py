@@ -247,7 +247,7 @@ class TestKeyboard:
         page.wait_for_timeout(300)
         assert not page.is_visible("#help-overlay.visible")
 
-    def test_slash_opens_special_modes_shelf_and_enters_multiview(
+    def test_slash_opens_plugin_shelf(
         self, loaded_viewer, sid_3d
     ):
         page = loaded_viewer(sid_3d)
@@ -255,10 +255,13 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("/")
         page.wait_for_selector("#special-modes-shelf.visible", timeout=2_000)
-        assert page.locator("#special-modes-grid .smode-tile").count() == 8
-        page.click('button[data-smode-id="multiview"]')
-        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
-        assert not page.is_visible("#special-modes-shelf.visible")
+        assert page.locator("#special-modes-grid .smode-tile").count() == 3
+        # Close with Escape
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "() => !document.querySelector('#special-modes-shelf.visible')",
+            timeout=2_000,
+        )
 
     def test_help_overlay_tabs_switch_sections(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
