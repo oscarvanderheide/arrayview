@@ -218,7 +218,6 @@
             position: absolute; bottom: 0; left: 0; width: 100%;
             height: 0; overflow: visible; pointer-events: none; z-index: 1;
         }
-        .cb-tri-zone.expanded { /* triangles overlay on canvas — no height change */ }
         .cb-tooltip {
             position: absolute; top: 0; left: 0;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
@@ -230,7 +229,6 @@
         #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
-        #slim-cb-tri-zone.expanded { /* no height change — triangles overlay on canvas */ }
         .slim-cb-tri {
             display: none; /* replaced by solid handle lines on canvas */
             position: absolute; bottom: 0; width: 0; height: 0;
@@ -752,6 +750,64 @@
             .help-entry-key { width: 76px; }
             .help-entry-hint { margin-left: 76px; }
         }
+        #roi-stats-tooltip {
+            position: fixed; z-index: 20;
+            background: rgba(24,24,24,0.96);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 8px 10px;
+            font-family: var(--mono); font-size: 11px; color: #ddd;
+            pointer-events: none; opacity: 0;
+            transition: opacity 120ms ease;
+            white-space: nowrap;
+        }
+        #roi-stats-tooltip.visible { opacity: 1; }
+        #roi-stats-tooltip .rst-line { line-height: 1.5; }
+        #roi-stats-tooltip .rst-label { color: var(--help-key); margin-right: 6px; }
+        #roi-export-overlay {
+            display: none; position: fixed; inset: 0;
+            background: var(--overlay-bg);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 10; justify-content: center; align-items: center;
+        }
+        #roi-export-overlay.visible { display: flex; }
+        #roi-export-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+            padding: 20px 24px;
+            width: min(820px, 92vw);
+            max-height: 86vh;
+            display: flex; flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 15px; color: var(--text);
+        }
+        #roi-export-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 18px; padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        #roi-export-header .island-title { font-size: 16px; }
+        #roi-export-close { cursor: pointer; color: var(--muted); font-size: 18px; }
+        #roi-export-close:hover { color: var(--text); }
+        #roi-export-table-wrap { flex: 1; overflow: auto; margin-bottom: 18px; }
+        #roi-export-table {
+            width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px;
+        }
+        #roi-export-table th, #roi-export-table td {
+            padding: 8px 14px; text-align: left;
+            border-bottom: 1px solid var(--border-subtle); white-space: nowrap;
+        }
+        #roi-export-table th { color: var(--help-key); font-weight: 600; }
+        #roi-export-table tr:last-child td { border-bottom: none; }
+        #roi-export-footer { display: flex; justify-content: flex-end; }
+        #roi-export-download {
+            background: #f5c842; color: #111; border: none;
+            border-radius: 6px; padding: 8px 18px;
+            font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        #roi-export-download:hover { filter: brightness(1.1); }
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
@@ -762,17 +818,17 @@
             font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             display: flex; align-items: center; justify-content: center;
             user-select: none; transition: color 0.12s, border-color 0.12s;
-            z-index: 5;
+            z-index: 6;
         }
         #help-hint { right: 16px; }
         #island-hint { left: 16px; display: none; }
         #island-hint.visible { display: flex; }
         #help-hint:hover, #island-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
-            position: fixed; left: 16px; bottom: 44px;
+            position: fixed; left: 8px; bottom: 6px;
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border-radius: 14px; padding: 10px 12px;
+            border-radius: 14px; padding: 10px 12px 36px 40px;
             font-size: 11px; color: var(--text); font-family: var(--mono);
             display: none; z-index: 5; min-width: 200px;
             transition: height 0.3s ease, opacity 0.3s ease;
@@ -783,9 +839,16 @@
         #dynamic-island .island-header {
             display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
+        #dynamic-island .island-header-title { margin-bottom: 4px; }
+        #dynamic-island .island-toolbar {
+            display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+        }
+        #dynamic-island .island-toolbar .island-shapes { flex: 1; }
+        #dynamic-island .island-toolbar .island-download,
+        #dynamic-island .island-toolbar .island-modal-btn { margin-left: auto; }
         #dynamic-island .island-title { font-weight: 600; flex-shrink: 0; }
-        #dynamic-island .island-title-roi { color: #e8e8e8; }
-        #dynamic-island .island-title-seg { color: #e8e8e8; }
+        #dynamic-island .island-title-roi { color: #f5c842; }
+        #dynamic-island .island-title-seg { color: #f5c842; }
         #dynamic-island .island-title-qmri { color: #f5c842; }
         #dynamic-island .island-pills { display: flex; gap: 5px; flex-wrap: wrap; }
         #dynamic-island .island-pill {
@@ -811,14 +874,27 @@
         #dynamic-island .island-cb-row.disabled input { cursor: not-allowed; }
         #dynamic-island .island-cb-label { font-size: 10px; color: #ccc; user-select: none; }
         #dynamic-island .island-dot { color: #333; flex-shrink: 0; }
-        #dynamic-island .island-shapes { display: flex; align-items: center; gap: 5px; flex: 1; }
+        #dynamic-island .island-shapes { display: flex; align-items: center; gap: 8px; flex: 1; }
+        #dynamic-island .island-shapes > span {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 3px; border-radius: 4px; cursor: pointer;
+            transition: background 120ms ease;
+        }
+        #dynamic-island .island-shapes > span:hover { background: rgba(255,255,255,0.05); }
         #dynamic-island .island-shapes svg { cursor: pointer; transition: opacity 0.15s; }
         #dynamic-island .island-shapes svg:hover { opacity: 0.8 !important; }
         #dynamic-island .island-download {
             flex-shrink: 0; cursor: pointer; opacity: 0.4; transition: opacity 0.15s;
         }
         #dynamic-island .island-download:hover { opacity: 0.9; }
-        #dynamic-island .island-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 0; }
+        #dynamic-island .island-modal-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 3px; border-radius: 4px; flex-shrink: 0;
+            cursor: pointer; opacity: 0.5; color: #ccc;
+            transition: opacity 0.15s, background 120ms ease;
+        }
+        #dynamic-island .island-modal-btn:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+        #dynamic-island .island-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 14px 0; }
         #dynamic-island .island-qmri-stat {
             padding-left: 14px; gap: 6px; background: none; border: none;
         }
@@ -845,7 +921,7 @@
         #dynamic-island .island-name.editable { border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 1px; cursor: text; }
         #dynamic-island .island-name.default-name { font-style: italic; color: #999; }
         #dynamic-island .island-stats { color: #777; font-size: 9px; white-space: nowrap; }
-        #dynamic-island .island-delete { color: #444; font-size: 10px; cursor: pointer; flex-shrink: 0; line-height: 1; }
+        #dynamic-island .island-delete { color: #444; font-size: 16px; cursor: pointer; flex-shrink: 0; line-height: 1; padding: 0 4px; }
         #dynamic-island .island-delete:hover { color: #ff5050; }
         /* Light theme */
         :root.light #dynamic-island { background: rgba(245,245,245,0.95); border-color: rgba(0,0,0,0.1); }
@@ -1681,6 +1757,18 @@
             </div>
         </div>
     </div>
+    <div id="roi-export-overlay">
+        <div id="roi-export-box">
+            <div id="roi-export-header">
+                <span class="island-title island-title-roi">Region of interest &middot; export</span>
+                <span id="roi-export-close">&#x2715;</span>
+            </div>
+            <div id="roi-export-table-wrap"></div>
+            <div id="roi-export-footer">
+                <button id="roi-export-download">Download CSV</button>
+            </div>
+        </div>
+    </div>
 </div>
 <div id="special-modes-shelf">
     <div id="special-modes-sheet" role="dialog" aria-modal="true" aria-label="Special modes">
@@ -1987,22 +2075,24 @@
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let _islandUserHidden = false; // ~ toggle — hides island to hint circle while plugin stays active
+        let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
         const _ROI_SHAPE_ICONS = {
-            rect:      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
-            circle:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-            freehand:  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-            floodfill: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 3Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
+            rect:      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
+            circle:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
+            freehand:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            floodfill: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3 Q5 12 5 15.5 A7 7 0 0 0 19 15.5 Q19 12 12 3Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/></svg>',
         };
         const _SEG_METHOD_ICONS = {
-            click:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>',
-            circle:   '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
-            scribble: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
-            lasso:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            click:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>',
+            circle:   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"/></svg>',
+            scribble: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 18 Q8 6, 12 14 Q16 22, 20 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
+            lasso:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 16 Q4 8, 12 6 Q20 4, 18 14 Q16 20, 6 16 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>',
         };
         const _DOWNLOAD_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v7"/><path d="M4 7l3 3 3-3"/><path d="M2 11h10"/></svg>';
+        const _MAGNIFIER_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.9-4.9"/></svg>';
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
@@ -7731,9 +7821,9 @@
                 el.style.bottom = '';
                 el.style.transform = 'none';
             } else {
-                el.style.left = '16px';
+                el.style.left = '8px';
                 el.style.top = '';
-                el.style.bottom = '44px';
+                el.style.bottom = '6px';
                 el.style.transform = 'none';
             }
         }
@@ -7776,7 +7866,7 @@
 
         function _islandExport() {
             if (rectRoiMode) {
-                _exportRoisCsv();
+                openRoiExportOverlay();
             } else if (_segMode) {
                 proxyFetch(`/seg/export/${sid}`).then(r => r.blob()).then(blob => {
                     const a = document.createElement('a');
@@ -7788,6 +7878,188 @@
             }
         }
         window._islandExport = _islandExport;
+
+        // Shared formatting helper for ROI stats display (tooltip + export modal)
+        function _roiStatsFmt(v) {
+            if (v === null || v === undefined || Number.isNaN(v)) return '—';
+            const a = Math.abs(v);
+            if (a === 0) return '0';
+            if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
+            return parseFloat(v.toPrecision(4)).toString();
+        }
+
+        // ── Shared ROI row hover tooltip ──
+        let _roiRowTooltipEl = null;
+        function _getRoiRowTooltip() {
+            if (_roiRowTooltipEl && document.body.contains(_roiRowTooltipEl)) return _roiRowTooltipEl;
+            const t = document.createElement('div');
+            t.id = 'roi-stats-tooltip';
+            document.body.appendChild(t);
+            _roiRowTooltipEl = t;
+            return t;
+        }
+        function _hideRoiRowTooltip() {
+            const t = _roiRowTooltipEl;
+            if (!t) return;
+            t.classList.remove('visible');
+        }
+        function _buildRoiTooltipContent(i) {
+            const r = _rois[i];
+            if (!r) return '';
+            const fmt = _roiStatsFmt;
+            if (Array.isArray(r.qmriStats) && r.qmriStats.length) {
+                let h = '';
+                for (const q of r.qmriStats) {
+                    if (!q || !q.stats) continue;
+                    const label = QMRI_LABELS[q.colormap] || q.colormap || '';
+                    const s = q.stats;
+                    h += `<div class="rst-line"><span class="rst-label">${label}:</span>${fmt(s.mean)} \u00B1 ${fmt(s.std)} (${fmt(s.min)} \u2026 ${fmt(s.max)})</div>`;
+                }
+                return h;
+            }
+            if (r.stats) {
+                const s = r.stats;
+                let h = `<div class="rst-line">${fmt(s.mean)} \u00B1 ${fmt(s.std)} (${fmt(s.min)} \u2026 ${fmt(s.max)})</div>`;
+                if (s.n !== undefined && s.n !== null) h += `<div class="rst-line">n = ${s.n}</div>`;
+                return h;
+            }
+            return '';
+        }
+        function _positionRoiRowTooltip(e) {
+            const t = _roiRowTooltipEl;
+            if (!t) return;
+            const tw = t.offsetWidth || 0, th = t.offsetHeight || 0;
+            let left = e.clientX + 12, top = e.clientY + 12;
+            if (left + tw > window.innerWidth - 4) left = e.clientX - tw - 12;
+            if (top + th > window.innerHeight - 4) top = e.clientY - th - 12;
+            if (left < 4) left = 4;
+            if (top < 4) top = 4;
+            t.style.left = left + 'px';
+            t.style.top = top + 'px';
+        }
+        function _attachRoiRowTooltipHandlers() {
+            const rowsContainer = document.querySelector('#dynamic-island .island-rows');
+            if (!rowsContainer) return;
+            const rows = rowsContainer.querySelectorAll('.island-row');
+            rows.forEach(row => {
+                const nameSpan = row.querySelector('.island-name[data-roi-idx]');
+                if (!nameSpan) return;  // not a ROI row (seg rows use data-label)
+                const idx = parseInt(nameSpan.dataset.roiIdx);
+                row.dataset.roiIdx = String(idx);
+                row.addEventListener('mouseenter', e => {
+                    const content = _buildRoiTooltipContent(idx);
+                    if (!content) { _hideRoiRowTooltip(); return; }
+                    const t = _getRoiRowTooltip();
+                    t.innerHTML = content;
+                    _positionRoiRowTooltip(e);
+                    t.classList.add('visible');
+                });
+                row.addEventListener('mousemove', e => {
+                    if (!_roiRowTooltipEl || !_roiRowTooltipEl.classList.contains('visible')) return;
+                    _positionRoiRowTooltip(e);
+                });
+                row.addEventListener('mouseleave', () => {
+                    _hideRoiRowTooltip();
+                });
+            });
+        }
+
+        // ── ROI export modal ──
+        function _buildRoiExportTable() {
+            if (!_rois.length) {
+                return '<div style="color: var(--muted); text-align: center; padding: 24px 0;">No ROIs to export.</div>';
+            }
+            const fmt = _roiStatsFmt;
+            // Determine qMRI columns: union of colormaps seen across ROIs, preserving qmriIdx order
+            const qmriColKeys = [];
+            const seen = new Set();
+            for (const r of _rois) {
+                if (Array.isArray(r.qmriStats)) {
+                    const ordered = [...r.qmriStats].sort((a, b) => (a.qmriIdx ?? 0) - (b.qmriIdx ?? 0));
+                    for (const q of ordered) {
+                        if (!q || !q.colormap) continue;
+                        if (!seen.has(q.colormap)) { seen.add(q.colormap); qmriColKeys.push(q.colormap); }
+                    }
+                }
+            }
+            const isQmri = qmriColKeys.length > 0;
+            let head = '<tr>';
+            if (isQmri) {
+                head += '<th>name</th><th>n</th>';
+                for (const cm of qmriColKeys) {
+                    const lbl = QMRI_LABELS[cm] || cm;
+                    head += `<th>${lbl}</th>`;
+                }
+            } else {
+                head += '<th>name</th><th>n</th><th>mean</th><th>std</th><th>min</th><th>max</th>';
+            }
+            head += '</tr>';
+            let body = '';
+            for (let i = 0; i < _rois.length; i++) {
+                const r = _rois[i];
+                const name = _roiNames[i] !== undefined ? _roiNames[i] : `ROI ${i + 1}`;
+                body += '<tr>';
+                body += `<td>${name}</td>`;
+                if (isQmri) {
+                    const qmap = {};
+                    if (Array.isArray(r.qmriStats)) {
+                        for (const q of r.qmriStats) { if (q && q.colormap) qmap[q.colormap] = q.stats; }
+                    }
+                    const anyStats = r.stats || Object.values(qmap)[0];
+                    const n = anyStats && anyStats.n !== undefined ? anyStats.n : '';
+                    body += `<td>${n}</td>`;
+                    for (const cm of qmriColKeys) {
+                        const s = qmap[cm];
+                        if (s) {
+                            body += `<td>${fmt(s.mean)} ± ${fmt(s.std)}</td>`;
+                        } else {
+                            body += '<td>—</td>';
+                        }
+                    }
+                } else {
+                    const s = r.stats || {};
+                    const n = (s.n !== undefined && s.n !== null) ? s.n : '';
+                    body += `<td>${n}</td><td>${fmt(s.mean)}</td><td>${fmt(s.std)}</td><td>${fmt(s.min)}</td><td>${fmt(s.max)}</td>`;
+                }
+                body += '</tr>';
+            }
+            return `<table id="roi-export-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+        }
+
+        function openRoiExportOverlay() {
+            const ov = document.getElementById('roi-export-overlay');
+            const wrap = document.getElementById('roi-export-table-wrap');
+            if (!ov || !wrap) return;
+            wrap.innerHTML = _buildRoiExportTable();
+            ov.classList.add('visible');
+            const btn = document.getElementById('roi-export-download');
+            if (btn) btn.focus();
+        }
+        function closeRoiExportOverlay() {
+            const ov = document.getElementById('roi-export-overlay');
+            if (ov) ov.classList.remove('visible');
+        }
+        window.openRoiExportOverlay = openRoiExportOverlay;
+        window.closeRoiExportOverlay = closeRoiExportOverlay;
+        (function _wireRoiExportOverlay() {
+            const ov = document.getElementById('roi-export-overlay');
+            const closeBtn = document.getElementById('roi-export-close');
+            const dlBtn = document.getElementById('roi-export-download');
+            if (ov) {
+                ov.addEventListener('click', e => { if (e.target === ov) closeRoiExportOverlay(); });
+            }
+            if (closeBtn) closeBtn.addEventListener('click', closeRoiExportOverlay);
+            if (dlBtn) dlBtn.addEventListener('click', () => {
+                try { _exportRoisCsv(); } finally { closeRoiExportOverlay(); }
+            });
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && ov && ov.classList.contains('visible')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeRoiExportOverlay();
+                }
+            }, true);
+        })();
 
         function _islandMorph() {
             _islandUserHidden = false;
@@ -7823,7 +8095,6 @@
             const el = document.getElementById('dynamic-island');
             const hint = document.getElementById('island-hint');
             if (!el || !hint) return;
-            hint.classList.remove('visible');
             _islandUserHidden = false;
             renderIsland();
             el.style.transformOrigin = 'bottom left';
@@ -7862,14 +8133,15 @@
             if (!activePlugins.length) {
                 el.classList.remove('visible');
                 if (hint) hint.classList.remove('visible');
+                if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
+            if (hint) hint.classList.add('visible');
             if (_islandUserHidden) {
                 el.classList.remove('visible');
-                if (hint) hint.classList.add('visible');
+                if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
-            if (hint) hint.classList.remove('visible');
 
             let html = '';
             let sectionCount = 0;
@@ -7900,16 +8172,17 @@
             if (overlayPlugin) {
                 if (sectionCount > 0) html += '<div class="island-divider"></div>';
                 const isRoi = overlayPlugin === 'roi';
-                const title = isRoi ? 'ROI' : 'SEG';
+                const title = isRoi ? 'Region of interest' : 'Segmentation';
                 const accentColor = isRoi ? '#f0c674' : '#e87aaf';
                 const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
                 const currentShape = isRoi ? _roiShape : _segMethod;
                 const shapeKeys = Object.keys(shapes);
 
-                // Header: title + shape icons + download
-                html += `<div class="island-header">`;
+                // Header row 1: title only. Row 2: shape icons + trigger icon.
+                html += `<div class="island-header island-header-title">`;
                 html += `<span class="island-title island-title-${overlayPlugin}">${title}</span>`;
-                html += `<span class="island-dot">\u00b7</span>`;
+                html += `</div>`;
+                html += `<div class="island-toolbar">`;
                 html += `<div class="island-shapes">`;
                 for (const key of shapeKeys) {
                     const isActive = key === currentShape;
@@ -7918,7 +8191,11 @@
                     html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
                 }
                 html += `</div>`;
-                html += `<span class="island-download" onclick="_islandExport()">${_DOWNLOAD_ICON}</span>`;
+                if (isRoi) {
+                    html += `<span class="island-modal-btn" onclick="_islandExport()" title="Export table">${_MAGNIFIER_ICON}</span>`;
+                } else {
+                    html += `<span class="island-download" onclick="_islandExport()" title="Download .npy">${_DOWNLOAD_ICON}</span>`;
+                }
                 html += `</div>`;
 
                 // Rows
@@ -7935,40 +8212,23 @@
             el.innerHTML = html;
             el.classList.add('visible');
             _positionIsland();
+            _hideRoiRowTooltip();
+            _attachRoiRowTooltipHandlers();
         }
 
         function _renderRoiRows() {
-            const fmt = v => {
-                const a = Math.abs(v);
-                if (a === 0) return '0';
-                if (a >= 1e4 || (a < 1e-2 && a > 0)) return v.toExponential(3);
-                return parseFloat(v.toPrecision(4)).toString();
-            };
             let html = '';
             for (let i = 0; i < _rois.length; i++) {
-                const r = _rois[i];
                 const c = _roiColors[i % _roiColors.length];
                 const selected = i === 0 ? ' selected-roi' : '';
+                const userSet = _roiNames[i] !== undefined;
+                const name = userSet ? _roiNames[i] : `ROI ${i + 1}`;
+                const nameClass = userSet ? 'editable' : 'editable default-name';
                 html += `<div class="island-row${selected}">`;
                 html += `<div class="island-swatch" style="background:${c.stroke}"></div>`;
-                html += `<span class="island-name">ROI ${i + 1}</span>`;
-                if (qmriActive && r.qmriStats && r.qmriStats.length) {
-                    // No inline stats — show per-parameter sub-rows below
-                } else if (r.stats) {
-                    html += `<span class="island-stats">${fmt(r.stats.mean)} \u00b1 ${fmt(r.stats.std)}</span>`;
-                }
+                html += `<span class="island-name ${nameClass}" data-roi-idx="${i}" onclick="event.stopPropagation(); _islandEditRoiName(this)" title="Click to rename">${name}</span>`;
                 html += `<span class="island-delete" data-roi="${i}" onclick="_islandDeleteRoi(${i})" title="Delete ROI ${i + 1}">\u00d7</span>`;
                 html += `</div>`;
-                // Per-parameter sub-rows in qMRI mode
-                if (qmriActive && r.qmriStats && r.qmriStats.length) {
-                    for (const qs of r.qmriStats) {
-                        const label = QMRI_LABELS[qs.colormap] || qs.colormap;
-                        html += `<div class="island-row island-qmri-stat">`;
-                        html += `<span class="island-param-label">${label}</span>`;
-                        html += `<span class="island-stats">${fmt(qs.stats.mean)} \u00b1 ${fmt(qs.stats.std)}</span>`;
-                        html += `</div>`;
-                    }
-                }
             }
             return html;
         }
@@ -7986,7 +8246,7 @@
                 const selected = i === 0 ? ' selected-seg' : '';
                 html += `<div class="island-row${selected}">`;
                 html += `<div class="island-swatch" style="background:${l.color}"></div>`;
-                html += `<span class="island-name ${nameClass}" data-label="${l.label}" onclick="_islandEditSegName(this)" title="Click to rename">${name}</span>`;
+                html += `<span class="island-name ${nameClass}" data-label="${l.label}" onclick="event.stopPropagation(); _islandEditSegName(this)" title="Click to rename">${name}</span>`;
                 html += `<span class="island-delete" onclick="_islandDeleteSeg(${l.label})" title="Delete segment">\u00d7</span>`;
                 html += `</div>`;
             }
@@ -8018,6 +8278,37 @@
             input.addEventListener('keyup', e => e.stopPropagation());
         }
         window._islandEditSegName = _islandEditSegName;
+
+        function _islandEditRoiName(spanEl) {
+            const idx = parseInt(spanEl.dataset.roiIdx);
+            const current = spanEl.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = current;
+            input.style.cssText = 'background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.3);color:#ccc;font-size:10px;font-family:var(--mono);width:100%;outline:none;padding:0;';
+            spanEl.replaceWith(input);
+            input.focus();
+            input.select();
+            const commit = () => {
+                const val = input.value.trim();
+                const def = `ROI ${idx + 1}`;
+                if (val && val !== def) {
+                    _roiNames[idx] = val;
+                } else {
+                    delete _roiNames[idx];
+                }
+                renderIsland();
+            };
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                if (e.key === 'Escape') { input.blur(); }
+                e.stopPropagation();  // prevent viewer shortcuts while editing
+            });
+            input.addEventListener('keypress', e => e.stopPropagation());
+            input.addEventListener('keyup', e => e.stopPropagation());
+        }
+        window._islandEditRoiName = _islandEditRoiName;
 
         function _islandToggleQmriMap(idx) {
             if (!qmriActive) return;
@@ -10332,7 +10623,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-name.editable, .island-cb-row')) return;
+                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
@@ -17080,7 +17371,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
         document.getElementById('island-hint').addEventListener('click', () => {
-            _expandIslandFromHint();
+            if (_islandUserHidden) {
+                _expandIslandFromHint();
+            } else {
+                _collapseIslandToHint();
+            }
         });
 
         // Click on a dim label to make it the active dim (consistent with h/l navigation)
