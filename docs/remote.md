@@ -12,7 +12,7 @@ Then open `http://localhost:8000` in your local browser.
 
 ## VS Code
 
-Auto-detects VS Code terminals and opens in Simple Browser. Works automatically.
+Auto-detects VS Code terminals and opens in a VS Code tab. Works automatically.
 
 ## VS Code tunnel
 
@@ -73,7 +73,7 @@ ssh -R 8000:localhost:8000 user@gpu-server
 arrayview array.npy
 ```
 
-The array is sent back to the remote machine and the viewer opens in Simple Browser locally.
+The array is sent back to the remote machine and the viewer opens in a VS Code tab locally.
 
 If port 8000 is already taken on the GPU server:
 
@@ -88,5 +88,5 @@ arrayview array.npy --relay 8765
 |-------|----------|
 | `native` | Desktop window (default outside Jupyter) |
 | `browser` | System browser |
-| `vscode` | VS Code Simple Browser |
+| `vscode` | VS Code tab |
 | `inline` | Inline IFrame (default in Jupyter) |

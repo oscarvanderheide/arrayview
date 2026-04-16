@@ -26,7 +26,7 @@ Frontend (_viewer.html — single self-contained HTML file)
 | Environment        | Default display                    | Server mode |
 |--------------------|------------------------------------|-------------|
 | Jupyter            | Inline iframe                      | network     |
-| VS Code local      | Simple Browser (network)           | network     |
+| VS Code local      | Webview panel (network)            | network     |
 | VS Code tunnel     | Direct webview (stdio)             | stdio       |
 | Julia              | System browser                     | network     |
 | CLI / Python script | Native pywebview                   | network     |

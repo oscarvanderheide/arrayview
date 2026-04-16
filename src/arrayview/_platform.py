@@ -323,7 +323,7 @@ def _can_native_window() -> bool:
 
     Returns False whenever a VS Code terminal is detectable, meaning we're
     running inside a VS Code terminal (local or remote/tunnel).  In that case
-    we always prefer the Simple Browser route over a native window, because on
+    we always prefer the VS Code tab route over a native window, because on
     a tunnel-server machine the user isn't looking at that screen.
     """
     # TERM_PROGRAM=vscode is the most reliable VS Code terminal indicator and

@@ -61,7 +61,7 @@ Key parameters:
 | `None` | Auto: native outside Jupyter, inline inside |
 | `"native"` | Native desktop window |
 | `"browser"` | System browser |
-| `"vscode"` | VS Code Simple Browser |
+| `"vscode"` | VS Code tab |
 | `"inline"` | Inline IFrame (Jupyter / VS Code notebook) |
 
 ## File Picker

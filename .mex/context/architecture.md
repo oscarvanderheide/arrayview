@@ -43,7 +43,7 @@ Browser (_viewer.html — single self-contained HTML+JS+CSS file)
 
 A `view()` call creates a `Session`, starts the FastAPI server if not running,
 registers the session via HTTP POST `/load`, then opens a display for the detected
-environment (Jupyter inline, VS Code SimpleBrowser or direct webview, native
+environment (Jupyter inline, VS Code webview panel or direct webview, native
 pywebview, or system browser).
 
 ## Key Components
@@ -54,7 +54,7 @@ pywebview, or system browser).
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
 - **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii/.nii.gz`, `.zarr`, `.zarr.zip`, `.pt/.pth`, `.h5/.hdf5`, `.tif/.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
-- **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, SimpleBrowser and direct webview opening.
+- **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, webview panel and direct webview opening.
 - **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
 - **`_viewer.html`** — The entire frontend (~15 600 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 
@@ -63,7 +63,7 @@ pywebview, or system browser).
 | Environment | Default display | Server mode |
 |---|---|---|
 | Jupyter | Inline iframe | network |
-| VS Code local | Simple Browser | network |
+| VS Code local | Webview panel | network |
 | VS Code tunnel | Direct webview (stdio) | stdio |
 | Julia | System browser | network |
 | CLI / Python script | Native pywebview | network |

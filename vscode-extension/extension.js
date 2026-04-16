@@ -757,9 +757,7 @@ async function tryOpenSignalFile() {
 }
 
 // Open or reveal a VS Code WebviewPanel for the given URL.
-// Using createWebviewPanel instead of simpleBrowser.show lets us set a custom
-// tab title (e.g. "ArrayView: sample.npy").  The webview just wraps the
-// arrayview server URL in a full-page iframe.
+// The webview wraps the arrayview server URL in a full-page iframe.
 async function openInWebviewPanel(url, title, floating = false) {
     const label = title || 'ArrayView';
 
@@ -792,7 +790,7 @@ async function openInWebviewPanel(url, title, floating = false) {
 
     // Use a nonce so the CSP allows exactly our inline script and nothing else.
     // The iframe src is set via JS (not as an HTML attribute) to avoid any
-    // attribute-encoding issues and to match VS Code's own Simple Browser pattern.
+    // attribute-encoding issues.
     const nonce = crypto.randomBytes(16).toString('hex');
     const jsonUrl = JSON.stringify(url); // safe JS string literal embedding
 

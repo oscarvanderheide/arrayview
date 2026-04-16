@@ -63,7 +63,7 @@ _VSCODE_SIGNAL_FILENAME = "open-request-v0900.json"
 _VSCODE_COMPAT_SIGNAL_FILENAMES: tuple[str, ...] = ("open-request-v0800.json",)
 _VSCODE_PORT_SETTINGS_SETTLE_SECONDS = 2.0
 _VSCODE_SIGNAL_MAX_AGE_MS = (
-    60_000  # 60s: survive extension-host reloads (~12s) plus simpleBrowser.show latency
+    60_000  # 60s: survive extension-host reloads (~12s) plus panel-open latency
 )
 
 
@@ -194,7 +194,7 @@ def _extension_on_disk(version: str, vsix_path: str | None = None) -> bool:
 def _ensure_vscode_extension() -> bool:
     """Install the bundled arrayview-opener VS Code extension for local VS Code use.
 
-    The extension bridges local VS Code terminals to ``simpleBrowser.show(...)``
+    The extension bridges local VS Code terminals to a webview panel tab
     and, in remote/tunnel sessions, can actively invoke VS Code's forwarded-port
     commands to promote the port to public preview.
 
@@ -745,9 +745,9 @@ def _schedule_remote_open_retries(
     """Backup retries via signal file (extension handles primary retries internally).
 
     Reduced to 2 retries at 15s intervals.  The VS Code extension now retries
-    ``simpleBrowser.show()`` internally after claiming a signal, so Python-side
-    retries are only needed as a Safety net (e.g. extension not loaded yet after
-    a fresh install).
+    panel opening internally after claiming a signal, so Python-side retries are
+    only needed as a safety net (e.g. extension not loaded yet after a fresh
+    install).
     """
     import urllib.parse as _urlparse
 
@@ -1204,10 +1204,10 @@ def _open_browser(
        a. Configure the port as ``silent`` and ``public`` in
           ``remote.portsAttributes``.
        b. Write the signal file; the workspace extension converts the URL via
-          asExternalUri and opens Simple Browser in the local VS Code client.
+          asExternalUri and opens a viewer tab in the local VS Code client.
     2. Local VS Code terminal (or force_vscode=True):
        a. Install the helper extension.
-       b. Write the signal file so the extension opens Simple Browser locally.
+       b. Write the signal file so the extension opens a viewer tab locally.
      3. Fallback: open/xdg-open with the http URL (system browser).
      4. Always print the URL.
     """
@@ -1245,7 +1245,7 @@ def _open_browser(
                     print(
                         f"[ArrayView] Remote tunnel session on port {parsed_port}.\n"
                         f"  VS Code Ports tab: right-click port {parsed_port} → Port Visibility → Public.\n"
-                        f"  If the Simple Browser tab shows an auth page, make the port Public then reload the tab.",
+                        f"  If the viewer tab shows an auth page, make the port Public then reload the tab.",
                         flush=True,
                     )
                 _open_via_signal_file(url, title=title, floating=floating)

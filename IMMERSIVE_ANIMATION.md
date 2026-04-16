@@ -16,7 +16,7 @@ The canvas grows smoothly, tied 1-to-1 with how much you've pinched. No spring, 
 
 ### When the canvas reaches its final immersive size (progress = 1)
 
-The immersive layout class is applied. At this point the dimbar and colorbar are completely invisible, so they are silently repositioned to their overlay locations — dimbar near the top of the canvas, colorbar near the bottom. They teleport while invisible, not animate. Then they fade from invisible to visible at those positions. They do not move during this fade-in.
+The immersive layout class is applied. A0t this point the dimbar and colorbar are completely invisible, so they are silently repositioned to their overlay locations — dimbar near the top of the canvas, colorbar near the bottom. They teleport while invisible, not animate. Then they fade from invisible to visible at those positions. They do not move during this fade-in.
 
 ### Pinching back out (progress 1 → 0)
 

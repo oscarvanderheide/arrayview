@@ -438,7 +438,7 @@ def _relay_array_to_server(
 
     Used when the local port is a reverse-SSH-forwarded connection to a remote
     ArrayView server (e.g. tunnel-remote).  The relay server registers the
-    session and writes its own VS Code signal file so Simple Browser opens there.
+    session and writes its own VS Code signal file so a viewer tab opens there.
 
     ``relay_host`` defaults to 127.0.0.1; only change it when the relay server
     is genuinely on a different network interface (rare).
@@ -473,7 +473,7 @@ def _relay_array_to_server(
 
     print(
         "[ArrayView] Array sent to relay server. "
-        "VS Code Simple Browser should open automatically.",
+        "VS Code viewer tab should open automatically.",
         flush=True,
     )
 
@@ -940,7 +940,7 @@ def view(
       - ``False``      no automatic opening; returns URL
       - ``'native'``   open in a native desktop window
       - ``'browser'``  open in the system browser
-      - ``'vscode'``   open in VS Code Simple Browser
+      - ``'vscode'``   open in a VS Code tab
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
 
     Persistent defaults can be set via ``arrayview config set window.<env> <mode>``
@@ -1138,7 +1138,7 @@ def view(
                 window = False
                 _force_vscode = True
 
-    # Auto-detect VS Code terminal: prefer Simple Browser over native window
+    # Auto-detect VS Code terminal: prefer VS Code tab over native window
     if (
         _in_vscode_terminal()
         and not inline
@@ -1659,7 +1659,7 @@ def _view_julia(
     # Detect VS Code *now*, in the parent process where TERM_PROGRAM and
     # VSCODE_IPC_HOOK_CLI are still available.  The subprocess inherits a
     # stripped environment (Julia/PythonCall, uv run, etc.) so detection
-    # there would fail and Simple Browser would never open.
+    # there would fail and the VS Code tab would never open.
     force_vscode = _in_vscode_terminal()
     return _view_subprocess(
         data,
@@ -2243,7 +2243,7 @@ def arrayview():
             "Useful over multi-hop SSH: set up a reverse tunnel "
             "(e.g. 'ssh -R 8765:localhost:8000 user@gpu-host') "
             "then run 'arrayview file.npy --relay 8765'. "
-            "The remote server registers the session and opens Simple Browser automatically."
+            "The remote server registers the session and opens a VS Code tab automatically."
         ),
     )
     parser.add_argument(
@@ -2762,7 +2762,7 @@ def arrayview():
         _cfg_mode = get_window_default(detect_environment())
         if _cfg_mode:
             window_mode = _cfg_mode
-    # Auto-detect: prefer VS Code Simple Browser in VS Code terminal
+    # Auto-detect: prefer VS Code tab in VS Code terminal
     if window_mode is None and _in_vscode_terminal():
         window_mode = "vscode"
     # Explicit vscode requires VS Code terminal
@@ -3076,7 +3076,7 @@ def arrayview():
         _print_viewer_location(url)
         if is_remote and sys.stdin.isatty():
             # New server, tunnel mode: wait for user to set port Public before
-            # writing the signal file so Simple Browser opens on first try.
+            # writing the signal file so the viewer tab opens on first try.
             print(
                 f"\n  VS Code Ports tab: right-click port {args.port} "
                 f"\u2192 Port Visibility \u2192 Public\n"

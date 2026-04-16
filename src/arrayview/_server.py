@@ -3486,7 +3486,7 @@ async def load_bytes_endpoint(request: Request):
     port = _sm.SERVER_PORT or 8000
     url = f"http://localhost:{port}/?sid={session.sid}"
 
-    # Write the signal file so the VS Code extension on this host opens Simple Browser.
+    # Write the signal file so the VS Code extension on this host opens a viewer tab.
     from arrayview._vscode import _open_via_signal_file
 
     _open_via_signal_file(url)
@@ -3500,12 +3500,12 @@ async def load_bytes_endpoint(request: Request):
 @app.get("/")
 def get_ui(sid: str = None):
     """Viewer page."""
-    # VS Code Simple Browser internally calls asExternalUri() which strips query
-    # parameters, so ?sid= is often lost before the page loads.  Embed the SID
-    # directly in the HTML so the viewer JS can find it regardless of the URL.
+    # VS Code's asExternalUri() strips query parameters, so ?sid= is often lost
+    # before the page loads.  Embed the SID directly in the HTML so the viewer
+    # JS can find it regardless of the URL.
     if not sid:
-        # No sid in URL — VS Code Simple Browser strips the query string before
-        # loading the page, so ?sid= is lost.  Inject the latest valid session
+        # No sid in URL — VS Code strips the query string before loading the
+        # page, so ?sid= is lost.  Inject the latest valid session
         # server-side so the viewer JS can find it regardless of the URL.
         if SESSIONS:
             latest_sid = list(SESSIONS.keys())[-1]
