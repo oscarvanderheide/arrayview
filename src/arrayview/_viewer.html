@@ -744,17 +744,21 @@
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint {
-            position: fixed; bottom: 14px; right: 16px; cursor: pointer;
+        #help-hint, #island-hint {
+            position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
             font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             display: flex; align-items: center; justify-content: center;
             user-select: none; transition: color 0.12s, border-color 0.12s;
+            z-index: 5;
         }
-        #help-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint { right: 16px; }
+        #island-hint { left: 16px; display: none; }
+        #island-hint.visible { display: flex; }
+        #help-hint:hover, #island-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
-            position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
+            position: fixed; left: 16px; bottom: 44px;
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-radius: 14px; padding: 10px 12px;
@@ -1651,6 +1655,7 @@
         </div>
     </div>
     <div id="help-hint">?</div>
+    <div id="island-hint">~</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
     <div id="info-overlay">
@@ -1970,7 +1975,7 @@
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
-        let _islandUserHidden = false; // backtick toggle — hides island while plugin stays active
+        let _islandUserHidden = false; // ~ toggle — hides island to hint circle while plugin stays active
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
@@ -2156,7 +2161,7 @@
         let spatialMeta = null; // {voxel_sizes, axis_labels, is_oblique} or null
         let rasResampleActive = false;
         let multiViewActive = false;
-        let _mvOrientationHidden = false; // backtick toggle — hides orientation cube
+        let _mvOrientationHidden = false; // ~ toggle — hides orientation cube
         let mipActive = false;
         let mvViews = [];
         let mvDims = [];
@@ -7712,14 +7717,12 @@
             if (_islandDragPos) {
                 el.style.left = _islandDragPos.x + 'px';
                 el.style.top = _islandDragPos.y + 'px';
+                el.style.bottom = '';
                 el.style.transform = 'none';
             } else {
-                const cvRect = canvas.getBoundingClientRect();
-                // Horizontally: center between left of viewport (0) and left of canvas
-                const centerX = cvRect.left / 2;
-                el.style.left = Math.max(8, centerX - el.offsetWidth / 2) + 'px';
-                // Vertically: a bit below top of canvas
-                el.style.top = (cvRect.top + 40) + 'px';
+                el.style.left = '16px';
+                el.style.top = '';
+                el.style.bottom = '44px';
                 el.style.transform = 'none';
             }
         }
@@ -7786,6 +7789,48 @@
             }, 150);
         }
 
+        function _collapseIslandToHint() {
+            const el = document.getElementById('dynamic-island');
+            const hint = document.getElementById('island-hint');
+            if (!el || !hint) return;
+            _islandUserHidden = true;
+            el.style.transformOrigin = 'bottom left';
+            el.style.transition = 'transform 0.3s ease, opacity 0.25s ease';
+            el.style.transform = 'scale(0.05)';
+            el.style.opacity = '0';
+            setTimeout(() => {
+                el.classList.remove('visible');
+                el.style.transition = '';
+                el.style.transform = '';
+                el.style.opacity = '';
+                el.style.transformOrigin = '';
+                hint.classList.add('visible');
+            }, 320);
+        }
+
+        function _expandIslandFromHint() {
+            const el = document.getElementById('dynamic-island');
+            const hint = document.getElementById('island-hint');
+            if (!el || !hint) return;
+            hint.classList.remove('visible');
+            _islandUserHidden = false;
+            renderIsland();
+            el.style.transformOrigin = 'bottom left';
+            el.style.transform = 'scale(0.05)';
+            el.style.opacity = '0';
+            el.style.transition = 'none';
+            el.offsetHeight; // force reflow
+            el.style.transition = 'transform 0.3s ease, opacity 0.25s ease';
+            el.style.transform = 'none';
+            el.style.opacity = '1';
+            setTimeout(() => {
+                el.style.transition = '';
+                el.style.transform = '';
+                el.style.opacity = '';
+                el.style.transformOrigin = '';
+            }, 320);
+        }
+
         let _islandLastActive = null; // tracks plugin transitions for auto-reset
         function renderIsland() {
             const el = document.getElementById('dynamic-island');
@@ -7802,10 +7847,18 @@
                 _islandUserHidden = false;
                 _islandLastActive = activeKey;
             }
-            if (!activePlugins.length || _islandUserHidden) {
+            const hint = document.getElementById('island-hint');
+            if (!activePlugins.length) {
                 el.classList.remove('visible');
+                if (hint) hint.classList.remove('visible');
                 return;
             }
+            if (_islandUserHidden) {
+                el.classList.remove('visible');
+                if (hint) hint.classList.add('visible');
+                return;
+            }
+            if (hint) hint.classList.remove('visible');
 
             let html = '';
             let sectionCount = 0;
@@ -10273,6 +10326,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 dragOffX = e.clientX - rect.left;
                 dragOffY = e.clientY - rect.top;
                 island.style.transition = 'none';
+                island.style.bottom = ''; // switch from bottom to top positioning when dragging
                 e.preventDefault();
             });
 
@@ -12055,8 +12109,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx) => {
                     if (ctx.anyPluginActive) {
-                        _islandUserHidden = !_islandUserHidden;
-                        renderIsland();
+                        if (_islandUserHidden) {
+                            _expandIslandFromHint();
+                        } else {
+                            _collapseIslandToHint();
+                        }
                     }
                     if (ctx.multiViewActive) {
                         _mvOrientationHidden = !_mvOrientationHidden;
@@ -12074,7 +12131,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '/', command: 'specialmodes.close' },
             { key: '/', command: 'specialmodes.open' },
             { key: 'q', command: 'qmri.cycle' },
-            { key: '`', command: 'island.toggle' },
+            { key: '~', command: 'island.toggle' },
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
@@ -12263,7 +12320,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: 'v', action: 'Enter or exit ortho view' },
-                            { key: '`', action: 'Toggle orientation cube' },
+                            { key: '~', action: 'Toggle orientation cube' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
@@ -12301,7 +12358,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
                         entries: [
                             { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open shelf, then r' },
-                            { key: '`', action: 'Toggle floating panel' },
+                            { key: '~', action: 'Toggle floating panel' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Drag', action: 'Draw ROI region' },
                             { key: 'Right-click', action: 'Delete ROI under cursor' },
@@ -12320,7 +12377,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
                         entries: [
                             { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open shelf, then s' },
-                            { key: '`', action: 'Toggle floating panel' },
+                            { key: '~', action: 'Toggle floating panel' },
                             { key: 'Click', action: 'Add region (positive prompt)' },
                             { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -12359,7 +12416,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open shelf, then q' },
-                            { key: '`', action: 'Toggle floating panel' },
+                            { key: '~', action: 'Toggle floating panel' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
@@ -16989,6 +17046,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         });
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
+        });
+        document.getElementById('island-hint').addEventListener('click', () => {
+            _expandIslandFromHint();
         });
 
         // Click on a dim label to make it the active dim (consistent with h/l navigation)
