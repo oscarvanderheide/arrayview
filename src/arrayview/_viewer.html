@@ -1956,7 +1956,7 @@
         let axesFlashTimer = null;
 
         let userZoom = 1.0;
-        let _zoomSensitivity = 0.02; // scroll-zoom exponent multiplier
+        let _zoomSensitivity = 0.014; // scroll-zoom exponent multiplier
         let _crossfadeCollapseP = 0; // 0→1 during first half of immersive crossfade; scale functions use this to interpolate bottom reserves
         let _crossfadeP = 0; // raw crossfade progress 0→1 (normFit→immFit)
         let _scrubState = null;
@@ -10316,7 +10316,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _pendingImmersiveTargetZoom = _immTargetZoom;
                         userZoom = _immTargetZoom;
                         _zoomAdjustedByUser = true;
-                        _driveImmersive(1, 0.75);
+                        _driveImmersive(1, 0.5);
                         showStatus('immersive');
                         saveState();
                     } else {
@@ -10354,7 +10354,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             _zoomAdjustedByUser = false;
                             mainPan.reset();
                             mosaicPan.reset();
-                            _driveImmersive(0, 0.75);
+                            _driveImmersive(0, 0.5);
                             showStatus('zoom: fit');
                         }
                     } else {
