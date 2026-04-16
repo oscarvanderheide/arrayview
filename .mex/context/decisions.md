@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/frontend.md
     condition: when a decision relates to the frontend architecture or viewer modes
-last_updated: 2026-04-15
+last_updated: 2026-04-16
 ---
 
 # Decisions
@@ -60,6 +60,14 @@ last_updated: 2026-04-15
 **Reasoning:** VS Code tunnel environments block arbitrary TCP ports. The Direct WebView API bypasses the network entirely by running the viewer as a subprocess of the extension. This gives reliable display without requiring port forwarding.
 **Alternatives considered:** Port forwarding via VS Code tunnel (rejected — unreliable, depends on tunnel configuration); WebSocket over stdio tunnel (rejected — more complex than length-prefixed binary).
 **Consequences:** `_stdio_server.py` must mirror every route and feature of `_server.py`. New server features must be implemented in both. The `_vscode.py` signal-file and shared-memory IPC are part of this same display path.
+
+### ROI in qMRI uses per-pane overlay canvases, not a shared overlay
+**Date:** 2026-04-16
+**Status:** Active
+**Decision:** Each qMRI pane gets its own `.qv-roi-overlay` canvas element. ROI shapes are drawn on all overlays simultaneously during drag, and stats are fetched per parameter map.
+**Reasoning:** In qMRI mode, the single main canvas is hidden and replaced by N independent pane canvases, each with its own coordinate system and scale. A shared overlay (like the main `#roi-overlay`) cannot span multiple independently-positioned canvases. Per-pane overlays also allow the ROI mirroring UX where drawing on one pane instantly shows the same shape on all others.
+**Alternatives considered:** A single overlay canvas spanning the entire `#qmri-view-wrap` (rejected — would need to track pane positions and clip per-pane, fragile across resize/mosaic layout changes); reusing the main `#roi-overlay` (rejected — it's inside `#canvas-viewport` which is hidden in qMRI mode).
+**Consequences:** Overlay canvases must set `background: transparent` to override the global `canvas { background: var(--bg) }` rule. qMRI view objects carry `roiOverlay` and `roiCtx` properties. `_drawAllQvRois()` replaces `_drawAllRois()` in qMRI mode; `_redrawRoiOverlays()` dispatches to the correct function based on mode.
 
 ### UI visibility changes go through reconcilers, not ad hoc style/classList calls
 **Date:** 2025 (View Component System refactor)

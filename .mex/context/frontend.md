@@ -23,7 +23,7 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-04-15
+last_updated: 2026-04-16
 ---
 
 # Frontend (_viewer.html)
@@ -60,7 +60,7 @@ Section separators: `/* ── Section Name ── */` in CSS, `// ── Sectio
 | Info Bar and Pixel Display | Bottom info bar, hover pixel readout |
 | State Persistence and Restore | URL hash state, `sessionStorage` save/restore |
 | Rendering Pipeline | `updateView()`, play/animate, screenshot |
-| ROI and Selection Modes | Rectangle/ellipse ROI, statistics computation |
+| ROI and Selection Modes | Rectangle/circle/freehand ROI, statistics computation, qMRI cross-pane mirroring |
 | nnInteractive Segmentation | Click-to-segment UI, mask overlay, undo stack |
 | Keyboard Shortcuts | Command registry + command palette |
 | Mode Transitions | Compare/multiview/qMRI enter/exit, crosshair animation |
@@ -122,11 +122,17 @@ Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside 
 
 **Shim layer (Section 7):** `Object.defineProperty(window, 'manualVmin', …)` intercepts all bare writes to `manualVmin`/`manualVmax` (27 sites) and routes them to `modeManager.currentViews[0].displayState.vmin/vmax`.
 
+### Plugin Shelf (`/` menu)
+`SPECIAL_MODE_TILES` array defines three plugins: qMRI, Segmentation, ROI. The shelf supports multi-select (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays (ROI ↔ Segmentation). `_applyShelfSelection()` diffs current state against selection, exits removed plugins, then enters new ones wrapped in `crossfade()`.
+
 ### Eggs
 Pill badges below the canvas showing active transforms: `FFT` `LOG` `MAGNITUDE` `PHASE` `REAL` `IMAG` `RGB` `ALPHA` `PROJECTION`. **ROI** and **SEGMENT** are NOT eggs — they are interaction modes with their own dynamic island UI.
 
 ### Dynamic Islands
-Floating UI panels: ROI statistics, segmentation controls, colorbar hover, dimension sliders. Use absolute/fixed positioning — must be tested across normal, immersive, multiview, and compare modes.
+Floating UI panels. `renderIsland()` collects all active plugins (`qmriActive`, `rectRoiMode`, `_segMode`) and renders sections for each with dividers between them. ROI statistics, segmentation controls, qMRI parameter map pill toggles. Use absolute/fixed positioning — must be tested across normal, immersive, multiview, and compare modes.
+
+### ROI in qMRI Mode
+Each qMRI pane has a `.qv-roi-overlay` canvas (transparent, `position: absolute`, `pointer-events: none`). Drawing a ROI on any pane mirrors it to all panes in real-time via `_drawAllQvRois()`. On finalize, `_fetchQvRoiStats()` fetches per-parameter-map statistics in parallel. Results stored as `roi.qmriStats[]` and displayed as sub-rows in the island. Key functions: `_drawAllQvRois`, `_clearQvRoiOverlays`, `_redrawRoiOverlays`, `_finalizeQvRoi`, `_fetchQvRoiStats`. **Important:** the global `canvas { background: var(--bg) }` rule makes all canvas elements opaque — overlay canvases must set `background: transparent` to avoid covering the underlying content.
 
 ## CSS Architecture
 
