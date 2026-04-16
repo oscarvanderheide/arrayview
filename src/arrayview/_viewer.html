@@ -804,6 +804,17 @@
         }
         #dynamic-island .island-download:hover { opacity: 0.9; }
         #dynamic-island .island-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 0; }
+        #dynamic-island .island-qmri-stat {
+            padding-left: 14px; gap: 6px; background: none; border: none;
+        }
+        #dynamic-island .island-param-label {
+            color: var(--muted); font-size: 9px; min-width: 28px; flex-shrink: 0;
+        }
+        .qv-roi-overlay {
+            position: absolute; top: 0; left: 0;
+            pointer-events: none; display: none;
+            background: transparent;
+        }
         #dynamic-island .island-rows { display: flex; flex-direction: column; gap: 3px; }
         #dynamic-island .island-row {
             display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 4px;
@@ -1956,7 +1967,8 @@
         let _segDrawPoints = []; // points for scribble/lasso
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
-        let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats} for multi-ROI
+        let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
+        let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let _islandUserHidden = false; // backtick toggle — hides island while plugin stays active
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
@@ -7728,7 +7740,7 @@
         function _islandDeleteRoi(idx) {
             if (idx < 0 || idx >= _rois.length) return;
             _rois.splice(idx, 1);
-            _drawAllRois();
+            _redrawRoiOverlays();
             renderIsland();
             showStatus(`ROI ${idx + 1} deleted`);
         }
@@ -7872,16 +7884,27 @@
             for (let i = 0; i < _rois.length; i++) {
                 const r = _rois[i];
                 const c = _roiColors[i % _roiColors.length];
-                const s = r.stats;
                 const selected = i === 0 ? ' selected-roi' : '';
                 html += `<div class="island-row${selected}">`;
                 html += `<div class="island-swatch" style="background:${c.stroke}"></div>`;
                 html += `<span class="island-name">ROI ${i + 1}</span>`;
-                if (s) {
-                    html += `<span class="island-stats">${fmt(s.mean)} \u00b1 ${fmt(s.std)}</span>`;
+                if (qmriActive && r.qmriStats && r.qmriStats.length) {
+                    // No inline stats — show per-parameter sub-rows below
+                } else if (r.stats) {
+                    html += `<span class="island-stats">${fmt(r.stats.mean)} \u00b1 ${fmt(r.stats.std)}</span>`;
                 }
                 html += `<span class="island-delete" data-roi="${i}" onclick="_islandDeleteRoi(${i})" title="Delete ROI ${i + 1}">\u00d7</span>`;
                 html += `</div>`;
+                // Per-parameter sub-rows in qMRI mode
+                if (qmriActive && r.qmriStats && r.qmriStats.length) {
+                    for (const qs of r.qmriStats) {
+                        const label = QMRI_LABELS[qs.colormap] || qs.colormap;
+                        html += `<div class="island-row island-qmri-stat">`;
+                        html += `<span class="island-param-label">${label}</span>`;
+                        html += `<span class="island-stats">${fmt(qs.stats.mean)} \u00b1 ${fmt(qs.stats.std)}</span>`;
+                        html += `</div>`;
+                    }
+                }
             }
             return html;
         }
@@ -9590,6 +9613,114 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _drawRoiShapeOnCtx(roiOverlayCtx, previewRoi, sx, sy);
             }
         }
+
+        // ── qMRI ROI overlay helpers ──────────────────────────────
+        function _drawAllQvRois(previewRoi) {
+            if (!qmriActive || !qmriViews.length) return;
+            for (const view of qmriViews) {
+                const ov = view.roiOverlay;
+                const rctx = view.roiCtx;
+                if (!ov || !rctx) continue;
+                const dW = parseInt(view.canvas.style.width) || view.canvas.clientWidth;
+                const dH = parseInt(view.canvas.style.height) || view.canvas.clientHeight;
+                if (ov.width !== dW || ov.height !== dH) { ov.width = dW; ov.height = dH; }
+                ov.style.width = view.canvas.style.width;
+                ov.style.height = view.canvas.style.height;
+                rctx.clearRect(0, 0, dW, dH);
+                if (!_rois.length && !previewRoi) { ov.style.display = 'none'; continue; }
+                ov.style.display = 'block';
+                const sx = dW / view.lastW, sy = dH / view.lastH;
+                for (let i = 0; i < _rois.length; i++) {
+                    const r = _rois[i];
+                    const c = _roiColors[i % _roiColors.length];
+                    rctx.fillStyle = c.fill;
+                    rctx.strokeStyle = c.stroke;
+                    rctx.lineWidth = 1;
+                    _drawRoiShapeOnCtx(rctx, r, sx, sy);
+                    const fs = 16;
+                    rctx.font = `bold ${fs}px monospace`;
+                    rctx.textAlign = 'center'; rctx.textBaseline = 'middle';
+                    const lbl = String(i + 1);
+                    let lx, ly;
+                    if (r.type === 'circle') { lx = r.cx * sx; ly = r.cy * sy; }
+                    else if (r.type === 'freehand' && r.points && r.points.length) { lx = (r.points.reduce((s, p) => s + p[0], 0) / r.points.length) * sx; ly = (r.points.reduce((s, p) => s + p[1], 0) / r.points.length) * sy; }
+                    else { lx = ((r.x0 + r.x1) / 2) * sx; ly = ((r.y0 + r.y1) / 2) * sy; }
+                    rctx.strokeStyle = 'rgba(0,0,0,0.75)'; rctx.lineWidth = 3; rctx.lineJoin = 'round';
+                    rctx.strokeText(lbl, lx, ly);
+                    rctx.fillStyle = c.stroke;
+                    rctx.fillText(lbl, lx, ly);
+                    rctx.textAlign = 'start'; rctx.textBaseline = 'alphabetic';
+                }
+                if (previewRoi) {
+                    const c = _roiColors[_rois.length % _roiColors.length];
+                    rctx.fillStyle = c.fill; rctx.strokeStyle = c.stroke; rctx.lineWidth = 1;
+                    _drawRoiShapeOnCtx(rctx, previewRoi, sx, sy);
+                }
+            }
+        }
+        function _clearQvRoiOverlays() {
+            if (!qmriViews.length) return;
+            for (const v of qmriViews) {
+                if (v.roiOverlay) { v.roiOverlay.style.display = 'none'; if (v.roiCtx) v.roiCtx.clearRect(0, 0, v.roiOverlay.width, v.roiOverlay.height); }
+            }
+        }
+        function _redrawRoiOverlays(previewRoi) {
+            if (qmriActive && qmriViews.length) _drawAllQvRois(previewRoi);
+            else _drawAllRois(previewRoi);
+        }
+        function _finalizeQvRoi() {
+            if (!rectRoiMode) return;
+            const roiIdx = _rois.length;
+            if (_roiShape === 'circle') {
+                const cx = (roiStart.x + roiEnd.x) / 2, cy = (roiStart.y + roiEnd.y) / 2;
+                const r = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2;
+                if (r < 2) { _drawAllQvRois(); return; }
+                _rois.push({type:'circle', cx:Math.round(cx), cy:Math.round(cy), r:Math.round(r), stats:null, qmriStats:null});
+            } else if (_roiShape === 'freehand') {
+                const pts = _roiFreehandPts.slice(); _roiFreehandPts = [];
+                if (pts.length < 5) { _drawAllQvRois(); return; }
+                _rois.push({type:'freehand', points:pts, stats:null, qmriStats:null});
+            } else {
+                const rw = Math.abs(roiEnd.x - roiStart.x), rh = Math.abs(roiEnd.y - roiStart.y);
+                if (rw < 3 || rh < 3) { _drawAllQvRois(); return; }
+                const x0 = Math.round(Math.min(roiStart.x, roiEnd.x));
+                const y0 = Math.round(Math.min(roiStart.y, roiEnd.y));
+                const x1 = Math.round(Math.max(roiStart.x, roiEnd.x));
+                const y1 = Math.round(Math.max(roiStart.y, roiEnd.y));
+                _rois.push({type:'rect', x0, y0, x1, y1, stats:null, qmriStats:null});
+            }
+            _drawAllQvRois();
+            _fetchQvRoiStats(roiIdx);
+            renderEggs();
+        }
+        function _fetchQvRoiStats(roiIdx) {
+            const roi = _rois[roiIdx];
+            if (!roi || !qmriActive) return;
+            const promises = qmriViews.map(v => {
+                const qIndices = [...indices];
+                qIndices[qmriDim] = v.qmriIdx;
+                const indStr = qIndices.join(',');
+                if (roi.type === 'circle') {
+                    return proxyFetch(`/roi_circle/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&cx=${roi.cx}&cy=${roi.cy}&r=${roi.r}&complex_mode=${complexMode}`)
+                        .then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
+                } else if (roi.type === 'freehand') {
+                    return proxyFetch(`/roi_freehand/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&complex_mode=${complexMode}`, {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({points: roi.points.map(p => [Math.round(p[0]), Math.round(p[1])])})
+                    }).then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
+                } else {
+                    return proxyFetch(`/roi/${sid}?dim_x=${dim_x}&dim_y=${dim_y}&indices=${indStr}&x0=${roi.x0}&y0=${roi.y0}&x1=${roi.x1}&y1=${roi.y1}&complex_mode=${complexMode}`)
+                        .then(r => r.json()).then(d => ({ colormap: v.colormap, qmriIdx: v.qmriIdx, stats: d.error ? null : d }));
+                }
+            });
+            Promise.all(promises).then(results => {
+                if (!_rois[roiIdx]) return;
+                _rois[roiIdx].qmriStats = results.filter(r => r.stats);
+                if (results.length && results[0].stats) _rois[roiIdx].stats = results[0].stats;
+                _updateRoiPanel();
+            });
+        }
+
         function _pointInRoi(r, cx, cy) {
             if (r.type === 'circle') {
                 return Math.hypot(cx - r.cx, cy - r.cy) <= r.r;
@@ -10501,16 +10632,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!rectRoiMode) {
                         rectRoiMode = true; _roiShape = 'rect';
                         canvas.style.cursor = 'crosshair';
+                        if (qmriActive) qmriViews.forEach(v => { v.canvas.style.cursor = 'crosshair'; });
                         showStatus('ROI mode: rect · drag to draw');
                     } else {
                         rectRoiMode = false; _roiShape = 'rect';
                         _rois = []; _roiFreehandPts = [];
                         _floodFillTolerance = 0.1;
                         _clearRoiOverlay();
+                        if (qmriActive) { _clearQvRoiOverlays(); qmriViews.forEach(v => { v.canvas.style.cursor = ''; }); }
                         canvas.style.cursor = '';
                         showStatus('ROI mode: off');
                     }
                     renderEggs();
+                    renderIsland();
                 },
             },
             'compare.cycleTarget': {
@@ -14625,6 +14759,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
+                    // ROI overlay canvas for this pane
+                    const roiOv = document.createElement('canvas');
+                    roiOv.className = 'qv-roi-overlay';
+                    cvWrap.appendChild(roiOv);
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
                     pane.appendChild(area);
@@ -14632,6 +14770,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const view = {
                         colormap: cmap, qmriIdx: actualIdx,
                         canvas: cv, ctx: cv.getContext('2d'), area,
+                        roiOverlay: roiOv, roiCtx: roiOv.getContext('2d'),
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
@@ -14729,6 +14868,74 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         if (_pixelInfoVisible) _resetDimbarHover();
                     });
+                    // ROI drawing on qMRI canvases
+                    if (rectRoiMode) cv.style.cursor = 'crosshair';
+                    cv.addEventListener('contextmenu', (e) => {
+                        if (!rectRoiMode) return;
+                        e.preventDefault(); e.stopImmediatePropagation();
+                        const rect = cv.getBoundingClientRect();
+                        const cx = (e.clientX - rect.left) * view.lastW / rect.width;
+                        const cy = (e.clientY - rect.top) * view.lastH / rect.height;
+                        for (let ii = _rois.length - 1; ii >= 0; ii--) {
+                            if (_pointInRoi(_rois[ii], cx, cy)) {
+                                _rois.splice(ii, 1);
+                                _drawAllQvRois(); _updateRoiPanel();
+                                showStatus(`ROI ${ii + 1} deleted`);
+                                return;
+                            }
+                        }
+                    });
+                    cv.addEventListener('mousedown', (e) => {
+                        if (!rectRoiMode || e.button !== 0 || e.shiftKey || e.metaKey) return;
+                        e.preventDefault(); sink.focus();
+                        if (_roiShape === 'floodfill') {
+                            showStatus('flood fill: not available in qMRI mode');
+                            return;
+                        }
+                        roiDragging = true;
+                        _qvRoiDragView = view;
+                        const rect = cv.getBoundingClientRect();
+                        roiStart = roiEnd = {
+                            x: (e.clientX - rect.left) * view.lastW / rect.width,
+                            y: (e.clientY - rect.top) * view.lastH / rect.height,
+                        };
+                        if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
+                        const onMove = (me) => {
+                            if (!roiDragging || !_qvRoiDragView) return;
+                            const v = _qvRoiDragView;
+                            const mr = v.canvas.getBoundingClientRect();
+                            roiEnd = {
+                                x: (me.clientX - mr.left) * v.lastW / mr.width,
+                                y: (me.clientY - mr.top) * v.lastH / mr.height,
+                            };
+                            let previewRoi = null;
+                            if (_roiShape === 'circle') {
+                                const pcx = (roiStart.x + roiEnd.x) / 2, pcy = (roiStart.y + roiEnd.y) / 2;
+                                const pr = Math.hypot(roiEnd.x - roiStart.x, roiEnd.y - roiStart.y) / 2;
+                                previewRoi = { type: 'circle', cx: pcx, cy: pcy, r: pr };
+                            } else if (_roiShape === 'freehand') {
+                                _roiFreehandPts.push([roiEnd.x, roiEnd.y]);
+                                if (_roiFreehandPts.length > 2) previewRoi = { type: 'freehand', points: _roiFreehandPts };
+                            } else {
+                                previewRoi = {
+                                    type: 'rect',
+                                    x0: Math.min(roiStart.x, roiEnd.x), y0: Math.min(roiStart.y, roiEnd.y),
+                                    x1: Math.max(roiStart.x, roiEnd.x), y1: Math.max(roiStart.y, roiEnd.y),
+                                };
+                            }
+                            _drawAllQvRois(previewRoi);
+                        };
+                        const onUp = () => {
+                            window.removeEventListener('mousemove', onMove);
+                            window.removeEventListener('mouseup', onUp);
+                            if (!roiDragging) return;
+                            roiDragging = false;
+                            _qvRoiDragView = null;
+                            _finalizeQvRoi();
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
+                    });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
@@ -14780,12 +14987,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function exitQmri() {
             _qmriVisibleMaps = null;
+            _qvRoiDragView = null;
             qmriActive = false;
             qmriDim = -1;
             qmriMosaicActive = false;
             _qmriMosaicZDim = -1;
             _mosaicResetPan();
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; } });
+            const _hadRois = rectRoiMode && _rois.length;
             qmriViews = [];
             _hoveredQmriView = null;
             const wrap = document.getElementById('qmri-view-wrap');
@@ -14795,6 +15004,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             updateView();
             _reconcileUI();
             renderInfo();
+            // Redraw ROIs on main canvas overlay if ROI mode persists
+            if (_hadRois) _drawAllRois();
             showStatus('qMRI mode: off');
             renderIsland();
             // Phase 8: restore modeManager to normal
