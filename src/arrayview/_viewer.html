@@ -558,6 +558,10 @@
         #special-modes-grid .smode-tile:nth-child(3) { transition-delay: 70ms; }
         .smode-tile:hover .smode-label,
         .smode-tile.nav .smode-label { color: var(--highlight); }
+        .smode-tile.nav {
+            background: rgba(245, 200, 66, 0.06);
+            box-shadow: inset 2px 0 0 var(--highlight);
+        }
         .smode-tile.is-disabled,
         .smode-tile:disabled { cursor: default; opacity: 0.35; }
         .smode-key {
@@ -577,6 +581,32 @@
             flex-shrink: 0; color: var(--muted); font-size: 11px; white-space: nowrap;
         }
         .smode-tile.is-active .smode-meta { color: var(--active-dim); }
+        .smode-check {
+            flex-shrink: 0; width: 16px; height: 16px; border-radius: 4px;
+            border: 1.5px solid rgba(255,255,255,0.15);
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.12s ease; background: transparent;
+        }
+        .smode-check svg { opacity: 0; transition: opacity 0.12s ease; width: 10px; height: 10px; }
+        .smode-tile.is-selected .smode-check {
+            border-color: var(--highlight); background: var(--highlight);
+        }
+        .smode-tile.is-selected .smode-check svg { opacity: 1; }
+        .smode-tile.is-incompatible .smode-check {
+            border-color: rgba(255,255,255,0.06);
+        }
+        .smode-tile.is-incompatible .smode-label,
+        .smode-tile.is-incompatible .smode-desc { opacity: 0.35; }
+        #special-modes-footer {
+            display: flex; justify-content: flex-end; padding: 8px 2px 2px;
+            border-top: 1px solid var(--border-subtle); margin-top: 4px;
+            font-size: 10px; color: var(--muted); gap: 12px;
+        }
+        #special-modes-footer kbd {
+            display: inline-block; padding: 1px 5px; border-radius: 3px;
+            background: rgba(255,255,255,0.06); font-family: var(--mono);
+            font-size: 9px; color: var(--help-key);
+        }
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -773,6 +803,7 @@
             flex-shrink: 0; cursor: pointer; opacity: 0.4; transition: opacity 0.15s;
         }
         #dynamic-island .island-download:hover { opacity: 0.9; }
+        #dynamic-island .island-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 0; }
         #dynamic-island .island-rows { display: flex; flex-direction: column; gap: 3px; }
         #dynamic-island .island-row {
             display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 4px;
@@ -7748,22 +7779,32 @@
             const el = document.getElementById('dynamic-island');
             if (!el) return;
 
-            const active = rectRoiMode ? 'roi' : _segMode ? 'seg' : qmriActive ? 'qmri' : null;
-            if (active !== _islandLastActive) {
+            // Collect all active plugins
+            const activePlugins = [];
+            if (qmriActive) activePlugins.push('qmri');
+            if (rectRoiMode) activePlugins.push('roi');
+            if (_segMode) activePlugins.push('seg');
+            const activeKey = activePlugins.join('+') || null;
+
+            if (activeKey !== _islandLastActive) {
                 _islandUserHidden = false;
-                _islandLastActive = active;
+                _islandLastActive = activeKey;
             }
-            if (!active || _islandUserHidden) {
+            if (!activePlugins.length || _islandUserHidden) {
                 el.classList.remove('visible');
                 return;
             }
 
+            let html = '';
+            let sectionCount = 0;
+
             // qMRI island: pill toggles for visible parameter maps
-            if (active === 'qmri') {
+            if (activePlugins.includes('qmri')) {
+                if (sectionCount > 0) html += '<div class="island-divider"></div>';
                 const n = shape[qmriDim];
                 const allCmaps = QMRI_COLORMAPS[n];
                 const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
-                let html = `<div class="island-header">`;
+                html += `<div class="island-header">`;
                 html += `<span class="island-title island-title-qmri">Multi-parametric qMRI</span>`;
                 html += `</div>`;
                 html += `<div class="island-pills">`;
@@ -7775,42 +7816,45 @@
                     html += `<div class="island-pill ${cls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
                 }
                 html += `</div>`;
-                el.innerHTML = html;
-                el.classList.add('visible');
-                _positionIsland();
-                return;
+                sectionCount++;
             }
 
-            const isRoi = active === 'roi';
-            const title = isRoi ? 'ROI' : 'SEG';
-            const accentColor = isRoi ? '#f0c674' : '#e87aaf';
-            const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
-            const currentShape = isRoi ? _roiShape : _segMethod;
-            const shapeKeys = Object.keys(shapes);
+            // ROI / SEG section
+            const overlayPlugin = activePlugins.includes('roi') ? 'roi' : activePlugins.includes('seg') ? 'seg' : null;
+            if (overlayPlugin) {
+                if (sectionCount > 0) html += '<div class="island-divider"></div>';
+                const isRoi = overlayPlugin === 'roi';
+                const title = isRoi ? 'ROI' : 'SEG';
+                const accentColor = isRoi ? '#f0c674' : '#e87aaf';
+                const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
+                const currentShape = isRoi ? _roiShape : _segMethod;
+                const shapeKeys = Object.keys(shapes);
 
-            // Header: title + shape icons + download
-            let html = `<div class="island-header">`;
-            html += `<span class="island-title island-title-${active}">${title}</span>`;
-            html += `<span class="island-dot">\u00b7</span>`;
-            html += `<div class="island-shapes">`;
-            for (const key of shapeKeys) {
-                const isActive = key === currentShape;
-                const color = isActive ? accentColor : '#555';
-                const opacity = isActive ? '1' : '0.5';
-                html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
-            }
-            html += `</div>`;
-            html += `<span class="island-download" onclick="_islandExport()">${_DOWNLOAD_ICON}</span>`;
-            html += `</div>`;
+                // Header: title + shape icons + download
+                html += `<div class="island-header">`;
+                html += `<span class="island-title island-title-${overlayPlugin}">${title}</span>`;
+                html += `<span class="island-dot">\u00b7</span>`;
+                html += `<div class="island-shapes">`;
+                for (const key of shapeKeys) {
+                    const isActive = key === currentShape;
+                    const color = isActive ? accentColor : '#555';
+                    const opacity = isActive ? '1' : '0.5';
+                    html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                }
+                html += `</div>`;
+                html += `<span class="island-download" onclick="_islandExport()">${_DOWNLOAD_ICON}</span>`;
+                html += `</div>`;
 
-            // Rows
-            html += `<div class="island-rows">`;
-            if (isRoi) {
-                html += _renderRoiRows();
-            } else {
-                html += _renderSegRows();
+                // Rows
+                html += `<div class="island-rows">`;
+                if (isRoi) {
+                    html += _renderRoiRows();
+                } else {
+                    html += _renderSegRows();
+                }
+                html += `</div>`;
+                sectionCount++;
             }
-            html += `</div>`;
 
             el.innerHTML = html;
             el.classList.add('visible');
@@ -7904,18 +7948,33 @@
             const savedMaps = [..._qmriVisibleMaps];
             // Update pills immediately so user sees instant feedback
             renderIsland();
-            // Fade out the qMRI grid, rebuild, then fade back in
-            const wrap = document.getElementById('qmri-view-wrap');
-            wrap.style.transition = 'opacity 0.12s ease';
-            wrap.style.opacity = '0';
+            // Fade out the qMRI grid + dimbar + array-name, rebuild, then fade back in
+            const fadeEls = [
+                document.getElementById('qmri-view-wrap'),
+                document.getElementById('info'),
+                document.getElementById('array-name'),
+            ].filter(Boolean);
+            for (const el of fadeEls) {
+                el.style.transition = 'opacity 0.12s ease';
+                el.style.opacity = '0';
+            }
             setTimeout(() => {
                 exitQmri(); // resets _qmriVisibleMaps to null
                 _qmriVisibleMaps = savedMaps; // restore before re-entering
                 enterQmri();
                 requestAnimationFrame(() => {
-                    const w2 = document.getElementById('qmri-view-wrap');
-                    if (w2) { w2.style.opacity = '1'; }
-                    setTimeout(() => { if (w2) { w2.style.removeProperty('transition'); w2.style.removeProperty('opacity'); } }, 150);
+                    const fadeBackEls = [
+                        document.getElementById('qmri-view-wrap'),
+                        document.getElementById('info'),
+                        document.getElementById('array-name'),
+                    ].filter(Boolean);
+                    for (const el of fadeBackEls) { el.style.opacity = '1'; }
+                    setTimeout(() => {
+                        for (const el of fadeBackEls) {
+                            el.style.removeProperty('transition');
+                            el.style.removeProperty('opacity');
+                        }
+                    }, 150);
                 });
             }, 120);
         }
@@ -9098,6 +9157,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let specialModesOpen = false;
         let _specialModesBuilt = false;
         let _specialModesNavIdx = 0;
+        let _shelfSelection = new Set(); // multi-select: plugin IDs toggled in the shelf
         const SPECIAL_MODE_TILES = [
             {
                 id: 'qmri',
@@ -9105,9 +9165,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 desc: 'fit and visualise parameter maps',
                 glyph: 'qM',
                 keyHint: 'q',
-                command: 'qmri.cycle',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
+                excludes: [],
             },
             {
                 id: 'segmentation',
@@ -9115,9 +9175,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 desc: 'interactive AI-assisted masking',
                 glyph: 'SG',
                 keyHint: 's',
-                command: 'segmentation.cycle',
-                isEnabled: () => _segMode || (!compareActive && !multiViewActive && !qmriActive),
+                isEnabled: () => _segMode || (!compareActive && !multiViewActive),
                 isActive: () => _segMode,
+                excludes: ['roi'],
             },
             {
                 id: 'roi',
@@ -9125,9 +9185,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 desc: 'draw regions and measure statistics',
                 glyph: '[]',
                 keyHint: 'r',
-                command: 'roi.cycleMode',
-                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive && !qmriActive),
+                isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
+                excludes: ['segmentation'],
             },
         ];
         const PLUGIN_HELP = {
@@ -10430,7 +10490,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Toggle ROI mode',
                 when: [],
                 run: (ctx, e) => {
-                    if (compareActive || multiViewActive || qmriActive) {
+                    if (compareActive || multiViewActive) {
                         showStatus('ROI mode: not available in this mode'); return;
                     }
                     // Deactivate SEG if active — modes are mutually exclusive
@@ -11845,13 +11905,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 run: (ctx, e) => { closeSpecialModesShelf(); },
             },
             'plugin.exit': {
-                title: 'Exit plugin mode',
+                title: 'Exit all plugins',
                 when: ['anyPluginActive'],
                 run: (ctx, e) => {
                     _islandUserHidden = false;
-                    if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
-                    else if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
-                    else if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
+                    crossfade(() => {
+                        if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
+                        if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
+                        if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
+                    });
                 },
             },
             'island.toggle': {
@@ -11875,9 +11937,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
         };
         const keybinds = [
-            { key: '/', command: 'plugin.exit' },
             { key: '/', command: 'specialmodes.close' },
             { key: '/', command: 'specialmodes.open' },
+            { key: 'q', command: 'qmri.cycle' },
             { key: '`', command: 'island.toggle' },
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
@@ -12001,7 +12063,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Plugin modes', hint: 'launch qMRI, ROI, or segmentation — press again to exit' },
+                            { key: '/', action: 'Plugin modes', hint: 'open shelf to toggle plugins — Esc exits all' },
                         ]
                     },
                     {
@@ -12177,7 +12239,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: '/', action: 'Exit qMRI mode', hint: 'return to normal viewing' },
+                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                         ]
@@ -12206,8 +12268,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/', action: 'Exit segmentation mode' },
-                            { key: 'Escape', action: 'Exit segmentation mode' },
+                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
+                            { key: 'Esc', action: 'Exit all plugins' },
                             { key: 'Click', action: 'Place seed point' },
                             { key: 'u', action: 'Undo last seed' },
                         ]
@@ -12228,7 +12290,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Drawing',
                         entries: [
-                            { key: '/', action: 'Exit ROI mode' },
+                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
                             { key: 'Drag', action: 'Draw ROI on canvas' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Click ROI', action: 'Select an existing ROI' },
@@ -12355,13 +12417,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return Array.from(document.querySelectorAll('#special-modes-grid .smode-tile'));
         }
 
-        function _specialModesTileEnabled(tile, ctx) {
-            if (tile.command) {
-                const cmd = commands[tile.command];
-                if (!cmd || !evalWhen(cmd.when, ctx)) return false;
-            }
-            if (tile.isEnabled && !tile.isEnabled(ctx)) return false;
+        function _specialModesTileEnabled(tile) {
+            if (tile.isEnabled && !tile.isEnabled()) return false;
             return true;
+        }
+
+        // Check if a tile is incompatible with the current shelf selection
+        function _shelfIsIncompatible(tile) {
+            if (!tile.excludes || !tile.excludes.length) return false;
+            for (const exc of tile.excludes) {
+                if (_shelfSelection.has(exc)) return true;
+            }
+            return false;
         }
 
         function _specialModesSetNavIndex(index) {
@@ -12381,22 +12448,42 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return -1;
         }
 
+        function _shelfToggle(index) {
+            const tile = SPECIAL_MODE_TILES[index];
+            if (!tile || !_specialModesTileEnabled(tile)) return;
+            const id = tile.id;
+            if (_shelfSelection.has(id)) {
+                _shelfSelection.delete(id);
+            } else {
+                // Enforce mutual exclusion: deselect conflicting plugins
+                if (tile.excludes) {
+                    for (const exc of tile.excludes) _shelfSelection.delete(exc);
+                }
+                // Also deselect anything that excludes this tile
+                for (const t of SPECIAL_MODE_TILES) {
+                    if (t.excludes && t.excludes.includes(id)) _shelfSelection.delete(t.id);
+                }
+                _shelfSelection.add(id);
+            }
+            _refreshSpecialModesShelf();
+        }
+
         function _refreshSpecialModesShelf() {
             if (!_specialModesBuilt) return;
-            const ctx = makeContext(null);
             const buttons = _specialModesButtons();
             buttons.forEach((button, index) => {
                 const tile = SPECIAL_MODE_TILES[index];
-                const enabled = _specialModesTileEnabled(tile, ctx);
-                const active = !!(tile.isActive && tile.isActive(ctx));
+                const enabled = _specialModesTileEnabled(tile);
+                const selected = _shelfSelection.has(tile.id);
+                const incompatible = !selected && _shelfIsIncompatible(tile);
                 const meta = button.querySelector('.smode-meta');
                 button.disabled = !enabled;
                 button.classList.toggle('is-disabled', !enabled);
-                button.classList.toggle('is-active', active);
+                button.classList.toggle('is-selected', selected);
+                button.classList.toggle('is-incompatible', incompatible);
                 button.title = tile.label;
                 if (meta) {
                     if (!enabled) meta.textContent = 'unavailable';
-                    else if (active) meta.textContent = 'active';
                     else meta.textContent = '';
                 }
             });
@@ -12421,38 +12508,59 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         <span class="smode-label">${tile.label}</span>
                         ${tile.desc ? `<span class="smode-desc">${tile.desc}</span>` : ''}
                     </span>
-                    <span class="smode-meta"></span>`;
+                    <span class="smode-check"><svg viewBox="0 0 10 10" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,5.5 4.5,8 8,2.5"/></svg></span>`;
                 button.addEventListener('mousedown', (e) => e.preventDefault());
                 button.addEventListener('mouseenter', () => {
                     if (!button.disabled) _specialModesSetNavIndex(index);
                 });
-                button.addEventListener('click', async (e) => {
+                button.addEventListener('click', (e) => {
                     e.preventDefault();
                     if (button.disabled) return;
-                    await _runSpecialModesTile(index);
+                    _shelfToggle(index);
                 });
                 grid.appendChild(button);
             });
+            // Footer with keyboard hints
+            const footer = document.createElement('div');
+            footer.id = 'special-modes-footer';
+            footer.innerHTML = `<span><kbd>q</kbd> <kbd>r</kbd> <kbd>s</kbd> toggle</span><span><kbd>\u23ce</kbd> apply</span>`;
+            grid.parentNode.appendChild(footer);
             _specialModesBuilt = true;
             _refreshSpecialModesShelf();
         }
 
-        async function _runSpecialModesTile(index) {
-            const tile = SPECIAL_MODE_TILES[index];
-            if (!tile) return;
+        // Apply the shelf selection: diff against current state, exit/enter as needed
+        function _applyShelfSelection() {
             closeSpecialModesShelf();
-            await new Promise(resolve => requestAnimationFrame(resolve));
-            try {
-                if (tile.run) {
-                    await tile.run(makeContext(null));
-                    return;
+            const wantQmri = _shelfSelection.has('qmri');
+            const wantSeg = _shelfSelection.has('segmentation');
+            const wantRoi = _shelfSelection.has('roi');
+            const haveQmri = qmriActive || compareQmriActive;
+            const haveSeg = typeof _segMode !== 'undefined' && !!_segMode;
+            const haveRoi = !!rectRoiMode;
+
+            // Nothing changed
+            if (wantQmri === haveQmri && wantSeg === haveSeg && wantRoi === haveRoi) return;
+
+            const ctx = makeContext(null);
+            crossfade(() => {
+                // Exit plugins that are no longer selected (order: overlays first, then base)
+                if (haveSeg && !wantSeg) commands['seg.exit'].run(ctx, null);
+                if (haveRoi && !wantRoi) commands['roi.cycleMode'].run(ctx, null);
+                if (haveQmri && !wantQmri) commands['qmri.cycle'].run(ctx, null);
+                // Enter plugins that are newly selected (order: base first, then overlays)
+                if (!haveQmri && wantQmri) {
+                    _qmriVisibleMaps = null;
+                    if (compareActive) enterCompareQmri();
+                    else enterQmri();
                 }
-                if (!tile.command || !commands[tile.command]) return;
-                const maybePromise = commands[tile.command].run(makeContext(null), null);
-                if (maybePromise && typeof maybePromise.then === 'function') await maybePromise;
-            } catch (err) {
-                console.warn('special modes tile failed', tile.id, err);
-            }
+                if (!haveSeg && wantSeg && commands['segmentation.cycle']) {
+                    commands['segmentation.cycle'].run(makeContext(null), null);
+                }
+                if (!haveRoi && wantRoi && commands['roi.cycleMode']) {
+                    commands['roi.cycleMode'].run(makeContext(null), null);
+                }
+            });
         }
 
         function _specialModesMove(step) {
@@ -12506,36 +12614,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 setHelpVisible(true);
                 return true;
             }
-            if (e.key === 'ArrowRight' || e.key === 'l') {
+            if (e.key === 'ArrowDown' || e.key === 'j') {
                 e.preventDefault();
                 e.stopPropagation();
                 _specialModesMove(1);
                 return true;
             }
-            if (e.key === 'ArrowLeft' || e.key === 'h') {
+            if (e.key === 'ArrowUp' || e.key === 'k') {
                 e.preventDefault();
                 e.stopPropagation();
                 _specialModesMove(-1);
                 return true;
             }
-            if (e.key === 'ArrowDown' || e.key === 'j') {
+            // Space toggles the focused item's selection
+            if (e.key === ' ') {
                 e.preventDefault();
                 e.stopPropagation();
-                _specialModesMove(window.matchMedia('(min-width: 720px)').matches ? 4 : 2);
+                _shelfToggle(_specialModesNavIdx);
                 return true;
             }
-            if (e.key === 'ArrowUp' || e.key === 'k') {
+            // Enter applies the selection and closes the shelf
+            if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
-                _specialModesMove(window.matchMedia('(min-width: 720px)').matches ? -4 : -2);
+                _applyShelfSelection();
                 return true;
             }
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                void _runSpecialModesTile(_specialModesNavIdx);
-                return true;
-            }
+            // Quick keys: q, r, s toggle selection
             const quickIndex = _specialModesFindQuickKey(e.key);
             if (quickIndex >= 0) {
                 const buttons = _specialModesButtons();
@@ -12543,7 +12648,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     e.preventDefault();
                     e.stopPropagation();
                     _specialModesSetNavIndex(quickIndex);
-                    void _runSpecialModesTile(quickIndex);
+                    _shelfToggle(quickIndex);
                     return true;
                 }
             }
@@ -12556,6 +12661,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (specialModesOpen) return;
             closeCommandPalette();
             if (!_specialModesBuilt) _buildSpecialModesShelf();
+            // Initialize selection from currently active plugins
+            _shelfSelection = new Set();
+            for (const tile of SPECIAL_MODE_TILES) {
+                if (tile.isActive && tile.isActive()) _shelfSelection.add(tile.id);
+            }
             specialModesOpen = true;
             document.getElementById('special-modes-shelf').classList.add('visible');
             _refreshSpecialModesShelf();
