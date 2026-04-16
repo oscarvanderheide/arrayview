@@ -1632,7 +1632,7 @@
     </div>
     <div class="gallery-items"></div>
 </div>
-    <script src="/gsap.min.js"></script>
+    <script src="gsap.min.js"></script>
     <script>
         /* ── JS: Constants and Transport Setup ───────────────────── */
         const COLORMAPS = __COLORMAPS__;
@@ -1669,6 +1669,11 @@
         const compareLocked = !!compareSidsParam.trim();
         const httpTransport = transport === 'http';
         const postMessageTransport = transport === 'postMessage';
+        const _embeddedServerOrigin = typeof window.__ARRAYVIEW_SERVER_ORIGIN__ === 'string'
+            ? window.__ARRAYVIEW_SERVER_ORIGIN__.replace(/\/$/, '')
+            : '';
+        const _serverBasePathMatch = window.location.pathname.match(/^(.*\/proxy\/\d+)(?:\/|$)/);
+        const _serverBasePath = _serverBasePathMatch ? _serverBasePathMatch[1] : '';
         const isElectronHost = /\bElectron\//.test(navigator.userAgent || '');
         let _reportedFirstFrame = false;
         let _isWelcomeScreen = false;
@@ -1683,6 +1688,19 @@
         const _postMessageChannels = new Map();
         let _pendingFetches = new Map();
         let _fetchSeq = 0;
+
+        function resolveServerPath(path) {
+            if (!path || postMessageTransport) return path;
+            if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//')) return path;
+            if (_embeddedServerOrigin) {
+                const normalized = path.startsWith('/') ? path : `/${path}`;
+                return `${_embeddedServerOrigin}${normalized}`;
+            }
+            if (!_serverBasePath) return path;
+            if (path === _serverBasePath || path.startsWith(`${_serverBasePath}/`)) return path;
+            if (path.startsWith('/')) return `${_serverBasePath}${path}`;
+            return path;
+        }
 
         if (postMessageTransport) {
             _vscodeApi = acquireVsCodeApi();
@@ -1752,8 +1770,16 @@
                 setTimeout(() => { if (t.onopen) t.onopen(); }, 0);
                 return t;
             } else {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const ws = new WebSocket(`${proto}//${location.host}/ws/${transportSid}`);
+                const wsTarget = resolveServerPath(`/ws/${transportSid}`);
+                let ws;
+                if (_embeddedServerOrigin) {
+                    const wsUrl = new URL(wsTarget);
+                    const proto = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws = new WebSocket(`${proto}//${wsUrl.host}${wsUrl.pathname}${wsUrl.search}${wsUrl.hash}`);
+                } else {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws = new WebSocket(`${proto}//${location.host}${wsTarget}`);
+                }
                 ws.binaryType = 'arraybuffer';
                 if (onOpen) ws.onopen = onOpen;
                 if (onMessage) ws.onmessage = onMessage;
@@ -1768,7 +1794,7 @@
          * In ws/http mode, just calls native fetch.
          */
         function proxyFetch(url, options) {
-            if (!postMessageTransport) return fetch(url, options);
+            if (!postMessageTransport) return fetch(resolveServerPath(url), options);
             return new Promise((resolve, reject) => {
                 const id = ++_fetchSeq;
                 _pendingFetches.set(id, { resolve, reject });
@@ -7507,7 +7533,7 @@
             if (window === window.top && !postMessageTransport) {
                 try {
                     const _shellProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const _shellWs = new WebSocket(`${_shellProto}//${location.host}/ws/shell`);
+                    const _shellWs = new WebSocket(`${_shellProto}//${location.host}${resolveServerPath('/ws/shell')}`);
                     _shellWs.onmessage = (e) => {
                         try {
                             const msg = JSON.parse(e.data);
@@ -8525,7 +8551,8 @@
             if (httpTransport) params.set('transport', 'http');
             const encoded = encodeStateParam(collectStateSnapshot());
             if (encoded) params.set('state', encoded);
-            return `${window.location.origin}/?${params.toString()}`;
+            if (_embeddedServerOrigin) return `${_embeddedServerOrigin}/?${params.toString()}`;
+            return `${window.location.origin}${resolveServerPath('/')}?${params.toString()}`;
         }
 
         async function toggleRgbMode() {

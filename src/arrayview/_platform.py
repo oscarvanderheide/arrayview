@@ -256,6 +256,19 @@ def _in_vscode_terminal() -> bool:
     return _find_vscode_ipc_hook() is not None
 
 
+def _has_vscode_window_registration() -> bool:
+    signal_dir = os.path.expanduser("~/.arrayview")
+    if not os.path.isdir(signal_dir):
+        return False
+    try:
+        return any(
+            filename.startswith("window-") and filename.endswith(".json")
+            for filename in os.listdir(signal_dir)
+        )
+    except Exception:
+        return False
+
+
 def _is_vscode_remote() -> bool:
     """True when running inside a VS Code remote/tunnel session.
 
@@ -284,6 +297,15 @@ def _is_vscode_remote() -> bool:
         os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")
     ):
         return True
+    # Notebook kernels do not inherit the integrated terminal's IPC env vars,
+    # so remote VS Code notebooks need a second detection path. The remote
+    # machine has the VS Code server's remote-cli helper installed locally, and
+    # the opener extension keeps a window registration under ~/.arrayview while
+    # the client window is active.
+    if _in_jupyter():
+        code = _find_code_cli()
+        if code and "remote-cli" in code and _has_vscode_window_registration():
+            return True
     return False
 
 

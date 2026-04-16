@@ -22,6 +22,7 @@ urls = { "Home" = "https://github.com/oscarvanderheide/arrayview", "Source" = "h
 dependencies = [
     "fastapi>=0.129.0",
     "h5py>=3.0",
+    "jupyter-server-proxy>=4.0",
     "matplotlib>=3.9.0",
     "nibabel>=5.3.3",
     "numpy>=2.4.2",

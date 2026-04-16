@@ -754,6 +754,93 @@ def _with_loading(url: str) -> str:
 
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 
+_JUPYTER_PROXY_INLINE_CACHE: bool | None = None
+
+
+def _jupyter_base_url_prefix() -> str:
+    for key in (
+        "ARRAYVIEW_JUPYTER_BASE_URL",
+        "JUPYTERHUB_SERVICE_PREFIX",
+        "NB_PREFIX",
+        "JUPYTER_BASE_URL",
+    ):
+        value = os.environ.get(key, "").strip()
+        if value:
+            if not value.startswith("/"):
+                value = "/" + value
+            if not value.endswith("/"):
+                value += "/"
+            return value
+    return "/"
+
+
+def _should_use_jupyter_proxy_inline() -> bool:
+    if not _in_jupyter():
+        return False
+
+    forced = os.environ.get("ARRAYVIEW_JUPYTER_PROXY", "").strip().lower()
+    if forced:
+        return forced not in {"0", "false", "no", "off"}
+
+    global _JUPYTER_PROXY_INLINE_CACHE
+    if _JUPYTER_PROXY_INLINE_CACHE is not None:
+        return _JUPYTER_PROXY_INLINE_CACHE
+
+    try:
+        import importlib.util
+
+        _JUPYTER_PROXY_INLINE_CACHE = (
+            importlib.util.find_spec("jupyter_server_proxy") is not None
+        )
+    except Exception:
+        _JUPYTER_PROXY_INLINE_CACHE = False
+    return _JUPYTER_PROXY_INLINE_CACHE
+
+
+def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
+    from IPython.display import HTML
+
+    parsed = urllib.parse.urlparse(viewer_url)
+    proxied_target = f"proxy/{port}{parsed.path or '/'}"
+    if parsed.query:
+        proxied_target += f"?{parsed.query}"
+    initial_src = urllib.parse.urljoin(_jupyter_base_url_prefix(), proxied_target)
+    container_id = f"arrayview-inline-{uuid.uuid4().hex}"
+
+    return HTML(
+        f"""
+<div id={json.dumps(container_id)} style="width:100%;height:{height}px;background:#0c0c0c;overflow:hidden;border:0;border-radius:6px;">
+  <iframe
+    src={json.dumps(initial_src)}
+    title="ArrayView"
+    loading="eager"
+    referrerpolicy="same-origin"
+    allowfullscreen
+    style="width:100%;height:100%;border:0;display:block;background:#0c0c0c;"
+  ></iframe>
+</div>
+<script>
+(function() {{
+  const host = document.getElementById({json.dumps(container_id)});
+  if (!host) return;
+  const frame = host.querySelector('iframe');
+  if (!frame) return;
+  const baseCandidates = [
+    document.body && document.body.dataset ? document.body.dataset.baseUrl : '',
+    window.Jupyter && window.Jupyter.notebook ? window.Jupyter.notebook.base_url : '',
+    window.jupyterapp && window.jupyterapp.serviceManager && window.jupyterapp.serviceManager.serverSettings
+      ? window.jupyterapp.serviceManager.serverSettings.baseUrl
+      : '',
+  ];
+  let base = baseCandidates.find(value => typeof value === 'string' && value.length) || {json.dumps(_jupyter_base_url_prefix())};
+  if (!base.startsWith('/')) base = '/' + base;
+  if (!base.endsWith('/')) base += '/';
+  frame.src = new URL({json.dumps(proxied_target)}, window.location.origin + base).toString();
+}})();
+</script>
+""".strip()
+    )
+
 
 # ── ViewHandle and view() API ────────────────────────────────────
 
@@ -942,18 +1029,23 @@ def view(
     # --- Normalise string window modes ---
     _force_browser = False
     _force_vscode = False
+    _explicit_inline = inline is not None
+    _explicit_window = window is not None
     if isinstance(window, str):
         _w = window.lower()
         if _w == "inline":
             inline = True
             window = False
         elif _w == "native":
+            inline = False
             window = True
         elif _w == "browser":
             window = False
+            inline = False
             _force_browser = True
         elif _w == "vscode":
             window = False
+            inline = False
             _force_vscode = True
         else:
             raise ValueError(
@@ -1023,7 +1115,12 @@ def view(
         inline = False
 
     # User config: apply persistent window preference if no explicit arg was given
-    if not isinstance(window, str) and not _force_browser and not _force_vscode:
+    if (
+        not _explicit_window
+        and not _explicit_inline
+        and not _force_browser
+        and not _force_vscode
+    ):
         from arrayview._config import get_window_default
         from arrayview._platform import detect_environment
 
@@ -1042,7 +1139,14 @@ def view(
                 _force_vscode = True
 
     # Auto-detect VS Code terminal: prefer Simple Browser over native window
-    if _in_vscode_terminal() and not _force_vscode and not _force_browser:
+    if (
+        _in_vscode_terminal()
+        and not inline
+        and not _explicit_window
+        and not _explicit_inline
+        and not _force_vscode
+        and not _force_browser
+    ):
         _force_vscode = True
         if window is True:
             window = False
@@ -1297,6 +1401,8 @@ def view(
                     f"Choose a different port in view(..., port=...)."
                 )
             _vprint(f"[ArrayView] Default port busy, using port {port}", flush=True)
+        if _is_vscode_remote():
+            _configure_vscode_port_preview(port)
         _session_mod.SERVER_LOOP = None  # reset so we wait for the new loop below
         _server_ready_event.clear()
         _script = _is_script_mode()
@@ -1344,6 +1450,8 @@ def view(
             )
         _platform_mod._jupyter_server_port = port
     else:
+        if _is_vscode_remote():
+            _configure_vscode_port_preview(port)
         _platform_mod._jupyter_server_port = port  # server already ours on this port
         can_native_window = _can_native_window() if window else False
         _early_window_opened = False
@@ -1373,6 +1481,13 @@ def view(
 
         # Add inline=1 param so the viewer starts in immersive mode
         _inline_url = url_viewer + "&inline=1"
+        if _should_use_jupyter_proxy_inline():
+            _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
+            if n_arrays == 1:
+                return _inline_html
+            _ipy_display(_inline_html)
+            handles = tuple(ViewHandle(url_viewer, s, port) for s in [session.sid] + _compare_sids)
+            return handles
         iframe = IFrame(src=_inline_url, width="100%", height=height)
         if n_arrays == 1:
             return iframe

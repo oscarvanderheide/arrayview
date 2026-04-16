@@ -2,6 +2,7 @@
 
 import io
 import inspect
+import os
 
 import httpx
 import numpy as np
@@ -32,6 +33,13 @@ class TestHealth:
         r = client.get(f"/?sid={sid_2d}")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
+
+    def test_root_with_sid_includes_proxy_base_support(self, client, sid_2d):
+        r = client.get(f"/?sid={sid_2d}")
+        assert r.status_code == 200
+        assert "resolveServerPath(path)" in r.text
+        assert "window.location.pathname.match(/^(.*\\/proxy\\/\\d+)(?:\\/|$)/)" in r.text
+        assert '<script src="gsap.min.js"></script>' in r.text
 
     def test_shell_returns_html(self, client):
         r = client.get("/shell")
@@ -1578,3 +1586,85 @@ class TestViewValidation:
         a = np.zeros((3, 3))
         with pytest.raises(ValueError, match="rgb list length"):
             view(a, a, rgb=[True])
+
+
+class TestViewDisplayRouting:
+    def test_jupyter_proxy_inline_uses_notebook_server_proxy(self, monkeypatch):
+        pytest.importorskip("IPython.display")
+        import arrayview._launcher as launcher
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
+        monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
+        monkeypatch.setattr(launcher, "_server_pid", lambda port: os.getpid())
+        monkeypatch.setattr(launcher, "_should_use_jupyter_proxy_inline", lambda: True)
+        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
+
+        result = launcher.view(
+            np.zeros((4, 4), dtype=np.float32),
+            name="nbclassic-inline",
+            inline=True,
+        )
+
+        assert result.__class__.__name__ == "HTML"
+        assert "proxy/8123/" in result.data
+        assert "document.body && document.body.dataset" in result.data
+
+    def test_remote_vscode_jupyter_auto_opens_vscode_tab(self, monkeypatch):
+        """VS Code tunnel notebook can't reach localhost through the webview sandbox,
+        so `view(arr)` automatically routes to a VS Code webview tab instead of inline."""
+        import arrayview._launcher as launcher
+
+        calls = []
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
+        monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: True)
+        monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: True)
+        monkeypatch.setattr(launcher, "_ensure_vscode_extension", lambda: True)
+        monkeypatch.setattr(
+            launcher,
+            "_open_direct_via_shm",
+            lambda data, name="array", title=None, floating=False: calls.append(
+                {"shape": data.shape, "name": name, "title": title, "floating": floating}
+            )
+            or True,
+        )
+
+        result = launcher.view(np.zeros((4, 4), dtype=np.float32), name="remote-tab")
+
+        assert result is None
+        assert calls == [
+            {
+                "shape": (4, 4),
+                "name": "remote-tab",
+                "title": "ArrayView: remote-tab",
+                "floating": False,
+            }
+        ]
+
+    def test_jupyter_window_browser_disables_inline(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        opened = []
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: True)
+        monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(launcher, "_server_pid", lambda port: os.getpid())
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
+
+        handle = launcher.view(
+            np.zeros((4, 4), dtype=np.float32),
+            name="browser-only",
+            window="browser",
+        )
+
+        assert isinstance(handle, launcher.ViewHandle)
+        assert opened
+        assert opened[0]["url"].startswith("http://localhost:8123/?sid=")
