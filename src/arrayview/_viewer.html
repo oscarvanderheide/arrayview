@@ -731,17 +731,13 @@
             font-size: 11px; color: var(--text); font-family: var(--mono);
             display: none; z-index: 5; min-width: 200px;
             transition: height 0.3s ease, opacity 0.3s ease;
-            cursor: default; user-select: none;
+            cursor: grab; user-select: none;
         }
+        #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
         #dynamic-island .island-header {
-            display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: grab;
+            display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
-        #dynamic-island .island-header:active { cursor: grabbing; }
-        #dynamic-island .island-drag-handle {
-            width: 14px; display: flex; flex-direction: column; gap: 2px; opacity: 0.2; flex-shrink: 0;
-        }
-        #dynamic-island .island-drag-handle span { display: block; height: 1px; background: #fff; }
         #dynamic-island .island-title { font-weight: 600; flex-shrink: 0; }
         #dynamic-island .island-title-roi { color: #e8e8e8; }
         #dynamic-island .island-title-seg { color: #e8e8e8; }
@@ -783,7 +779,6 @@
         :root.light #dynamic-island .island-stats { color: #666; }
         :root.light #dynamic-island .island-delete { color: #aaa; }
         :root.light #dynamic-island .island-delete:hover { color: #cc3030; }
-        :root.light #dynamic-island .island-drag-handle span { background: #333; }
         #roi-hover-tooltip {
             position: absolute; pointer-events: none; z-index: 8;
             background: var(--surface); border: 1px solid var(--border);
@@ -1914,6 +1909,7 @@
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats} for multi-ROI
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
+        let _islandUserHidden = false; // backtick toggle — hides island while plugin stays active
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
@@ -7716,6 +7712,7 @@
         window._islandExport = _islandExport;
 
         function _islandMorph() {
+            _islandUserHidden = false;
             const el = document.getElementById('dynamic-island');
             if (!el) return;
             el.style.opacity = '0';
@@ -7725,12 +7722,17 @@
             }, 150);
         }
 
+        let _islandLastActive = null; // tracks plugin transitions for auto-reset
         function renderIsland() {
             const el = document.getElementById('dynamic-island');
             if (!el) return;
 
             const active = rectRoiMode ? 'roi' : _segMode ? 'seg' : qmriActive ? 'qmri' : null;
-            if (!active) {
+            if (active !== _islandLastActive) {
+                _islandUserHidden = false;
+                _islandLastActive = active;
+            }
+            if (!active || _islandUserHidden) {
                 el.classList.remove('visible');
                 return;
             }
@@ -7741,7 +7743,6 @@
                 const allCmaps = QMRI_COLORMAPS[n];
                 const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
                 let html = `<div class="island-header">`;
-                html += `<div class="island-drag-handle"><span></span><span></span><span></span></div>`;
                 html += `<span class="island-title island-title-qmri">qMRI maps</span>`;
                 html += `</div>`;
                 html += `<div class="island-rows">`;
@@ -7769,9 +7770,8 @@
             const currentShape = isRoi ? _roiShape : _segMethod;
             const shapeKeys = Object.keys(shapes);
 
-            // Header: drag handle + title + shape icons + download
+            // Header: title + shape icons + download
             let html = `<div class="island-header">`;
-            html += `<div class="island-drag-handle"><span></span><span></span><span></span></div>`;
             html += `<span class="island-title island-title-${active}">${title}</span>`;
             html += `<span class="island-dot">\u00b7</span>`;
             html += `<div class="island-shapes">`;
@@ -10044,8 +10044,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             let dragging = false, dragOffX = 0, dragOffY = 0;
 
             island.addEventListener('mousedown', e => {
-                if (!e.target.closest('.island-header')) return;
-                if (e.target.closest('.island-shapes') || e.target.closest('.island-download')) return;
+                // Allow drag from any non-interactive surface
+                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-name.editable, .island-cb-row')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
@@ -11817,9 +11817,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Exit plugin mode',
                 when: ['anyPluginActive'],
                 run: (ctx, e) => {
+                    _islandUserHidden = false;
                     if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
                     else if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
                     else if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
+                },
+            },
+            'island.toggle': {
+                title: 'Toggle plugin panel visibility',
+                when: ['anyPluginActive'],
+                run: () => {
+                    _islandUserHidden = !_islandUserHidden;
+                    renderIsland();
                 },
             },
             'palette.open': {
@@ -11832,6 +11841,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '/', command: 'plugin.exit' },
             { key: '/', command: 'specialmodes.close' },
             { key: '/', command: 'specialmodes.open' },
+            { key: '`', command: 'island.toggle' },
             { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
@@ -12056,10 +12066,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
                         entries: [
                             { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open shelf, then r' },
+                            { key: '`', action: 'Toggle floating panel' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Drag', action: 'Draw ROI region' },
                             { key: 'Right-click', action: 'Delete ROI under cursor' },
-                            { key: 'Esc', action: 'Clear all and exit' },
+                            { key: 'Esc', action: 'Exit ROI mode' },
                         ]
                     },
                     {
@@ -12074,6 +12085,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
                         entries: [
                             { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open shelf, then s' },
+                            { key: '`', action: 'Toggle floating panel' },
                             { key: 'Click', action: 'Add region (positive prompt)' },
                             { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -12112,6 +12124,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open shelf, then q' },
+                            { key: '`', action: 'Toggle floating panel' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
