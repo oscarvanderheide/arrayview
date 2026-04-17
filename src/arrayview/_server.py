@@ -3663,7 +3663,7 @@ def get_ui(sid: str = None):
         # server-side so the viewer JS can find it regardless of the URL.
         if SESSIONS:
             latest_sid = list(SESSIONS.keys())[-1]
-            query_val = json.dumps(f"?sid={latest_sid}&transport=http")
+            query_val = json.dumps(f"?sid={latest_sid}")
         else:
             query_val = "null"  # viewer will show "Session not found or expired"
     else:
