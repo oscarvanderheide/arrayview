@@ -3398,6 +3398,160 @@ async def load_file(request: Request):
     return {"sid": session.sid, "name": name, "notified": notified}
 
 
+def _peek_shape(path: str) -> tuple | None:
+    """Cheaply read the shape of an array file without loading its data.
+
+    Returns None if the format cannot be inspected cheaply (callers should
+    treat unknown-shape entries as "unfiltered" — show but don't claim
+    compatibility).
+    """
+    lower = path.lower()
+    try:
+        if lower.endswith(".npy"):
+            with open(path, "rb") as f:
+                try:
+                    version = np.lib.format.read_magic(f)
+                    if version == (1, 0):
+                        shape, _, _ = np.lib.format.read_array_header_1_0(f)
+                    elif version == (2, 0):
+                        shape, _, _ = np.lib.format.read_array_header_2_0(f)
+                    else:
+                        return None
+                    return tuple(int(s) for s in shape)
+                except Exception:
+                    return None
+        if lower.endswith(".nii") or lower.endswith(".nii.gz"):
+            try:
+                import nibabel as nib  # lazy
+                img = nib.load(path, mmap=True)
+                return tuple(int(s) for s in img.shape)
+            except Exception:
+                return None
+        if lower.endswith(".h5") or lower.endswith(".hdf5"):
+            try:
+                import h5py  # lazy
+                with h5py.File(path, "r") as f:
+                    keys = list(f.keys())
+                    if len(keys) == 1:
+                        return tuple(int(s) for s in f[keys[0]].shape)
+            except Exception:
+                return None
+        if lower.endswith(".zarr"):
+            try:
+                import json
+                zarr_meta = os.path.join(path, ".zarray")
+                if os.path.isfile(zarr_meta):
+                    with open(zarr_meta) as f:
+                        return tuple(int(s) for s in json.load(f).get("shape", []))
+            except Exception:
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def _shape_compatible(base: tuple, cand: tuple, mode: str) -> bool:
+    """Check if cand is shape-compatible with base for the given mode.
+
+    overlay: shapes must be identical.
+    vectorfield: cand must equal base plus exactly one inserted axis of size 3.
+    """
+    if not base or not cand:
+        return True  # don't hide entries with unknown shape
+    if mode == "overlay":
+        return tuple(base) == tuple(cand)
+    if mode == "vectorfield":
+        if len(cand) != len(base) + 1:
+            return False
+        # cand must contain base's dims in order plus one size-3 axis somewhere.
+        for drop_idx in range(len(cand)):
+            if cand[drop_idx] == 3 and tuple(cand[:drop_idx] + cand[drop_idx + 1:]) == tuple(base):
+                return True
+        return False
+    return True
+
+
+@app.get("/fs/list")
+def fs_list(
+    path: str | None = None,
+    base_sid: str | None = None,
+    mode: str | None = None,
+):
+    """List directory entries for the filesystem picker.
+
+    Clamped to the user's home directory — attempts to escape are rewritten
+    back to $HOME. File entries are filtered to arrayview-supported extensions.
+
+    If base_sid + mode are provided, incompatible files (by header shape) are
+    hidden. Files whose shape can't be determined cheaply are kept.
+    """
+    from ._io import _SUPPORTED_EXTS
+
+    home = os.path.realpath(os.path.expanduser("~"))
+    target = os.path.realpath(path) if path else home
+    if not target.startswith(home):
+        target = home
+    if not os.path.isdir(target):
+        target = home
+
+    base_shape: tuple | None = None
+    if base_sid and mode in ("overlay", "vectorfield"):
+        s = SESSIONS.get(base_sid)
+        if s is not None:
+            base_shape = tuple(int(x) for x in s.shape)
+
+    entries: list[dict] = []
+    try:
+        with os.scandir(target) as it:
+            for e in it:
+                try:
+                    if e.name.startswith("."):
+                        continue
+                    is_dir = e.is_dir(follow_symlinks=False)
+                    if is_dir:
+                        entries.append({
+                            "name": e.name,
+                            "path": os.path.join(target, e.name),
+                            "is_dir": True,
+                            "size": None,
+                        })
+                    else:
+                        lower = e.name.lower()
+                        ext = (
+                            ".nii.gz" if lower.endswith(".nii.gz")
+                            else ".zarr.zip" if lower.endswith(".zarr.zip")
+                            else os.path.splitext(lower)[1]
+                        )
+                        if ext not in _SUPPORTED_EXTS:
+                            continue
+                        full = os.path.join(target, e.name)
+                        shape = None
+                        if base_shape is not None:
+                            shape = _peek_shape(full)
+                            if not _shape_compatible(base_shape, shape, mode or ""):
+                                continue
+                        st = e.stat(follow_symlinks=False)
+                        entries.append({
+                            "name": e.name,
+                            "path": full,
+                            "is_dir": False,
+                            "size": int(st.st_size),
+                            "shape": list(shape) if shape else None,
+                        })
+                except (OSError, PermissionError):
+                    continue
+    except (OSError, PermissionError) as e:
+        return {"error": str(e)}
+
+    entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+
+    parent = os.path.dirname(target) if target != home else None
+    if parent and not parent.startswith(home):
+        parent = None
+
+    return {"cwd": target, "parent": parent, "home": home, "entries": entries}
+
+
 @app.post("/load-upload")
 async def load_upload(file: UploadFile = File(...)):
     """Accept a drag-and-dropped .npy or .mat file and create a new session.

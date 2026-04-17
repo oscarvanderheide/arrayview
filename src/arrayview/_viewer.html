@@ -61,8 +61,9 @@
         body.av-loading #info,
         body.av-loading #canvas-wrap,
         body.av-loading #slim-cb-wrap,
-        body.av-loading #help-hint { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint {
+        body.av-loading #help-hint,
+        body.av-loading #shelf-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #shelf-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -808,10 +809,72 @@
             font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
         }
         #export-download:hover { filter: brightness(1.1); }
+        #picker-overlay {
+            display: none; position: fixed; inset: 0;
+            background: var(--overlay-bg);
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            z-index: 10; justify-content: center; align-items: center;
+        }
+        #picker-overlay.visible { display: flex; }
+        #picker-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+            padding: 20px 24px;
+            width: min(640px, 92vw);
+            max-height: 86vh;
+            display: flex; flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px; color: var(--text);
+        }
+        #picker-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 14px; padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        #picker-title { font-size: 16px; font-weight: 600; color: #f5c842; }
+        #picker-close { cursor: pointer; color: var(--muted); font-size: 18px; }
+        #picker-close:hover { color: var(--text); }
+        #picker-path {
+            font-family: var(--mono); font-size: 12px; color: var(--muted);
+            margin-bottom: 10px; padding: 6px 8px;
+            background: rgba(0,0,0,0.18); border-radius: 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        #picker-list {
+            flex: 1; overflow-y: auto; margin-bottom: 14px;
+            border: 1px solid var(--border-subtle); border-radius: 4px;
+            min-height: 240px; max-height: 52vh;
+        }
+        .picker-entry {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 12px; cursor: pointer;
+            font-family: var(--mono); font-size: 13px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .picker-entry:last-child { border-bottom: none; }
+        .picker-entry:hover { background: rgba(245,200,66,0.08); }
+        .picker-entry .pe-glyph {
+            display: inline-block; width: 16px; text-align: center;
+            color: var(--muted); flex-shrink: 0;
+        }
+        .picker-entry.pe-dir .pe-glyph { color: #f5c842; }
+        .picker-entry .pe-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .picker-entry .pe-size { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+        .picker-entry.pe-up { color: var(--muted); }
+        #picker-footer { display: flex; justify-content: flex-end; gap: 8px; }
+        #picker-cancel {
+            background: transparent; color: var(--text);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 7px 16px; font: inherit; cursor: pointer;
+        }
+        #picker-cancel:hover { border-color: var(--muted); }
+        #picker-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 12px; }
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #island-hint {
+        #help-hint, #island-hint, #shelf-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -821,25 +884,37 @@
             z-index: 6;
         }
         #help-hint { right: 16px; }
+        #shelf-hint { right: 46px; }
         #island-hint { left: 16px; display: none; }
         #island-hint.visible { display: flex; }
-        #help-hint:hover, #island-hint:hover { color: var(--text); border-color: var(--muted); }
+        #help-hint:hover, #island-hint:hover, #shelf-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; bottom: 6px;
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border-radius: 14px; padding: 10px 12px 36px 40px;
+            border-radius: 14px; padding: 10px 12px;
             font-size: 11px; color: var(--text); font-family: var(--mono);
             display: none; z-index: 5; min-width: 200px;
             transition: height 0.3s ease, opacity 0.3s ease;
             cursor: grab; user-select: none;
         }
+        #island-collapse-btn {
+            position: absolute; top: 8px; right: 10px;
+            width: 18px; height: 18px; border-radius: 50%;
+            border: 1px solid var(--border); color: var(--muted);
+            font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; user-select: none;
+            transition: color 0.12s, border-color 0.12s;
+            background: transparent;
+        }
+        #island-collapse-btn:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
         #dynamic-island .island-header {
             display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
-        #dynamic-island .island-header-title { margin-bottom: 4px; }
+        #dynamic-island .island-header-title { margin-bottom: 4px; padding-right: 24px; }
         #dynamic-island .island-toolbar {
             display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
@@ -925,6 +1000,48 @@
         #dynamic-island .island-stats { color: #777; font-size: 9px; white-space: nowrap; }
         #dynamic-island .island-delete { color: #444; font-size: 16px; cursor: pointer; flex-shrink: 0; line-height: 1; padding: 0 4px; }
         #dynamic-island .island-delete:hover { color: #ff5050; }
+        #dynamic-island .island-eye { color: #666; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; padding: 0 3px; transition: color 120ms ease; }
+        #dynamic-island .island-eye:hover { color: #ccc; }
+        #dynamic-island .island-eye.off { color: #333; }
+        #dynamic-island .island-row.hidden .island-swatch,
+        #dynamic-island .island-row.hidden .island-name { opacity: 0.35; }
+        #dynamic-island .island-slider-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 4px 2px; font-size: 10px; color: #999;
+        }
+        #dynamic-island .island-slider-label { min-width: 48px; color: #888; }
+        #dynamic-island .island-slider {
+            flex: 1; -webkit-appearance: none; appearance: none;
+            height: 14px; background: transparent;
+            cursor: pointer; outline: none; padding: 0; margin: 0;
+        }
+        #dynamic-island .island-slider::-webkit-slider-runnable-track {
+            height: 2px; background: rgba(255,255,255,0.12); border-radius: 1px; border: none;
+        }
+        #dynamic-island .island-slider::-moz-range-track {
+            height: 2px; background: rgba(255,255,255,0.12); border-radius: 1px; border: none;
+        }
+        #dynamic-island .island-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #f0c674; cursor: pointer; border: none;
+            margin-top: -4px; /* centre thumb on 2px track */
+        }
+        #dynamic-island .island-slider::-moz-range-thumb {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #f0c674; cursor: pointer; border: none;
+        }
+        #dynamic-island .island-slider-value { min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+        #dynamic-island .island-add-row {
+            display: flex; align-items: center; gap: 6px;
+            padding: 5px 6px; margin-top: 4px;
+            color: #666; cursor: pointer; border-radius: 4px;
+            font-size: 10px; user-select: none;
+            border: 1px dashed rgba(255,255,255,0.08);
+            transition: color 120ms ease, border-color 120ms ease;
+        }
+        #dynamic-island .island-add-row:hover { color: #ccc; border-color: rgba(255,255,255,0.2); }
+        #dynamic-island .island-add-row[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
         /* Light theme */
         :root.light #dynamic-island { background: rgba(245,245,245,0.95); border-color: rgba(0,0,0,0.1); }
         :root.light #dynamic-island .island-name { color: #333; }
@@ -1124,7 +1241,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
-        body.zen-mode #help-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #shelf-hint, body.zen-mode #status,
         body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
@@ -1744,6 +1861,7 @@
         </div>
     </div>
     <div id="help-hint">?</div>
+    <div id="shelf-hint" title="Open plugins (/)">/</div>
     <div id="island-hint">~</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
@@ -1768,6 +1886,19 @@
             <div id="export-table-wrap"></div>
             <div id="export-footer">
                 <button id="export-download">Download CSV</button>
+            </div>
+        </div>
+    </div>
+    <div id="picker-overlay">
+        <div id="picker-box">
+            <div id="picker-header">
+                <span id="picker-title">Add overlay</span>
+                <span id="picker-close">&#x2715;</span>
+            </div>
+            <div id="picker-path"></div>
+            <div id="picker-list"></div>
+            <div id="picker-footer">
+                <button id="picker-cancel">Cancel</button>
             </div>
         </div>
     </div>
@@ -1824,6 +1955,10 @@
             (_overlayColorsArr[i] || _OVERLAY_PALETTE[i % _OVERLAY_PALETTE.length])
         );
         const overlay_colors = _overlayColors.join(',') || null;
+        // Per-overlay visibility + display labels. _overlayVisibility (legacy) still
+        // drives Shift+O cycling; the island toggles _overlayVisible[i] directly.
+        let _overlayVisible = _overlaySids.map(() => true);
+        let _overlayLabels = _overlaySids.map((_, i) => `overlay ${i + 1}`);
         const transport = urlParams.get('transport') || (typeof acquireVsCodeApi !== 'undefined' ? 'postMessage' : 'ws');
         const stateParam = urlParams.get('state') || null;
         const compareSidsParam = urlParams.get('compare_sids') || '';
@@ -2095,6 +2230,8 @@
         };
         const _DOWNLOAD_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v7"/><path d="M4 7l3 3 3-3"/><path d="M2 11h10"/></svg>';
         const _MAGNIFIER_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.9-4.9"/></svg>';
+        const _EYE_ON_ICON  = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+        const _EYE_OFF_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.4 18.4 0 0 1 4.22-5.22M9.9 4.24A11 11 0 0 1 12 4c7 0 11 7 11 7a18.4 18.4 0 0 1-2.16 3.19M6.71 6.71l10.58 10.58"/></svg>';
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
@@ -7631,6 +7768,12 @@
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
             if (!hasVectorfield) vfieldVisible = true;
+            if (hasVectorfield && vfieldVisible) _shelfSelection.add('vectorfield');
+            if (_overlaySids.length > 0 && _overlayVisibility !== 'none') _shelfSelection.add('overlay');
+            if (_shelfSelection.has('overlay') || _shelfSelection.has('vectorfield')) {
+                // Ensure the island appears on first frame instead of after the next user action.
+                if (typeof renderIsland === 'function') renderIsland();
+            }
             rgbMode = data.is_rgb || false;
             spatialMeta = data.spatial_meta || null;
             rasResampleActive = !!data.ras_resample_active;
@@ -8092,6 +8235,106 @@
             }, true);
         })();
 
+        // ── File picker modal ──
+        let _pickerResolve = null;
+        let _pickerCwd = null;
+        function _fmtPickerSize(n) {
+            if (n === null || n === undefined) return '';
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+            return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        }
+        let _pickerFilter = null;  // {base_sid, mode} or null — set by openFilePicker
+        async function _pickerNavigate(path) {
+            const list = document.getElementById('picker-list');
+            const pathEl = document.getElementById('picker-path');
+            list.innerHTML = '<div id="picker-empty">Loading...</div>';
+            try {
+                const params = new URLSearchParams();
+                if (path) params.set('path', path);
+                if (_pickerFilter) {
+                    params.set('base_sid', _pickerFilter.base_sid);
+                    params.set('mode', _pickerFilter.mode);
+                }
+                const qs = params.toString() ? `?${params.toString()}` : '';
+                const r = await proxyFetch(`/fs/list${qs}`);
+                const d = await r.json();
+                if (d.error) { list.innerHTML = `<div id="picker-empty">${d.error}</div>`; return; }
+                _pickerCwd = d.cwd;
+                pathEl.textContent = d.cwd;
+                let html = '';
+                if (d.parent) {
+                    html += `<div class="picker-entry pe-dir pe-up" data-path="${d.parent.replace(/"/g, '&quot;')}">`;
+                    html += `<span class="pe-glyph">\u2191</span><span class="pe-name">..</span>`;
+                    html += `</div>`;
+                }
+                for (const e of d.entries) {
+                    const escPath = e.path.replace(/"/g, '&quot;');
+                    const escName = e.name.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                    if (e.is_dir) {
+                        html += `<div class="picker-entry pe-dir" data-path="${escPath}">`;
+                        html += `<span class="pe-glyph">\u25B8</span><span class="pe-name">${escName}</span>`;
+                        html += `</div>`;
+                    } else {
+                        html += `<div class="picker-entry pe-file" data-path="${escPath}" data-file="1">`;
+                        html += `<span class="pe-glyph">\u00B7</span><span class="pe-name">${escName}</span>`;
+                        html += `<span class="pe-size">${_fmtPickerSize(e.size)}</span>`;
+                        html += `</div>`;
+                    }
+                }
+                if (!d.entries.length && !d.parent) html += `<div id="picker-empty">(empty)</div>`;
+                list.innerHTML = html;
+                list.querySelectorAll('.picker-entry').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const p = el.dataset.path;
+                        if (el.dataset.file) {
+                            _pickerResolveWith(p);
+                        } else {
+                            _pickerNavigate(p);
+                        }
+                    });
+                });
+            } catch (err) {
+                list.innerHTML = `<div id="picker-empty">error: ${err.message}</div>`;
+            }
+        }
+        function _pickerResolveWith(val) {
+            const ov = document.getElementById('picker-overlay');
+            if (ov) ov.classList.remove('visible');
+            const resolve = _pickerResolve;
+            _pickerResolve = null;
+            if (resolve) resolve(val);
+        }
+        function openFilePicker(opts) {
+            opts = opts || {};
+            const ov = document.getElementById('picker-overlay');
+            const title = document.getElementById('picker-title');
+            if (!ov) return Promise.resolve(null);
+            if (title) title.textContent = opts.title || 'Add overlay';
+            _pickerFilter = (opts.base_sid && opts.mode)
+                ? { base_sid: opts.base_sid, mode: opts.mode }
+                : null;
+            ov.classList.add('visible');
+            _pickerNavigate(opts.initialPath || _pickerCwd || null);
+            return new Promise(resolve => { _pickerResolve = resolve; });
+        }
+        window.openFilePicker = openFilePicker;
+        (function _wirePickerOverlay() {
+            const ov = document.getElementById('picker-overlay');
+            const closeBtn = document.getElementById('picker-close');
+            const cancelBtn = document.getElementById('picker-cancel');
+            if (ov) ov.addEventListener('click', e => { if (e.target === ov) _pickerResolveWith(null); });
+            if (closeBtn) closeBtn.addEventListener('click', () => _pickerResolveWith(null));
+            if (cancelBtn) cancelBtn.addEventListener('click', () => _pickerResolveWith(null));
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && ov && ov.classList.contains('visible')) {
+                    e.preventDefault(); e.stopPropagation();
+                    _pickerResolveWith(null);
+                }
+            }, true);
+        })();
+
         function _islandMorph() {
             _islandUserHidden = false;
             const el = document.getElementById('dynamic-island');
@@ -8148,12 +8391,15 @@
         function renderIsland() {
             const el = document.getElementById('dynamic-island');
             if (!el) return;
+            if (_islandSliderDragging) return; // never rebuild DOM mid slider-drag
 
             // Collect all active plugins
             const activePlugins = [];
             if (qmriActive) activePlugins.push('qmri');
             if (rectRoiMode) activePlugins.push('roi');
             if (_segMode || _segActivating) activePlugins.push('seg');
+            if (_shelfSelection.has('overlay')) activePlugins.push('overlay');
+            if (_shelfSelection.has('vectorfield') && hasVectorfield) activePlugins.push('vectorfield');
             const activeKey = activePlugins.join('+') || null;
 
             if (activeKey !== _islandLastActive) {
@@ -8167,7 +8413,8 @@
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
-            if (hint) hint.classList.add('visible');
+            // External hint is only for the collapsed state; hide it while the island is expanded.
+            if (hint) hint.classList.toggle('visible', _islandUserHidden);
             if (_islandUserHidden) {
                 el.classList.remove('visible');
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
@@ -8242,11 +8489,121 @@
                 sectionCount++;
             }
 
+            // Overlay section
+            if (activePlugins.includes('overlay')) {
+                if (sectionCount > 0) html += '<div class="island-divider"></div>';
+                html += `<div class="island-header island-header-title">`;
+                html += `<span class="island-title island-title-roi">Overlays</span>`;
+                html += `</div>`;
+                if (_overlaySids.length) {
+                    html += `<div class="island-rows">${_renderOverlayRows()}</div>`;
+                    const alphaPct = Math.round(overlayAlpha * 100);
+                    html += `<div class="island-slider-row">`;
+                    html += `<span class="island-slider-label">opacity</span>`;
+                    html += `<input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}">`;
+                    html += `<span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span>`;
+                    html += `</div>`;
+                }
+                html += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
+                sectionCount++;
+            }
+
+            // Vector field section
+            if (activePlugins.includes('vectorfield')) {
+                if (sectionCount > 0) html += '<div class="island-divider"></div>';
+                html += `<div class="island-header island-header-title">`;
+                html += `<span class="island-title island-title-roi">Vector field</span>`;
+                html += `</div>`;
+                html += `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}">`;
+                html += `<div class="island-swatch" style="background:#f0c674"></div>`;
+                html += `<span class="island-name">displacement</span>`;
+                html += `<span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
+                html += `</div></div>`;
+                html += `<div class="island-slider-row">`;
+                html += `<span class="island-slider-label">density</span>`;
+                html += `<input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}">`;
+                html += `<span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span>`;
+                html += `</div>`;
+                html += `<div class="island-slider-row">`;
+                html += `<span class="island-slider-label">length</span>`;
+                html += `<input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}">`;
+                html += `<span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span>`;
+                html += `</div>`;
+                sectionCount++;
+            }
+
+            // Top-right collapse button — animates the island down to the bottom-left hint.
+            html += `<span id="island-collapse-btn" title="Collapse (~)">~</span>`;
             el.innerHTML = html;
+            const collapseBtn = document.getElementById('island-collapse-btn');
+            if (collapseBtn) collapseBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                _collapseIslandToHint();
+            });
             el.classList.add('visible');
             _positionIsland();
             _hideRoiRowTooltip();
             _attachRoiRowTooltipHandlers();
+            _attachIslandSliderHandlers();
+        }
+
+        // Attach slider listeners after each renderIsland. We wire `input` to
+        // update live visuals (label + state), throttle heavy updates (updateView /
+        // canvas redraw) to once per animation frame, and suppress re-renders of
+        // the island itself while a slider is being dragged — otherwise the DOM
+        // would be replaced mid-drag and the browser would drop the grab.
+        let _islandSliderDragging = false;
+        function _attachIslandSliderHandlers() {
+            const alpha = document.getElementById('island-alpha-slider');
+            const density = document.getElementById('island-vf-density-slider');
+            const length = document.getElementById('island-vf-length-slider');
+            _wireIslandSlider(alpha, (v) => {
+                overlayAlpha = Math.max(0.05, Math.min(0.95, Number(v) / 100));
+                const lbl = document.getElementById('island-alpha-value');
+                if (lbl) lbl.textContent = `${Math.round(overlayAlpha * 100)}%`;
+                updateView();
+            });
+            _wireIslandSlider(density, (v) => {
+                vfDensityLevel = Math.max(-5, Math.min(5, parseInt(v, 10)));
+                const lbl = document.getElementById('island-vf-density-value');
+                if (lbl) lbl.textContent = `${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`;
+                if (multiViewActive) { _mvVfieldCache.clear(); mvDrawAllVectorOverlays(); }
+                else drawVectorOverlay();
+                saveState();
+            });
+            _wireIslandSlider(length, (v) => {
+                vfLengthLevel = Math.max(-5, Math.min(5, parseInt(v, 10)));
+                const lbl = document.getElementById('island-vf-length-value');
+                if (lbl) lbl.textContent = `${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`;
+                if (multiViewActive) mvDrawAllVectorOverlays();
+                else drawVectorOverlay();
+                saveState();
+            });
+        }
+
+        function _wireIslandSlider(el, apply) {
+            if (!el) return;
+            let pending = false;
+            let lastValue = el.value;
+            const flush = () => {
+                pending = false;
+                apply(lastValue);
+            };
+            el.addEventListener('input', () => {
+                lastValue = el.value;
+                if (!pending) {
+                    pending = true;
+                    requestAnimationFrame(flush);
+                }
+            });
+            el.addEventListener('pointerdown', () => { _islandSliderDragging = true; });
+            el.addEventListener('pointerup', () => {
+                _islandSliderDragging = false;
+                // Force one final sync after release in case the final input
+                // event landed inside a rAF that was already queued.
+                apply(el.value);
+            });
+            el.addEventListener('blur', () => { _islandSliderDragging = false; });
         }
 
         function _renderRoiRows() {
@@ -8265,6 +8622,131 @@
             }
             return html;
         }
+
+        function _renderOverlayRows() {
+            let html = '';
+            for (let i = 0; i < _overlaySids.length; i++) {
+                const visible = !!_overlayVisible[i];
+                const name = _overlayLabels[i] || `overlay ${i + 1}`;
+                const color = `#${_overlayColors[i]}`;
+                html += `<div class="island-row${visible ? '' : ' hidden'}">`;
+                html += `<div class="island-swatch" style="background:${color}"></div>`;
+                html += `<span class="island-name editable default-name" data-overlay-idx="${i}" onclick="event.stopPropagation(); _islandEditOverlayName(this)" title="Click to rename">${name}</span>`;
+                html += `<span class="island-eye${visible ? '' : ' off'}" onclick="_islandToggleOverlay(${i})" title="Toggle visibility">${visible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
+                html += `<span class="island-delete" onclick="_islandDeleteOverlay(${i})" title="Remove overlay">\u00d7</span>`;
+                html += `</div>`;
+            }
+            return html;
+        }
+
+        function _islandToggleOverlay(idx) {
+            if (idx < 0 || idx >= _overlayVisible.length) return;
+            _overlayVisible[idx] = !_overlayVisible[idx];
+            _overlayVisibility = 'all';  // break out of legacy cycle state
+            renderIsland();
+            updateView();
+            saveState();
+        }
+        window._islandToggleOverlay = _islandToggleOverlay;
+
+        function _islandDeleteOverlay(idx) {
+            if (idx < 0 || idx >= _overlaySids.length) return;
+            _overlaySids.splice(idx, 1);
+            _overlayColors.splice(idx, 1);
+            _overlayVisible.splice(idx, 1);
+            _overlayLabels.splice(idx, 1);
+            if (_overlaySids.length === 0) {
+                _shelfSelection.delete('overlay');
+                if (typeof _refreshSpecialModesShelf === 'function') _refreshSpecialModesShelf();
+            }
+            renderIsland();
+            updateView();
+            saveState();
+        }
+        window._islandDeleteOverlay = _islandDeleteOverlay;
+
+        function _islandEditOverlayName(spanEl) {
+            const idx = parseInt(spanEl.dataset.overlayIdx);
+            const current = spanEl.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = current;
+            input.style.cssText = 'background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.3);color:#ccc;font-size:10px;font-family:var(--mono);width:100%;outline:none;padding:0;';
+            spanEl.replaceWith(input);
+            input.focus();
+            input.select();
+            const commit = () => {
+                const val = input.value.trim();
+                _overlayLabels[idx] = val || `overlay ${idx + 1}`;
+                renderIsland();
+            };
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                if (e.key === 'Escape') { input.blur(); }
+                e.stopPropagation();
+            });
+            input.addEventListener('keypress', e => e.stopPropagation());
+            input.addEventListener('keyup', e => e.stopPropagation());
+        }
+        window._islandEditOverlayName = _islandEditOverlayName;
+
+        let _pickerBaseDir = null;  // cached base-file directory for initial picker location
+        async function _islandPickerInitialDir() {
+            if (_pickerCwd) return _pickerCwd;  // reuse last-visited dir
+            if (_pickerBaseDir) return _pickerBaseDir;
+            try {
+                const r = await proxyFetch(`/info/${sid}`);
+                const d = await r.json();
+                if (d && d.filepath) {
+                    const idx = Math.max(d.filepath.lastIndexOf('/'), d.filepath.lastIndexOf('\\'));
+                    _pickerBaseDir = idx >= 0 ? d.filepath.slice(0, idx) : null;
+                }
+            } catch (_e) { /* fall through to home */ }
+            return _pickerBaseDir;
+        }
+
+        async function _islandAddOverlay() {
+            const initial = await _islandPickerInitialDir();
+            const filepath = await openFilePicker({
+                title: 'Add overlay',
+                initialPath: initial,
+                base_sid: sid,
+                mode: 'overlay',
+            });
+            if (!filepath) return;
+            showStatus('loading overlay...');
+            try {
+                const r = await proxyFetch('/load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filepath, name: filepath.split(/[\\/]/).pop(), notify: false }),
+                });
+                const d = await r.json();
+                if (d.error) { showToast(`overlay: ${d.error}`); return; }
+                if (!d.sid) { showToast('overlay: load failed'); return; }
+                _overlaySids.push(d.sid);
+                const nextColor = _OVERLAY_PALETTE[_overlayColors.length % _OVERLAY_PALETTE.length];
+                _overlayColors.push(nextColor);
+                _overlayVisible.push(true);
+                _overlayLabels.push(d.name || `overlay ${_overlaySids.length}`);
+                _overlayVisibility = 'all';
+                _shelfSelection.add('overlay');
+                if (typeof _refreshSpecialModesShelf === 'function') _refreshSpecialModesShelf();
+                renderIsland();
+                updateView();
+                saveState();
+                showStatus(`overlay added: ${d.name || filepath.split(/[\\/]/).pop()}`);
+            } catch (err) {
+                showToast(`overlay: ${err.message}`);
+            }
+        }
+        window._islandAddOverlay = _islandAddOverlay;
+
+        function _islandToggleVfield() {
+            commands['vfield.cycle'].run(makeContext(null), null);
+        }
+        window._islandToggleVfield = _islandToggleVfield;
 
         let _segLabelNames = {};  // {labelNumber: 'user name'} — persisted per session
 
@@ -8741,18 +9223,22 @@
             }, 1000);
         }
 
-        function _getVisibleOverlaySids() {
-            let base = '';
-            if (overlay_sid) {
-                if (_overlayVisibility === 'all') base = overlay_sid;
-                else if (_overlayVisibility === 'none') base = '';
-                else {
-                    const sids = overlay_sid.split(',');
-                    const idx = _overlayVisibility;
-                    base = (idx >= 0 && idx < sids.length) ? sids[idx] : overlay_sid;
-                }
+        // Compute visible-overlay indices, honouring both per-overlay toggles (_overlayVisible[i])
+        // and the legacy _overlayVisibility cycle state (Shift+O).
+        function _visibleOverlayIndices() {
+            if (!_overlaySids.length) return [];
+            const out = [];
+            for (let i = 0; i < _overlaySids.length; i++) {
+                let show = !!_overlayVisible[i];
+                if (_overlayVisibility === 'none') show = false;
+                else if (typeof _overlayVisibility === 'number') show = show && (_overlayVisibility === i);
+                if (show) out.push(i);
             }
-            // Append nnInteractive segmentation overlay
+            return out;
+        }
+
+        function _getVisibleOverlaySids() {
+            const base = _visibleOverlayIndices().map(i => _overlaySids[i]).join(',');
             if (_segMode && _segOverlaySid) {
                 return base ? base + ',' + _segOverlaySid : _segOverlaySid;
             }
@@ -8760,13 +9246,7 @@
         }
 
         function _getVisibleOverlayColors() {
-            if (!overlay_colors) return '';
-            if (_overlayVisibility === 'all') return overlay_colors;
-            if (_overlayVisibility === 'none') return '';
-            const colors = overlay_colors.split(',');
-            const idx = _overlayVisibility;
-            if (idx >= 0 && idx < colors.length) return colors[idx];
-            return overlay_colors;
+            return _visibleOverlayIndices().map(i => _overlayColors[i]).join(',');
         }
 
         function showInlinePrompt(message, defaultValue = '') {
@@ -9579,7 +10059,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'q',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
-                excludes: [],
+                excludes: ['overlay', 'vectorfield'],
             },
             {
                 id: 'segmentation',
@@ -9589,7 +10069,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 's',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive),
                 isActive: () => _segMode,
-                excludes: ['roi'],
+                excludes: ['roi', 'overlay', 'vectorfield'],
             },
             {
                 id: 'roi',
@@ -9599,13 +10079,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'r',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
-                excludes: ['segmentation'],
+                excludes: ['segmentation', 'overlay', 'vectorfield'],
+            },
+            {
+                id: 'overlay',
+                label: 'Overlays',
+                desc: 'seg masks and heatmaps composited on the canvas',
+                glyph: 'OV',
+                keyHint: 'o',
+                isEnabled: () => !compareActive && !multiViewActive,
+                isActive: () => _shelfSelection.has('overlay'),
+                excludes: ['qmri', 'segmentation', 'roi', 'vectorfield'],
+            },
+            {
+                id: 'vectorfield',
+                label: 'Vector field',
+                desc: 'arrow overlay of a displacement field',
+                glyph: 'VF',
+                keyHint: 'v',
+                isEnabled: () => hasVectorfield,
+                isActive: () => _shelfSelection.has('vectorfield'),
+                excludes: ['qmri', 'segmentation', 'roi', 'overlay'],
             },
         ];
         const PLUGIN_HELP = {
             qmri:         'plugin-qmri',
             segmentation: 'plugin-segmentation',
             roi:          'plugin-roi',
+            overlay:      'plugin-overlay',
+            vectorfield:  'plugin-vectorfield',
         };
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
@@ -10666,7 +11168,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row')) return;
+                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, #island-collapse-btn')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
@@ -11112,6 +11614,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         overlayAlpha = Math.max(0.05, Math.min(0.95, overlayAlpha + step));
                         updateView();
                         showStatus(`overlay alpha: ${Math.round(overlayAlpha * 100)}%`);
+                        if (typeof renderIsland === 'function') renderIsland();
                     } else if (compareActive && registrationMode) {
                         registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
                         { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
@@ -11128,6 +11631,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         else drawVectorOverlay();
                         showStatus(`arrow density: ${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}`);
                         _dimbarFillFlash('density', (vfDensityLevel + 5) / 10);
+                        if (typeof renderIsland === 'function') renderIsland();
                     } else {
                         showStatus('[ / ]: overlay transparency (overlay mode) or registration blend (R in compare)');
                     }
@@ -11142,6 +11646,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     else drawVectorOverlay();
                     showStatus(`arrow length: ${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}`);
                     _dimbarFillFlash('length', (vfLengthLevel + 5) / 10);
+                    if (typeof renderIsland === 'function') renderIsland();
                 },
             },
             'hoverinfo.toggle': {
@@ -11447,15 +11952,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Cycle overlay visibility',
                 when: [],
                 run: (ctx, e) => {
-                    const hasOv = !!overlay_sid;
+                    const hasOv = _overlaySids.length > 0;
                     const hasVf = hasVectorfield;
                     if (!hasOv && !hasVf) return;
 
-                    // Helper: show or hide vector field arrows
-                    const setVfield = (show) => {
-                        if (!hasVf) return;
-                        vfieldVisible = show;
-                        if (!show) {
+                    // Vector field only (no masks): simple toggle
+                    if (!hasOv) {
+                        vfieldVisible = !vfieldVisible;
+                        if (!vfieldVisible) {
                             if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
                             vfieldCanvas.style.display = 'none';
                             if (multiViewActive) {
@@ -11468,43 +11972,34 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             if (multiViewActive) mvDrawAllVectorOverlays();
                             else drawVectorOverlay();
                         }
-                    };
-
-                    // Vector field only (no masks): simple toggle
-                    if (!hasOv) {
-                        setVfield(!vfieldVisible);
                         showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
+                        if (typeof renderIsland === 'function') renderIsland();
                         saveState();
                         return;
                     }
 
-                    // Cycle overlay visibility: all → none → mask0 → mask1 → ... → all
-                    const sids = overlay_sid.split(',');
-                    const nMasks = sids.length;
+                    // Cycle overlay visibility via legacy _overlayVisibility:
+                    // all → none → mask0 → mask1 → ... → all
+                    const nMasks = _overlaySids.length;
                     if (_overlayVisibility === 'all') {
                         _overlayVisibility = 'none';
-                        setVfield(false);
                     } else if (_overlayVisibility === 'none') {
                         _overlayVisibility = nMasks > 1 ? 0 : 'all';
-                        if (_overlayVisibility === 'all') setVfield(true);
                     } else {
-                        // Currently showing individual mask
                         const next = _overlayVisibility + 1;
                         _overlayVisibility = next >= nMasks ? 'all' : next;
-                        if (_overlayVisibility === 'all') setVfield(true);
                     }
-                    // Status message
                     if (_overlayVisibility === 'all') {
                         showStatus('overlays: all');
                     } else if (_overlayVisibility === 'none') {
                         showStatus('overlays: off');
                     } else {
-                        const colors = (overlay_colors || '').split(',');
-                        const colorHex = colors[_overlayVisibility] || '';
+                        const colorHex = _overlayColors[_overlayVisibility] || '';
                         const colorTag = colorHex ? ` (#${colorHex})` : '';
                         showStatus(`overlay ${_overlayVisibility + 1}/${nMasks}${colorTag}`);
                     }
                     updateView();
+                    if (typeof renderIsland === 'function') renderIsland();
                     saveState();
                 },
             },
@@ -11540,6 +12035,43 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         }
                         _segActivate();
                     }
+                },
+            },
+            'overlay.cycle': {
+                title: 'Toggle overlays',
+                when: [],
+                run: (ctx, e) => {
+                    if (!_overlaySids.length) { showStatus('no overlays loaded'); return; }
+                    const showing = _overlayVisibility !== 'none';
+                    _overlayVisibility = showing ? 'none' : 'all';
+                    updateView();
+                    if (typeof renderIsland === 'function') renderIsland();
+                    showStatus(`overlays: ${_overlayVisibility === 'none' ? 'off' : 'on'}`);
+                    saveState();
+                },
+            },
+            'vfield.cycle': {
+                title: 'Toggle vector field',
+                when: [],
+                run: (ctx, e) => {
+                    if (!hasVectorfield) { showStatus('no vector field loaded'); return; }
+                    vfieldVisible = !vfieldVisible;
+                    if (!vfieldVisible) {
+                        if (_vfieldAbort) { _vfieldAbort.abort(); _vfieldAbort = null; }
+                        vfieldCanvas.style.display = 'none';
+                        if (multiViewActive) {
+                            _mvVfieldAborts.forEach(ac => ac.abort());
+                            _mvVfieldAborts.clear();
+                            _mvVfieldCache.clear();
+                            document.querySelectorAll('.mv-vfield-overlay').forEach(el => el.style.display = 'none');
+                        }
+                    } else {
+                        if (multiViewActive) mvDrawAllVectorOverlays();
+                        else drawVectorOverlay();
+                    }
+                    if (typeof renderIsland === 'function') renderIsland();
+                    showStatus(`arrows: ${vfieldVisible ? 'on' : 'off'}`);
+                    saveState();
                 },
             },
             'slice.exportNpy': {
@@ -12567,7 +13099,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
-                anyPluginActive: (qmriActive || (typeof compareQmriActive !== 'undefined' && compareQmriActive) || rectRoiMode || (typeof _segMode !== 'undefined' && !!_segMode)),
+                anyPluginActive: (
+                    qmriActive
+                    || (typeof compareQmriActive !== 'undefined' && compareQmriActive)
+                    || rectRoiMode
+                    || (typeof _segMode !== 'undefined' && !!_segMode)
+                    || (typeof _shelfSelection !== 'undefined' && (_shelfSelection.has('overlay') || _shelfSelection.has('vectorfield')))
+                ),
                 multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive),
             };
         }
@@ -13083,12 +13621,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wantQmri = _shelfSelection.has('qmri');
             const wantSeg = _shelfSelection.has('segmentation');
             const wantRoi = _shelfSelection.has('roi');
+            const wantOverlay = _shelfSelection.has('overlay');
+            const wantVfield = _shelfSelection.has('vectorfield');
             const haveQmri = qmriActive || compareQmriActive;
             const haveSeg = typeof _segMode !== 'undefined' && !!_segMode;
             const haveRoi = !!rectRoiMode;
+            const haveOverlay = _overlaySids.length > 0 && _overlayVisibility !== 'none';
+            const haveVfield = hasVectorfield && vfieldVisible;
 
             // Nothing changed
-            if (wantQmri === haveQmri && wantSeg === haveSeg && wantRoi === haveRoi) return;
+            if (wantQmri === haveQmri && wantSeg === haveSeg && wantRoi === haveRoi
+                && wantOverlay === haveOverlay && wantVfield === haveVfield) return;
 
             const ctx = makeContext(null);
             crossfade(() => {
@@ -13096,6 +13639,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (haveSeg && !wantSeg) commands['seg.exit'].run(ctx, null);
                 if (haveRoi && !wantRoi) commands['roi.cycleMode'].run(ctx, null);
                 if (haveQmri && !wantQmri) commands['qmri.cycle'].run(ctx, null);
+                if (haveOverlay && !wantOverlay) commands['overlay.cycle'].run(ctx, null);
+                if (haveVfield && !wantVfield) commands['vfield.cycle'].run(ctx, null);
                 // Enter plugins that are newly selected (order: base first, then overlays)
                 if (!haveQmri && wantQmri) {
                     _qmriVisibleMaps = null;
@@ -13107,6 +13652,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 if (!haveRoi && wantRoi && commands['roi.cycleMode']) {
                     commands['roi.cycleMode'].run(makeContext(null), null);
+                }
+                if (!haveOverlay && wantOverlay && commands['overlay.cycle']) {
+                    commands['overlay.cycle'].run(ctx, null);
+                }
+                if (!haveVfield && wantVfield && commands['vfield.cycle']) {
+                    commands['vfield.cycle'].run(ctx, null);
                 }
             });
         }
@@ -17416,6 +17967,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else {
                 _collapseIslandToHint();
             }
+        });
+        document.getElementById('shelf-hint').addEventListener('click', () => {
+            openSpecialModesShelf();
         });
 
         // Click on a dim label to make it the active dim (consistent with h/l navigation)
