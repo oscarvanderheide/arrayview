@@ -1852,8 +1852,8 @@ def _serve_daemon(
     sid: str,
     name: str = None,
     cleanup: bool = False,
-    overlay_filepath: str = None,
-    overlay_sid: str = None,
+    overlay_filepaths: list | None = None,
+    overlay_sids: list | None = None,
     compare_filepath: str = None,
     compare_sid: str = None,
     vfield_filepath: str = None,
@@ -1928,17 +1928,17 @@ def _serve_daemon(
                         flush=True,
                     )
             _session_mod.SESSIONS[session.sid] = session
-            if overlay_filepath and overlay_sid:
+            for ov_path, ov_sid in zip(overlay_filepaths or [], overlay_sids or []):
                 try:
-                    ov_data = load_data(overlay_filepath)
+                    ov_data = load_data(ov_path)
                     ov_session = _session_mod.Session(
-                        ov_data, filepath=overlay_filepath, name="overlay"
+                        ov_data, filepath=ov_path, name=os.path.basename(ov_path) or "overlay"
                     )
-                    ov_session.sid = overlay_sid
-                    _session_mod.SESSIONS[overlay_sid] = ov_session
+                    ov_session.sid = ov_sid
+                    _session_mod.SESSIONS[ov_sid] = ov_session
                 except Exception as e:
                     _vprint(
-                        f"[ArrayView] Warning: failed to load overlay {overlay_filepath}: {e}",
+                        f"[ArrayView] Warning: failed to load overlay {ov_path}: {e}",
                         flush=True,
                     )
             if compare_filepath and compare_sid:
@@ -2201,7 +2201,12 @@ def arrayview():
     parser.add_argument(
         "--overlay",
         metavar="FILE",
-        help="Segmentation mask to overlay (binary 0/1 array, same spatial shape)",
+        action="append",
+        default=None,
+        help=(
+            "Segmentation mask to overlay (binary 0/1 array, same spatial shape). "
+            "Repeat --overlay to load multiple overlays."
+        ),
     )
     parser.add_argument(
         "--compare",
@@ -2368,17 +2373,18 @@ def arrayview():
 
             SESSIONS[session.sid] = session
 
-            # Load overlay as a separate session
-            overlay_sid = None
-            if getattr(args, "overlay", None):
-                ov_data = load_data(args.overlay)
+            # Load overlay(s) as separate sessions
+            overlay_sids = []
+            for ov_path in (getattr(args, "overlay", None) or []):
+                ov_data = load_data(ov_path)
                 ov_session = Session(
                     data=ov_data,
-                    filepath=args.overlay,
-                    name="overlay",
+                    filepath=ov_path,
+                    name=_Path(ov_path).name or "overlay",
                 )
                 SESSIONS[ov_session.sid] = ov_session
-                overlay_sid = ov_session.sid
+                overlay_sids.append(ov_session.sid)
+            overlay_sid = ",".join(overlay_sids) if overlay_sids else None
 
             # Load compare files (additional positional args + --compare)
             compare_sids = []
@@ -2797,13 +2803,13 @@ def arrayview():
         # Server already running — register the new array.
         # If using webview, notify the existing shell to inject a new tab.
         try:
-            # Register overlay first (no notification) to get overlay_sid
-            overlay_sid = None
-            if args.overlay:
+            # Register overlay(s) first (no notification) to get their sids
+            overlay_sids_list: list[str] = []
+            for ov_path in (args.overlay or []):
                 ov_body = json.dumps(
                     {
-                        "filepath": os.path.abspath(args.overlay),
-                        "name": "overlay",
+                        "filepath": os.path.abspath(ov_path),
+                        "name": os.path.basename(ov_path) or "overlay",
                         "notify": False,
                     }
                 ).encode()
@@ -2820,7 +2826,10 @@ def arrayview():
                         f"Error from server while loading overlay: {ov_result['error']}"
                     )
                     sys.exit(1)
-                overlay_sid = ov_result.get("sid")
+                ov_sid = ov_result.get("sid")
+                if ov_sid:
+                    overlay_sids_list.append(ov_sid)
+            overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
 
             compare_sids = []
             for compare_file in compare_files:
@@ -2952,8 +2961,8 @@ def arrayview():
             extra_args += ["--vectorfield", os.path.abspath(args.vectorfield)]
             if vfield_components_dim is not None:
                 extra_args += ["--vectorfield-components-dim", str(vfield_components_dim)]
-        if args.overlay:
-            extra_args += ["--overlay", os.path.abspath(args.overlay)]
+        for ov_path in (args.overlay or []):
+            extra_args += ["--overlay", os.path.abspath(ov_path)]
         if args.rgb:
             extra_args.append("--rgb")
         # Compare files: pass as additional positional args
@@ -2968,7 +2977,9 @@ def arrayview():
         return
 
     sid = uuid.uuid4().hex
-    overlay_sid = uuid.uuid4().hex if args.overlay else None
+    overlay_files = list(args.overlay or [])
+    overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
+    overlay_sid = ",".join(overlay_sids) if overlay_sids else None
     encoded_name = urllib.parse.quote(name)
 
     # Configure VS Code port settings before starting the server.
@@ -2989,8 +3000,8 @@ def arrayview():
         f"{repr(base_file)}, {args.port}, {repr(sid)},"
         f" name={repr(demo_name)},"
         f" cleanup={demo_cleanup},"
-        f" overlay_filepath={repr(os.path.abspath(args.overlay) if args.overlay else None)},"
-        f" overlay_sid={repr(overlay_sid)},"
+        f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
+        f" overlay_sids={repr(overlay_sids)},"
         f" vfield_filepath={repr(vfield_abs)},"
         f" vfield_components_dim={repr(vfield_components_dim)},"
         f" persist={is_remote},"
