@@ -20,7 +20,7 @@ edges:
     condition: when working on rendering, colormaps, LUTs, caching, or the render thread
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-15
+last_updated: 2026-04-17
 ---
 
 # arrayview — Router

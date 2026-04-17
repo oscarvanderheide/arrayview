@@ -23,7 +23,7 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-04-16
+last_updated: 2026-04-17
 ---
 
 # Frontend (_viewer.html)
@@ -123,13 +123,13 @@ Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside 
 **Shim layer (Section 7):** `Object.defineProperty(window, 'manualVmin', …)` intercepts all bare writes to `manualVmin`/`manualVmax` (27 sites) and routes them to `modeManager.currentViews[0].displayState.vmin/vmax`.
 
 ### Plugin Shelf (`/` menu)
-`SPECIAL_MODE_TILES` array defines three plugins: qMRI, Segmentation, ROI. The shelf supports multi-select (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays (ROI ↔ Segmentation). `_applyShelfSelection()` diffs current state against selection, exits removed plugins, then enters new ones wrapped in `crossfade()`.
+`SPECIAL_MODE_TILES` array defines five plugins: qMRI, Segmentation, ROI, Overlay, Vector field. The shelf supports multi-select (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays — ROI ↔ Segmentation, and Overlay/Vector field are reciprocally exclusive with all other plugins. `_applyShelfSelection()` diffs current state against selection, exits removed plugins, then enters new ones wrapped in `crossfade()`. Overlay and Vector field auto-seed the shelf at init when arrays are present (`_overlaySids.length > 0`, `hasVectorfield`); their per-tile state lives in `_shelfSelection.has(id)` since there is no separate mode flag.
 
 ### Eggs
 Pill badges below the canvas showing active transforms: `FFT` `LOG` `MAGNITUDE` `PHASE` `REAL` `IMAG` `RGB` `ALPHA` `PROJECTION`. **ROI** and **SEGMENT** are NOT eggs — they are interaction modes with their own dynamic island UI.
 
 ### Dynamic Islands
-Floating UI panels. `renderIsland()` collects all active plugins (`qmriActive`, `rectRoiMode`, `_segMode`) and renders sections for each with dividers between them. ROI statistics, segmentation controls, qMRI parameter map pill toggles. Use absolute/fixed positioning — must be tested across normal, immersive, multiview, and compare modes.
+Floating UI panels. `renderIsland()` collects all active plugins (`qmriActive`, `rectRoiMode`, `_segMode`/`_segActivating`, `_shelfSelection.has('overlay')`, `_shelfSelection.has('vectorfield')`) and renders sections for each with dividers between them. ROI/Segmentation share the same shape-toolbar + rows + magnifier-action layout; segmentation also renders a pulsing "connecting" loading row during `_segActivating`. Overlay section renders per-overlay rows (swatch + editable label + eye + `×`) with a shared opacity slider and a `+ add overlay` button that opens the filesystem picker. Vector field section renders a visibility row plus density and length sliders wired to `vfDensityLevel` / `vfLengthLevel` (both directions — keyboard `[ ] { }` also re-renders the island). An inline `~` collapse button at the island's top-right triggers `_collapseIslandToHint()`. `renderIsland()` early-returns while `_islandSliderDragging` is true so a mid-drag DOM rebuild doesn't kill the grab. Use absolute/fixed positioning — must be tested across normal, immersive, multiview, and compare modes.
 
 ### ROI in qMRI Mode
 Each qMRI pane has a `.qv-roi-overlay` canvas (transparent, `position: absolute`, `pointer-events: none`). Drawing a ROI on any pane mirrors it to all panes in real-time via `_drawAllQvRois()`. On finalize, `_fetchQvRoiStats()` fetches per-parameter-map statistics in parallel. Results stored as `roi.qmriStats[]` and displayed as sub-rows in the island. Key functions: `_drawAllQvRois`, `_clearQvRoiOverlays`, `_redrawRoiOverlays`, `_finalizeQvRoi`, `_fetchQvRoiStats`. **Important:** the global `canvas { background: var(--bg) }` rule makes all canvas elements opaque — overlay canvases must set `background: transparent` to avoid covering the underlying content.
