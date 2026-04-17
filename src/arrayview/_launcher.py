@@ -1211,6 +1211,22 @@ def view(
                 url_viewer += f"&compare_sid={_compare_sids[0]}"
                 url_viewer += f"&compare_sids={','.join(_compare_sids)}"
 
+            if inline:
+                from IPython.display import IFrame, display as _ipy_display
+
+                _inline_url = url_viewer + "&inline=1"
+                if _should_use_jupyter_proxy_inline():
+                    _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
+                    if n_arrays == 1:
+                        return _inline_html
+                    _ipy_display(_inline_html)
+                    return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
+                iframe = IFrame(src=_inline_url, width="100%", height=height)
+                if n_arrays == 1:
+                    return iframe
+                _ipy_display(iframe)
+                return tuple(ViewHandle(url_viewer, s, port) for s in [sid] + _compare_sids)
+
             _open_browser(
                 url_viewer, force_vscode=True, blocking=True, title=f"ArrayView: {name}", floating=floating
             )
