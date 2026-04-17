@@ -764,14 +764,14 @@
         #roi-stats-tooltip.visible { opacity: 1; }
         #roi-stats-tooltip .rst-line { line-height: 1.5; }
         #roi-stats-tooltip .rst-label { color: var(--help-key); margin-right: 6px; }
-        #roi-export-overlay {
+        #export-overlay {
             display: none; position: fixed; inset: 0;
             background: var(--overlay-bg);
             backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
             z-index: 10; justify-content: center; align-items: center;
         }
-        #roi-export-overlay.visible { display: flex; }
-        #roi-export-box {
+        #export-overlay.visible { display: flex; }
+        #export-box {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -783,31 +783,31 @@
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 15px; color: var(--text);
         }
-        #roi-export-header {
+        #export-header {
             display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 18px; padding-bottom: 10px;
             border-bottom: 1px solid var(--border-subtle);
         }
-        #roi-export-header .island-title { font-size: 16px; }
-        #roi-export-close { cursor: pointer; color: var(--muted); font-size: 18px; }
-        #roi-export-close:hover { color: var(--text); }
-        #roi-export-table-wrap { flex: 1; overflow: auto; margin-bottom: 18px; }
-        #roi-export-table {
+        #export-header .island-title { font-size: 16px; }
+        #export-close { cursor: pointer; color: var(--muted); font-size: 18px; }
+        #export-close:hover { color: var(--text); }
+        #export-table-wrap { flex: 1; overflow: auto; margin-bottom: 18px; }
+        #export-table {
             width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px;
         }
-        #roi-export-table th, #roi-export-table td {
+        #export-table th, #export-table td {
             padding: 8px 14px; text-align: left;
             border-bottom: 1px solid var(--border-subtle); white-space: nowrap;
         }
-        #roi-export-table th { color: var(--help-key); font-weight: 600; }
-        #roi-export-table tr:last-child td { border-bottom: none; }
-        #roi-export-footer { display: flex; justify-content: flex-end; }
-        #roi-export-download {
+        #export-table th { color: var(--help-key); font-weight: 600; }
+        #export-table tr:last-child td { border-bottom: none; }
+        #export-footer { display: flex; justify-content: flex-end; }
+        #export-download {
             background: #f5c842; color: #111; border: none;
             border-radius: 6px; padding: 8px 18px;
             font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
         }
-        #roi-export-download:hover { filter: brightness(1.1); }
+        #export-download:hover { filter: brightness(1.1); }
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
@@ -912,9 +912,11 @@
             background: rgba(255,255,255,0.02);
         }
         #dynamic-island .island-row.selected { border: 1px solid rgba(240,198,116,0.12); }
-        #dynamic-island .island-row.selected-roi { background: rgba(240,198,116,0.08); border-color: rgba(240,198,116,0.12); }
-        #dynamic-island .island-row.selected-seg { background: rgba(232,122,175,0.08); border-color: rgba(232,122,175,0.12); }
+        #dynamic-island .island-row.selected-roi,
+        #dynamic-island .island-row.selected-seg { background: rgba(240,198,116,0.08); border-color: rgba(240,198,116,0.12); }
         #dynamic-island .island-swatch { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+        #dynamic-island .island-swatch.pulse { animation: island-pulse 1.2s ease-in-out infinite; }
+        @keyframes island-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
         #dynamic-island .island-name {
             color: #ccc; flex: 1; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
@@ -1757,15 +1759,15 @@
             </div>
         </div>
     </div>
-    <div id="roi-export-overlay">
-        <div id="roi-export-box">
-            <div id="roi-export-header">
-                <span class="island-title island-title-roi">Region of interest &middot; export</span>
-                <span id="roi-export-close">&#x2715;</span>
+    <div id="export-overlay">
+        <div id="export-box">
+            <div id="export-header">
+                <span id="export-title" class="island-title island-title-roi">Region of interest &middot; export</span>
+                <span id="export-close">&#x2715;</span>
             </div>
-            <div id="roi-export-table-wrap"></div>
-            <div id="roi-export-footer">
-                <button id="roi-export-download">Download CSV</button>
+            <div id="export-table-wrap"></div>
+            <div id="export-footer">
+                <button id="export-download">Download CSV</button>
             </div>
         </div>
     </div>
@@ -7865,17 +7867,8 @@
         window._islandDeleteSeg = _islandDeleteSeg;
 
         function _islandExport() {
-            if (rectRoiMode) {
-                openRoiExportOverlay();
-            } else if (_segMode) {
-                proxyFetch(`/seg/export/${sid}`).then(r => r.blob()).then(blob => {
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = 'segmentation.npy';
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                }).catch(err => showToast(`segmentation export: ${err.message}`));
-            }
+            if (rectRoiMode) openExportOverlay('roi');
+            else if (_segMode) openExportOverlay('seg');
         }
         window._islandExport = _islandExport;
 
@@ -8023,40 +8016,78 @@
                 }
                 body += '</tr>';
             }
-            return `<table id="roi-export-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+            return `<table id="export-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
         }
 
-        function openRoiExportOverlay() {
-            const ov = document.getElementById('roi-export-overlay');
-            const wrap = document.getElementById('roi-export-table-wrap');
-            if (!ov || !wrap) return;
-            wrap.innerHTML = _buildRoiExportTable();
-            ov.classList.add('visible');
-            const btn = document.getElementById('roi-export-download');
-            if (btn) btn.focus();
+        function _buildSegExportTable() {
+            if (!_segLabels || !_segLabels.length) {
+                return '<div style="color: var(--muted); text-align: center; padding: 24px 0;">No segments to export.</div>';
+            }
+            const head = '<tr><th></th><th>label</th><th>name</th><th>voxels</th></tr>';
+            let body = '';
+            for (const l of _segLabels) {
+                const name = _segLabelNames[l.label] !== undefined ? _segLabelNames[l.label] : l.name;
+                const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${l.color};vertical-align:middle;"></span>`;
+                body += `<tr><td>${swatch}</td><td>${l.label}</td><td>${name}</td><td>${l.voxels}</td></tr>`;
+            }
+            return `<table id="export-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
         }
-        function closeRoiExportOverlay() {
-            const ov = document.getElementById('roi-export-overlay');
+
+        function _exportSegMask() {
+            proxyFetch(`/seg/export/${sid}`).then(r => r.blob()).then(blob => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'segmentation.npy';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }).catch(err => showToast(`segmentation export: ${err.message}`));
+        }
+
+        let _exportMode = 'roi';  // 'roi' | 'seg' — which exporter the modal is currently serving
+        function openExportOverlay(mode) {
+            const ov = document.getElementById('export-overlay');
+            const wrap = document.getElementById('export-table-wrap');
+            const title = document.getElementById('export-title');
+            if (!ov || !wrap) return;
+            _exportMode = mode || 'roi';
+            if (title) {
+                title.textContent = _exportMode === 'seg'
+                    ? 'Segmentation \u00B7 export'
+                    : 'Region of interest \u00B7 export';
+            }
+            wrap.innerHTML = _exportMode === 'seg' ? _buildSegExportTable() : _buildRoiExportTable();
+            ov.classList.add('visible');
+            const btn = document.getElementById('export-download');
+            if (btn) {
+                btn.textContent = _exportMode === 'seg' ? 'Download .npy' : 'Download CSV';
+                btn.focus();
+            }
+        }
+        function closeExportOverlay() {
+            const ov = document.getElementById('export-overlay');
             if (ov) ov.classList.remove('visible');
         }
-        window.openRoiExportOverlay = openRoiExportOverlay;
-        window.closeRoiExportOverlay = closeRoiExportOverlay;
-        (function _wireRoiExportOverlay() {
-            const ov = document.getElementById('roi-export-overlay');
-            const closeBtn = document.getElementById('roi-export-close');
-            const dlBtn = document.getElementById('roi-export-download');
+        window.openExportOverlay = openExportOverlay;
+        window.closeExportOverlay = closeExportOverlay;
+        (function _wireExportOverlay() {
+            const ov = document.getElementById('export-overlay');
+            const closeBtn = document.getElementById('export-close');
+            const dlBtn = document.getElementById('export-download');
             if (ov) {
-                ov.addEventListener('click', e => { if (e.target === ov) closeRoiExportOverlay(); });
+                ov.addEventListener('click', e => { if (e.target === ov) closeExportOverlay(); });
             }
-            if (closeBtn) closeBtn.addEventListener('click', closeRoiExportOverlay);
+            if (closeBtn) closeBtn.addEventListener('click', closeExportOverlay);
             if (dlBtn) dlBtn.addEventListener('click', () => {
-                try { _exportRoisCsv(); } finally { closeRoiExportOverlay(); }
+                try {
+                    if (_exportMode === 'seg') _exportSegMask();
+                    else _exportRoisCsv();
+                } finally { closeExportOverlay(); }
             });
             document.addEventListener('keydown', e => {
                 if (e.key === 'Escape' && ov && ov.classList.contains('visible')) {
                     e.preventDefault();
                     e.stopPropagation();
-                    closeRoiExportOverlay();
+                    closeExportOverlay();
                 }
             }, true);
         })();
@@ -8122,7 +8153,7 @@
             const activePlugins = [];
             if (qmriActive) activePlugins.push('qmri');
             if (rectRoiMode) activePlugins.push('roi');
-            if (_segMode) activePlugins.push('seg');
+            if (_segMode || _segActivating) activePlugins.push('seg');
             const activeKey = activePlugins.join('+') || null;
 
             if (activeKey !== _islandLastActive) {
@@ -8172,40 +8203,42 @@
             if (overlayPlugin) {
                 if (sectionCount > 0) html += '<div class="island-divider"></div>';
                 const isRoi = overlayPlugin === 'roi';
+                const isSegLoading = !isRoi && _segActivating && !_segMode;
                 const title = isRoi ? 'Region of interest' : 'Segmentation';
-                const accentColor = isRoi ? '#f0c674' : '#e87aaf';
-                const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
-                const currentShape = isRoi ? _roiShape : _segMethod;
-                const shapeKeys = Object.keys(shapes);
+                const accentColor = '#f0c674';
 
-                // Header row 1: title only. Row 2: shape icons + trigger icon.
                 html += `<div class="island-header island-header-title">`;
                 html += `<span class="island-title island-title-${overlayPlugin}">${title}</span>`;
                 html += `</div>`;
-                html += `<div class="island-toolbar">`;
-                html += `<div class="island-shapes">`;
-                for (const key of shapeKeys) {
-                    const isActive = key === currentShape;
-                    const color = isActive ? accentColor : '#555';
-                    const opacity = isActive ? '1' : '0.5';
-                    html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
-                }
-                html += `</div>`;
-                if (isRoi) {
-                    html += `<span class="island-modal-btn" onclick="_islandExport()" title="Export table">${_MAGNIFIER_ICON}</span>`;
-                } else {
-                    html += `<span class="island-download" onclick="_islandExport()" title="Download .npy">${_DOWNLOAD_ICON}</span>`;
-                }
-                html += `</div>`;
 
-                // Rows
-                html += `<div class="island-rows">`;
-                if (isRoi) {
-                    html += _renderRoiRows();
+                if (isSegLoading) {
+                    html += `<div class="island-rows">`;
+                    html += `<div class="island-row">`;
+                    html += `<div class="island-swatch pulse" style="background:${accentColor}"></div>`;
+                    html += `<span class="island-name default-name">nnInteractive \u00B7 connecting</span>`;
+                    html += `</div>`;
+                    html += `</div>`;
                 } else {
-                    html += _renderSegRows();
+                    const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
+                    const currentShape = isRoi ? _roiShape : _segMethod;
+                    const shapeKeys = Object.keys(shapes);
+                    html += `<div class="island-toolbar">`;
+                    html += `<div class="island-shapes">`;
+                    for (const key of shapeKeys) {
+                        const isActive = key === currentShape;
+                        const color = isActive ? accentColor : '#555';
+                        const opacity = isActive ? '1' : '0.5';
+                        html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                    }
+                    html += `</div>`;
+                    const exportTitle = isRoi ? 'Export table' : 'Export segments';
+                    html += `<span class="island-modal-btn" onclick="_islandExport()" title="${exportTitle}">${_MAGNIFIER_ICON}</span>`;
+                    html += `</div>`;
+
+                    html += `<div class="island-rows">`;
+                    html += isRoi ? _renderRoiRows() : _renderSegRows();
+                    html += `</div>`;
                 }
-                html += `</div>`;
                 sectionCount++;
             }
 
@@ -10159,7 +10192,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _downloadFile(dataUrl, 'roi_stats.csv');
             showStatus('ROI stats exported');
         }
-        // Old roi-export-btn and roi-content listeners removed — now handled by island actions
+        // Old export-btn and roi-content listeners removed — now handled by island actions
         // Brightness/contrast: mousemove updates vmin/vmax
         canvas.addEventListener('mousemove', e => { _bcUpdateDrag(e); });
         // Zoom-to-region: mousemove updates the selection rectangle
@@ -10518,6 +10551,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _segMethod = 'click';
             showStatus('segmentation: connecting...');
             canvas.style.cursor = 'wait';
+            renderIsland();
             try {
                 // Send current axis info for >3D subvolume extraction
                 const scrollDim = current_slice_dim >= 0 ? current_slice_dim
@@ -10533,6 +10567,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showToast(`segmentation: ${d.message}`);
                     canvas.style.cursor = 'crosshair';
                     _segActivating = false;
+                    renderIsland();
                     return;
                 }
                 _segMode = true;
@@ -10547,6 +10582,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 canvas.style.cursor = 'crosshair';
             }
             _segActivating = false;
+            renderIsland();
         }
 
         function _segDeactivate() {
