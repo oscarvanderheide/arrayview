@@ -48,7 +48,7 @@ pywebview, or system browser).
 
 ## Key Components
 
-- **`_launcher.py`** — CLI parser, `view()` API, `ViewHandle`, server lifecycle, SSH relay, file watching. Heavy imports (`_session`, `_render`, `_io`, uvicorn) are all lazy to keep the CLI fast path near-zero cost.
+- **`_launcher.py`** — CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay (`--relay`), file watching. Heavy imports (`_session`, `_render`, `_io`, uvicorn) are all lazy to keep the CLI fast path near-zero cost.
 - **`_server.py`** — FastAPI app with all REST and WebSocket routes (`/meta/{sid}`, `/load`, `/slice`, `/ws/{sid}`, `/seg/*`, `/reload`, etc.). Dispatches render work to the render thread via `_render()` from `_session.py`.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
@@ -67,7 +67,7 @@ pywebview, or system browser).
 | VS Code tunnel | Direct webview (stdio) | stdio |
 | Julia | System browser | network |
 | CLI / Python script | Native pywebview | network |
-| SSH terminal | VS Code ext via TCP relay (prints URL on failure) | network |
+| SSH terminal | Prints URL — user forwards port with `ssh -L` | network |
 
 Detection logic: `_platform.py`. Display opening: `_launcher.py` + `_vscode.py`.
 

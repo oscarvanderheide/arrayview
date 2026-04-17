@@ -30,7 +30,7 @@ Frontend (_viewer.html — single self-contained HTML file)
 | VS Code tunnel     | Direct webview (stdio)             | stdio       |
 | Julia              | System browser                     | network     |
 | CLI / Python script | Native pywebview                   | network     |
-| SSH terminal (ni)  | VS Code ext via TCP relay (prints URL on relay failure) | network |
+| SSH terminal       | Prints URL — user forwards port with `ssh -L` | network |
 
 Detection logic lives in `_platform.py`. Display opening logic lives in `_launcher.py` (section: ViewHandle and view() API) and `_vscode.py`.
 
@@ -43,7 +43,7 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_app.py` | 179 | Backward-compat shim — re-exports everything from the split modules |
 | `_config.py` | 121 | `~/.arrayview/config.toml` read/write, valid window modes/env keys |
 | `_io.py` | 253 | Data loading: numpy, NIfTI (lazy nibabel), zarr, DICOM, raw files |
-| `_launcher.py` | 2817 | **Main entry.** CLI parser, `view()` API, `ViewHandle`, server lifecycle, SSH relay, demo arrays, file watching |
+| `_launcher.py` | 2817 | **Main entry.** CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay, demo arrays, file watching |
 | `_platform.py` | 396 | Environment detection: Jupyter, VS Code, SSH, tunnel, Julia, native-window capability |
 | `_render.py` | 834 | Rendering pipeline: colormap LUTs, slice extraction, RGBA/RGB/mosaic rendering, overlay compositing, preload |
 | `_segmentation.py` | 227 | nnInteractive segmentation client (pure HTTP, no nnInteractive dependency) |

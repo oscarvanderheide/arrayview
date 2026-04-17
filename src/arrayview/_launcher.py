@@ -478,83 +478,6 @@ def _relay_array_to_server(
     )
 
 
-# ── Zero-Config SSH Relay ─────────────────────────────────────────
-
-_RELAY_MAGIC = b"AVRELAY1"
-_RELAY_DEFAULT_PORT = 17789
-
-
-def _extract_ssh_client_ip() -> "str | None":
-    """Extract the client IP from the SSH_CONNECTION env var."""
-    conn = os.environ.get("SSH_CONNECTION", "")
-    if not conn:
-        return None
-    parts = conn.split()
-    return parts[0] if parts else None
-
-
-def _tcp_relay_to_vscode(
-    npy_bytes: bytes,
-    name: str,
-    host: str,
-    port: int = _RELAY_DEFAULT_PORT,
-    timeout: float = 0.5,
-) -> bool:
-    """Send .npy bytes to a VS Code extension relay server via TCP.
-
-    Protocol: AVRELAY1 + [u32 header_len] + [JSON header] + [raw .npy bytes]
-    Returns True on success, False on any failure.
-    """
-    import struct
-
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout)
-    except (OSError, socket.timeout):
-        return False
-
-    try:
-        # Send magic
-        sock.sendall(_RELAY_MAGIC)
-
-        # Send header
-        header = json.dumps({"name": name}).encode()
-        sock.sendall(struct.pack("<I", len(header)))
-        sock.sendall(header)
-
-        # Send .npy data — use a generous timeout for large arrays
-        sock.settimeout(120.0)
-        sock.sendall(npy_bytes)
-        sock.shutdown(socket.SHUT_WR)
-
-        # Read response
-        sock.settimeout(60.0)
-        response = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-        sock.close()
-
-        result = json.loads(response)
-        return bool(result.get("ok"))
-    except Exception:
-        try:
-            sock.close()
-        except Exception:
-            pass
-        return False
-
-
-def _try_vscode_relay(npy_bytes: bytes, name: str) -> bool:
-    """Attempt TCP relay to VS Code extension on the SSH client machine."""
-    client_ip = _extract_ssh_client_ip()
-    if not client_ip:
-        return False
-    relay_port = int(os.environ.get("ARRAYVIEW_RELAY_PORT", str(_RELAY_DEFAULT_PORT)))
-    return _tcp_relay_to_vscode(npy_bytes, name, client_ip, relay_port)
-
-
 def _port_in_use(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -1182,27 +1105,6 @@ def view(
             window,
             floating=floating,
         )
-
-    # Zero-config SSH relay: if in a plain SSH session (not VS Code remote),
-    # try sending the array to the VS Code extension on the SSH client machine.
-    _is_plain_ssh_relay = (
-        not _is_vscode_remote()
-        and not _in_jupyter()
-        and not inline
-        and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
-    )
-    if _is_plain_ssh_relay:
-        try:
-            _buf = io.BytesIO()
-            np.save(_buf, data)
-            if _try_vscode_relay(_buf.getvalue(), name):
-                print(
-                    "\n  [ArrayView] Opened in VS Code (SSH relay).\n",
-                    flush=True,
-                )
-                return None
-        except Exception:
-            pass  # fall through to normal behaviour
 
     # VS Code tunnel/remote (non-Jupyter): direct webview mode (no port needed).
     # Pass array via shared memory.  We must keep the process alive until the
@@ -2676,24 +2578,8 @@ def arrayview():
             print(f"Error: invalid vector field {args.vectorfield}: {e}")
             sys.exit(1)
 
-    # Detect SSH early — needed by the relay auto-detect retry and the relay check below.
+    # Detect SSH early — needed by the reverse-tunnel relay check below.
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
-
-    # Zero-config TCP relay: try sending to the VS Code extension on the SSH
-    # client machine.  This is the fastest path — 0.5 s timeout on connect.
-    if _is_ssh:
-        try:
-            import numpy as np
-            from arrayview._io import load_data as _ld
-
-            _rd = _ld(base_file)
-            _buf = io.BytesIO()
-            np.save(_buf, _rd)
-            if _try_vscode_relay(_buf.getvalue(), name):
-                print("[ArrayView] Opened in VS Code (SSH relay).", flush=True)
-                return
-        except Exception:
-            pass  # fall through to existing behaviour
 
     is_arrayview_server = _server_alive(args.port)
     if _port_in_use(args.port) and not is_arrayview_server and _is_ssh:

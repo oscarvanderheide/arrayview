@@ -15,7 +15,7 @@ last_updated: 2026-04-17
 ## Working
 
 - CLI (`uvx arrayview file.npy`) and Python API (`view(arr)`) — both stable
-- All six display environments: Jupyter inline, VS Code local, VS Code tunnel (stdio), Julia, native pywebview, SSH URL print
+- Display environments: Jupyter inline, VS Code local, VS Code tunnel (stdio), Julia, native pywebview, SSH URL print (user forwards port with `ssh -L`)
 - File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
 - Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
 - NIfTI spatial metadata, RAS resampling

@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const net = require('net');
 const { spawnSync } = require('child_process');
 
 const SIGNAL_DIR = path.join(os.homedir(), '.arrayview');
@@ -421,12 +420,6 @@ async function setupArrayViewPanel(panel, filePath, pythonPath, shmParams, extra
     // Clean up on panel close
     panel.onDidDispose(() => {
         bridge.destroy();
-        // Delete relay temp files when their panel is closed
-        if (relayTempFiles.has(filePath)) {
-            try { fs.unlinkSync(filePath); } catch (_) {}
-            relayTempFiles.delete(filePath);
-            log(`RELAY: cleaned up temp file ${path.basename(filePath)}`);
-        }
     });
 
     log(`DIRECT: setup complete for ${filePath}`);
@@ -507,106 +500,6 @@ let lastHandledAt = 0;
 
 // Track open webview panels by URL so we can reveal instead of re-creating.
 const _openPanels = new Map(); // url -> vscode.WebviewPanel
-
-// ---------------------------------------------------------------------------
-// SSH relay: accept array data from remote machines over TCP
-// ---------------------------------------------------------------------------
-const RELAY_PORT = parseInt(process.env.ARRAYVIEW_RELAY_PORT || '17789', 10);
-const RELAY_MAGIC = Buffer.from('AVRELAY1');  // 8-byte handshake
-const RELAY_MAX_SIZE = 2 * 1024 * 1024 * 1024;  // 2 GB
-let relayServer = null;
-const relayTempFiles = new Set();
-
-function startRelayServer() {
-    relayServer = net.createServer((socket) => {
-        const chunks = [];
-        let totalLen = 0;
-        let aborted = false;
-
-        socket.on('data', (chunk) => {
-            totalLen += chunk.length;
-            if (totalLen > RELAY_MAX_SIZE + 4096) {
-                aborted = true;
-                try { socket.end('{"error":"payload too large"}\n'); } catch (_) {}
-                socket.destroy();
-                return;
-            }
-            chunks.push(chunk);
-        });
-
-        socket.on('end', async () => {
-            if (aborted) return;
-            try {
-                const buf = Buffer.concat(chunks);
-
-                // Validate magic
-                if (buf.length < 12 || !buf.subarray(0, 8).equals(RELAY_MAGIC)) {
-                    socket.end('{"error":"invalid magic"}\n');
-                    return;
-                }
-
-                // Parse header
-                const headerLen = buf.readUInt32LE(8);
-                if (buf.length < 12 + headerLen) {
-                    socket.end('{"error":"incomplete header"}\n');
-                    return;
-                }
-                let header;
-                try {
-                    header = JSON.parse(buf.subarray(12, 12 + headerLen).toString('utf-8'));
-                } catch (e) {
-                    socket.end('{"error":"malformed header JSON"}\n');
-                    return;
-                }
-
-                // Extract .npy data
-                const npyData = buf.subarray(12 + headerLen);
-                if (npyData.length === 0) {
-                    socket.end('{"error":"no array data"}\n');
-                    return;
-                }
-
-                // Save to temp file
-                const tmpName = 'arrayview-relay-' + crypto.randomBytes(8).toString('hex') + '.npy';
-                const tmpFile = path.join(os.tmpdir(), tmpName);
-                fs.writeFileSync(tmpFile, npyData);
-                relayTempFiles.add(tmpFile);
-
-                const title = header.title || header.name || 'Relayed Array';
-                log(`RELAY: received ${npyData.length} bytes from ${socket.remoteAddress}, saved ${tmpName}`);
-
-                // Open in direct webview (pythonPath=null → PythonBridge tries python3/python)
-                try {
-                    await openDirectWebview(tmpFile, `ArrayView: ${title}`, null, null);
-                    socket.end('{"ok":true}\n');
-                } catch (e) {
-                    log(`RELAY: openDirectWebview failed: ${e.message}`);
-                    socket.end(JSON.stringify({ error: e.message }) + '\n');
-                }
-            } catch (e) {
-                log(`RELAY: error processing connection: ${e.message}`);
-                try { socket.end(JSON.stringify({ error: e.message }) + '\n'); } catch (_) {}
-            }
-        });
-
-        socket.on('error', (err) => {
-            log(`RELAY: socket error: ${err.message}`);
-        });
-    });
-
-    relayServer.on('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-            log(`RELAY: port ${RELAY_PORT} already in use, relay disabled`);
-            relayServer = null;
-        } else {
-            log(`RELAY: server error: ${err.message}`);
-        }
-    });
-
-    relayServer.listen(RELAY_PORT, '0.0.0.0', () => {
-        log(`RELAY: listening on 0.0.0.0:${RELAY_PORT}`);
-    });
-}
 
 function log(message) {
     const prefix = logWindowId ? `[${logWindowId.slice(0, 8)}] ` : '';
@@ -1086,22 +979,10 @@ function activate(context) {
     );
     context.subscriptions.push(editorProvider);
 
-    // Start SSH relay listener for zero-config remote array viewing
-    startRelayServer();
-    context.subscriptions.push({ dispose: () => {
-        if (relayServer) { relayServer.close(); relayServer = null; }
-    }});
-
     log('=== ACTIVATE DONE ===');
 }
 
 function deactivate() {
-    if (relayServer) { relayServer.close(); relayServer = null; }
-    // Clean up any remaining relay temp files
-    for (const f of relayTempFiles) {
-        try { fs.unlinkSync(f); } catch (_) {}
-    }
-    relayTempFiles.clear();
     log(`deactivate v${version}`);
 }
 
