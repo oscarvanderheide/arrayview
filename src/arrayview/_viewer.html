@@ -11373,7 +11373,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             'mode.toggleZen': {
                 when: [],
                 run: (ctx, e) => {
-                    // Zen / fullscreen mode — also hide borders when entering
+                    // In compare with a center operation active, Z hides the two
+                    // source panes (keeping the diff/overlay/wipe/etc. focus).
+                    // Same "zen" intent — just adapted to the compare layout.
+                    if (compareActive && (diffMode !== 0 || registrationMode || _wipeActive)) {
+                        compareFocusMode = !compareFocusMode;
+                        _reconcileCompareState();
+                        compareScaleCanvases();
+                        positionEggs();
+                        showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
+                        return;
+                    }
                     if (!_zenActive && canvasBorders) {
                         canvasBorders = false;
                         _reconcileLayout();
@@ -11685,21 +11695,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }
                     showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
                     saveState();
-                },
-            },
-            'compare.toggleFocus': {
-                title: 'Toggle compare focus mode',
-                when: [],
-                run: (ctx, e) => {
-                    if (!compareActive || (diffMode === 0 && !registrationMode && !_wipeActive)) {
-                        showToast('Z: focus available when compare center is active (X to activate)');
-                        return;
-                    }
-                    compareFocusMode = !compareFocusMode;
-                    _reconcileCompareState();
-                    compareScaleCanvases();
-                    positionEggs();
-                    showStatus(compareFocusMode ? 'focus: on' : 'focus: off');
                 },
             },
             'nifti.toggleRasResample': {
@@ -13012,7 +13007,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '/', command: 'specialmodes.open' },
             { key: 'q', command: 'qmri.cycle' },
             { key: '~', command: 'island.toggle' },
-            { key: 'F', command: 'mode.toggleZen' },
             { key: 'c', command: 'colormap.cycleNext' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
@@ -13027,7 +13021,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '{', command: 'vfield.adjustLength' },
             { key: '}', command: 'vfield.adjustLength' },
             { key: 'i', command: 'hoverinfo.toggle' },
-            { key: 'Z', command: 'compare.toggleFocus' },
+            { key: 'Z', command: 'mode.toggleZen' },
             // Order matters: cycleVisibility must come before openPicker
             // so Shift+O (with an overlay loaded) cycles instead of opening.
             { key: 'O', shift: true, command: 'overlay.cycleVisibility' },
@@ -13149,7 +13143,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { key: 'Pinch / ⌘Scroll', action: 'Zoom in / out', hint: 'Ctrl+Scroll on Windows / Linux' },
                             { key: '0', action: 'Reset zoom to fit' },
                             { key: 'Drag', action: 'Pan the image (when zoomed in)' },
-                            { key: 'F', action: 'Zen mode — hide UI chrome', hint: 'strips away panels and controls to focus on the image' },
+                            { key: 'Z', action: 'Zen mode — hide UI chrome', hint: 'in compare + center active, hides the two source panes instead' },
                         ]
                     },
                     {
@@ -13231,6 +13225,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         entries: [
                             { key: 'X', action: 'Cycle compare operation', hint: 'off → A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
                             { key: '[ ]', action: 'Adjust operation parameter', hint: 'blend amount, flicker speed, or checkerboard tile size' },
+                            { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when X activated a center operation; outside compare, Z toggles full zen mode' },
                         ]
                     }
                 ]
@@ -18434,7 +18429,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     || document.documentElement.mozRequestFullScreen;
                 if (req) req.call(document.documentElement).catch(() => {});
                 document.addEventListener('mousemove', _zenShowChrome);
-                showToast('zen mode — move mouse to reveal chrome · F to exit');
+                showToast('zen mode — move mouse to reveal chrome · Z to exit');
             } else {
                 document.body.classList.remove('zen-mode');
                 clearTimeout(_zenInactivityTimer);
