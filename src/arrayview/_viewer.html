@@ -573,7 +573,10 @@
             background: rgba(245, 200, 66, 0.06);
         }
         .smode-tile.is-disabled,
-        .smode-tile:disabled { cursor: default; opacity: 0.35; }
+        .smode-tile:disabled { cursor: default; opacity: 0.35; order: 1; }
+        /* Outrank the #special-modes-shelf.visible .smode-tile { opacity: 1 } rule. */
+        #special-modes-shelf.visible .smode-tile.is-disabled,
+        #special-modes-shelf.visible .smode-tile:disabled { opacity: 0.35; }
         .smode-body {
             flex: 1; min-width: 0;
         }
@@ -885,36 +888,69 @@
         }
         #help-hint { right: 16px; }
         #shelf-hint { right: 46px; }
-        #island-hint { left: 16px; display: none; }
+        #island-hint { top: 14px; left: 16px; bottom: auto; display: none; }
         #island-hint.visible { display: flex; }
         #help-hint:hover, #island-hint:hover, #shelf-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
-            position: fixed; left: 8px; bottom: 6px;
+            position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-radius: 14px; padding: 10px 12px;
             font-size: 11px; color: var(--text); font-family: var(--mono);
-            display: none; z-index: 5; min-width: 200px;
-            transition: height 0.3s ease, opacity 0.3s ease;
+            display: none; z-index: 5; min-width: 240px; max-width: 280px;
+            max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden;
+            transition: opacity 0.3s ease;
             cursor: grab; user-select: none;
+            scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
         }
+        #dynamic-island::-webkit-scrollbar { width: 6px; }
+        #dynamic-island::-webkit-scrollbar-track { background: transparent; }
+        #dynamic-island::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.12); border-radius: 3px;
+        }
+        #dynamic-island .po-header {
+            display: flex; align-items: center; gap: 10px;
+            padding: 2px 0 12px 0;
+        }
+        #dynamic-island .po-title {
+            color: #b991ff; font-weight: 600;
+            letter-spacing: 0.14em; font-size: 11px;
+            flex: 1;
+        }
+        #dynamic-island .po-section + .po-section {
+            margin-top: 8px; padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        #dynamic-island .po-section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; user-select: none; gap: 8px;
+            padding: 3px 0; margin-bottom: 6px;
+        }
+        #dynamic-island .po-section-title {
+            color: #f0c674; font-weight: 600; flex: 1;
+            font-size: 12px;
+        }
+        #dynamic-island .po-section-arrow {
+            color: #666; font-size: 13px; line-height: 1;
+            transition: transform 0.15s ease;
+            transform: rotate(0deg);
+        }
+        #dynamic-island .po-section.collapsed .po-section-arrow {
+            transform: rotate(-90deg);
+        }
+        #dynamic-island .po-section.collapsed .po-section-body { display: none; }
         #island-collapse-btn {
-            position: absolute; top: 8px; right: 10px;
-            width: 18px; height: 18px; border-radius: 50%;
+            width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
-            font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             display: flex; align-items: center; justify-content: center;
-            cursor: pointer; user-select: none;
+            cursor: pointer; user-select: none; flex-shrink: 0;
             transition: color 0.12s, border-color 0.12s;
             background: transparent;
         }
         #island-collapse-btn:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
-        #dynamic-island .island-header {
-            display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
-        }
-        #dynamic-island .island-header-title { margin-bottom: 4px; padding-right: 24px; }
         #dynamic-island .island-toolbar {
             display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
@@ -969,7 +1005,6 @@
             transition: opacity 0.15s, background 120ms ease;
         }
         #dynamic-island .island-modal-btn:hover { opacity: 1; background: rgba(255,255,255,0.05); }
-        #dynamic-island .island-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 14px 0; }
         #dynamic-island .island-qmri-stat {
             padding-left: 14px; gap: 6px; background: none; border: none;
         }
@@ -1044,6 +1079,10 @@
         #dynamic-island .island-add-row[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
         /* Light theme */
         :root.light #dynamic-island { background: rgba(245,245,245,0.95); border-color: rgba(0,0,0,0.1); }
+        :root.light #dynamic-island .po-title { color: #7a4cd9; }
+        :root.light #dynamic-island .po-section-title { color: #b88320; }
+        :root.light #dynamic-island .po-section-arrow { color: #888; }
+        :root.light #dynamic-island .po-section + .po-section { border-top-color: rgba(0,0,0,0.07); }
         :root.light #dynamic-island .island-name { color: #333; }
         :root.light #dynamic-island .island-name.default-name { color: #888; }
         :root.light #dynamic-island .island-stats { color: #666; }
@@ -2212,6 +2251,7 @@
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let _islandUserHidden = false; // ~ toggle — hides island to hint circle while plugin stays active
+        const _pluginCollapsed = new Set(); // plugin ids whose section body is collapsed
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
@@ -7969,8 +8009,8 @@
                 el.style.transform = 'none';
             } else {
                 el.style.left = '8px';
-                el.style.top = '';
-                el.style.bottom = '6px';
+                el.style.top = '8px';
+                el.style.bottom = '';
                 el.style.transform = 'none';
             }
         }
@@ -8353,7 +8393,7 @@
             const hint = document.getElementById('island-hint');
             if (!el || !hint) return;
             _islandUserHidden = true;
-            el.style.transformOrigin = 'bottom left';
+            el.style.transformOrigin = 'top left';
             el.style.transition = 'transform 0.3s ease, opacity 0.25s ease';
             el.style.transform = 'scale(0.05)';
             el.style.opacity = '0';
@@ -8373,7 +8413,7 @@
             if (!el || !hint) return;
             _islandUserHidden = false;
             renderIsland();
-            el.style.transformOrigin = 'bottom left';
+            el.style.transformOrigin = 'top left';
             el.style.transform = 'scale(0.05)';
             el.style.opacity = '0';
             el.style.transition = 'none';
@@ -8390,6 +8430,25 @@
         }
 
         let _islandLastActive = null; // tracks plugin transitions for auto-reset
+        function _pluginSectionOpen(id, title, bodyHtml) {
+            const collapsed = _pluginCollapsed.has(id) ? ' collapsed' : '';
+            let h = `<div class="po-section${collapsed}" data-plugin="${id}">`;
+            h += `<div class="po-section-header" data-plugin-toggle="${id}" onclick="_togglePluginSection('${id}')">`;
+            h += `<span class="po-section-title">${title}</span>`;
+            h += `<span class="po-section-arrow">\u2304</span>`;
+            h += `</div>`;
+            h += `<div class="po-section-body">${bodyHtml}</div>`;
+            h += `</div>`;
+            return h;
+        }
+
+        function _togglePluginSection(id) {
+            if (_pluginCollapsed.has(id)) _pluginCollapsed.delete(id);
+            else _pluginCollapsed.add(id);
+            renderIsland();
+        }
+        window._togglePluginSection = _togglePluginSection;
+
         function renderIsland() {
             const el = document.getElementById('dynamic-island');
             if (!el) return;
@@ -8423,119 +8482,105 @@
                 return;
             }
 
-            let html = '';
-            let sectionCount = 0;
+            // Persistent header: collapse circle + PLUGIN OPTIONS title
+            let html = `<div class="po-header">`;
+            html += `<span id="island-collapse-btn" title="Collapse (~)">~</span>`;
+            html += `<span class="po-title">PLUGIN OPTIONS</span>`;
+            html += `</div>`;
 
-            // qMRI island: pill toggles for visible parameter maps
+            // qMRI section — pill toggles for visible parameter maps
             if (activePlugins.includes('qmri')) {
-                if (sectionCount > 0) html += '<div class="island-divider"></div>';
                 const n = shape[qmriDim];
                 const allCmaps = QMRI_COLORMAPS[n];
                 const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
-                html += `<div class="island-header">`;
-                html += `<span class="island-title island-title-qmri">Multi-parametric qMRI</span>`;
-                html += `</div>`;
-                html += `<div class="island-pills">`;
+                let body = `<div class="island-pills">`;
                 for (let i = 0; i < allCmaps.length; i++) {
                     const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
                     const isVisible = visibleSet.has(i);
                     const isOnly = visibleSet.size === 1 && isVisible;
                     const cls = isVisible ? (isOnly ? 'on only' : 'on') : 'off';
-                    html += `<div class="island-pill ${cls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
+                    body += `<div class="island-pill ${cls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
                 }
-                html += `</div>`;
-                sectionCount++;
+                body += `</div>`;
+                html += _pluginSectionOpen('qmri', 'Multi-parametric qMRI', body);
             }
 
             // ROI / SEG section
             const overlayPlugin = activePlugins.includes('roi') ? 'roi' : activePlugins.includes('seg') ? 'seg' : null;
             if (overlayPlugin) {
-                if (sectionCount > 0) html += '<div class="island-divider"></div>';
                 const isRoi = overlayPlugin === 'roi';
                 const isSegLoading = !isRoi && _segActivating && !_segMode;
                 const title = isRoi ? 'Region of interest' : 'Segmentation';
                 const accentColor = '#f0c674';
-
-                html += `<div class="island-header island-header-title">`;
-                html += `<span class="island-title island-title-${overlayPlugin}">${title}</span>`;
-                html += `</div>`;
+                let body = '';
 
                 if (isSegLoading) {
-                    html += `<div class="island-rows">`;
-                    html += `<div class="island-row">`;
-                    html += `<div class="island-swatch pulse" style="background:${accentColor}"></div>`;
-                    html += `<span class="island-name default-name">nnInteractive \u00B7 connecting</span>`;
-                    html += `</div>`;
-                    html += `</div>`;
+                    body += `<div class="island-rows">`;
+                    body += `<div class="island-row">`;
+                    body += `<div class="island-swatch pulse" style="background:${accentColor}"></div>`;
+                    body += `<span class="island-name default-name">nnInteractive \u00B7 connecting</span>`;
+                    body += `</div>`;
+                    body += `</div>`;
                 } else {
                     const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
                     const currentShape = isRoi ? _roiShape : _segMethod;
                     const shapeKeys = Object.keys(shapes);
-                    html += `<div class="island-toolbar">`;
-                    html += `<div class="island-shapes">`;
+                    body += `<div class="island-toolbar">`;
+                    body += `<div class="island-shapes">`;
                     for (const key of shapeKeys) {
                         const isActive = key === currentShape;
                         const color = isActive ? accentColor : '#555';
                         const opacity = isActive ? '1' : '0.5';
-                        html += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                        body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
                     }
-                    html += `</div>`;
+                    body += `</div>`;
                     const exportTitle = isRoi ? 'Export table' : 'Export segments';
-                    html += `<span class="island-modal-btn" onclick="_islandExport()" title="${exportTitle}">${_MAGNIFIER_ICON}</span>`;
-                    html += `</div>`;
+                    body += `<span class="island-modal-btn" onclick="_islandExport()" title="${exportTitle}">${_MAGNIFIER_ICON}</span>`;
+                    body += `</div>`;
 
-                    html += `<div class="island-rows">`;
-                    html += isRoi ? _renderRoiRows() : _renderSegRows();
-                    html += `</div>`;
+                    body += `<div class="island-rows">`;
+                    body += isRoi ? _renderRoiRows() : _renderSegRows();
+                    body += `</div>`;
                 }
-                sectionCount++;
+                html += _pluginSectionOpen(overlayPlugin, title, body);
             }
 
             // Overlay section
             if (activePlugins.includes('overlay')) {
-                if (sectionCount > 0) html += '<div class="island-divider"></div>';
-                html += `<div class="island-header island-header-title">`;
-                html += `<span class="island-title island-title-roi">Overlays</span>`;
-                html += `</div>`;
+                let body = '';
                 if (_overlaySids.length) {
-                    html += `<div class="island-rows">${_renderOverlayRows()}</div>`;
+                    body += `<div class="island-rows">${_renderOverlayRows()}</div>`;
                     const alphaPct = Math.round(overlayAlpha * 100);
-                    html += `<div class="island-slider-row">`;
-                    html += `<span class="island-slider-label">opacity</span>`;
-                    html += `<input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}">`;
-                    html += `<span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span>`;
-                    html += `</div>`;
+                    body += `<div class="island-slider-row">`;
+                    body += `<span class="island-slider-label">opacity</span>`;
+                    body += `<input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}">`;
+                    body += `<span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span>`;
+                    body += `</div>`;
                 }
-                html += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
-                sectionCount++;
+                body += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
+                html += _pluginSectionOpen('overlay', 'Overlays', body);
             }
 
             // Vector field section
             if (activePlugins.includes('vectorfield')) {
-                if (sectionCount > 0) html += '<div class="island-divider"></div>';
-                html += `<div class="island-header island-header-title">`;
-                html += `<span class="island-title island-title-roi">Vector field</span>`;
-                html += `</div>`;
-                html += `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}">`;
-                html += `<div class="island-swatch" style="background:#f0c674"></div>`;
-                html += `<span class="island-name">displacement</span>`;
-                html += `<span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
-                html += `</div></div>`;
-                html += `<div class="island-slider-row">`;
-                html += `<span class="island-slider-label">density</span>`;
-                html += `<input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}">`;
-                html += `<span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span>`;
-                html += `</div>`;
-                html += `<div class="island-slider-row">`;
-                html += `<span class="island-slider-label">length</span>`;
-                html += `<input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}">`;
-                html += `<span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span>`;
-                html += `</div>`;
-                sectionCount++;
+                let body = `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}">`;
+                body += `<div class="island-swatch" style="background:#f0c674"></div>`;
+                body += `<span class="island-name">displacement</span>`;
+                body += `<span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span>`;
+                body += `</div></div>`;
+                body += `<div class="island-slider-row">`;
+                body += `<span class="island-slider-label">density</span>`;
+                body += `<input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}">`;
+                body += `<span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span>`;
+                body += `</div>`;
+                body += `<div class="island-slider-row">`;
+                body += `<span class="island-slider-label">length</span>`;
+                body += `<input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}">`;
+                body += `<span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span>`;
+                body += `</div>`;
+                html += _pluginSectionOpen('vectorfield', 'Vector field', body);
             }
 
-            // Top-right collapse button — animates the island down to the bottom-left hint.
-            html += `<span id="island-collapse-btn" title="Collapse (~)">~</span>`;
             el.innerHTML = html;
             const collapseBtn = document.getElementById('island-collapse-btn');
             if (collapseBtn) collapseBtn.addEventListener('click', (e) => {
@@ -11170,13 +11215,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, #island-collapse-btn')) return;
+                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, #island-collapse-btn, .po-section-header, .island-pill')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
                 dragOffY = e.clientY - rect.top;
                 island.style.transition = 'none';
-                island.style.bottom = ''; // switch from bottom to top positioning when dragging
+                island.style.bottom = '';
                 e.preventDefault();
             });
 
