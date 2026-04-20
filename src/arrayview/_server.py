@@ -12,6 +12,7 @@ import json
 import math
 import os
 import threading
+from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import (
@@ -252,6 +253,167 @@ def _composite_overlays(
             override_color=color,
         )
     return rgba
+
+
+# ── Oblique Preset Helpers ────────────────────────────────────────
+#
+# Clients in 3-plane multiview can persist the current oblique basis as a
+# "recent" preset that survives across sessions. Storage is a single JSON file
+# under ``~/.arrayview/oblique_recent.json`` — independent of any per-session
+# state so the preset can be reused across arrays with compatible shapes.
+
+
+_OBLIQUE_RECENT_FILE = os.path.expanduser("~/.arrayview/oblique_recent.json")
+_OBLIQUE_LOCK = threading.Lock()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clamp_int(value, lo: int, hi: int, fallback: int) -> int:
+    try:
+        v = int(value)
+    except Exception:
+        v = int(fallback)
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
+def _normalize_oblique_preset(
+    preset: dict | None,
+    *,
+    ndim: int,
+    shape: tuple[int, ...],
+) -> dict | None:
+    """Validate + clamp an oblique preset payload against the session shape.
+
+    Returns the sanitized preset, or None if required fields are missing /
+    malformed. Accepts any shape whose rank matches ``ndim`` — the caller
+    may enforce stricter shape-compatibility if desired.
+    """
+    if not isinstance(preset, dict):
+        return None
+    try:
+        shape_out = [int(v) for v in preset.get("shape", list(shape))]
+    except Exception:
+        return None
+    if len(shape_out) != ndim:
+        return None
+    if any(int(v) <= 0 for v in shape_out):
+        return None
+
+    try:
+        mv_dims = [int(v) for v in preset.get("mv_dims", [])]
+    except Exception:
+        return None
+    if len(mv_dims) != 3 or len(set(mv_dims)) != 3:
+        return None
+    if any((d < 0 or d >= ndim) for d in mv_dims):
+        return None
+
+    try:
+        indices = [int(v) for v in preset.get("indices", [])]
+    except Exception:
+        return None
+    if len(indices) != ndim:
+        return None
+    for d in range(ndim):
+        n = max(1, int(shape_out[d]))
+        indices[d] = _clamp_int(indices[d], 0, n - 1, n // 2)
+
+    vecs_raw = preset.get("oblique_vecs")
+    if not isinstance(vecs_raw, list) or len(vecs_raw) != 3:
+        return None
+    vecs_out: list[dict[str, list[float]]] = []
+    for item in vecs_raw:
+        if not isinstance(item, dict):
+            return None
+        try:
+            bh = [float(v) for v in item.get("bh", [])]
+            bv = [float(v) for v in item.get("bv", [])]
+            nn = [float(v) for v in item.get("n", [])]
+        except Exception:
+            return None
+        if len(bh) != 3 or len(bv) != 3 or len(nn) != 3:
+            return None
+        vecs_out.append({"bh": bh, "bv": bv, "n": nn})
+
+    pane_labels = preset.get("pane_labels")
+    if not isinstance(pane_labels, list) or len(pane_labels) != 3:
+        pane_labels = ["Oblique A", "Oblique B", "Oblique C"]
+    pane_labels = [str(v) for v in pane_labels]
+
+    pane_defs_raw = preset.get("pane_defs")
+    pane_defs_out = None
+    if isinstance(pane_defs_raw, list) and len(pane_defs_raw) == 3:
+        tmp_defs: list[dict[str, int]] = []
+        ok_defs = True
+        for pd in pane_defs_raw:
+            if not isinstance(pd, dict):
+                ok_defs = False
+                break
+            try:
+                dx = int(pd.get("dim_x"))
+                dy = int(pd.get("dim_y"))
+                sd = int(pd.get("slice_dir"))
+            except Exception:
+                ok_defs = False
+                break
+            if any((d < 0 or d >= ndim) for d in (dx, dy, sd)):
+                ok_defs = False
+                break
+            if len({dx, dy, sd}) != 3:
+                ok_defs = False
+                break
+            tmp_defs.append({"dim_x": dx, "dim_y": dy, "slice_dir": sd})
+        if ok_defs:
+            pane_defs_out = tmp_defs
+
+    out = {
+        "version": int(preset.get("version", 1)),
+        "shape": shape_out,
+        "mv_dims": mv_dims,
+        "indices": indices,
+        "oblique_vecs": vecs_out,
+        "pane_labels": pane_labels,
+    }
+    if pane_defs_out is not None:
+        out["pane_defs"] = pane_defs_out
+    lock_raw = preset.get("oblique_ortho_lock")
+    if isinstance(lock_raw, bool):
+        out["oblique_ortho_lock"] = lock_raw
+    return out
+
+
+def _load_recent_oblique_file(path: str, *, ndim: int, shape: tuple[int, ...]) -> dict | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    return _normalize_oblique_preset(data, ndim=ndim, shape=shape)
+
+
+def _write_recent_oblique_file(
+    path: str, session: "Session", preset: dict
+) -> tuple[bool, str | None]:
+    try:
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        payload = dict(preset)
+        payload["saved_at"] = _utc_now_iso()
+        payload["sid"] = getattr(session, "sid", None)
+        payload["name"] = getattr(session, "name", "") or ""
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
 
 
 # ── FastAPI Application ───────────────────────────────────────────
@@ -3646,6 +3808,85 @@ async def load_bytes_endpoint(request: Request):
     _open_via_signal_file(url)
 
     return {"sid": session.sid, "url": url}
+
+
+# ── Oblique Preset Routes ─────────────────────────────────────────
+#
+# These are intentionally NOT namespaced under any plugin — the oblique basis
+# is a property of the 3-plane multiview mode itself. Presets persist to a
+# single JSON file under ~/.arrayview so users can share an orientation
+# across sessions / arrays that happen to have the same rank.
+
+
+@app.post("/oblique/save")
+async def oblique_save(request: Request):
+    """Persist the current oblique basis as the 'recent' preset.
+
+    Body: ``{"sid": "<sid>", "preset": {...}}``.
+    """
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    session = SESSIONS.get(sid)
+    if session is None:
+        return JSONResponse({"error": "session_not_found"}, status_code=404)
+    shape = tuple(int(v) for v in getattr(session, "shape", ()) or ())
+    ndim = len(shape)
+    if ndim <= 0:
+        return JSONResponse({"error": "invalid_session_shape"}, status_code=500)
+    preset = _normalize_oblique_preset(body.get("preset"), ndim=ndim, shape=shape)
+    if preset is None:
+        return JSONResponse({"error": "invalid_oblique_preset"}, status_code=400)
+    with _OBLIQUE_LOCK:
+        ok, err = _write_recent_oblique_file(_OBLIQUE_RECENT_FILE, session, preset)
+    if not ok:
+        return JSONResponse(
+            {"error": "oblique_save_failed", "detail": str(err)}, status_code=500
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "sid": sid,
+            "saved_path": _OBLIQUE_RECENT_FILE,
+            "preset": preset,
+        }
+    )
+
+
+@app.post("/oblique/load_recent")
+async def oblique_load_recent(request: Request):
+    """Return the most recently saved oblique preset, clamped to this session's shape.
+
+    Body: ``{"sid": "<sid>"}``.
+    """
+    body = await request.json()
+    sid = str(body.get("sid") or "").strip()
+    if not sid:
+        return JSONResponse({"error": "missing_sid"}, status_code=400)
+    session = SESSIONS.get(sid)
+    if session is None:
+        return JSONResponse({"error": "session_not_found"}, status_code=404)
+    shape = tuple(int(v) for v in getattr(session, "shape", ()) or ())
+    ndim = len(shape)
+    if ndim <= 0:
+        return JSONResponse({"error": "invalid_session_shape"}, status_code=500)
+    with _OBLIQUE_LOCK:
+        preset = _load_recent_oblique_file(
+            _OBLIQUE_RECENT_FILE, ndim=ndim, shape=shape
+        )
+    if preset is None:
+        return JSONResponse(
+            {"error": "oblique_recent_file_missing_or_invalid"}, status_code=404
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "sid": sid,
+            "path": _OBLIQUE_RECENT_FILE,
+            "preset": preset,
+        }
+    )
 
 
 # ── Root UI Route ─────────────────────────────────────────────────

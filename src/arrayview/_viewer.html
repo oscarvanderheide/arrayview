@@ -1077,6 +1077,81 @@
         }
         #dynamic-island .island-add-row:hover { color: #ccc; border-color: rgba(255,255,255,0.2); }
         #dynamic-island .island-add-row[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+        /* Oblique colorbar flip — while the multiview colorbar is the front
+           face, a back face with 90\u00b0 / Save / Load controls is revealed by
+           rotateX(180deg) when the user holds Alt (or hovers the back).
+           See _reconcileObliqueFlip(). */
+        .oblique-flip-wrap {
+            perspective: 1000px;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .oblique-flip-inner {
+            position: relative;
+            display: inline-block;
+            transform-style: preserve-3d; -webkit-transform-style: preserve-3d;
+            transition: transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .oblique-flip-inner.flipped { transform: rotateX(180deg); }
+        .oblique-flip-front { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .oblique-flip-back {
+            position: absolute; inset: 0;
+            transform: rotateX(180deg);
+            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+            border-radius: 14px;
+            background: rgb(26, 26, 26);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 4px 10px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px;
+            box-sizing: border-box;
+        }
+        :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
+        :root.solarized .oblique-flip-back { background: rgb(238, 232, 213); border-color: rgba(0,0,0,0.1); }
+        :root.nord .oblique-flip-back { background: rgb(36, 41, 56); border-color: rgba(216,222,233,0.08); }
+        .ob-label {
+            font-size: 10px; color: var(--active-dim);
+            letter-spacing: normal; text-transform: none;
+            font-weight: 600; flex-shrink: 0; white-space: nowrap;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+        }
+        .ob-btn-row { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+        .ob-btn {
+            height: 24px; min-width: 32px; padding: 0 7px;
+            border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.04); color: var(--text, #ddd);
+            font-family: inherit; font-size: 11px; letter-spacing: 0;
+            cursor: pointer; white-space: nowrap;
+            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+            transition: background 120ms, border-color 120ms, color 120ms;
+        }
+        .ob-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
+        .ob-btn.on { background: var(--active-dim); color: var(--bg, #111); border-color: var(--active-dim); }
+        .ob-btn.on:hover { background: #ffe285; }
+        .ob-lock-shackle { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: 8px 7.5px; }
+        #oblique-lock-btn:not(.on) .ob-lock-shackle { transform: translateY(-2px) rotate(-14deg); }
+        /* CSS tooltip (native title is unreliable on 3D-transformed parents) */
+        .ob-btn { position: relative; }
+        .ob-btn[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px); left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 10, 10, 0.96);
+            color: var(--text, #ddd);
+            font-family: inherit; font-size: 11px; letter-spacing: 0; font-weight: 400;
+            padding: 4px 8px; border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 120ms;
+            z-index: 1000;
+        }
+        .ob-btn[data-tip]:hover::after {
+            opacity: 1; transition-delay: 400ms;
+        }
+        :root.light .ob-btn[data-tip]::after { background: rgba(245,245,245,0.97); color: #222; border-color: rgba(0,0,0,0.12); }
+        :root.light .ob-btn { color: #222; border-color: rgba(0,0,0,0.22); background: rgba(0,0,0,0.04); }
+        :root.light .ob-btn:hover { background: rgba(0,0,0,0.08); }
+        .ob-btn svg { flex-shrink: 0; }
         /* Light theme */
         :root.light #dynamic-island { background: rgba(245,245,245,0.95); border-color: rgba(0,0,0,0.1); }
         :root.light #dynamic-island .po-title { color: #7a4cd9; }
@@ -1118,7 +1193,9 @@
         .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-        .mv-pane.canvas-bordered { outline: 1px solid var(--canvas-border); }
+        /* Outline only the canvas (image), not the pane container —
+           the pane can be larger than the image when stretch-to-square is off. */
+        .mv-pane.canvas-bordered .mv-canvas { outline: 1px solid var(--canvas-border); }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
         #reg-blend-bar-wrap {
@@ -2449,6 +2526,7 @@
         // Oblique MPR state (multi-view only)
         let obliqueVecs = null; // null = axis-aligned; [{bh,bv,n}, …] when active
         let obliqueDrag = null; // {viewI, viewJ, prevX, prevY, cx, cy} while rotating
+        let obliqueOrthoLock = true; // keep oblique triad orthogonal (90° crosshairs)
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = false; // toggled by 'b' key
@@ -6959,6 +7037,229 @@
             const vk = dot3(v, k), vc = cross3(k, v);
             return v.map((vi, i) => vi*ct + vc[i]*st + k[i]*vk*(1-ct));
         }
+        function sub3(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+        function scale3(a, s) { return [a[0]*s, a[1]*s, a[2]*s]; }
+        function projOut3(v, n) { return sub3(v, scale3(n, dot3(v, n))); }
+        function fallbackPerp3(n) {
+            const cands = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+            let best = [1, 0, 0];
+            let bestAbsDot = Infinity;
+            cands.forEach((c) => {
+                const ad = Math.abs(dot3(c, n));
+                if (ad < bestAbsDot) {
+                    bestAbsDot = ad;
+                    best = c;
+                }
+            });
+            const p = projOut3(best, n);
+            return norm3(p) > 1e-8 ? normalize3(p) : [0, 1, 0];
+        }
+        /** Re-orthogonalise a single oblique plane {bh,bv,n}.
+         *  Optionally anchor the normal to nTarget. */
+        function normalizeObliquePlane(ov, nTarget = null) {
+            if (!ov) return;
+            let n = normalize3(Array.isArray(nTarget) ? nTarget : (Array.isArray(ov.n) ? ov.n : [1, 0, 0]));
+            const bh0 = Array.isArray(ov.bh) ? ov.bh : [1, 0, 0];
+            const bv0 = Array.isArray(ov.bv) ? ov.bv : [0, 1, 0];
+            let bh = projOut3(bh0, n);
+            if (norm3(bh) < 1e-8) bh = projOut3(bv0, n);
+            if (norm3(bh) < 1e-8) bh = fallbackPerp3(n);
+            bh = normalize3(bh);
+            let bv = normalize3(cross3(n, bh));
+            if (dot3(bv, bv0) < 0) {
+                bh = scale3(bh, -1);
+                bv = scale3(bv, -1);
+            }
+            n = normalize3(cross3(bh, bv));
+            ov.bh = bh;
+            ov.bv = bv;
+            ov.n = n;
+        }
+        /** Force the three pane normals to form an orthogonal triad, anchoring view anchorIndex. */
+        function enforceObliqueOrthogonality(anchorIndex = 0) {
+            if (!Array.isArray(obliqueVecs) || obliqueVecs.length !== 3) return;
+            const ids = [0, 1, 2];
+            const i = Number.isInteger(anchorIndex) && anchorIndex >= 0 && anchorIndex < 3 ? anchorIndex : 0;
+            const rest = ids.filter((x) => x !== i);
+            const j = rest[0];
+            const k = rest[1];
+
+            normalizeObliquePlane(obliqueVecs[i]);
+            let nI = normalize3(obliqueVecs[i].n);
+            let nJ = projOut3(Array.isArray(obliqueVecs[j]?.n) ? obliqueVecs[j].n : [1, 0, 0], nI);
+            if (norm3(nJ) < 1e-8) nJ = projOut3(Array.isArray(obliqueVecs[j]?.bh) ? obliqueVecs[j].bh : [0, 1, 0], nI);
+            if (norm3(nJ) < 1e-8) nJ = fallbackPerp3(nI);
+            nJ = normalize3(nJ);
+            let nK = normalize3(cross3(nI, nJ));
+            const nKRef = Array.isArray(obliqueVecs[k]?.n) ? normalize3(obliqueVecs[k].n) : nK;
+            if (dot3(nK, nKRef) < 0) {
+                nJ = scale3(nJ, -1);
+                nK = scale3(nK, -1);
+            }
+
+            const nTargets = { [i]: nI, [j]: nJ, [k]: nK };
+            ids.forEach((idx) => normalizeObliquePlane(obliqueVecs[idx], nTargets[idx]));
+        }
+
+        // ── Oblique preset helpers (save/load) ───────────────────────────────
+        function _oblAxisAlignedVecs(dims) {
+            if (!Array.isArray(dims) || dims.length !== 3) return null;
+            const defs = [
+                { dimX: dims[1], dimY: dims[0] },
+                { dimX: dims[2], dimY: dims[0] },
+                { dimX: dims[2], dimY: dims[1] },
+            ];
+            return defs.map((def) => {
+                const bh = [0, 0, 0];
+                const bv = [0, 0, 0];
+                const kx = dims.indexOf(def.dimX);
+                const ky = dims.indexOf(def.dimY);
+                if (kx < 0 || ky < 0) return null;
+                bh[kx] = (flipDims[def.dimX] || false) ? -1 : 1;
+                bv[ky] = (flipDims[def.dimY] || false) ? -1 : 1;
+                const n = normalize3(cross3(bh, bv));
+                return { bh: [...bh], bv: [...bv], n: [...n] };
+            });
+        }
+
+        function _buildObliquePresetPayload() {
+            if (!Array.isArray(shape) || shape.length < 3 || !Array.isArray(indices) || indices.length !== shape.length) {
+                return null;
+            }
+            const dims = (multiViewActive && Array.isArray(mvDims) && mvDims.length === 3)
+                ? mvDims.map((d) => parseInt(d, 10))
+                : defaultMultiViewDims();
+            if (!Array.isArray(dims) || dims.length !== 3 || dims.some((d) => !Number.isInteger(d))) {
+                return null;
+            }
+
+            let vecs = null;
+            if (obliqueVecs && Array.isArray(obliqueVecs) && obliqueVecs.length === 3) {
+                vecs = obliqueVecs.map((v) => ({
+                    bh: [Number(v.bh?.[0] ?? 0), Number(v.bh?.[1] ?? 0), Number(v.bh?.[2] ?? 0)],
+                    bv: [Number(v.bv?.[0] ?? 0), Number(v.bv?.[1] ?? 0), Number(v.bv?.[2] ?? 0)],
+                    n:  [Number(v.n?.[0]  ?? 0), Number(v.n?.[1]  ?? 0), Number(v.n?.[2]  ?? 0)],
+                }));
+            } else {
+                vecs = _oblAxisAlignedVecs(dims);
+            }
+            if (!Array.isArray(vecs) || vecs.length !== 3 || vecs.some((v) => !v)) return null;
+
+            const paneLabels = [
+                `Pane 1 (slice dim ${dims[2]})`,
+                `Pane 2 (slice dim ${dims[1]})`,
+                `Pane 3 (slice dim ${dims[0]})`,
+            ];
+            const paneDefs = (multiViewActive && Array.isArray(mvViews) && mvViews.length === 3)
+                ? mvViews.map((v) => ({
+                    dim_x: parseInt(v.dimX, 10),
+                    dim_y: parseInt(v.dimY, 10),
+                    slice_dir: parseInt(v.sliceDir, 10),
+                }))
+                : [
+                    { dim_x: dims[1], dim_y: dims[0], slice_dir: dims[2] },
+                    { dim_x: dims[2], dim_y: dims[0], slice_dir: dims[1] },
+                    { dim_x: dims[2], dim_y: dims[1], slice_dir: dims[0] },
+                ];
+
+            return {
+                version: 1,
+                shape: shape.map((s) => parseInt(s, 10)),
+                mv_dims: dims,
+                indices: indices.map((i, d) => {
+                    const n = Math.max(1, parseInt(shape[d], 10) || 1);
+                    const v = parseInt(i, 10);
+                    if (!Number.isFinite(v)) return Math.floor(n / 2);
+                    return Math.max(0, Math.min(n - 1, v));
+                }),
+                oblique_vecs: vecs,
+                pane_labels: paneLabels,
+                pane_defs: paneDefs,
+                oblique_ortho_lock: !!obliqueOrthoLock,
+            };
+        }
+
+        function _applyObliquePreset(preset, opts = {}) {
+            if (!preset || typeof preset !== 'object') throw new Error('invalid preset');
+            const dims = Array.isArray(preset.mv_dims) ? preset.mv_dims.map((d) => parseInt(d, 10)) : null;
+            if (!dims || dims.length !== 3 || dims.some((d) => !Number.isInteger(d) || d < 0 || d >= shape.length)) {
+                throw new Error('invalid mv_dims in preset');
+            }
+            const vecsIn = Array.isArray(preset.oblique_vecs) ? preset.oblique_vecs : null;
+            if (!vecsIn || vecsIn.length !== 3) throw new Error('invalid oblique_vecs in preset');
+            const vecs = vecsIn.map((v) => ({
+                bh: [Number(v?.bh?.[0] ?? 0), Number(v?.bh?.[1] ?? 0), Number(v?.bh?.[2] ?? 0)],
+                bv: [Number(v?.bv?.[0] ?? 0), Number(v?.bv?.[1] ?? 0), Number(v?.bv?.[2] ?? 0)],
+                n:  normalize3([Number(v?.n?.[0] ?? 0), Number(v?.n?.[1] ?? 0), Number(v?.n?.[2] ?? 0)]),
+            }));
+
+            if (!multiViewActive || !Array.isArray(mvDims) || mvDims.length !== 3 || mvDims.some((d, i) => d !== dims[i])) {
+                enterMultiView(dims);
+            }
+
+            if (Array.isArray(preset.indices) && preset.indices.length === shape.length) {
+                for (let d = 0; d < shape.length; d++) {
+                    const n = Math.max(1, parseInt(shape[d], 10) || 1);
+                    const v = parseInt(preset.indices[d], 10);
+                    indices[d] = Number.isFinite(v) ? Math.max(0, Math.min(n - 1, v)) : Math.floor(n / 2);
+                }
+            }
+
+            obliqueVecs = vecs;
+            if (typeof preset.oblique_ortho_lock === 'boolean') {
+                obliqueOrthoLock = preset.oblique_ortho_lock;
+            }
+            if (obliqueOrthoLock) enforceObliqueOrthogonality(0);
+            obliqueDrag = null;
+            mvNavDragPrev = null;
+            renderInfo();
+            mvViews.forEach(v => mvDrawFrame(v));
+            mvViews.forEach(v => mvRender(v));
+            if (typeof renderIsland === 'function') renderIsland();
+            if (typeof _updateObliqueOrthoButton === 'function') _updateObliqueOrthoButton();
+            if (!opts.quiet) showStatus('oblique preset loaded', 1600);
+        }
+
+        async function _obliqueSavePreset() {
+            const preset = _buildObliquePresetPayload();
+            if (!preset) {
+                _setObliqueStatus('could not build preset (enter 3-plane view first)', 'error');
+                return;
+            }
+            try {
+                const r = await proxyFetch('/oblique/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid, preset }),
+                });
+                if (!r.ok) {
+                    _setObliqueStatus(`save failed (HTTP ${r.status})`, 'error');
+                    return;
+                }
+                _setObliqueStatus('saved \u00b7 ' + new Date().toLocaleTimeString(), 'ok');
+            } catch (e) {
+                _setObliqueStatus(`save failed: ${e?.message || e}`, 'error');
+            }
+        }
+
+        async function _obliqueLoadRecent() {
+            try {
+                const r = await proxyFetch('/oblique/load_recent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid }),
+                });
+                if (!r.ok) {
+                    _setObliqueStatus('no recent preset found', 'error');
+                    return;
+                }
+                const out = await r.json();
+                _applyObliquePreset(out?.preset);
+                _setObliqueStatus('loaded recent preset', 'ok');
+            } catch (e) {
+                _setObliqueStatus(`load failed: ${e?.message || e}`, 'error');
+            }
+        }
 
         function _drawArrow(ctx, x1, y1, x2, y2) {
             const dx = x2 - x1, dy = y2 - y1;
@@ -8592,6 +8893,157 @@
             _attachRoiRowTooltipHandlers();
             _attachIslandSliderHandlers();
         }
+
+        // ── Oblique colorbar flip ────────────────────────────────────────────
+        // While in ortho multiview, the horizontal colorbar is wrapped in a
+        // 3-D flip container. Holding Alt (or hovering the back face) flips
+        // rotateX(180deg) to reveal oblique controls: 90\u00b0 lock, Save, Load.
+        // Drive visibility via `.flipped` class only — no inline style toggles.
+        let _obliqueAltHeld = false;
+        let _obliqueBackHovered = false;
+
+        function _setObliqueStatus(msg, _cls = '') {
+            // Preset save/load feedback now routes through the global toast.
+            // `_cls` retained for call-site compatibility — toast styling is
+            // uniform.
+            if (msg) showToast(msg);
+        }
+
+        function _updateObliqueOrthoButton() {
+            const btn = document.getElementById('oblique-lock-btn');
+            if (!btn) return;
+            const on = !!obliqueOrthoLock;
+            btn.classList.toggle('on', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        function _toggleObliqueOrthoLock(forceValue = null) {
+            obliqueOrthoLock = forceValue === null ? !obliqueOrthoLock : !!forceValue;
+            if (obliqueOrthoLock && Array.isArray(obliqueVecs) && obliqueVecs.length === 3) {
+                enforceObliqueOrthogonality(obliqueDrag?.viewI ?? 0);
+                mvViews.forEach(v => mvDrawFrame(v));
+                mvViews.forEach(v => mvRender(v));
+            }
+            showStatus(obliqueOrthoLock ? 'oblique 90\u00b0 lock ON' : 'oblique 90\u00b0 lock OFF', 1400);
+            _updateObliqueOrthoButton();
+        }
+
+        function _reconcileObliqueFlip() {
+            const inner = document.querySelector('.oblique-flip-inner');
+            if (!inner) return;
+            const shouldFlip = multiViewActive && !compareMvActive && (_obliqueAltHeld || _obliqueBackHovered);
+            inner.classList.toggle('flipped', shouldFlip);
+        }
+
+        /** Build the flip wrapper around an existing `.cb-island` node, insert
+         *  the back-face controls, and wire button handlers. Idempotent — if
+         *  the island is already wrapped, this is a no-op. */
+        function _buildObliqueFlipWrap(parent, cbIsland) {
+            if (!parent || !cbIsland) return;
+            // If already wrapped, nothing to do.
+            if (cbIsland.parentElement && cbIsland.parentElement.classList.contains('oblique-flip-inner')) {
+                return;
+            }
+            const outer = document.createElement('div');
+            outer.className = 'oblique-flip-wrap';
+            const inner = document.createElement('div');
+            inner.className = 'oblique-flip-inner';
+            outer.appendChild(inner);
+
+            // Move the existing `.cb-island` into the inner as the front face.
+            cbIsland.classList.add('oblique-flip-front');
+            // Insert wrap where the island currently is, then move island into
+            // inner. This keeps DOM order relative to siblings (panes above).
+            parent.insertBefore(outer, cbIsland);
+            inner.appendChild(cbIsland);
+
+            // Build the back face.
+            const back = document.createElement('div');
+            back.className = 'oblique-flip-back';
+            back.innerHTML =
+                '<span class="ob-label">Oblique Mode:</span>'
+                + '<div class="ob-btn-row">'
+                + '<button type="button" class="ob-btn" id="oblique-lock-btn" aria-pressed="false"'
+                + ' data-tip="Keep planes orthogonal (90\u00b0 crosshairs)">'
+                + '90\u00b0'
+                + '<svg class="ob-lock-icon" viewBox="0 0 16 16" width="11" height="11"'
+                + ' fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">'
+                + '<rect x="3.5" y="7.5" width="9" height="6.5" rx="1"/>'
+                + '<path class="ob-lock-shackle" d="M5.5 7.5V5.25a2.5 2.5 0 0 1 5 0V7.5"/>'
+                + '</svg>'
+                + '</button>'
+                + '<button type="button" class="ob-btn" id="oblique-save-btn"'
+                + ' data-tip="Save current plane orientation">Save</button>'
+                + '<button type="button" class="ob-btn" id="oblique-load-btn"'
+                + ' data-tip="Load most recent saved orientation">'
+                + '<svg viewBox="0 0 16 16" width="11" height="11" fill="none"'
+                + ' stroke="currentColor" stroke-width="1.5">'
+                + '<path d="M13.5 8a5.5 5.5 0 1 1-1.5-3.8"/>'
+                + '<path d="M13.5 2.5v3h-3"/></svg>'
+                + 'Load</button>'
+                + '</div>';
+            inner.appendChild(back);
+
+            // Wire handlers.
+            const btnLock = back.querySelector('#oblique-lock-btn');
+            const btnSave = back.querySelector('#oblique-save-btn');
+            const btnLoad = back.querySelector('#oblique-load-btn');
+            if (btnLock) btnLock.addEventListener('click', (e) => {
+                e.stopPropagation(); _toggleObliqueOrthoLock();
+            });
+            if (btnSave) btnSave.addEventListener('click', (e) => {
+                e.stopPropagation(); _obliqueSavePreset();
+            });
+            if (btnLoad) btnLoad.addEventListener('click', (e) => {
+                e.stopPropagation(); _obliqueLoadRecent();
+            });
+
+            // Hover over the back face keeps the flip open so the user can
+            // mouse from Alt-held across to the controls.
+            back.addEventListener('mouseenter', () => {
+                _obliqueBackHovered = true; _reconcileObliqueFlip();
+            });
+            back.addEventListener('mouseleave', () => {
+                _obliqueBackHovered = false; _reconcileObliqueFlip();
+            });
+
+            // Sync the lock button's `.on` class from current state.
+            _updateObliqueOrthoButton();
+        }
+
+        /** Remove the flip wrapper (if present) and restore the `.cb-island`
+         *  to its original parent so subsequent mounts see a bare island. */
+        function _teardownObliqueFlipWrap() {
+            const outer = document.querySelector('.oblique-flip-wrap');
+            if (!outer || !outer.parentNode) return;
+            outer.parentNode.removeChild(outer);
+            // Reset any stale flip-state flags so re-entry starts clean.
+            _obliqueBackHovered = false;
+        }
+
+        // Track Alt at the window level so it works regardless of focus.
+        // Listen in CAPTURE phase so a downstream listener calling
+        // stopImmediatePropagation can't swallow it. Read the modifier via
+        // getModifierState when available (more reliable on macOS than
+        // e.altKey alone), and also sample on mousemove so motion keeps the
+        // state fresh even if a keyboard event is ever missed.
+        function _updateAltState(e) {
+            const held = !!(e.altKey || (e.getModifierState && e.getModifierState('Alt')));
+            if (held !== _obliqueAltHeld) {
+                _obliqueAltHeld = held;
+                _reconcileObliqueFlip();
+                if (typeof _mvRecomputeCrosshairTarget === 'function') {
+                    _mvRecomputeCrosshairTarget();
+                }
+            }
+        }
+        window.addEventListener('keydown',   _updateAltState, true);
+        window.addEventListener('keyup',     _updateAltState, true);
+        window.addEventListener('mousemove', _updateAltState, true);
+        // Alt can get "stuck" on blur (user tabs away while holding) — clear.
+        window.addEventListener('blur', () => {
+            if (_obliqueAltHeld) { _obliqueAltHeld = false; _reconcileObliqueFlip(); }
+        });
 
         // Attach slider listeners after each renderIsland. We wire `input` to
         // update live visuals (label + state), throttle heavy updates (updateView /
@@ -13250,6 +13702,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
                             { key: 'o', action: 'Reset to origin' },
                         ]
+                    },
+                    {
+                        title: 'Oblique',
+                        entries: [
+                            { key: 'Alt (hold)', action: 'Reveal oblique mode', hint: 'shows the crosshair lines on every pane and flips the colorbar to expose 90\u00b0 Lock / Save planes / Load planes' },
+                            { key: 'Alt+Drag line', action: 'Rotate slice plane', hint: 'with 90\u00b0 Lock on (default) all three panes co-rotate to stay orthogonal; off = free tilt on the hovered pane only' },
+                            { key: 'Scroll', action: 'Step along the pane normal', hint: 'in oblique mode the wheel moves through slices perpendicular to the hovered pane, even when the plane is tilted off-axis' },
+                            { key: 'Save planes', action: 'Save current plane orientation', hint: 'stored in ~/.arrayview/oblique_recent.json — reloaded by Load planes on this or another array' },
+                            { key: 'Load planes', action: 'Restore last saved orientation', hint: 'applies the most recent preset; works across arrays with compatible rank' },
+                        ]
                     }
                 ]
             },
@@ -14928,6 +15390,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 // wrap.innerHTML = '' above destroyed the ColorBar's DOM — re-attach it
                 wrap.appendChild(window._mvColorBar.wrap);
             }
+            // Wrap the colorbar in the oblique flip structure. This adds a
+            // back face with 90\u00b0 / Save / Load controls that's revealed by
+            // rotateX(180deg) when the user holds Alt. Only built in ortho
+            // multiview — not compareMv.
+            _buildObliqueFlipWrap(wrap, window._mvColorBar.wrap);
             // 3 views: each shows a different pair of dims, slicing through the third
             // Order: axial (x,y) left, coronal (x,z) middle, sagittal (y,z) right
             const defs = [
@@ -14976,9 +15443,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     ws: null, seq: 0, rendering: false, pending: false, lastW: 0, lastH: 0, lastImageData: null };
                 cv.addEventListener('wheel', (e) => {
                     e.preventDefault();
-                    indices[view.sliceDir] = e.deltaY > 0
-                        ? Math.max(0, indices[view.sliceDir] - 1)
-                        : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
+                    if (obliqueVecs) {
+                        // Oblique mode: scroll along the hovered pane normal so the
+                        // wheel gesture still feels like "step through slices" even
+                        // when the plane is rotated away from an axis.
+                        const i = mvViews.indexOf(view);
+                        if (i >= 0) {
+                            const vi = obliqueVecs[i];
+                            const nn = normalize3(vi.n);
+                            const step = e.deltaY > 0 ? -1 : 1;
+                            const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+                            for (let k = 0; k < 3; k++) {
+                                const d = mvDims[k];
+                                const nv = (shape[d] - 1) / 2 + diff[k] + step * nn[k];
+                                indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
+                            }
+                        }
+                    } else {
+                        indices[view.sliceDir] = e.deltaY > 0
+                            ? Math.max(0, indices[view.sliceDir] - 1)
+                            : Math.min(shape[view.sliceDir] - 1, indices[view.sliceDir] + 1);
+                    }
                     activeDim = view.sliceDir;
                     renderInfo();
                     mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
@@ -14994,8 +15479,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
                     const hitJ = mvCrossHairHit(view, px, py);
-                    if (hitJ >= 0) {
+                    // Rotate only on explicit modifier gesture to avoid accidental
+                    // oblique jumps when the user simply drags the crosshair.
+                    const wantsRotate = hitJ >= 0 && e.altKey;
+                    if (wantsRotate) {
+                        const enteringOblique = (obliqueVecs === null);
                         initObliqueVecs();
+                        if (enteringOblique) {
+                            showStatus('oblique ON \u00b7 Alt+drag line to rotate \u00b7 o reset', 2200);
+                        }
                         obliqueDrag = {
                             viewI: mvViews.indexOf(view), viewJ: hitJ,
                             prevX: px, prevY: py,
@@ -15006,6 +15498,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         mvViews.forEach(v => mvRender(v));
                     } else {
                         mvNavDragPrev = { x: px, y: py };
+                        if (obliqueVecs) {
+                            mvNavDragPrev.depthOff = _mvDepthOffsetForView(view);
+                        }
                         mvDraggingView = view;
                         handleMvPointer(view, e);
                     }
@@ -15015,9 +15510,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
-                    // Cursor feedback: grab when hovering over a crosshair line
+                    // Cursor feedback: only show the rotate cursor when the Alt
+                    // modifier is held, so plain hover over a line still reads as
+                    // "drag to scrub".
                     const hj = mvCrossHairHit(view, px, py);
-                    cv.style.cursor = hj >= 0 ? 'grab' : (obliqueDrag ? 'grabbing' : 'crosshair');
+                    const wantsRotate = hj >= 0 && e.altKey;
+                    cv.style.cursor = obliqueDrag ? 'grabbing' : (wantsRotate ? 'grab' : 'crosshair');
                     _lastMouseX = e.clientX; _lastMouseY = e.clientY;
                     fetchPixelInfo({
                         event: e,
@@ -15067,13 +15565,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
                     _copyPixelValue(sid, view.dimX, view.dimY, indices, ipx, ipy);
                 });
-                // Show crosshair lines only when hovering over any multiview pane.
-                // During drag the mouse can leave the pane boundary without the user
-                // intentionally "leaving" — suppress fade-out while dragging.
-                pane.addEventListener('mouseenter', () => { _mvSetCrosshairTarget(1); });
-                pane.addEventListener('mouseleave', () => {
-                    if (!mvDraggingView && !obliqueDrag) _mvSetCrosshairTarget(0);
-                });
+                // Crosshair is shown when hovering the actual canvas, during
+                // any drag, or while Alt is held (previews the rotation gesture).
+                // Listen on the canvas (not the pane) so empty space around the
+                // image when stretch-to-square is off doesn't trigger it.
+                cv.addEventListener('mouseenter', _mvRecomputeCrosshairTarget);
+                cv.addEventListener('mouseleave', _mvRecomputeCrosshairTarget);
                 return view;
             });
             // Pre-size panes using known array shape so all panes are equal from the start.
@@ -15104,6 +15601,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             flashAxesIndicators(); // Show axes indicators in multi-view mode
             if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
+            if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
             showStatus('3-plane view — press v to exit', 3000);
             // ── modeManager sync ──────────────────────────────────────────
             // Register multiview mode with modeManager so modeManager.modeName
@@ -15159,6 +15657,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mvCrosshairAlpha = 0; _mvCrosshairTarget = 0;
             if (_mvCrosshairAnim) { cancelAnimationFrame(_mvCrosshairAnim); _mvCrosshairAnim = null; }
             obliqueVecs = null; obliqueDrag = null;
+            // Reset any lingering flip-state so a mid-flip exit doesn't carry
+            // the back-hovered flag into the next entry.
+            _obliqueBackHovered = false;
+            _teardownObliqueFlipWrap();
             if (window._mvColorBar) {
                 window._mvColorBar.destroy();
                 window._mvColorBar = null;
@@ -15171,6 +15673,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 el.style.opacity = '0';
             });
             _reconcileUI();
+            if (typeof _reconcileObliqueFlip === 'function') _reconcileObliqueFlip();
             updateView();
             showStatus('3-plane view: off');
             // ── modeManager sync ──────────────────────────────────────────
@@ -17298,6 +17801,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             else if (isPlaying && qmriViews.every(v2 => !v2.rendering && !v2.pending)) playNext();
         }
 
+        /** Current depth offset of a pane (projection of the crosshair onto its normal).
+         *  Used to preserve depth while dragging the in-plane crosshair, so clicks
+         *  don't snap the pane back to the volume-center slice. */
+        function _mvDepthOffsetForView(view) {
+            if (!obliqueVecs) return 0;
+            const i = mvViews.indexOf(view);
+            if (i < 0) return 0;
+            const vi = obliqueVecs[i];
+            if (!vi || !Array.isArray(mvDims) || mvDims.length < 3) return 0;
+            const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+            return dot3(diff, vi.n);
+        }
+
         function handleMvPointer(view, e) {
             if (!view.lastW || !view.lastH) return;
             const rect = view.canvas.getBoundingClientRect();
@@ -17305,15 +17821,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const py = (e.clientY - rect.top) * view.lastH / rect.height;
             if (obliqueVecs) {
                 // Invert the projection to set indices from click position.
-                // The render is at volume center; offset from center → indices.
+                // Preserve the current depth along the view normal so click/drag
+                // only moves the in-plane crosshair (no snap back to center slice).
                 const i = mvViews.indexOf(view);
                 if (i < 0) return;
                 const vi = obliqueVecs[i];
+                const depthOff = (mvNavDragPrev && Number.isFinite(mvNavDragPrev.depthOff))
+                    ? mvNavDragPrev.depthOff
+                    : _mvDepthOffsetForView(view);
                 const off_h = px - view.lastW / 2;
                 const off_v = py - view.lastH / 2;
                 for (let k = 0; k < 3; k++) {
                     const d = mvDims[k];
-                    const nv = (shape[d] - 1) / 2 + off_h * vi.bh[k] + off_v * vi.bv[k];
+                    const nv = (shape[d] - 1) / 2 + depthOff * vi.n[k] + off_h * vi.bh[k] + off_v * vi.bv[k];
                     indices[d] = Math.max(0, Math.min(shape[d] - 1, Math.round(nv)));
                 }
                 renderInfo();
@@ -17670,6 +18190,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mvCrosshairTarget = target;
             if (!_mvCrosshairAnim) _mvCrosshairAnim = requestAnimationFrame(_mvAnimateCrosshairs);
         }
+        function _mvRecomputeCrosshairTarget() {
+            if (!multiViewActive) return;
+            // Hover check on the canvas itself, not the pane — the pane can
+            // include empty space around the image when stretch-to-square is off.
+            const hovered = !!document.querySelector('.mv-canvas:hover');
+            const show = hovered || mvDraggingView || obliqueDrag || _obliqueAltHeld;
+            _mvSetCrosshairTarget(show ? 1 : 0);
+        }
         function _cmvAnimateCrosshairs() {
             const speed = 0.12;
             const diff = _cmvCrosshairTarget - _cmvCrosshairAlpha;
@@ -17931,7 +18459,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         document.addEventListener('mousemove', (e) => {
             if (!multiViewActive && !cmvDraggingView) return;
             if (obliqueDrag) {
-                // Oblique rotation: rotate view j's plane about view i's normal
+                // Oblique rotation: rotate about view i's normal. With the ortho
+                // lock enabled we co-rotate the two non-anchor panes together and
+                // then re-orthogonalise so all three normals stay 90°. With the
+                // lock off we only rotate the single hovered pane — free tilt.
                 const v = mvViews[obliqueDrag.viewI];
                 if (!v || !v.lastW || !v.lastH) return;
                 const rect = v.canvas.getBoundingClientRect();
@@ -17941,10 +18472,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const dAngle = Math.atan2(py - cy, px - cx) - Math.atan2(prevY - cy, prevX - cx);
                 if (Math.abs(dAngle) > 0.001) {
                     const vi = obliqueVecs[obliqueDrag.viewI];
-                    const vj = obliqueVecs[viewJ];
-                    vj.bh = rodrigues(vj.bh, vi.n, dAngle);
-                    vj.bv = rodrigues(vj.bv, vi.n, dAngle);
-                    vj.n  = rodrigues(vj.n,  vi.n, dAngle);
+                    const axis = normalize3(vi.n);
+                    if (obliqueOrthoLock) {
+                        for (let idx = 0; idx < obliqueVecs.length; idx++) {
+                            if (idx === obliqueDrag.viewI) continue;
+                            const vv = obliqueVecs[idx];
+                            vv.bh = rodrigues(vv.bh, axis, dAngle);
+                            vv.bv = rodrigues(vv.bv, axis, dAngle);
+                            vv.n  = rodrigues(vv.n,  axis, dAngle);
+                        }
+                        enforceObliqueOrthogonality(obliqueDrag.viewI);
+                    } else {
+                        const vj = obliqueVecs[viewJ];
+                        vj.bh = rodrigues(vj.bh, axis, dAngle);
+                        vj.bv = rodrigues(vj.bv, axis, dAngle);
+                        vj.n  = rodrigues(vj.n,  axis, dAngle);
+                        normalizeObliquePlane(vj);
+                    }
                     obliqueDrag.prevX = px; obliqueDrag.prevY = py;
                     mvViews.forEach(v2 => mvDrawFrame(v2));
                     if (!obliqueDrag._renderTimer) {
@@ -17981,10 +18525,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             cmvDraggingView = null;
             // Sync crosshair visibility after drag ends: the pane mouseleave was
             // suppressed during drag, so restore the correct state now.
-            if (multiViewActive) {
-                const _overPane = document.querySelectorAll('.mv-pane:hover').length > 0;
-                _mvSetCrosshairTarget(_overPane ? 1 : 0);
-            }
+            if (multiViewActive) _mvRecomputeCrosshairTarget();
             if (compareMvActive) {
                 if (!document.querySelector('.qv-pane:hover')) _cmvSetCrosshairTarget(0, null);
             }
@@ -19402,7 +19943,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
             if (vp) vp.classList.toggle('canvas-bordered', canvasBorders);
-            document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-view').forEach(el => {
+            document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
         }
