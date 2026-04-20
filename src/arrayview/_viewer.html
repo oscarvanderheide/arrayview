@@ -3139,6 +3139,52 @@
 
         const sink = document.getElementById('keyboard-sink');
 
+        // Engagement tracking — when the viewer is embedded in a Jupyter
+        // notebook via iframe, the notebook's document has its own global
+        // keydown listeners. Those don't bubble across frame boundaries,
+        // but if the sink textarea isn't focused, keystrokes are delivered
+        // to whichever document holds focus — typically the outer Jupyter
+        // page. That makes viewer shortcuts (q, r, space, …) also trigger
+        // Jupyter cell commands. Fix: mirror mouse presence onto the sink's
+        // focus. Hovering the viewer body focuses the sink (keys flow here),
+        // leaving unfocuses it (keys flow back to Jupyter). In standalone
+        // mode the iframe is the whole page, so engagement tracks the body
+        // and behaviour is unchanged from the old click-to-focus model.
+        let _viewerEngaged = false;
+        function _isEditableActive() {
+            const a = document.activeElement;
+            if (!a || a === sink) return false;
+            const tag = a.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (a.isContentEditable) return true;
+            return false;
+        }
+        function _viewerEngage() {
+            if (_viewerEngaged) return;
+            _viewerEngaged = true;
+            if (_isEditableActive()) return;  // don't steal focus from a modal input
+            try { window.focus(); } catch (_) {}
+            try { sink.focus({ preventScroll: true }); } catch (_) { try { sink.focus(); } catch (_) {} }
+        }
+        function _viewerDisengage() {
+            if (!_viewerEngaged) return;
+            _viewerEngaged = false;
+            // Only release focus if the sink itself holds it — leave modal
+            // inputs (picker, palette, inline-prompt) undisturbed.
+            if (document.activeElement === sink) {
+                try { sink.blur(); } catch (_) {}
+            }
+        }
+        document.body.addEventListener('mouseenter', _viewerEngage);
+        document.body.addEventListener('mouseleave', _viewerDisengage);
+        // focusin/out keep the flag in sync when engagement changes via
+        // focus (tab key, programmatic focus) without a mouse event.
+        document.body.addEventListener('focusin', () => { _viewerEngaged = true; });
+        document.body.addEventListener('focusout', (e) => {
+            // relatedTarget null => focus left the document entirely.
+            if (!e.relatedTarget) _viewerEngaged = false;
+        });
+
         if (!sid) {
             document.getElementById('info').textContent = "No session ID provided in URL.";
         }
