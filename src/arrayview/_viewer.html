@@ -2415,7 +2415,6 @@
         let _autoFitPending = true; // auto-fit to viewport on first render
         let _lastZeroPress = 0; // timestamp of last '0' keypress for double-tap detection
         let _mvPrevZoom = 1.0;
-        let _mvPrevSquareStretch = false;
         let _cmvPrevSquareStretch = false;
         let _qmriPrevZoom = 1.0;  // saved on enterQmri, restored on exitQmri (mirrors _mvPrevZoom)
         let _comparePrevZoom = 1.0;  // saved on enterCompareMode, restored on exitCompareMode
@@ -14875,8 +14874,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mvOrientationHidden = false;
             document.getElementById('mini-map').classList.remove('visible');
             _mvPrevZoom = userZoom;
-            _mvPrevSquareStretch = squareStretch;
-            squareStretch = true;
             userZoom = 1.0;
             mvDims = dims;
             // Carry single-view flip state into per-dim flip map so rotations/flips are preserved
@@ -15156,7 +15153,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Collapse histogram if it was expanded in multiview
             primaryCb._expanded = false; _histData = null; _invalidateVolHistCache();
             userZoom = _mvPrevZoom;
-            squareStretch = _mvPrevSquareStretch;
             mvDims = [];
             mvViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } });
             mvViews = [];
