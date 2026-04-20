@@ -14051,7 +14051,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; } // kept inline: emits toast
                     if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; } // kept inline: emits toast
                     if (shape.length < 3) return;
-                    if (activeDim === dim_x) { /* already x */ }
+                    if (activeDim === dim_x) {
+                        // already x — flip its direction and repaint immediately
+                        flip_x = !flip_x;
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        renderInfo(); saveState();
+                        return;
+                    }
                     else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
                     else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
                     dim_z = -1;
@@ -14253,7 +14259,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; } // kept inline: emits toast
                     if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; } // kept inline: emits toast
                     if (shape.length < 3) return;
-                    if (activeDim === dim_y) { /* already y */ }
+                    if (activeDim === dim_y) {
+                        // already y — flip its direction and repaint immediately
+                        flip_y = !flip_y;
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        renderInfo(); saveState();
+                        return;
+                    }
                     else if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
                     else { [dim_y, current_slice_dim] = [current_slice_dim, dim_y]; }
                     dim_z = -1;
