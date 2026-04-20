@@ -1077,6 +1077,75 @@
         }
         #dynamic-island .island-add-row:hover { color: #ccc; border-color: rgba(255,255,255,0.2); }
         #dynamic-island .island-add-row[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+        /* Readout-crop plugin: range rows + action buttons + status line.
+           Matches dynamic-island monospace styling, uses the yellow accent. */
+        #dynamic-island .crop-rows { display: flex; flex-direction: column; gap: 4px; padding: 2px 2px 0; }
+        #dynamic-island .crop-row {
+            display: grid; grid-template-columns: 38px 1fr 54px;
+            align-items: center; gap: 8px; font-size: 10px; color: #999;
+        }
+        #dynamic-island .crop-row label { color: #888; text-transform: lowercase; letter-spacing: 0.04em; }
+        #dynamic-island .crop-row input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 14px; background: transparent;
+            cursor: pointer; outline: none; padding: 0; margin: 0; accent-color: #f0c674;
+        }
+        #dynamic-island .crop-row input[type="range"]::-webkit-slider-runnable-track {
+            height: 2px; background: rgba(255,255,255,0.12); border-radius: 1px; border: none;
+        }
+        #dynamic-island .crop-row input[type="range"]::-moz-range-track {
+            height: 2px; background: rgba(255,255,255,0.12); border-radius: 1px; border: none;
+        }
+        #dynamic-island .crop-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #f0c674; cursor: pointer; border: none; margin-top: -4px;
+        }
+        #dynamic-island .crop-row input[type="range"]::-moz-range-thumb {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #f0c674; cursor: pointer; border: none;
+        }
+        #dynamic-island .crop-row input[type="number"] {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+            color: #ddd; padding: 2px 4px; font-family: inherit; font-size: 10px;
+            -moz-appearance: textfield;
+        }
+        #dynamic-island .crop-row input[type="number"]::-webkit-outer-spin-button,
+        #dynamic-island .crop-row input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        #dynamic-island .crop-summary {
+            margin: 6px 2px 2px; font-size: 10px; color: #bbb;
+            font-variant-numeric: tabular-nums;
+        }
+        #dynamic-island .crop-actions {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 4px; padding: 4px 0 0;
+        }
+        #dynamic-island .crop-btn {
+            width: 100%; cursor: pointer; border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04); color: #ddd;
+            font-family: inherit; font-size: 10px; padding: 4px 6px;
+            text-align: center; transition: border-color 120ms ease, color 120ms ease;
+        }
+        #dynamic-island .crop-btn:hover:not([disabled]) { color: #fff; border-color: rgba(240,198,116,0.6); }
+        #dynamic-island .crop-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+        #dynamic-island .crop-btn.primary {
+            background: #f0c674; border-color: #f0c674; color: #111;
+        }
+        #dynamic-island .crop-btn.primary:hover:not([disabled]) { background: #f7d893; border-color: #f7d893; color: #111; }
+        #dynamic-island .crop-btn.on {
+            border-color: #f0c674; color: #f0c674;
+            box-shadow: inset 0 0 0 1px rgba(240,198,116,0.35);
+        }
+        #dynamic-island .crop-status {
+            min-height: 1.1em; margin: 6px 2px 0;
+            font-size: 10px; color: #888;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        #dynamic-island .crop-status-error { color: #f87171; }
+        #dynamic-island .crop-status-ok { color: #86efac; }
         /* Oblique colorbar flip — while the multiview colorbar is the front
            face, a back face with 90\u00b0 / Save / Load controls is revealed by
            rotateX(180deg) when the user holds Alt (or hovers the back).
@@ -1697,6 +1766,7 @@
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
+                <canvas id="readout-crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="roi-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <div id="roi-hover-tooltip" style="display:none"></div>
                 <canvas id="viewer-fade"></canvas>
@@ -2332,6 +2402,31 @@
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
+
+        /* ── Readout-Crop Plugin ───────────────────────────────────────
+         * Crop plugin lets the user pick an x-range along a "readout"
+         * dimension and confirm it for downstream pipelines. It's an
+         * add-on plugin: active in single-view AND ortho-multiview. The
+         * yellow polygon highlight renders on top of the main canvas
+         * (single view) and each mv pane (axis-aligned or oblique).
+         * State lives server-side keyed by sid; the client caches the
+         * current range, overlay visibility and registered status.
+         */
+        let _cropActive = false;
+        const _crop = {
+            registered: false,
+            registering: false,
+            readoutDim: -1,      // defaults to last dim at register time
+            nx: 0,
+            xStart: 0,
+            xEnd: 1,
+            overlayVisible: true,
+            confirmed: false,
+            savedRecentPath: null,
+            loadedRecent: false,
+            statusMsg: '',
+            statusKind: '',
+        };
 
         const _ROI_SHAPE_ICONS = {
             rect:      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
@@ -3340,6 +3435,7 @@
             positionEggs();
             updateMiniMap();
             if (_fullscreenActive) _positionFullscreenInfo();
+            if (typeof _cropRenderMainOverlay === 'function') _cropRenderMainOverlay();
         }
 
         /** Scale all canvases with GSAP-driven zoom animation for smooth immersive transitions. */
@@ -8749,6 +8845,402 @@
         }
         window._togglePluginSection = _togglePluginSection;
 
+        /* ── Readout-Crop helpers ─────────────────────────────────
+         * Pure geometry + overlay rendering live here so they can be
+         * called from scaleCanvas / mvDrawFrame without forward refs.
+         */
+        const readoutCropOverlayCanvas = document.getElementById('readout-crop-overlay');
+        const readoutCropOverlayCtx = readoutCropOverlayCanvas ? readoutCropOverlayCanvas.getContext('2d') : null;
+
+        function _cropClamp(xs, xe, nx) {
+            nx = Math.max(1, Number(nx) || 1);
+            let s = Number.isFinite(xs) ? Math.round(xs) : Math.floor(nx / 4);
+            let e = Number.isFinite(xe) ? Math.round(xe) : Math.floor((3 * nx) / 4);
+            s = Math.max(0, Math.min(nx - 1, s));
+            e = Math.max(1, Math.min(nx, e));
+            if (e <= s) e = Math.min(nx, s + 1);
+            if (s >= e) s = Math.max(0, e - 1);
+            return [s, e];
+        }
+
+        function _cropDefaultReadoutDim() {
+            return Array.isArray(shape) && shape.length ? shape.length - 1 : -1;
+        }
+
+        function _cropVizDims() {
+            if (!Array.isArray(shape) || !shape.length) return [-1, -1];
+            const rd = _crop.readoutDim;
+            const non = [];
+            for (let i = 0; i < shape.length; i++) if (i !== rd) non.push(i);
+            return [non.length > 0 ? non[0] : -1, non.length > 1 ? non[1] : -1];
+        }
+
+        function _cropHideMainOverlay() {
+            if (!readoutCropOverlayCanvas || !readoutCropOverlayCtx) return;
+            readoutCropOverlayCanvas.style.display = 'none';
+            readoutCropOverlayCtx.clearRect(0, 0, readoutCropOverlayCanvas.width, readoutCropOverlayCanvas.height);
+        }
+
+        function _cropGetMvOverlay(v) {
+            if (!v) return null;
+            if (v._cropOverlay) return v._cropOverlay;
+            const parent = v.canvas ? v.canvas.parentElement : null;
+            if (!parent) return null;
+            const ov = document.createElement('canvas');
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;display:none;z-index:1;';
+            parent.appendChild(ov);
+            v._cropOverlay = ov;
+            return ov;
+        }
+
+        function _cropHideMvOverlay(v) {
+            if (!v || !v._cropOverlay) return;
+            const ov = v._cropOverlay;
+            const ctx2 = ov.getContext('2d');
+            if (ctx2) ctx2.clearRect(0, 0, ov.width, ov.height);
+            ov.style.display = 'none';
+        }
+
+        function _cropClipPolyHalfPlane(poly, evalFn) {
+            if (!Array.isArray(poly) || !poly.length) return [];
+            const out = [];
+            for (let i = 0; i < poly.length; i++) {
+                const a = poly[i];
+                const b = poly[(i + 1) % poly.length];
+                const fa = evalFn(a);
+                const fb = evalFn(b);
+                const inA = fa >= 0;
+                const inB = fb >= 0;
+                if (inA && inB) {
+                    out.push(b);
+                } else if (inA && !inB) {
+                    const den = fa - fb;
+                    const t = Math.abs(den) < 1e-12 ? 0 : (fa / den);
+                    out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+                } else if (!inA && inB) {
+                    const den = fa - fb;
+                    const t = Math.abs(den) < 1e-12 ? 0 : (fa / den);
+                    out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+                    out.push(b);
+                }
+            }
+            return out;
+        }
+
+        function _cropRegionPolygon(imgW, imgH, affine, xStart, xEnd) {
+            if (!affine || !Number.isFinite(imgW) || !Number.isFinite(imgH) || imgW <= 0 || imgH <= 0) return null;
+            let poly = [[0, 0], [imgW, 0], [imgW, imgH], [0, imgH]];
+            poly = _cropClipPolyHalfPlane(poly, (p) => (affine.a * p[0] + affine.b * p[1] + affine.c) - xStart);
+            if (!poly.length) return null;
+            poly = _cropClipPolyHalfPlane(poly, (p) => xEnd - (affine.a * p[0] + affine.b * p[1] + affine.c));
+            if (!poly.length) return null;
+            return poly;
+        }
+
+        function _cropDrawPolygonOnCanvas(targetCanvas, refCanvas, poly) {
+            if (!targetCanvas || !refCanvas || !Array.isArray(poly) || poly.length < 3) {
+                if (targetCanvas) targetCanvas.style.display = 'none';
+                return;
+            }
+            const imgW = refCanvas.width;
+            const imgH = refCanvas.height;
+            if (!imgW || !imgH) { targetCanvas.style.display = 'none'; return; }
+            const dispW = parseInt(refCanvas.style.width) || imgW;
+            const dispH = parseInt(refCanvas.style.height) || imgH;
+            targetCanvas.style.width = refCanvas.style.width || `${dispW}px`;
+            targetCanvas.style.height = refCanvas.style.height || `${dispH}px`;
+            if (targetCanvas.width !== dispW || targetCanvas.height !== dispH) {
+                targetCanvas.width = dispW;
+                targetCanvas.height = dispH;
+            }
+            const ctx2 = targetCanvas.getContext('2d');
+            if (!ctx2) { targetCanvas.style.display = 'none'; return; }
+            ctx2.clearRect(0, 0, dispW, dispH);
+            const sx = dispW / imgW;
+            const sy = dispH / imgH;
+            ctx2.beginPath();
+            ctx2.moveTo(poly[0][0] * sx, poly[0][1] * sy);
+            for (let i = 1; i < poly.length; i++) ctx2.lineTo(poly[i][0] * sx, poly[i][1] * sy);
+            ctx2.closePath();
+            ctx2.fillStyle = 'rgba(245,200,66,0.18)';
+            ctx2.strokeStyle = 'rgba(245,200,66,0.82)';
+            ctx2.lineWidth = 1.25;
+            ctx2.fill();
+            ctx2.stroke();
+            targetCanvas.style.display = '';
+        }
+
+        function _cropSingleViewAffine() {
+            const rd = _crop.readoutDim;
+            if (rd < 0 || rd >= shape.length) return null;
+            if (rd === dim_x) {
+                if (flip_x) return { a: -1, b: 0, c: shape[rd] - 1 };
+                return { a: 1, b: 0, c: 0 };
+            }
+            if (rd === dim_y) {
+                if (flip_y) return { a: 0, b: -1, c: shape[rd] - 1 };
+                return { a: 0, b: 1, c: 0 };
+            }
+            return null;
+        }
+
+        function _cropMvAffine(v) {
+            if (!v || !v.lastW || !v.lastH) return null;
+            const rd = _crop.readoutDim;
+            if (rd < 0 || rd >= shape.length) return null;
+            if (obliqueVecs) {
+                const i = mvViews.indexOf(v);
+                if (i < 0) return null;
+                const vi = obliqueVecs[i];
+                if (!vi || !Array.isArray(mvDims)) return null;
+                const k = mvDims.indexOf(rd);
+                if (k < 0) return null;
+                const diff = mvDims.map((d) => indices[d] - (shape[d] - 1) / 2);
+                const depthOff = dot3(diff, vi.n);
+                const centerRd = (shape[rd] - 1) / 2 + depthOff * vi.n[k];
+                return {
+                    a: vi.bh[k],
+                    b: vi.bv[k],
+                    c: centerRd - (v.lastW / 2) * vi.bh[k] - (v.lastH / 2) * vi.bv[k],
+                };
+            }
+            if (rd === v.dimX) {
+                const fx = flipDims[v.dimX] || false;
+                if (fx) return { a: -1, b: 0, c: shape[rd] - 1 };
+                return { a: 1, b: 0, c: 0 };
+            }
+            if (rd === v.dimY) {
+                const fy = flipDims[v.dimY] || false;
+                if (fy) return { a: 0, b: -1, c: shape[rd] - 1 };
+                return { a: 0, b: 1, c: 0 };
+            }
+            return null;
+        }
+
+        function _cropRenderMainOverlay() {
+            if (!readoutCropOverlayCanvas) return;
+            if (!_cropActive || !_crop.registered || !_crop.overlayVisible) {
+                _cropHideMainOverlay();
+                return;
+            }
+            // Main canvas only: disabled in multiview / compare / qmri etc.
+            if (multiViewActive || compareActive || qmriActive || compareMvActive || compareQmriActive) {
+                _cropHideMainOverlay();
+                return;
+            }
+            if (!_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) {
+                _cropHideMainOverlay();
+                return;
+            }
+            const affine = _cropSingleViewAffine();
+            if (!affine || !canvas.width || !canvas.height) {
+                _cropHideMainOverlay();
+                return;
+            }
+            const poly = _cropRegionPolygon(canvas.width, canvas.height, affine, _crop.xStart, _crop.xEnd);
+            _cropDrawPolygonOnCanvas(readoutCropOverlayCanvas, canvas, poly);
+        }
+
+        function _cropRenderMvOverlay(v) {
+            const ov = _cropGetMvOverlay(v);
+            if (!ov) return;
+            if (!_cropActive || !_crop.registered || !_crop.overlayVisible) {
+                _cropHideMvOverlay(v);
+                return;
+            }
+            if (!multiViewActive || !_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) {
+                _cropHideMvOverlay(v);
+                return;
+            }
+            const affine = _cropMvAffine(v);
+            if (!affine) { _cropHideMvOverlay(v); return; }
+            const poly = _cropRegionPolygon(v.lastW, v.lastH, affine, _crop.xStart, _crop.xEnd);
+            _cropDrawPolygonOnCanvas(ov, v.canvas, poly);
+        }
+
+        function _cropRenderOverlayAll() {
+            if (!_cropActive || !_crop.registered || !_crop.overlayVisible) {
+                _cropHideMainOverlay();
+                if (Array.isArray(mvViews)) mvViews.forEach(v => _cropHideMvOverlay(v));
+                return;
+            }
+            _cropRenderMainOverlay();
+            if (multiViewActive) mvViews.forEach(v => _cropRenderMvOverlay(v));
+            else if (Array.isArray(mvViews)) mvViews.forEach(v => _cropHideMvOverlay(v));
+        }
+
+        function _cropSetStatus(msg, kind = '') {
+            _crop.statusMsg = msg || '';
+            _crop.statusKind = kind || '';
+            if (typeof renderIsland === 'function') renderIsland();
+        }
+
+        function _cropApplyLocalRange(xs, xe) {
+            const [s, e] = _cropClamp(xs, xe, _crop.nx);
+            _crop.xStart = s;
+            _crop.xEnd = e;
+            _cropRenderOverlayAll();
+            return [s, e];
+        }
+
+        async function _cropRegister() {
+            if (!sid || !Array.isArray(shape) || !shape.length) return false;
+            if (_crop.registering) return false;
+            _crop.registering = true;
+            const rd = _cropDefaultReadoutDim();
+            _crop.readoutDim = rd;
+            _crop.nx = Math.max(1, Number(shape[rd]) || 1);
+            const [vzDim, vyDim] = _cropVizDims();
+            const payload = {
+                sid,
+                readout_dim: rd,
+                x_start: Math.floor(_crop.nx / 4),
+                x_end: Math.floor((3 * _crop.nx) / 4),
+                viz_z: vzDim >= 0 ? indices[vzDim] : -1,
+                viz_y: vyDim >= 0 ? indices[vyDim] : -1,
+            };
+            try {
+                const r = await proxyFetch('/readout_crop/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!r.ok) {
+                    _crop.registered = false;
+                    _crop.registering = false;
+                    _cropSetStatus(`register failed (HTTP ${r.status})`, 'error');
+                    return false;
+                }
+                const st = await r.json();
+                _crop.registered = true;
+                _crop.loadedRecent = !!st.loaded_recent;
+                _crop.confirmed = false;
+                _crop.savedRecentPath = null;
+                _cropApplyLocalRange(st.x_start, st.x_end);
+                _cropSetStatus(st.loaded_recent ? 'loaded recent crop' : 'set crop and confirm', st.loaded_recent ? 'ok' : '');
+            } catch (err) {
+                _crop.registered = false;
+                _cropSetStatus(`register failed: ${err && err.message ? err.message : err}`, 'error');
+            }
+            _crop.registering = false;
+            return _crop.registered;
+        }
+
+        async function _cropPushUpdate() {
+            if (!_cropActive || !_crop.registered || !sid) return;
+            const [vzDim, vyDim] = _cropVizDims();
+            const payload = {
+                sid,
+                x_start: _crop.xStart,
+                x_end: _crop.xEnd,
+                viz_z: vzDim >= 0 ? indices[vzDim] : -1,
+                viz_y: vyDim >= 0 ? indices[vyDim] : -1,
+            };
+            try {
+                const r = await proxyFetch('/readout_crop/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!r.ok) return;
+                const st = await r.json();
+                _crop.xStart = Number(st.x_start);
+                _crop.xEnd = Number(st.x_end);
+                _cropRenderOverlayAll();
+            } catch (_err) { /* transient */ }
+        }
+
+        async function _cropConfirm(saveRecent) {
+            if (!_cropActive || !_crop.registered || !sid) return;
+            try {
+                const r = await proxyFetch('/readout_crop/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid, save_recent: !!saveRecent }),
+                });
+                if (!r.ok) { _cropSetStatus(`confirm failed (HTTP ${r.status})`, 'error'); return; }
+                const st = await r.json();
+                _crop.confirmed = !!st.confirmed;
+                _crop.savedRecentPath = st.saved_recent_path || null;
+                const ok = st.saved_recent || !saveRecent;
+                const msg = saveRecent
+                    ? (st.saved_recent ? 'saved \u2713' : `confirm ok (save failed${st.save_error ? `: ${st.save_error}` : ''})`)
+                    : 'crop confirmed';
+                _cropSetStatus(msg, ok ? 'ok' : 'error');
+            } catch (err) {
+                _cropSetStatus(`confirm failed: ${err && err.message ? err.message : err}`, 'error');
+            }
+        }
+
+        async function _cropLoadRecent() {
+            if (!_cropActive || !_crop.registered || !sid) return;
+            try {
+                const r = await proxyFetch('/readout_crop/load_recent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid }),
+                });
+                if (!r.ok) { _cropSetStatus('no recent crop found', 'error'); return; }
+                const st = await r.json();
+                _cropApplyLocalRange(st.x_start, st.x_end);
+                _crop.loadedRecent = true;
+                _cropSetStatus('loaded recent crop', 'ok');
+                await _cropPushUpdate();
+            } catch (err) {
+                _cropSetStatus(`load recent failed: ${err && err.message ? err.message : err}`, 'error');
+            }
+        }
+
+        async function _cropClearServer() {
+            if (!sid) return;
+            try {
+                await proxyFetch('/readout_crop/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid }),
+                });
+            } catch (_err) { /* ignore */ }
+        }
+
+        function _cropSetOverlayVisible(v) {
+            _crop.overlayVisible = !!v;
+            _cropRenderOverlayAll();
+            if (typeof renderIsland === 'function') renderIsland();
+        }
+
+        // Island event handlers (DOM entry points).
+        window._cropOnStartInput = function(val) {
+            _cropApplyLocalRange(parseInt(val, 10), _crop.xEnd);
+            const startNum = document.getElementById('crop-start-num');
+            const startRange = document.getElementById('crop-start-range');
+            const summary = document.getElementById('crop-summary');
+            if (startNum) startNum.value = String(_crop.xStart);
+            if (startRange) startRange.value = String(_crop.xStart);
+            if (summary) summary.textContent = _cropSummaryText();
+        };
+        window._cropOnEndInput = function(val) {
+            _cropApplyLocalRange(_crop.xStart, parseInt(val, 10));
+            const endNum = document.getElementById('crop-end-num');
+            const endRange = document.getElementById('crop-end-range');
+            const summary = document.getElementById('crop-summary');
+            if (endNum) endNum.value = String(_crop.xEnd);
+            if (endRange) endRange.value = String(_crop.xEnd);
+            if (summary) summary.textContent = _cropSummaryText();
+        };
+        window._cropOnRangeCommit = function() { _cropPushUpdate(); };
+        window._cropConfirmBtn = async function(saveRecent) {
+            await _cropPushUpdate();
+            await _cropConfirm(!!saveRecent);
+        };
+        window._cropLoadRecentBtn = function() { _cropLoadRecent(); };
+        window._cropOverlayToggle = function() { _cropSetOverlayVisible(!_crop.overlayVisible); };
+
+        function _cropSummaryText() {
+            const keep = Math.max(1, _crop.xEnd - _crop.xStart);
+            const pct = (100 * keep / Math.max(1, _crop.nx)).toFixed(1);
+            return `X[${_crop.xStart}:${_crop.xEnd}] \u00B7 keep ${keep}/${_crop.nx} (${pct}%)`;
+        }
+
         function renderIsland() {
             const el = document.getElementById('dynamic-island');
             if (!el) return;
@@ -8761,6 +9253,7 @@
             if (_segMode || _segActivating) activePlugins.push('seg');
             if (_shelfSelection.has('overlay')) activePlugins.push('overlay');
             if (_shelfSelection.has('vectorfield') && hasVectorfield) activePlugins.push('vectorfield');
+            if (_cropActive) activePlugins.push('crop');
             const activeKey = activePlugins.join('+') || null;
 
             if (activeKey !== _islandLastActive) {
@@ -8879,6 +9372,39 @@
                 body += `<span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span>`;
                 body += `</div>`;
                 html += _pluginSectionOpen('vectorfield', 'Vector field', body);
+            }
+
+            // Readout-crop section — start/end range controls + actions
+            if (activePlugins.includes('crop')) {
+                const ready = _crop.registered;
+                const nx = Math.max(1, _crop.nx);
+                const xs = _crop.xStart, xe = _crop.xEnd;
+                const disabled = ready ? '' : ' disabled';
+                const overlayOn = !!_crop.overlayVisible;
+                const statusKind = _crop.statusKind ? ` crop-status-${_crop.statusKind}` : '';
+                const statusMsg = _crop.statusMsg || (ready ? '' : 'initialising\u2026');
+                let body = '';
+                body += `<div class="crop-rows">`;
+                body += `<div class="crop-row">`;
+                body += `<label for="crop-start-range">start</label>`;
+                body += `<input id="crop-start-range" type="range" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()">`;
+                body += `<input id="crop-start-num" type="number" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()">`;
+                body += `</div>`;
+                body += `<div class="crop-row">`;
+                body += `<label for="crop-end-range">end</label>`;
+                body += `<input id="crop-end-range" type="range" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()">`;
+                body += `<input id="crop-end-num" type="number" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()">`;
+                body += `</div>`;
+                body += `</div>`;
+                body += `<div id="crop-summary" class="crop-summary">${_cropSummaryText()}</div>`;
+                body += `<div class="crop-actions">`;
+                body += `<button class="crop-btn primary" onclick="_cropConfirmBtn(false)"${disabled}>confirm</button>`;
+                body += `<button class="crop-btn" onclick="_cropConfirmBtn(true)"${disabled}>save &amp; confirm</button>`;
+                body += `<button class="crop-btn" onclick="_cropLoadRecentBtn()"${disabled}>load recent</button>`;
+                body += `<button class="crop-btn${overlayOn ? ' on' : ''}" onclick="_cropOverlayToggle()"${disabled}>${overlayOn ? 'hide overlay' : 'show overlay'}</button>`;
+                body += `</div>`;
+                body += `<div id="crop-status" class="crop-status${statusKind}">${statusMsg}</div>`;
+                html += _pluginSectionOpen('crop', 'Readout crop', body);
             }
 
             el.innerHTML = html;
@@ -10557,7 +11083,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'q',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
-                excludes: ['overlay', 'vectorfield'],
+                excludes: ['overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'segmentation',
@@ -10567,7 +11093,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 's',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive),
                 isActive: () => _segMode,
-                excludes: ['roi', 'overlay', 'vectorfield'],
+                excludes: ['roi', 'overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'roi',
@@ -10577,7 +11103,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'r',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
-                excludes: ['segmentation', 'overlay', 'vectorfield'],
+                excludes: ['segmentation', 'overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'overlay',
@@ -10587,7 +11113,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'o',
                 isEnabled: () => !compareActive && !multiViewActive,
                 isActive: () => _shelfSelection.has('overlay'),
-                excludes: ['qmri', 'segmentation', 'roi', 'vectorfield'],
+                excludes: ['qmri', 'segmentation', 'roi', 'vectorfield', 'crop'],
             },
             {
                 id: 'vectorfield',
@@ -10597,7 +11123,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 keyHint: 'v',
                 isEnabled: () => hasVectorfield,
                 isActive: () => _shelfSelection.has('vectorfield'),
-                excludes: ['qmri', 'segmentation', 'roi', 'overlay'],
+                excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'crop'],
+            },
+            {
+                id: 'crop',
+                label: 'Readout Crop',
+                desc: 'pick an x-range on a readout dim for downstream pipelines',
+                glyph: 'CR',
+                keyHint: 'c',
+                // Crop works in single view and ortho-multiview (the overlay
+                // draws on each oblique/axis-aligned pane). It's incompatible
+                // with qMRI / ROI / segmentation UX which repurpose the canvas.
+                isEnabled: () => !compareActive && !compareQmriActive && !compareMvActive,
+                isActive: () => _cropActive,
+                excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
         ];
         const PLUGIN_HELP = {
@@ -10606,6 +11145,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             roi:          'plugin-roi',
             overlay:      'plugin-overlay',
             vectorfield:  'plugin-vectorfield',
+            crop:         'plugin-crop',
         };
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
@@ -12543,6 +13083,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
+            'crop.cycle': {
+                title: 'Toggle readout crop plugin',
+                when: [],
+                run: (ctx, e) => {
+                    if (compareActive || compareQmriActive || compareMvActive) {
+                        showStatus('readout crop: not available in compare mode'); return;
+                    }
+                    if (_cropActive) {
+                        _cropActive = false;
+                        _crop.registered = false;
+                        _cropRenderOverlayAll();
+                        _cropClearServer();
+                        showStatus('readout crop: off');
+                        if (typeof renderIsland === 'function') renderIsland();
+                        saveState();
+                        return;
+                    }
+                    _cropActive = true;
+                    _crop.overlayVisible = true;
+                    if (typeof renderIsland === 'function') renderIsland();
+                    showStatus('readout crop: on');
+                    // Register async; overlay shows once state lands.
+                    _cropRegister().then(() => {
+                        _cropRenderOverlayAll();
+                        if (typeof renderIsland === 'function') renderIsland();
+                    });
+                    saveState();
+                },
+            },
             'vfield.cycle': {
                 title: 'Toggle vector field',
                 when: [],
@@ -13472,6 +14041,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
                         if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
                         if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
+                        if (typeof _cropActive !== 'undefined' && _cropActive) { commands['crop.cycle'].run(ctx, e); }
                     });
                 },
             },
@@ -13596,6 +14166,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     || (typeof compareQmriActive !== 'undefined' && compareQmriActive)
                     || rectRoiMode
                     || (typeof _segMode !== 'undefined' && !!_segMode)
+                    || (typeof _cropActive !== 'undefined' && !!_cropActive)
                     || (typeof _shelfSelection !== 'undefined' && (_shelfSelection.has('overlay') || _shelfSelection.has('vectorfield')))
                 ),
                 multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive),
@@ -13884,6 +14455,45 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     },
                 ]
             },
+            {
+                id: 'plugin-crop', label: 'Crop',
+                desc: 'Readout-crop mode — pick a start/end index along one dimension so downstream pipelines (e.g. reconstruction scripts) can trim the array. A yellow polygon highlights the kept region on every visible slice.',
+                columns: 1,
+                sections: [
+                    {
+                        title: 'Enter / exit',
+                        entries: [
+                            { key: '/', action: 'Open plugin shelf', hint: 'press / then c — or click the Readout Crop tile' },
+                            { key: 'Esc', action: 'Exit the plugin', hint: 'closes the shelf and deactivates crop' },
+                        ]
+                    },
+                    {
+                        title: 'Range controls',
+                        entries: [
+                            { key: 'start slider', action: 'Lower bound of the kept range (inclusive)' },
+                            { key: 'end slider', action: 'Upper bound of the kept range (exclusive)' },
+                            { key: 'start / end number', action: 'Type an exact index', hint: 'commits on blur / Enter; updates server state' },
+                        ]
+                    },
+                    {
+                        title: 'Actions',
+                        entries: [
+                            { key: 'confirm', action: 'Mark the crop as confirmed on the server (no file write)' },
+                            { key: 'save & confirm', action: 'Persist to ~/.arrayview/readout_crop_recent.json and confirm' },
+                            { key: 'load recent', action: 'Re-apply the last saved crop on this session' },
+                            { key: 'show / hide overlay', action: 'Toggle the yellow polygon without deactivating the plugin' },
+                        ]
+                    },
+                    {
+                        title: 'Views',
+                        entries: [
+                            { key: 'single view', action: 'Overlay on main canvas when the readout dim maps to x or y' },
+                            { key: 'ortho multi-view', action: 'Overlay on each pane (axis-aligned or oblique)' },
+                            { key: 'compare / qMRI', action: 'Crop is disabled — plugin shelf greys out the tile' },
+                        ]
+                    },
+                ]
+            },
         ];
 
         function buildHelpOverlay() {
@@ -14126,15 +14736,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wantRoi = _shelfSelection.has('roi');
             const wantOverlay = _shelfSelection.has('overlay');
             const wantVfield = _shelfSelection.has('vectorfield');
+            const wantCrop = _shelfSelection.has('crop');
             const haveQmri = qmriActive || compareQmriActive;
             const haveSeg = typeof _segMode !== 'undefined' && !!_segMode;
             const haveRoi = !!rectRoiMode;
             const haveOverlay = _overlaySids.length > 0 && _overlayVisibility !== 'none';
             const haveVfield = hasVectorfield && vfieldVisible;
+            const haveCrop = !!_cropActive;
 
             // Nothing changed
             if (wantQmri === haveQmri && wantSeg === haveSeg && wantRoi === haveRoi
-                && wantOverlay === haveOverlay && wantVfield === haveVfield) return;
+                && wantOverlay === haveOverlay && wantVfield === haveVfield
+                && wantCrop === haveCrop) return;
 
             const ctx = makeContext(null);
             crossfade(() => {
@@ -14144,6 +14757,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (haveQmri && !wantQmri) commands['qmri.cycle'].run(ctx, null);
                 if (haveOverlay && !wantOverlay) commands['overlay.cycle'].run(ctx, null);
                 if (haveVfield && !wantVfield) commands['vfield.cycle'].run(ctx, null);
+                if (haveCrop && !wantCrop) commands['crop.cycle'].run(ctx, null);
                 // Enter plugins that are newly selected (order: base first, then overlays)
                 if (!haveQmri && wantQmri) {
                     _qmriVisibleMaps = null;
@@ -14161,6 +14775,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 if (!haveVfield && wantVfield && commands['vfield.cycle']) {
                     commands['vfield.cycle'].run(ctx, null);
+                }
+                if (!haveCrop && wantCrop && commands['crop.cycle']) {
+                    commands['crop.cycle'].run(ctx, null);
                 }
             });
         }
@@ -18305,6 +18922,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 } // end if (_chAlpha > 0.005)
             }
             drawMvOrientation();
+            if (typeof _cropRenderMvOverlay === 'function') _cropRenderMvOverlay(v);
         }
 
         function mvOnMessage(v, event) {
