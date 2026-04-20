@@ -16351,7 +16351,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         slicer: new FreeSliceSlicer(),
                         container: document.getElementById('canvas-wrap') || document.body,
                     });
-                    const _existingCanvas = document.getElementById('canvas');
+                    const _existingCanvas = document.getElementById('viewer');
                     if (_existingCanvas) {
                         _nmView.canvas = _existingCanvas;
                         _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
@@ -16816,7 +16816,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     slicer: new FreeSliceSlicer(),
                     container: document.getElementById('canvas-wrap') || document.body,
                 });
-                const _existingCanvas = document.getElementById('canvas');
+                const _existingCanvas = document.getElementById('viewer');
                 if (_existingCanvas) {
                     _nmView.canvas = _existingCanvas;
                     _nmView.wrapper = _existingCanvas.closest('#canvas-wrap') || _existingCanvas.parentElement;
