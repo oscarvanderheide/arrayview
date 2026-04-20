@@ -19987,12 +19987,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             if (multiViewActive) return;
+            // Prefer a hovered, non-display dim over the committed scroll dim;
+            // promote it to current_slice_dim so the dim persists after unhover.
+            let scrollDim = current_slice_dim;
+            if (hoveredDim >= 0
+                && hoveredDim !== dim_x
+                && hoveredDim !== dim_y
+                && hoveredDim !== dim_z) {
+                scrollDim = hoveredDim;
+                if (current_slice_dim !== scrollDim) current_slice_dim = scrollDim;
+            }
             if (e.deltaY > 0) {
                 lastDirection = -1;
-                indices[current_slice_dim] = Math.max(0, indices[current_slice_dim] - 1);
+                indices[scrollDim] = Math.max(0, indices[scrollDim] - 1);
             } else {
                 lastDirection = 1;
-                indices[current_slice_dim] = Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + 1);
+                indices[scrollDim] = Math.min(shape[scrollDim] - 1, indices[scrollDim] + 1);
             }
             updateView();
         }
