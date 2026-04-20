@@ -1636,6 +1636,67 @@
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--fg); }
 
+        /* ── Colormap hold-c preview menu ───────────────────────── */
+        #colormap-hold-menu {
+            display: none;
+            position: fixed;
+            left: 50%; bottom: 40px;
+            transform: translateX(-50%) scale(0.98);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 10px 12px 8px;
+            z-index: 45;
+            opacity: 0;
+            transition: opacity 0.12s ease, transform 0.12s ease;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: var(--text);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            max-width: min(640px, 92vw);
+            pointer-events: none;
+        }
+        #colormap-hold-menu.visible {
+            display: block;
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+        #colormap-hold-menu .cmh-title {
+            font-size: 10px; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.08em;
+            margin: 0 2px 8px; display: flex; gap: 10px; align-items: baseline;
+        }
+        #colormap-hold-menu .cmh-title .cmh-hint { color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
+        #colormap-hold-menu .cmh-grid {
+            display: grid;
+            gap: 4px;
+        }
+        #colormap-hold-menu .cmh-cell {
+            display: flex; flex-direction: column; align-items: stretch; gap: 3px;
+            padding: 4px; border-radius: 6px;
+            border: 1.5px solid transparent;
+            background: transparent;
+        }
+        #colormap-hold-menu .cmh-cell canvas {
+            display: block; width: 100%; height: 12px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        #colormap-hold-menu .cmh-cell span {
+            font-size: 10px; color: var(--muted);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            text-align: center;
+        }
+        #colormap-hold-menu .cmh-cell.active {
+            border-color: var(--active-dim);
+            background: rgba(245,200,66,0.10);
+        }
+        #colormap-hold-menu .cmh-cell.active span {
+            color: var(--active-dim);
+        }
+        #colormap-hold-menu .cmh-cell.active canvas {
+            border-color: var(--active-dim);
+        }
+
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
             position:fixed; left:50%; transform:translateX(-50%);
@@ -2045,6 +2106,7 @@
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
     <div id="colormap-strip-right"></div>
+    <div id="colormap-hold-menu" aria-hidden="true"></div>
     <div id="compare-mode-strip"></div>
     <div id="compare-center-island"></div>
     <div id="inline-prompt">
@@ -12896,6 +12958,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     toggleZenMode();
                 },
             },
+            'colormap.holdOrTap': {
+                title: 'Cycle colormap (tap) / open preview menu (hold)',
+                when: ['!rgbMode'],
+                run: (ctx, e) => {
+                    // On auto-repeat (key held down, OS repeats keydown): open
+                    // the hold-menu immediately if eligible, or fall through
+                    // to cycleNext otherwise. First-press (non-repeat) is
+                    // handled by the sink keydown listener below, which
+                    // schedules the _CMAP_HOLD_MS timer.
+                    if (e && e.repeat) {
+                        if (!_cmapHoldActive && _cmapHoldEligible()) {
+                            _cmapHoldOpen();
+                        }
+                        return;
+                    }
+                    // Programmatic invocation (e.g. command palette) has no
+                    // event: fall back to the legacy cycle behaviour.
+                    if (!e) { commands['colormap.cycleNext'].run(ctx, e); return; }
+                    // First-press: the sink keydown handler below will arm
+                    // the hold timer and remember the tap for keyup. Nothing
+                    // to do here — returning keeps the dispatcher happy.
+                },
+            },
             'colormap.cycleNext': {
                 when: ['!rgbMode'],
                 run: (ctx, e) => {
@@ -14547,7 +14632,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '/', command: 'specialmodes.open' },
             { key: 'q', command: 'qmri.cycle' },
             { key: '~', command: 'island.toggle' },
-            { key: 'c', command: 'colormap.cycleNext' },
+            { key: 'c', command: 'colormap.holdOrTap' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
@@ -14708,7 +14793,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Color & Range',
                         entries: [
-                            { key: 'c', action: 'Cycle colormap', hint: 'grayscale, viridis, turbo, and more' },
+                            { key: 'c', action: 'Cycle colormap (tap) / hold to pick', hint: 'tap `c` to cycle next · hold `c` to open a preview grid (hjkl/arrows to browse · Enter or release to select · Esc cancels)' },
                             { key: 'd', action: 'Open histogram / cycle quantile presets', hint: 'first press shows the volume histogram; repeat to tighten outliers' },
                             { key: 'D', action: 'Toggle range lock', hint: 'unlock to make vmin/vmax follow the current slice; lock (default) to freeze' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
@@ -15582,6 +15667,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
+            // Hold-menu navigation has priority once the menu is visible.
+            if (_cmapHoldActive) {
+                if (_cmapHoldKey(e)) return;
+            }
+            // Intercept first-press of `c` (no modifiers) to arm the hold
+            // timer. On keyup we either commit/cycle depending on whether
+            // the threshold fired. Auto-repeat (`e.repeat`) and all other
+            // keys fall through to the normal dispatcher.
+            if (e.key === 'c' && !e.repeat
+                && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+                && _cmapHoldEligible()) {
+                _cmapHoldKeyDown = true;
+                clearTimeout(_cmapHoldOpenTimer);
+                _cmapHoldOpenTimer = setTimeout(() => {
+                    _cmapHoldOpenTimer = null;
+                    if (_cmapHoldKeyDown) _cmapHoldOpen();
+                }, _CMAP_HOLD_MS);
+                return;
+            }
             if (e.key === '?') {
                 const _activePlugin = (qmriActive || compareQmriActive) ? 'qmri'
                     : (typeof _segMode !== 'undefined' && _segMode) ? 'segmentation'
@@ -15630,6 +15734,41 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 document.getElementById('info-overlay').classList.remove('visible');
                 return;
             }
+        });
+
+        // Hold-`c` finalizer. Short press (< _CMAP_HOLD_MS) = tap = cycleNext.
+        // Long press (menu visible) = commit highlighted selection. Listen on
+        // window so a blur/refocus mid-hold still releases cleanly; capture so
+        // upstream listeners can't swallow it. `_cmapHoldKeyDown` is only set
+        // by the sink keydown path (which ignores editable targets), so typing
+        // `c` in an input never reaches this branch.
+        window.addEventListener('keyup', (e) => {
+            if (e.key !== 'c') return;
+            if (!_cmapHoldKeyDown) return;
+            _cmapHoldKeyDown = false;
+            if (_cmapHoldOpenTimer !== null) {
+                clearTimeout(_cmapHoldOpenTimer);
+                _cmapHoldOpenTimer = null;
+            }
+            if (_cmapHoldActive) {
+                _cmapHoldCommit();
+            } else {
+                // Tap — legacy cycle-next.
+                try {
+                    commands['colormap.cycleNext'].run(makeContext(null), null);
+                } catch (_) {}
+            }
+        }, true);
+        // Safety: if focus leaves mid-hold, treat as cancel-to-tap.
+        window.addEventListener('blur', () => {
+            if (_cmapHoldOpenTimer !== null) {
+                clearTimeout(_cmapHoldOpenTimer);
+                _cmapHoldOpenTimer = null;
+            }
+            if (_cmapHoldKeyDown && _cmapHoldActive) {
+                _cmapHoldCancel();
+            }
+            _cmapHoldKeyDown = false;
         });
 
 
@@ -21361,6 +21500,177 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     extraFadeEls.forEach(el => { if (el) el.style.opacity = '1'; });
                 }
             }, 1500);
+        }
+
+        // ── 3b. Hold-`c` colormap preview menu ───────────────────────
+        // Short-press `c` (tap) cycles to the next colormap (legacy behavior).
+        // Holding `c` past _CMAP_HOLD_MS opens a grid of colormap gradients
+        // with live preview. hjkl/arrows navigate (clamped); Enter or release
+        // of `c` commits the highlighted colormap; Escape cancels and reverts.
+        // Visibility is driven by the `.visible` class via _reconcileCmapHold.
+        const _CMAP_HOLD_MS = 180;
+        const _cmapHoldMenu = document.getElementById('colormap-hold-menu');
+        let _cmapHoldActive = false;      // menu is shown (or pending-commit)
+        let _cmapHoldOpenTimer = null;    // threshold timer (null when not pending)
+        let _cmapHoldKeyDown = false;     // `c` currently pressed
+        let _cmapHoldSelIdx = 0;          // selected linear index in COLORMAPS
+        let _cmapHoldCols = 4;            // grid column count
+        let _cmapHoldPrevIdx = 0;         // colormap_idx at open time (for cancel)
+        let _cmapHoldPrevCustom = null;   // customColormap at open time
+        let _cmapHoldPrevCustomStops = null;
+
+        function _reconcileCmapHold() {
+            if (!_cmapHoldMenu) return;
+            _cmapHoldMenu.classList.toggle('visible', !!_cmapHoldActive);
+            _cmapHoldMenu.setAttribute('aria-hidden', _cmapHoldActive ? 'false' : 'true');
+        }
+
+        function _cmapHoldEligible() {
+            // Mirror the guard used by 'colormap.cycleNext'.
+            if (rgbMode) return false;
+            if (qmriActive || compareQmriActive) return false;
+            // While a plugin/shelf/palette/modal is open, defer to the tap
+            // behavior (simple cycle) rather than opening a menu.
+            if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+            if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
+            if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
+            return true;
+        }
+
+        function _cmapHoldBuild() {
+            if (!_cmapHoldMenu) return;
+            const n = COLORMAPS.length;
+            _cmapHoldCols = Math.max(3, Math.min(6, Math.round(Math.sqrt(n) + 0.5)));
+            let html = '<div class="cmh-title"><span>colormap</span>'
+                + '<span class="cmh-hint">hjkl/arrows · Enter select · Esc cancel</span></div>'
+                + `<div class="cmh-grid" style="grid-template-columns:repeat(${_cmapHoldCols}, minmax(88px, 1fr));">`;
+            for (let i = 0; i < n; i++) {
+                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="120" height="12"></canvas><span>${COLORMAPS[i]}</span></div>`;
+            }
+            html += '</div>';
+            _cmapHoldMenu.innerHTML = html;
+            // Paint gradient swatches.
+            const cells = _cmapHoldMenu.querySelectorAll('.cmh-cell');
+            cells.forEach((cell, i) => {
+                const cv = cell.querySelector('canvas');
+                const stops = COLORMAP_GRADIENT_STOPS[COLORMAPS[i]];
+                if (!cv || !stops) return;
+                const g = cv.getContext('2d');
+                // whitelisted non-ColorBar use: colormap hold-menu swatches
+                const grad = g.createLinearGradient(0, 0, cv.width, 0);
+                stops.forEach(([r, gv, b], j) => {
+                    grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                });
+                g.fillStyle = grad;
+                g.fillRect(0, 0, cv.width, cv.height);
+            });
+        }
+
+        function _cmapHoldHighlight() {
+            if (!_cmapHoldMenu) return;
+            const cells = _cmapHoldMenu.querySelectorAll('.cmh-cell');
+            cells.forEach((cell, i) => cell.classList.toggle('active', i === _cmapHoldSelIdx));
+        }
+
+        function _cmapHoldApply(idx) {
+            // Live-preview the colormap at idx — same plumbing as cycleNext.
+            if (idx < 0 || idx >= COLORMAPS.length) return;
+            colormap_idx = idx;
+            customColormap = null;
+            customGradientStops = null;
+            modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
+            proxyFetch(`/clearcache/${sid}`);
+            updateView();
+            refreshAxesColor();
+            _mipOnColormapChange();
+        }
+
+        function _cmapHoldOpen() {
+            if (!_cmapHoldMenu || _cmapHoldActive) return;
+            _cmapHoldBuild();
+            _cmapHoldPrevIdx = colormap_idx;
+            _cmapHoldPrevCustom = customColormap;
+            _cmapHoldPrevCustomStops = customGradientStops;
+            // Start from current colormap (fall back to 0 for custom).
+            _cmapHoldSelIdx = (colormap_idx >= 0 && colormap_idx < COLORMAPS.length) ? colormap_idx : 0;
+            _cmapHoldActive = true;
+            _cmapHoldHighlight();
+            _reconcileCmapHold();
+        }
+
+        function _cmapHoldCommit() {
+            if (!_cmapHoldActive) return;
+            _cmapHoldApply(_cmapHoldSelIdx);
+            _cmapHoldActive = false;
+            _reconcileCmapHold();
+            saveState();
+            if (typeof showColormapStrip === 'function') {
+                _cmapStripMode = 'normal';
+                showColormapStrip();
+            }
+        }
+
+        function _cmapHoldCancel() {
+            if (!_cmapHoldActive) return;
+            // Revert to prior colormap state.
+            if (_cmapHoldPrevCustom) {
+                customColormap = _cmapHoldPrevCustom;
+                customGradientStops = _cmapHoldPrevCustomStops;
+                colormap_idx = -1;
+                modeManager.forEachView(v => { v.displayState.cmapIdx = -1; });
+            } else {
+                colormap_idx = _cmapHoldPrevIdx;
+                customColormap = null;
+                customGradientStops = null;
+                modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
+            }
+            proxyFetch(`/clearcache/${sid}`);
+            updateView();
+            refreshAxesColor();
+            _mipOnColormapChange();
+            _cmapHoldActive = false;
+            _reconcileCmapHold();
+            // Suppress the subsequent `c` keyup from firing the tap-cycle
+            // fallback. The user already dismissed via Escape; a cycle here
+            // would surprise them.
+            _cmapHoldKeyDown = false;
+        }
+
+        function _cmapHoldNav(dx, dy) {
+            if (!_cmapHoldActive) return;
+            const n = COLORMAPS.length;
+            const cols = _cmapHoldCols;
+            const row = Math.floor(_cmapHoldSelIdx / cols);
+            const col = _cmapHoldSelIdx % cols;
+            const rows = Math.ceil(n / cols);
+            // Clamp (safer than wrap for a small grid).
+            const nextRow = Math.max(0, Math.min(rows - 1, row + dy));
+            const nextCol = Math.max(0, Math.min(cols - 1, col + dx));
+            let next = nextRow * cols + nextCol;
+            if (next >= n) next = n - 1;  // last row may be short
+            if (next === _cmapHoldSelIdx) return;
+            _cmapHoldSelIdx = next;
+            _cmapHoldHighlight();
+            _cmapHoldApply(_cmapHoldSelIdx);
+        }
+
+        // Returns true if the keydown was handled by the hold-menu flow.
+        function _cmapHoldKey(e) {
+            // `c` keydown logic (tap-vs-hold detection) is handled by the
+            // 'colormap.holdOrTap' command; this function handles navigation
+            // + commit/cancel while the menu is visible.
+            if (!_cmapHoldActive) return false;
+            const k = e.key;
+            if (k === 'Escape') { e.preventDefault(); _cmapHoldCancel(); return true; }
+            if (k === 'Enter')  { e.preventDefault(); _cmapHoldCommit(); return true; }
+            if (k === 'h' || k === 'ArrowLeft')  { e.preventDefault(); _cmapHoldNav(-1, 0); return true; }
+            if (k === 'l' || k === 'ArrowRight') { e.preventDefault(); _cmapHoldNav( 1, 0); return true; }
+            if (k === 'j' || k === 'ArrowDown')  { e.preventDefault(); _cmapHoldNav( 0, 1); return true; }
+            if (k === 'k' || k === 'ArrowUp')    { e.preventDefault(); _cmapHoldNav( 0,-1); return true; }
+            // Swallow other keys while the menu is open so they don't trigger
+            // other shortcuts (e.g. pressing `c` again shouldn't re-enter).
+            if (k === 'c' || k === 'C') { e.preventDefault(); return true; }
+            return false;
         }
 
         // ── 4. A/B wipe comparator (cursor-following) ──────────────
