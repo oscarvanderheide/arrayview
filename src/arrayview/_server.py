@@ -416,19 +416,19 @@ def _write_recent_oblique_file(
         return False, str(exc)
 
 
-# ── Readout-Crop Plugin State ─────────────────────────────────────
+# ── Crop Plugin State ─────────────────────────────────────────────
 #
 # The crop plugin tracks per-session state (selected x-range along the readout
 # dim, visualisation slice indices, confirmation flag, optional recent-file
 # path).  State is held in memory keyed by sid; on confirm it may persist to
-# ``~/.arrayview/readout_crop_recent.json`` so external pipelines (e.g.
+# ``~/.arrayview/crop_recent.json`` so external pipelines (e.g.
 # reconstruction scripts) can reuse the last user-confirmed crop.
 
-_READOUT_CROP_RECENT_FILE = os.path.expanduser(
-    "~/.arrayview/readout_crop_recent.json"
+_CROP_RECENT_FILE = os.path.expanduser(
+    "~/.arrayview/crop_recent.json"
 )
-_READOUT_CROP_LOCK = threading.Lock()
-_READOUT_CROP_STATE: dict[str, dict] = {}
+_CROP_LOCK = threading.Lock()
+_CROP_STATE: dict[str, dict] = {}
 
 
 def _clamp_crop_range(x_start, x_end, nx: int) -> tuple[int, int]:
@@ -571,8 +571,8 @@ async def shell_websocket(ws: WebSocket):
                     SESSIONS[sid].reset_caches()
                     SESSIONS[sid].data = None
                     del SESSIONS[sid]
-                    with _READOUT_CROP_LOCK:
-                        _READOUT_CROP_STATE.pop(sid, None)
+                    with _CROP_LOCK:
+                        _CROP_STATE.pop(sid, None)
     except Exception:
         pass
     finally:
@@ -3967,17 +3967,17 @@ async def oblique_load_recent(request: Request):
     )
 
 
-# ── Readout-Crop Plugin Routes ────────────────────────────────────
+# ── Crop Plugin Routes ────────────────────────────────────────────
 #
 # The crop plugin lets users pick an x-range along one dimension (the "readout
 # dim") and a pair of visualisation slice indices. External pipelines read the
 # confirmed state to crop raw data before reconstruction. State lives in
-# :data:`_READOUT_CROP_STATE` keyed by sid; confirmed crops optionally persist
-# to :data:`_READOUT_CROP_RECENT_FILE` so follow-up runs can reuse the choice.
+# :data:`_CROP_STATE` keyed by sid; confirmed crops optionally persist
+# to :data:`_CROP_RECENT_FILE` so follow-up runs can reuse the choice.
 
 
-@app.post("/readout_crop/register")
-async def readout_crop_register(request: Request):
+@app.post("/crop/register")
+async def crop_register(request: Request):
     """Start (or re-start) a crop session for ``sid``.
 
     Body: ``{"sid": "<sid>", "readout_dim": int?, "x_start": int?, "x_end": int?,
@@ -4025,7 +4025,7 @@ async def readout_crop_register(request: Request):
     raw_recent = body.get("recent_file")
     recent_file = str(raw_recent).strip() if raw_recent is not None else ""
     if not recent_file:
-        recent_file = _READOUT_CROP_RECENT_FILE
+        recent_file = _CROP_RECENT_FILE
     loaded_recent = False
     if recent_file:
         recent = _load_recent_crop_file(recent_file, nx)
@@ -4055,16 +4055,16 @@ async def readout_crop_register(request: Request):
         "loaded_recent": bool(loaded_recent),
         "updated_at": _utc_now_iso(),
     }
-    with _READOUT_CROP_LOCK:
-        _READOUT_CROP_STATE[sid] = state
+    with _CROP_LOCK:
+        _CROP_STATE[sid] = state
     return JSONResponse(state)
 
 
-@app.get("/readout_crop/state/{sid}")
-def readout_crop_state(sid: str):
+@app.get("/crop/state/{sid}")
+def crop_state(sid: str):
     """Return the current in-memory crop state for ``sid``."""
-    with _READOUT_CROP_LOCK:
-        state = _READOUT_CROP_STATE.get(sid)
+    with _CROP_LOCK:
+        state = _CROP_STATE.get(sid)
         if state is None:
             return JSONResponse(
                 {"error": "crop_session_not_found"}, status_code=404
@@ -4072,24 +4072,54 @@ def readout_crop_state(sid: str):
         return JSONResponse(dict(state))
 
 
-@app.post("/readout_crop/update")
-async def readout_crop_update(request: Request):
+@app.post("/crop/update")
+async def crop_update(request: Request):
     """Update the crop range (and viz slice indices) for ``sid``.
 
-    Body: ``{"sid": "<sid>", "x_start": int, "x_end": int, "viz_z": int?, "viz_y": int?}``.
+    Body: ``{"sid": "<sid>", "x_start": int, "x_end": int, "viz_z": int?,
+    "viz_y": int?, "readout_dim": int?}``.
+
+    When ``readout_dim`` changes, ``nx`` is re-derived from the session's
+    shape along the new dim and the range is re-seeded to the full extent
+    (``0..nx``) unless explicit ``x_start``/``x_end`` are provided in the
+    same body.
     """
     body = await request.json()
     sid = str(body.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "missing_sid"}, status_code=400)
-    with _READOUT_CROP_LOCK:
-        state = _READOUT_CROP_STATE.get(sid)
+    with _CROP_LOCK:
+        state = _CROP_STATE.get(sid)
         if state is None:
             return JSONResponse(
                 {"error": "crop_session_not_found"}, status_code=404
             )
+        # Optional readout-dim change — re-derive nx from session shape and
+        # reset the range to full extent unless the client provides one.
+        if "readout_dim" in body:
+            shape = tuple(int(s) for s in state.get("shape", ()) or ())
+            ndim = len(shape)
+            if ndim > 0:
+                new_rd = _clamp_int(
+                    body.get("readout_dim"),
+                    0,
+                    max(0, ndim - 1),
+                    int(state.get("readout_dim", ndim - 1)),
+                )
+                if new_rd != int(state.get("readout_dim", -1)):
+                    new_nx = int(shape[new_rd])
+                    state["readout_dim"] = int(new_rd)
+                    state["nx"] = int(new_nx)
+                    # Re-seed to full range; client can override via x_start/x_end.
+                    if "x_start" not in body and "x_end" not in body:
+                        state["x_start"] = 0
+                        state["x_end"] = int(new_nx)
+                    state["confirmed"] = False
+                    state["loaded_recent"] = False
         xs, xe = _clamp_crop_range(
-            body.get("x_start"), body.get("x_end"), int(state["nx"])
+            body.get("x_start", state.get("x_start")),
+            body.get("x_end", state.get("x_end")),
+            int(state["nx"]),
         )
         state["x_start"] = int(xs)
         state["x_end"] = int(xe)
@@ -4101,8 +4131,8 @@ async def readout_crop_update(request: Request):
         return JSONResponse(dict(state))
 
 
-@app.post("/readout_crop/load_recent")
-async def readout_crop_load_recent(request: Request):
+@app.post("/crop/load_recent")
+async def crop_load_recent(request: Request):
     """Overlay the saved recent crop onto the current state (if any).
 
     Body: ``{"sid": "<sid>"}``. Returns 404 if no saved crop is available.
@@ -4111,13 +4141,13 @@ async def readout_crop_load_recent(request: Request):
     sid = str(body.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "missing_sid"}, status_code=400)
-    with _READOUT_CROP_LOCK:
-        state = _READOUT_CROP_STATE.get(sid)
+    with _CROP_LOCK:
+        state = _CROP_STATE.get(sid)
         if state is None:
             return JSONResponse(
                 {"error": "crop_session_not_found"}, status_code=404
             )
-        recent_file = state.get("recent_file") or _READOUT_CROP_RECENT_FILE
+        recent_file = state.get("recent_file") or _CROP_RECENT_FILE
         recent = _load_recent_crop_file(str(recent_file), int(state["nx"]))
         if recent is None:
             return JSONResponse(
@@ -4134,48 +4164,47 @@ async def readout_crop_load_recent(request: Request):
         return JSONResponse(dict(state))
 
 
-@app.post("/readout_crop/confirm")
-async def readout_crop_confirm(request: Request):
-    """Mark the current crop as confirmed; optionally persist to the recent-file.
+@app.post("/crop/confirm")
+async def crop_confirm(request: Request):
+    """Mark the current crop as confirmed and persist to the recent-file.
 
-    Body: ``{"sid": "<sid>", "save_recent": bool?}``.
+    Body: ``{"sid": "<sid>"}``. Confirm always writes the recent-file —
+    the UI no longer offers a confirm-without-save path.
     """
     body = await request.json()
     sid = str(body.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "missing_sid"}, status_code=400)
-    save_recent = bool(body.get("save_recent", False))
-    with _READOUT_CROP_LOCK:
-        state = _READOUT_CROP_STATE.get(sid)
+    with _CROP_LOCK:
+        state = _CROP_STATE.get(sid)
         if state is None:
             return JSONResponse(
                 {"error": "crop_session_not_found"}, status_code=404
             )
         state["confirmed"] = True
-        state["save_requested"] = bool(save_recent)
+        state["save_requested"] = True
         state["saved_recent"] = False
         state["saved_recent_path"] = None
         state["updated_at"] = _utc_now_iso()
-        if save_recent:
-            target = state.get("recent_file") or _READOUT_CROP_RECENT_FILE
-            ok, err = _write_recent_crop_file(str(target), state)
-            if ok:
-                state["saved_recent"] = True
-                state["saved_recent_path"] = str(target)
-            else:
-                state["save_error"] = err
+        target = state.get("recent_file") or _CROP_RECENT_FILE
+        ok, err = _write_recent_crop_file(str(target), state)
+        if ok:
+            state["saved_recent"] = True
+            state["saved_recent_path"] = str(target)
+        else:
+            state["save_error"] = err
         return JSONResponse(dict(state))
 
 
-@app.post("/readout_crop/clear")
-async def readout_crop_clear(request: Request):
+@app.post("/crop/clear")
+async def crop_clear(request: Request):
     """Drop the in-memory crop state for ``sid`` (no-op if absent)."""
     body = await request.json()
     sid = str(body.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "missing_sid"}, status_code=400)
-    with _READOUT_CROP_LOCK:
-        _READOUT_CROP_STATE.pop(sid, None)
+    with _CROP_LOCK:
+        _CROP_STATE.pop(sid, None)
     return JSONResponse({"ok": True, "sid": sid})
 
 

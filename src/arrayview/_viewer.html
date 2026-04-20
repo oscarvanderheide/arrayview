@@ -1146,6 +1146,31 @@
         }
         #dynamic-island .crop-status-error { color: #f87171; }
         #dynamic-island .crop-status-ok { color: #86efac; }
+        /* Readout-dim picker: one compact button per spatial dim, yellow when active. */
+        #dynamic-island .crop-dim-picker {
+            display: flex; align-items: center; gap: 8px;
+            padding: 2px 2px 6px; font-size: 10px; color: #999;
+        }
+        #dynamic-island .crop-dim-picker-label {
+            color: #888; text-transform: lowercase; letter-spacing: 0.04em;
+            min-width: 38px;
+        }
+        #dynamic-island .crop-dim-picker-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+        #dynamic-island .crop-dim-btn {
+            min-width: 22px; padding: 2px 6px;
+            cursor: pointer; border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04); color: #ddd;
+            font-family: inherit; font-size: 10px; line-height: 1.2;
+            text-align: center; transition: border-color 120ms ease, color 120ms ease;
+        }
+        #dynamic-island .crop-dim-btn:hover:not([disabled]) {
+            color: #fff; border-color: rgba(240,198,116,0.6);
+        }
+        #dynamic-island .crop-dim-btn.on {
+            background: var(--active-dim); border-color: var(--active-dim); color: #111;
+            font-weight: 600;
+        }
         /* Oblique colorbar flip — while the multiview colorbar is the front
            face, a back face with 90\u00b0 / Save / Load controls is revealed by
            rotateX(180deg) when the user holds Alt (or hovers the back).
@@ -1766,7 +1791,7 @@
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
-                <canvas id="readout-crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
+                <canvas id="crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="roi-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <div id="roi-hover-tooltip" style="display:none"></div>
                 <canvas id="viewer-fade"></canvas>
@@ -2403,8 +2428,8 @@
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
 
-        /* ── Readout-Crop Plugin ───────────────────────────────────────
-         * Crop plugin lets the user pick an x-range along a "readout"
+        /* ── Crop Plugin ──────────────────────────────────────────────
+         * Crop plugin lets the user pick an x-range along a spatial
          * dimension and confirm it for downstream pipelines. It's an
          * add-on plugin: active in single-view AND ortho-multiview. The
          * yellow polygon highlight renders on top of the main canvas
@@ -2416,7 +2441,8 @@
         const _crop = {
             registered: false,
             registering: false,
-            readoutDim: -1,      // defaults to last dim at register time
+            direction: 'x',      // screen-axis direction: 'x' | 'y' | 'z'
+            readoutDim: -1,      // derived from direction + current axis bindings
             nx: 0,
             xStart: 0,
             xEnd: 1,
@@ -2427,6 +2453,13 @@
             statusMsg: '',
             statusKind: '',
         };
+        // Click-drag state for the crop overlay handles (main canvas + mv panes).
+        // When `edge` is 'start' or 'end', a drag is in progress and the next
+        // mousemove updates _crop.xStart/_crop.xEnd. `pane` is 'main' for the
+        // single-view canvas or the mv view object for ortho panes. Throttling
+        // for server pushes is handled via `_cropDragPushT`.
+        let _cropDrag = null;     // {pane, edge, affine, imgW, imgH, rect, cv}
+        let _cropDragPushT = 0;   // perf.now() of last /update POST
 
         const _ROI_SHAPE_ICONS = {
             rect:      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5"/></svg>',
@@ -3713,6 +3746,7 @@
             cv.width = frame.width;
             cv.height = frame.height;
             c2d.putImageData(applyFlips(frame.imageData, frame.width, frame.height), 0, 0);
+            if (typeof _cropRenderCompareOverlay === 'function') _cropRenderCompareOverlay(idx);
         }
 
         function comparePaneLabelForSid(sidVal) {
@@ -8849,8 +8883,8 @@
          * Pure geometry + overlay rendering live here so they can be
          * called from scaleCanvas / mvDrawFrame without forward refs.
          */
-        const readoutCropOverlayCanvas = document.getElementById('readout-crop-overlay');
-        const readoutCropOverlayCtx = readoutCropOverlayCanvas ? readoutCropOverlayCanvas.getContext('2d') : null;
+        const cropOverlayCanvas = document.getElementById('crop-overlay');
+        const cropOverlayCtx = cropOverlayCanvas ? cropOverlayCanvas.getContext('2d') : null;
 
         function _cropClamp(xs, xe, nx) {
             nx = Math.max(1, Number(nx) || 1);
@@ -8863,8 +8897,62 @@
             return [s, e];
         }
 
+        // List of screen-axis directions currently visible:
+        //   single / compare  → ['x', 'y']
+        //   ortho / compare-mv → ['x', 'y', 'z']
+        function _cropAvailableDirections() {
+            if (multiViewActive || compareMvActive) return ['x', 'y', 'z'];
+            return ['x', 'y'];
+        }
+
+        // Resolve a screen-axis direction ('x' | 'y' | 'z') to the underlying
+        // spatial dim index. In single view x → dim_x and y → dim_y; z is not
+        // available. In ortho-multiview the 3 screen axes map positionally to
+        // mvDims (pos 0 → x, 1 → y, 2 → z) — matching the axes-label
+        // convention already used by the axes indicator.
+        function _cropReadoutDimFor(direction) {
+            if (!Array.isArray(shape) || !shape.length) return -1;
+            const dirs = _cropAvailableDirections();
+            const pos = dirs.indexOf(direction);
+            if (pos < 0) return -1;
+            if (multiViewActive && Array.isArray(mvDims) && mvDims.length === 3) {
+                return mvDims[pos] ?? -1;
+            }
+            if (compareMvActive && Array.isArray(compareMvDims) && compareMvDims.length === 3) {
+                return compareMvDims[pos] ?? -1;
+            }
+            return pos === 0 ? dim_x : dim_y;
+        }
+
+        function _cropDefaultDirection() {
+            return 'x';
+        }
+
+        // Clamp the current direction to what the active view mode exposes.
+        // Returns true iff the direction changed (caller decides whether to
+        // push the new readout_dim to the server).
+        function _cropClampDirection() {
+            const dirs = _cropAvailableDirections();
+            if (dirs.includes(_crop.direction)) return false;
+            _crop.direction = _cropDefaultDirection();
+            return true;
+        }
+
+        // Re-derive readout_dim from the current direction + axis bindings
+        // and push to the server if it changed. No-op unless crop is active
+        // and registered. Call after axis.assignX/Y, enter/exitMultiView, or
+        // any other rebind that might move direction 'x'/'y'/'z' onto a new
+        // spatial dim.
+        function _cropReconcileBindings() {
+            if (!_cropActive || !_crop.registered) return;
+            _cropClampDirection();
+            const newRd = _cropReadoutDimFor(_crop.direction);
+            if (newRd < 0 || newRd === _crop.readoutDim) return;
+            _cropPushReadoutDim(newRd);
+        }
+
         function _cropDefaultReadoutDim() {
-            return Array.isArray(shape) && shape.length ? shape.length - 1 : -1;
+            return _cropReadoutDimFor(_cropDefaultDirection());
         }
 
         function _cropVizDims() {
@@ -8876,9 +8964,9 @@
         }
 
         function _cropHideMainOverlay() {
-            if (!readoutCropOverlayCanvas || !readoutCropOverlayCtx) return;
-            readoutCropOverlayCanvas.style.display = 'none';
-            readoutCropOverlayCtx.clearRect(0, 0, readoutCropOverlayCanvas.width, readoutCropOverlayCanvas.height);
+            if (!cropOverlayCanvas || !cropOverlayCtx) return;
+            cropOverlayCanvas.style.display = 'none';
+            cropOverlayCtx.clearRect(0, 0, cropOverlayCanvas.width, cropOverlayCanvas.height);
         }
 
         function _cropGetMvOverlay(v) {
@@ -8970,6 +9058,127 @@
             targetCanvas.style.display = '';
         }
 
+        // ── Crop drag-handle hit-testing ─────────────────────────────
+        //
+        // Given an affine (a, b, c) mapping image-pixel (x, y) → readout-dim
+        // coordinate, the crop edges are lines ax + by + c = xStart and
+        // = xEnd. We clip each line to the image rect so the handle is
+        // only live where the edge is actually visible. Distance is
+        // computed in CSS pixels (so hover tolerance is uniform across
+        // zoom levels).
+        function _cropEdgeSegment(imgW, imgH, affine, val) {
+            if (!affine) return null;
+            const { a, b, c } = affine;
+            const pts = [];
+            const pushY = (x) => {
+                if (Math.abs(b) < 1e-9) return;
+                const y = (val - a * x - c) / b;
+                if (y >= 0 && y <= imgH) pts.push([x, y]);
+            };
+            const pushX = (y) => {
+                if (Math.abs(a) < 1e-9) return;
+                const x = (val - b * y - c) / a;
+                if (x >= 0 && x <= imgW) pts.push([x, y]);
+            };
+            pushY(0); pushY(imgW);
+            pushX(0); pushX(imgH);
+            // Deduplicate (corner hits appear twice).
+            const uniq = [];
+            for (const p of pts) {
+                if (!uniq.some(q => Math.abs(q[0] - p[0]) < 1e-6 && Math.abs(q[1] - p[1]) < 1e-6)) {
+                    uniq.push(p);
+                }
+            }
+            if (uniq.length < 2) return null;
+            return [uniq[0], uniq[uniq.length - 1]];
+        }
+
+        function _cropDistancePointToSegmentCss(mx, my, seg, sx, sy) {
+            if (!seg) return Infinity;
+            const ax = seg[0][0] * sx, ay = seg[0][1] * sy;
+            const bx = seg[1][0] * sx, by = seg[1][1] * sy;
+            const dx = bx - ax, dy = by - ay;
+            const len2 = dx * dx + dy * dy;
+            if (len2 < 1e-9) return Math.hypot(mx - ax, my - ay);
+            let t = ((mx - ax) * dx + (my - ay) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const px = ax + t * dx, py = ay + t * dy;
+            return Math.hypot(mx - px, my - py);
+        }
+
+        // Hit-test mouse (CSS-px relative to cv) against the start/end edges
+        // of the crop polygon on this pane. Returns {edge, dist, cursor}
+        // for the closest handle within `tol` px, or null.
+        const _CROP_HANDLE_TOL = 6;
+        function _cropHitTest(cv, affine, imgW, imgH, mx, my) {
+            if (!affine || !imgW || !imgH) return null;
+            if (!_crop.registered || !_crop.overlayVisible) return null;
+            if (!_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) return null;
+            const cssW = parseFloat(cv.style.width) || imgW;
+            const cssH = parseFloat(cv.style.height) || imgH;
+            const sx = cssW / imgW, sy = cssH / imgH;
+            const segS = _cropEdgeSegment(imgW, imgH, affine, _crop.xStart);
+            const segE = _cropEdgeSegment(imgW, imgH, affine, _crop.xEnd);
+            const dS = _cropDistancePointToSegmentCss(mx, my, segS, sx, sy);
+            const dE = _cropDistancePointToSegmentCss(mx, my, segE, sx, sy);
+            let edge = null, dist = Infinity;
+            if (dS <= _CROP_HANDLE_TOL && dS <= dE) { edge = 'start'; dist = dS; }
+            else if (dE <= _CROP_HANDLE_TOL) { edge = 'end'; dist = dE; }
+            if (!edge) return null;
+            // Cursor: if the affine is axis-aligned with readout along x
+            // (a=±1,b=0), the edge is vertical on-screen → ew-resize.
+            // If along y (a=0,b=±1) → ns-resize. For oblique (both non-zero)
+            // use ew-resize as a sensible default.
+            const isHoriz = Math.abs(affine.b) > Math.abs(affine.a);
+            const cursor = isHoriz ? 'ns-resize' : 'ew-resize';
+            return { edge, dist, cursor };
+        }
+
+        // Map current mouse position (CSS-px, relative to cv) to a readout-dim
+        // index value. Uses the affine in image-pixel coords, clamped to
+        // [0, nx]. Returned value is a float; the caller rounds based on
+        // whether it's updating x_start or x_end.
+        function _cropMouseToReadoutIdx(cv, affine, imgW, imgH, mx, my) {
+            const cssW = parseFloat(cv.style.width) || imgW;
+            const cssH = parseFloat(cv.style.height) || imgH;
+            if (cssW <= 0 || cssH <= 0) return 0;
+            const ix = mx * imgW / cssW;
+            const iy = my * imgH / cssH;
+            const val = affine.a * ix + affine.b * iy + affine.c;
+            return Math.max(0, Math.min(_crop.nx, val));
+        }
+
+        // Throttled push of drag updates to the server (50 ms).
+        function _cropDragSchedulePush() {
+            const now = (typeof performance !== 'undefined' && performance.now)
+                ? performance.now() : Date.now();
+            if (now - _cropDragPushT < 50) return;
+            _cropDragPushT = now;
+            _cropPushUpdate();
+        }
+
+        // Apply a drag sample to _crop, re-render overlay, keep the island
+        // sliders in sync (if rendered), and schedule a throttled server push.
+        function _cropDragApplySample(edge, rawIdx) {
+            const [s, e] = (edge === 'start')
+                ? _cropClamp(Math.round(rawIdx), _crop.xEnd, _crop.nx)
+                : _cropClamp(_crop.xStart, Math.round(rawIdx), _crop.nx);
+            _crop.xStart = s; _crop.xEnd = e;
+            _cropRenderOverlayAll();
+            // Best-effort live slider sync — do not rebuild the island mid-drag.
+            const startNum = document.getElementById('crop-start-num');
+            const startRange = document.getElementById('crop-start-range');
+            const endNum = document.getElementById('crop-end-num');
+            const endRange = document.getElementById('crop-end-range');
+            const summary = document.getElementById('crop-summary');
+            if (startNum) startNum.value = String(s);
+            if (startRange) startRange.value = String(s);
+            if (endNum) endNum.value = String(e);
+            if (endRange) endRange.value = String(e);
+            if (summary) summary.textContent = _cropSummaryText();
+            _cropDragSchedulePush();
+        }
+
         function _cropSingleViewAffine() {
             const rd = _crop.readoutDim;
             if (rd < 0 || rd >= shape.length) return null;
@@ -9018,7 +9227,7 @@
         }
 
         function _cropRenderMainOverlay() {
-            if (!readoutCropOverlayCanvas) return;
+            if (!cropOverlayCanvas) return;
             if (!_cropActive || !_crop.registered || !_crop.overlayVisible) {
                 _cropHideMainOverlay();
                 return;
@@ -9038,7 +9247,7 @@
                 return;
             }
             const poly = _cropRegionPolygon(canvas.width, canvas.height, affine, _crop.xStart, _crop.xEnd);
-            _cropDrawPolygonOnCanvas(readoutCropOverlayCanvas, canvas, poly);
+            _cropDrawPolygonOnCanvas(cropOverlayCanvas, canvas, poly);
         }
 
         function _cropRenderMvOverlay(v) {
@@ -9048,7 +9257,11 @@
                 _cropHideMvOverlay(v);
                 return;
             }
-            if (!multiViewActive || !_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) {
+            // Only draw on panes belonging to the primary sid. mvViews always
+            // belong to `sid`; compare-mv panes carry their own v.sid.
+            const paneSid = v.sid || sid;
+            if (paneSid !== sid) { _cropHideMvOverlay(v); return; }
+            if (!(multiViewActive || compareMvActive) || !_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) {
                 _cropHideMvOverlay(v);
                 return;
             }
@@ -9058,15 +9271,74 @@
             _cropDrawPolygonOnCanvas(ov, v.canvas, poly);
         }
 
+        // Compare-pane overlay (one canvas per .compare-canvas-inner). Only
+        // draws on the pane whose sid matches the primary sid; other panes
+        // are hidden. Reuses the polygon-clip primitives from the main path.
+        function _cropGetCompareOverlay(cv) {
+            if (!cv) return null;
+            if (cv._cropOverlay) return cv._cropOverlay;
+            const parent = cv.parentElement; // .compare-canvas-inner
+            if (!parent) return null;
+            const ov = document.createElement('canvas');
+            ov.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;background:transparent;display:none;z-index:2;';
+            parent.appendChild(ov);
+            cv._cropOverlay = ov;
+            return ov;
+        }
+
+        function _cropHideCompareOverlay(cv) {
+            if (!cv || !cv._cropOverlay) return;
+            const ov = cv._cropOverlay;
+            const ctx2 = ov.getContext('2d');
+            if (ctx2) ctx2.clearRect(0, 0, ov.width, ov.height);
+            ov.style.display = 'none';
+        }
+
+        function _cropRenderCompareOverlay(paneIdx) {
+            const cv = compareCanvases[paneIdx];
+            if (!cv) return;
+            const ov = _cropGetCompareOverlay(cv);
+            if (!ov) return;
+            if (!_cropActive || !_crop.registered || !_crop.overlayVisible
+                || !compareActive || compareQmriActive || compareMvActive) {
+                _cropHideCompareOverlay(cv);
+                return;
+            }
+            // Primary-sid scoping: the plugin is registered against `sid`.
+            const paneSid = (compareDisplaySids && compareDisplaySids[paneIdx]) || sid;
+            if (paneSid !== sid) { _cropHideCompareOverlay(cv); return; }
+            if (!_crop.nx || (_crop.xStart <= 0 && _crop.xEnd >= _crop.nx)) {
+                _cropHideCompareOverlay(cv);
+                return;
+            }
+            // Compare reuses the single-view axis convention (dim_x/dim_y/flip).
+            const affine = _cropSingleViewAffine();
+            if (!affine || !cv.width || !cv.height) { _cropHideCompareOverlay(cv); return; }
+            const poly = _cropRegionPolygon(cv.width, cv.height, affine, _crop.xStart, _crop.xEnd);
+            _cropDrawPolygonOnCanvas(ov, cv, poly);
+        }
+
         function _cropRenderOverlayAll() {
             if (!_cropActive || !_crop.registered || !_crop.overlayVisible) {
                 _cropHideMainOverlay();
                 if (Array.isArray(mvViews)) mvViews.forEach(v => _cropHideMvOverlay(v));
+                if (Array.isArray(compareMvViews)) compareMvViews.forEach(v => _cropHideMvOverlay(v));
+                if (Array.isArray(compareCanvases)) compareCanvases.forEach(cv => _cropHideCompareOverlay(cv));
                 return;
             }
             _cropRenderMainOverlay();
             if (multiViewActive) mvViews.forEach(v => _cropRenderMvOverlay(v));
             else if (Array.isArray(mvViews)) mvViews.forEach(v => _cropHideMvOverlay(v));
+            if (compareMvActive && Array.isArray(compareMvViews)) {
+                compareMvViews.forEach(v => _cropRenderMvOverlay(v));
+            } else if (Array.isArray(compareMvViews)) {
+                compareMvViews.forEach(v => _cropHideMvOverlay(v));
+            }
+            if (compareActive && !compareMvActive && !compareQmriActive && Array.isArray(compareCanvases)) {
+                for (let i = 0; i < compareCanvases.length; i++) _cropRenderCompareOverlay(i);
+            } else if (Array.isArray(compareCanvases)) {
+                compareCanvases.forEach(cv => _cropHideCompareOverlay(cv));
+            }
         }
 
         function _cropSetStatus(msg, kind = '') {
@@ -9087,7 +9359,8 @@
             if (!sid || !Array.isArray(shape) || !shape.length) return false;
             if (_crop.registering) return false;
             _crop.registering = true;
-            const rd = _cropDefaultReadoutDim();
+            _crop.direction = _cropDefaultDirection();
+            const rd = _cropReadoutDimFor(_crop.direction);
             _crop.readoutDim = rd;
             _crop.nx = Math.max(1, Number(shape[rd]) || 1);
             const [vzDim, vyDim] = _cropVizDims();
@@ -9100,7 +9373,7 @@
                 viz_y: vyDim >= 0 ? indices[vyDim] : -1,
             };
             try {
-                const r = await proxyFetch('/readout_crop/register', {
+                const r = await proxyFetch('/crop/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -9137,7 +9410,7 @@
                 viz_y: vyDim >= 0 ? indices[vyDim] : -1,
             };
             try {
-                const r = await proxyFetch('/readout_crop/update', {
+                const r = await proxyFetch('/crop/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -9150,22 +9423,79 @@
             } catch (_err) { /* transient */ }
         }
 
-        async function _cropConfirm(saveRecent) {
+        // Push a readout-dim change to the server (no client-side direction
+        // mutation). Server re-seeds the range from the new dim's length; we
+        // mirror the returned state locally and re-render. Callers pass the
+        // already-resolved spatial dim index.
+        async function _cropPushReadoutDim(newRd) {
             if (!_cropActive || !_crop.registered || !sid) return;
+            if (!Array.isArray(shape) || !shape.length) return;
+            newRd = Math.max(0, Math.min(shape.length - 1, Number(newRd) | 0));
+            if (newRd === _crop.readoutDim) return;
+            // Preserve the fractional crop range across dim changes. Without
+            // this the server would re-seed to full extent [0, nx], making the
+            // overlay invisible until the user drags a slider.
+            const nxOld = Math.max(1, Number(_crop.nx) || 1);
+            const nxNew = Math.max(1, Number(shape[newRd]) || 1);
+            const fracStart = Math.max(0, Math.min(1, (Number(_crop.xStart) || 0) / nxOld));
+            const fracEnd   = Math.max(0, Math.min(1, (Number(_crop.xEnd) || nxOld) / nxOld));
+            let nsStart = Math.round(fracStart * nxNew);
+            let nsEnd   = Math.round(fracEnd * nxNew);
+            nsStart = Math.max(0, Math.min(nxNew - 1, nsStart));
+            nsEnd   = Math.max(nsStart + 1, Math.min(nxNew, nsEnd));
             try {
-                const r = await proxyFetch('/readout_crop/confirm', {
+                const r = await proxyFetch('/crop/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sid, save_recent: !!saveRecent }),
+                    body: JSON.stringify({ sid, readout_dim: newRd, x_start: nsStart, x_end: nsEnd }),
+                });
+                if (!r.ok) {
+                    _cropSetStatus(`dim change failed (HTTP ${r.status})`, 'error');
+                    return;
+                }
+                const st = await r.json();
+                _crop.readoutDim = Number(st.readout_dim);
+                _crop.nx = Math.max(1, Number(st.nx) || 1);
+                _crop.confirmed = false;
+                _cropApplyLocalRange(st.x_start, st.x_end);
+            } catch (err) {
+                _cropSetStatus(`dim change failed: ${err && err.message ? err.message : err}`, 'error');
+            }
+        }
+
+        // Change the crop direction ('x' | 'y' | 'z'). The underlying spatial
+        // dim is derived from the current axis assignment (single view: dim_x
+        // / dim_y; ortho: mvDims[pos]). In single view 'z' is not a valid
+        // direction and is silently ignored.
+        async function _cropSetDirection(direction) {
+            const dirs = _cropAvailableDirections();
+            if (!dirs.includes(direction)) return;
+            if (direction === _crop.direction) return;
+            const newRd = _cropReadoutDimFor(direction);
+            if (newRd < 0) return;
+            _crop.direction = direction;
+            await _cropPushReadoutDim(newRd);
+            _cropSetStatus(`direction: ${direction}`, 'ok');
+        }
+
+        async function _cropConfirm() {
+            // Confirm always persists to the recent file — single button,
+            // no "confirm without save" variant.
+            if (!_cropActive || !_crop.registered || !sid) return;
+            try {
+                const r = await proxyFetch('/crop/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid }),
                 });
                 if (!r.ok) { _cropSetStatus(`confirm failed (HTTP ${r.status})`, 'error'); return; }
                 const st = await r.json();
                 _crop.confirmed = !!st.confirmed;
                 _crop.savedRecentPath = st.saved_recent_path || null;
-                const ok = st.saved_recent || !saveRecent;
-                const msg = saveRecent
-                    ? (st.saved_recent ? 'saved \u2713' : `confirm ok (save failed${st.save_error ? `: ${st.save_error}` : ''})`)
-                    : 'crop confirmed';
+                const ok = !!st.saved_recent;
+                const msg = ok
+                    ? 'saved \u2713'
+                    : `confirm ok (save failed${st.save_error ? `: ${st.save_error}` : ''})`;
                 _cropSetStatus(msg, ok ? 'ok' : 'error');
             } catch (err) {
                 _cropSetStatus(`confirm failed: ${err && err.message ? err.message : err}`, 'error');
@@ -9175,7 +9505,7 @@
         async function _cropLoadRecent() {
             if (!_cropActive || !_crop.registered || !sid) return;
             try {
-                const r = await proxyFetch('/readout_crop/load_recent', {
+                const r = await proxyFetch('/crop/load_recent', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sid }),
@@ -9194,7 +9524,7 @@
         async function _cropClearServer() {
             if (!sid) return;
             try {
-                await proxyFetch('/readout_crop/clear', {
+                await proxyFetch('/crop/clear', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sid }),
@@ -9228,12 +9558,13 @@
             if (summary) summary.textContent = _cropSummaryText();
         };
         window._cropOnRangeCommit = function() { _cropPushUpdate(); };
-        window._cropConfirmBtn = async function(saveRecent) {
+        window._cropConfirmBtn = async function() {
             await _cropPushUpdate();
-            await _cropConfirm(!!saveRecent);
+            await _cropConfirm();
         };
         window._cropLoadRecentBtn = function() { _cropLoadRecent(); };
         window._cropOverlayToggle = function() { _cropSetOverlayVisible(!_crop.overlayVisible); };
+        window._cropOnDirPick = function(d) { _cropSetDirection(d); };
 
         function _cropSummaryText() {
             const keep = Math.max(1, _crop.xEnd - _crop.xStart);
@@ -9374,7 +9705,7 @@
                 html += _pluginSectionOpen('vectorfield', 'Vector field', body);
             }
 
-            // Readout-crop section — start/end range controls + actions
+            // Crop section — direction picker + start/end range controls + actions
             if (activePlugins.includes('crop')) {
                 const ready = _crop.registered;
                 const nx = Math.max(1, _crop.nx);
@@ -9384,6 +9715,23 @@
                 const statusKind = _crop.statusKind ? ` crop-status-${_crop.statusKind}` : '';
                 const statusMsg = _crop.statusMsg || (ready ? '' : 'initialising\u2026');
                 let body = '';
+                // Direction picker: one button per visible screen axis (x/y
+                // in single view, x/y/z in ortho). The active direction is
+                // highlighted in yellow. Hidden until registration completes.
+                if (ready && Array.isArray(shape) && shape.length > 1) {
+                    const dirs = _cropAvailableDirections();
+                    body += `<div class="crop-dim-picker">`;
+                    body += `<span class="crop-dim-picker-label">direction</span>`;
+                    body += `<div class="crop-dim-picker-btns">`;
+                    for (const d of dirs) {
+                        const isActive = (d === _crop.direction);
+                        const cls = isActive ? 'crop-dim-btn on' : 'crop-dim-btn';
+                        const rd = _cropReadoutDimFor(d);
+                        const sz = rd >= 0 ? shape[rd] : '?';
+                        body += `<button type="button" class="${cls}" onclick="_cropOnDirPick('${d}')" title="crop along screen axis ${d} (dim ${rd}, size ${sz})">${d}</button>`;
+                    }
+                    body += `</div></div>`;
+                }
                 body += `<div class="crop-rows">`;
                 body += `<div class="crop-row">`;
                 body += `<label for="crop-start-range">start</label>`;
@@ -9398,13 +9746,12 @@
                 body += `</div>`;
                 body += `<div id="crop-summary" class="crop-summary">${_cropSummaryText()}</div>`;
                 body += `<div class="crop-actions">`;
-                body += `<button class="crop-btn primary" onclick="_cropConfirmBtn(false)"${disabled}>confirm</button>`;
-                body += `<button class="crop-btn" onclick="_cropConfirmBtn(true)"${disabled}>save &amp; confirm</button>`;
+                body += `<button class="crop-btn primary" onclick="_cropConfirmBtn()"${disabled}>confirm</button>`;
                 body += `<button class="crop-btn" onclick="_cropLoadRecentBtn()"${disabled}>load recent</button>`;
                 body += `<button class="crop-btn${overlayOn ? ' on' : ''}" onclick="_cropOverlayToggle()"${disabled}>${overlayOn ? 'hide overlay' : 'show overlay'}</button>`;
                 body += `</div>`;
                 body += `<div id="crop-status" class="crop-status${statusKind}">${statusMsg}</div>`;
-                html += _pluginSectionOpen('crop', 'Readout crop', body);
+                html += _pluginSectionOpen('crop', 'Crop', body);
             }
 
             el.innerHTML = html;
@@ -11127,14 +11474,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             {
                 id: 'crop',
-                label: 'Readout Crop',
-                desc: 'pick an x-range on a readout dim for downstream pipelines',
+                label: 'Crop',
+                desc: 'pick an x-range on a spatial dim for downstream pipelines',
                 glyph: 'CR',
                 keyHint: 'c',
-                // Crop works in single view and ortho-multiview (the overlay
-                // draws on each oblique/axis-aligned pane). It's incompatible
-                // with qMRI / ROI / segmentation UX which repurpose the canvas.
-                isEnabled: () => !compareActive && !compareQmriActive && !compareMvActive,
+                // Crop works in single view, ortho-multiview, compare, and
+                // compare-multiview. Crop state is per-sid on the server and
+                // the plugin is registered against the primary sid, so the
+                // overlay is drawn on primary-sid panes only in compare modes;
+                // other sids' panes render cleanly. compare-qmri repurposes
+                // the canvas and is incompatible.
+                isEnabled: () => !compareQmriActive,
                 isActive: () => _cropActive,
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
@@ -11339,6 +11689,36 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _scrubDrag = { y: e.clientY, idx0: indices[current_slice_dim] };
                 }
                 return;
+            }
+            // Crop drag-handle: plain left-click within ~6 CSS-px of the
+            // xStart / xEnd edge starts an edge drag. Alt is excluded so
+            // oblique Alt+drag rotation always wins. Skip in ROI mode
+            // (crop plugin excludes ROI, but be defensive).
+            if (e.button === 0 && !e.altKey && !e.shiftKey && !e.metaKey
+                && !e.ctrlKey && _cropActive && _crop.registered
+                && _crop.overlayVisible && !rectRoiMode) {
+                const affine = _cropSingleViewAffine();
+                if (affine) {
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = e.clientX - rect.left;
+                    const my = e.clientY - rect.top;
+                    const hit = _cropHitTest(canvas, affine, canvas.width, canvas.height, mx, my);
+                    if (hit) {
+                        e.preventDefault();
+                        // Preempt other mousedown listeners on `canvas` (e.g.
+                        // click-to-copy / segmentation) so a crop-handle click
+                        // doesn't also seed those gestures.
+                        e.stopImmediatePropagation();
+                        _cropDrag = {
+                            pane: 'main', edge: hit.edge, affine,
+                            imgW: canvas.width, imgH: canvas.height, cv: canvas,
+                        };
+                        canvas.style.cursor = hit.cursor;
+                        const rawIdx = _cropMouseToReadoutIdx(canvas, affine, canvas.width, canvas.height, mx, my);
+                        _cropDragApplySample(hit.edge, rawIdx);
+                        return;
+                    }
+                }
             }
             // Shift+left-click: start zoom-to-region selection
             if (e.button === 0 && e.shiftKey && _canZoomSelect()) {
@@ -11735,6 +12115,40 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Old export-btn and roi-content listeners removed — now handled by island actions
         // Brightness/contrast: mousemove updates vmin/vmax
         canvas.addEventListener('mousemove', e => { _bcUpdateDrag(e); });
+        // Crop drag-handle: while dragging, update the matching edge; otherwise
+        // provide hover-cursor feedback when near an edge. Runs even when
+        // Alt is held so we still update during an accidental Alt hover,
+        // but Alt pre-empts mousedown (see above) so oblique rotation wins.
+        canvas.addEventListener('mousemove', e => {
+            if (_cropDrag && _cropDrag.pane === 'main') {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const rawIdx = _cropMouseToReadoutIdx(
+                    canvas, _cropDrag.affine, _cropDrag.imgW, _cropDrag.imgH, mx, my);
+                _cropDragApplySample(_cropDrag.edge, rawIdx);
+                return;
+            }
+            if (!_cropActive || !_crop.registered || !_crop.overlayVisible) return;
+            if (rectRoiMode || e.altKey) return;
+            const affine = _cropSingleViewAffine();
+            if (!affine) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            const hit = _cropHitTest(canvas, affine, canvas.width, canvas.height, mx, my);
+            if (hit) canvas.style.cursor = hit.cursor;
+        });
+        canvas.addEventListener('mouseup', e => {
+            if (_cropDrag && _cropDrag.pane === 'main' && e.button === 0) {
+                _cropDrag = null;
+                canvas.style.cursor = 'crosshair';
+                // Ensure the final sample reaches the server even if the last
+                // throttled push was suppressed.
+                _cropDragPushT = 0;
+                _cropPushUpdate();
+            }
+        });
         // Zoom-to-region: mousemove updates the selection rectangle
         canvas.addEventListener('mousemove', e => {
             if (!_zoomSelectDrag) return;
@@ -11809,6 +12223,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         window.addEventListener('mouseup', () => {
             if (_zoomSelectDrag) { _zoomSelectDrag = null; _removeZoomSelectRect(); }
             _bcEndDrag();
+            // Crop drag: release outside of any pane as well.
+            if (_cropDrag) {
+                const d = _cropDrag;
+                _cropDrag = null;
+                if (d.pane === 'main') canvas.style.cursor = 'crosshair';
+                else if (d.cv) d.cv.style.cursor = 'crosshair';
+                _cropDragPushT = 0;
+                _cropPushUpdate();
+            }
         });
         canvas.addEventListener('mousemove', e => {
             if (!roiDragging) return;
@@ -12832,6 +13255,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         flipDims[dim_x] = flip_x; flipDims[dim_y] = flip_y;
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         showStatus('transposed x/y (all panes)');
+                        if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                         return;
                     }
                     const wasMosaic = dim_z >= 0;
@@ -12840,6 +13264,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!wasMosaic) dim_z = -1;
                     updateView(); triggerPreload();
                     showStatus(wasMosaic ? 'transposed x/y (mosaic)' : 'transposed x/y');
+                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
             },
             'view.rotateOrFlip': {
@@ -12897,6 +13322,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         updateView(); triggerPreload();
                         showStatus('rotated 90°'); saveState();
                     }
+                    // Crop's readout_dim follows any dim_x/dim_y/mvDims swap.
+                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
             },
             'theme.cycle': {
@@ -13084,18 +13511,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'crop.cycle': {
-                title: 'Toggle readout crop plugin',
+                title: 'Toggle crop plugin',
                 when: [],
                 run: (ctx, e) => {
                     if (compareActive || compareQmriActive || compareMvActive) {
-                        showStatus('readout crop: not available in compare mode'); return;
+                        showStatus('crop: not available in compare mode'); return;
                     }
                     if (_cropActive) {
                         _cropActive = false;
                         _crop.registered = false;
                         _cropRenderOverlayAll();
                         _cropClearServer();
-                        showStatus('readout crop: off');
+                        showStatus('crop: off');
                         if (typeof renderIsland === 'function') renderIsland();
                         saveState();
                         return;
@@ -13103,7 +13530,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _cropActive = true;
                     _crop.overlayVisible = true;
                     if (typeof renderIsland === 'function') renderIsland();
-                    showStatus('readout crop: on');
+                    showStatus('crop: on');
                     // Register async; overlay shows once state lands.
                     _cropRegister().then(() => {
                         _cropRenderOverlayAll();
@@ -13629,6 +14056,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
                     dim_z = -1;
                     updateView(); triggerPreload();
+                    // Crop's readout_dim follows screen-axis rebinding.
+                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
             },
             'multiview.toggle': {
@@ -13829,6 +14258,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     else { [dim_y, current_slice_dim] = [current_slice_dim, dim_y]; }
                     dim_z = -1;
                     updateView(); triggerPreload();
+                    // Crop's readout_dim follows screen-axis rebinding.
+                    if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
             },
             'dim.prev': {
@@ -14457,29 +14888,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             {
                 id: 'plugin-crop', label: 'Crop',
-                desc: 'Readout-crop mode — pick a start/end index along one dimension so downstream pipelines (e.g. reconstruction scripts) can trim the array. A yellow polygon highlights the kept region on every visible slice.',
+                desc: 'Crop mode — pick a start/end index along one dimension so downstream pipelines (e.g. reconstruction scripts) can trim the array. A yellow polygon highlights the kept region on every visible slice.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Enter / exit',
                         entries: [
-                            { key: '/', action: 'Open plugin shelf', hint: 'press / then c — or click the Readout Crop tile' },
+                            { key: '/', action: 'Open plugin shelf', hint: 'press / then c — or click the Crop tile' },
                             { key: 'Esc', action: 'Exit the plugin', hint: 'closes the shelf and deactivates crop' },
                         ]
                     },
                     {
                         title: 'Range controls',
                         entries: [
+                            { key: 'direction picker', action: 'Pick which screen axis the crop runs along (x/y in single view; x/y/z in ortho)' },
                             { key: 'start slider', action: 'Lower bound of the kept range (inclusive)' },
                             { key: 'end slider', action: 'Upper bound of the kept range (exclusive)' },
                             { key: 'start / end number', action: 'Type an exact index', hint: 'commits on blur / Enter; updates server state' },
+                            { key: 'drag edge', action: 'Click & drag the yellow edge on any pane to resize the crop live' },
                         ]
                     },
                     {
                         title: 'Actions',
                         entries: [
-                            { key: 'confirm', action: 'Mark the crop as confirmed on the server (no file write)' },
-                            { key: 'save & confirm', action: 'Persist to ~/.arrayview/readout_crop_recent.json and confirm' },
+                            { key: 'confirm', action: 'Persist to ~/.arrayview/crop_recent.json and mark confirmed on the server' },
                             { key: 'load recent', action: 'Re-apply the last saved crop on this session' },
                             { key: 'show / hide overlay', action: 'Toggle the yellow polygon without deactivating the plugin' },
                         ]
@@ -14487,9 +14919,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Views',
                         entries: [
-                            { key: 'single view', action: 'Overlay on main canvas when the readout dim maps to x or y' },
+                            { key: 'single view', action: 'Overlay on main canvas (direction x or y)' },
                             { key: 'ortho multi-view', action: 'Overlay on each pane (axis-aligned or oblique)' },
-                            { key: 'compare / qMRI', action: 'Crop is disabled — plugin shelf greys out the tile' },
+                            { key: 'compare', action: 'Overlay only on the primary sid\u2019s pane; other panes render clean' },
+                            { key: 'compare 3-plane', action: 'Overlay on the primary sid\u2019s 3 panes; other rows render clean' },
+                            { key: 'compare-qMRI', action: 'Crop is disabled — plugin shelf greys out the tile' },
                         ]
                     },
                 ]
@@ -16095,6 +16529,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    // Crop drag-handle on mv pane: take priority when NOT
+                    // holding Alt (oblique rotation) and the crop overlay's
+                    // edges are visible on this pane. Skip panes whose affine
+                    // doesn't involve the readout dim (overlay is static).
+                    if (!e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey
+                        && _cropActive && _crop.registered && _crop.overlayVisible) {
+                        const aff = _cropMvAffine(view);
+                        if (aff) {
+                            const mxCss = e.clientX - rect.left;
+                            const myCss = e.clientY - rect.top;
+                            const hit = _cropHitTest(cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                            if (hit) {
+                                // Preempt click-to-copy and other mousedown
+                                // listeners on this mv canvas.
+                                e.stopImmediatePropagation();
+                                _cropDrag = {
+                                    pane: view, edge: hit.edge, affine: aff,
+                                    imgW: view.lastW, imgH: view.lastH, cv,
+                                };
+                                cv.style.cursor = hit.cursor;
+                                const rawIdx = _cropMouseToReadoutIdx(
+                                    cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                                _cropDragApplySample(hit.edge, rawIdx);
+                                return;
+                            }
+                        }
+                    }
                     const hitJ = mvCrossHairHit(view, px, py);
                     // Rotate only on explicit modifier gesture to avoid accidental
                     // oblique jumps when the user simply drags the crosshair.
@@ -16127,12 +16588,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
+                    // Crop-drag in progress: update this pane's edge.
+                    if (_cropDrag && _cropDrag.pane === view) {
+                        const mxCss = e.clientX - rect.left;
+                        const myCss = e.clientY - rect.top;
+                        const rawIdx = _cropMouseToReadoutIdx(
+                            cv, _cropDrag.affine, view.lastW, view.lastH, mxCss, myCss);
+                        _cropDragApplySample(_cropDrag.edge, rawIdx);
+                        return;
+                    }
                     // Cursor feedback: only show the rotate cursor when the Alt
                     // modifier is held, so plain hover over a line still reads as
                     // "drag to scrub".
                     const hj = mvCrossHairHit(view, px, py);
                     const wantsRotate = hj >= 0 && e.altKey;
                     cv.style.cursor = obliqueDrag ? 'grabbing' : (wantsRotate ? 'grab' : 'crosshair');
+                    // Crop-handle hover cursor (non-Alt, registered, visible).
+                    if (!e.altKey && _cropActive && _crop.registered && _crop.overlayVisible) {
+                        const aff = _cropMvAffine(view);
+                        if (aff) {
+                            const mxCss = e.clientX - rect.left;
+                            const myCss = e.clientY - rect.top;
+                            const hit = _cropHitTest(cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                            if (hit) cv.style.cursor = hit.cursor;
+                        }
+                    }
                     _lastMouseX = e.clientX; _lastMouseY = e.clientY;
                     fetchPixelInfo({
                         event: e,
@@ -16171,6 +16651,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (e.button === 0) _mvClickDown = { x: e.clientX, y: e.clientY };
                 });
                 cv.addEventListener('mouseup', (e) => {
+                    // Release a crop drag on this pane and short-circuit the
+                    // click-to-copy path so mouseup on a drag doesn't also
+                    // copy the pixel under the cursor.
+                    if (_cropDrag && _cropDrag.pane === view && e.button === 0) {
+                        _cropDrag = null;
+                        cv.style.cursor = 'crosshair';
+                        _cropDragPushT = 0;
+                        _cropPushUpdate();
+                        _mvClickDown = null;
+                        return;
+                    }
                     if (e.button !== 0 || !_mvClickDown) { _mvClickDown = null; return; }
                     const ddx = e.clientX - _mvClickDown.x, ddy = e.clientY - _mvClickDown.y;
                     _mvClickDown = null;
@@ -16251,6 +16742,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 });
                 window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'multiview' } }));
             }
+            // Crop: entering ortho exposes a 3rd ('z') direction; rebind
+            // the readout_dim if the current direction now points at a
+            // different spatial dim than before.
+            if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
         }
 
         function exitMultiView() {
@@ -16330,6 +16825,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _nmView._initialized = true;
                 modeManager.currentViews = [_nmView];
                 window.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'normal' } }));
+            }
+            // Crop: 'z' is no longer a valid screen axis in single view.
+            // Clamp the direction, then push the resulting readout_dim so
+            // the overlay and server state track the new binding.
+            if (_cropActive) {
+                const clamped = _cropClampDirection();
+                _cropReconcileBindings();
+                if (clamped && typeof renderIsland === 'function') renderIsland();
             }
         }
 
@@ -17664,11 +18167,58 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (e.button !== 0) return;
                         e.preventDefault();
                         if (!view.lastW || !view.lastH) return;
+                        // Crop drag-handle on primary-sid compare-mv panes only.
+                        if (!e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey
+                            && view.sid === sid
+                            && _cropActive && _crop.registered && _crop.overlayVisible) {
+                            const aff = _cropMvAffine(view);
+                            if (aff) {
+                                const rect = cv.getBoundingClientRect();
+                                const mxCss = e.clientX - rect.left;
+                                const myCss = e.clientY - rect.top;
+                                const hit = _cropHitTest(cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                                if (hit) {
+                                    e.stopImmediatePropagation();
+                                    _cropDrag = {
+                                        pane: view, edge: hit.edge, affine: aff,
+                                        imgW: view.lastW, imgH: view.lastH, cv,
+                                    };
+                                    cv.style.cursor = hit.cursor;
+                                    const rawIdx = _cropMouseToReadoutIdx(
+                                        cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                                    _cropDragApplySample(hit.edge, rawIdx);
+                                    return;
+                                }
+                            }
+                        }
                         cmvDraggingView = view;
                         handleCmvPointer(view, e);
                     });
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
+                        // Active crop drag on this pane.
+                        if (_cropDrag && _cropDrag.pane === view) {
+                            const rect = cv.getBoundingClientRect();
+                            const mxCss = e.clientX - rect.left;
+                            const myCss = e.clientY - rect.top;
+                            const rawIdx = _cropMouseToReadoutIdx(
+                                cv, _cropDrag.affine, view.lastW, view.lastH, mxCss, myCss);
+                            _cropDragApplySample(_cropDrag.edge, rawIdx);
+                            return;
+                        }
+                        // Crop-handle hover cursor.
+                        if (!e.altKey && view.sid === sid
+                            && _cropActive && _crop.registered && _crop.overlayVisible) {
+                            const aff = _cropMvAffine(view);
+                            if (aff) {
+                                const rect = cv.getBoundingClientRect();
+                                const mxCss = e.clientX - rect.left;
+                                const myCss = e.clientY - rect.top;
+                                const hit = _cropHitTest(cv, aff, view.lastW, view.lastH, mxCss, myCss);
+                                if (hit) cv.style.cursor = hit.cursor;
+                                else cv.style.cursor = 'crosshair';
+                            }
+                        }
                         fetchPixelInfo({
                             event: e,
                             canvas: cv,
@@ -17707,6 +18257,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         if (e.button === 0) _cmvClickDown = { x: e.clientX, y: e.clientY };
                     });
                     cv.addEventListener('mouseup', (e) => {
+                        if (_cropDrag && _cropDrag.pane === view && e.button === 0) {
+                            _cropDrag = null;
+                            cv.style.cursor = 'crosshair';
+                            _cropDragPushT = 0;
+                            _cropPushUpdate();
+                            _cmvClickDown = null;
+                            return;
+                        }
                         if (e.button !== 0 || !_cmvClickDown) { _cmvClickDown = null; return; }
                         const ddx = e.clientX - _cmvClickDown.x, ddy = e.clientY - _cmvClickDown.y;
                         _cmvClickDown = null;
@@ -17769,6 +18327,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 modeManager.modeName = 'compare-mv';
                 document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare-mv' } }));
             }
+            // Crop: compareMv exposes 3 screen axes — readout_dim may need
+            // to follow a direction ↔ dim remapping.
+            if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
         }
 
         function handleCmvPointer(view, e) {
@@ -17813,6 +18374,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (compareActive) {
                 modeManager.modeName = 'compare';
                 document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
+            }
+            // Crop: 'z' is no longer valid after exiting 3-plane; clamp and
+            // push the resulting readout_dim.
+            if (_cropActive) {
+                const clamped = _cropClampDirection();
+                _cropReconcileBindings();
+                if (clamped && typeof renderIsland === 'function') renderIsland();
             }
         }
 
@@ -17933,6 +18501,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             }
             drawMvOrientation();
+            if (typeof _cropRenderMvOverlay === 'function') _cropRenderMvOverlay(v);
         }
 
         function compareMvScaleAllCanvases() {
@@ -19429,6 +19998,69 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
         canvas.addEventListener('wheel', onSliceWheel, {passive: false});
         compareCanvases.forEach(cv => cv.addEventListener('wheel', onSliceWheel, {passive: false}));
+        // Crop drag-handle on primary-sid compare panes: registered first so
+        // it can pre-empt the compare-pan / click-to-copy handlers when the
+        // cursor is on a crop edge. Skips non-primary sids (overlay is only
+        // drawn on the primary pane).
+        compareCanvases.forEach((cv, i) => {
+            cv.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                if (!compareActive || compareMvActive || compareQmriActive) return;
+                if (!_cropActive || !_crop.registered || !_crop.overlayVisible) return;
+                if (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey) return;
+                const cvSid = compareDisplaySids[i];
+                if (cvSid !== sid) return;
+                if (!cv.width || !cv.height) return;
+                const aff = _cropSingleViewAffine();
+                if (!aff) return;
+                const rect = cv.getBoundingClientRect();
+                const mxCss = e.clientX - rect.left;
+                const myCss = e.clientY - rect.top;
+                const hit = _cropHitTest(cv, aff, cv.width, cv.height, mxCss, myCss);
+                if (!hit) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _cropDrag = {
+                    pane: 'compare-' + i, edge: hit.edge, affine: aff,
+                    imgW: cv.width, imgH: cv.height, cv,
+                };
+                cv.style.cursor = hit.cursor;
+                const rawIdx = _cropMouseToReadoutIdx(cv, aff, cv.width, cv.height, mxCss, myCss);
+                _cropDragApplySample(hit.edge, rawIdx);
+            });
+            cv.addEventListener('mousemove', (e) => {
+                if (_cropDrag && _cropDrag.cv === cv) {
+                    const rect = cv.getBoundingClientRect();
+                    const mxCss = e.clientX - rect.left;
+                    const myCss = e.clientY - rect.top;
+                    const rawIdx = _cropMouseToReadoutIdx(
+                        cv, _cropDrag.affine, cv.width, cv.height, mxCss, myCss);
+                    _cropDragApplySample(_cropDrag.edge, rawIdx);
+                    return;
+                }
+                if (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey) return;
+                if (!compareActive || compareMvActive || compareQmriActive) return;
+                if (!_cropActive || !_crop.registered || !_crop.overlayVisible) return;
+                const cvSid = compareDisplaySids[i];
+                if (cvSid !== sid) return;
+                if (!cv.width || !cv.height) return;
+                const aff = _cropSingleViewAffine();
+                if (!aff) return;
+                const rect = cv.getBoundingClientRect();
+                const mxCss = e.clientX - rect.left;
+                const myCss = e.clientY - rect.top;
+                const hit = _cropHitTest(cv, aff, cv.width, cv.height, mxCss, myCss);
+                if (hit) cv.style.cursor = hit.cursor;
+            });
+            cv.addEventListener('mouseup', (e) => {
+                if (_cropDrag && _cropDrag.cv === cv && e.button === 0) {
+                    _cropDrag = null;
+                    cv.style.cursor = 'crosshair';
+                    _cropDragPushT = 0;
+                    _cropPushUpdate();
+                }
+            });
+        });
         // Compare pane drag-to-pan when zoomed past viewport
         compareCanvases.forEach(cv => {
             cv.addEventListener('mousedown', (e) => {

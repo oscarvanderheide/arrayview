@@ -255,7 +255,13 @@ class TestKeyboard:
         _focus_kb(page)
         page.keyboard.press("/")
         page.wait_for_selector("#special-modes-shelf.visible", timeout=2_000)
-        assert page.locator("#special-modes-grid .smode-tile").count() == 3
+        # Tile set: qMRI, Segmentation, ROI, Overlay, Vector field, Crop.
+        # Assert presence of each by id instead of pinning a count, so adding
+        # a future plugin doesn't require updating this test.
+        for plugin_id in ("qmri", "segmentation", "roi", "overlay", "vectorfield", "crop"):
+            assert page.locator(
+                f"#special-modes-grid .smode-tile[data-smode-id='{plugin_id}']"
+            ).count() == 1, f"missing tile for plugin '{plugin_id}'"
         # Close with Escape
         page.keyboard.press("Escape")
         page.wait_for_function(
