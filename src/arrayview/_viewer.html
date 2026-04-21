@@ -12943,69 +12943,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'zoom.in': {
-                title: 'Zoom in / enter immersive',
+                title: 'Zoom in',
                 when: [],
                 run: (ctx, e) => {
-                    if (!_fullscreenActive && !_zoomAdjustedByUser &&
-                        _shouldEnterImmersive()) {
-                        const w = lastImgW || canvas.width;
-                        const h = lastImgH || canvas.height;
-                        // Land one CSS pixel inside immersive fit so the first
-                        // '=' commits fullscreen without immediately showing the
-                        // minimap. The next '=' press creates true overflow.
-                        _immTargetZoom = _calcKeyboardImmersiveLandingZoom(w, h);
-                        _pendingImmersiveTargetZoom = _immTargetZoom;
-                        userZoom = _immTargetZoom;
-                        _zoomAdjustedByUser = true;
-                        _driveImmersive(1, 0.5);
-                        showStatus('immersive');
-                        saveState();
-                    } else {
-                        userZoom = userZoom * 1.1;
-                        if (!_snapZoomToFit()) {
-                            _zoomAdjustedByUser = true;
-                        }
-                        _scaleAllWithAnim();
-                        showStatus(_fullscreenActive && userZoom === _fitZoom ? 'immersive' : userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
-                        saveState();
-                    }
+                    userZoom = Math.min(10.0, userZoom * 1.1);
+                    if (!_snapZoomToFit()) _zoomAdjustedByUser = true;
+                    _scaleAllWithAnim();
+                    showStatus(userZoom === _fitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
+                    saveState();
                 },
             },
             'zoom.out': {
-                title: 'Zoom out / exit immersive',
+                title: 'Zoom out',
                 when: [],
                 run: (ctx, e) => {
-                    if (_fullscreenActive) {
-                        const immTarget = (Number.isFinite(_immTargetZoom) && _immTargetZoom > 0)
-                            ? _immTargetZoom
-                            : _normalFitZoom;
-                        const newZoom = userZoom / 1.1;
-                        if (newZoom > immTarget) {
-                            // Still in overflow — zoom out 10%, snap to immTarget if close
-                            userZoom = Math.max(newZoom, immTarget);
-                            _zoomAdjustedByUser = true;
-                            _scaleAllWithAnim();
-                            showStatus(userZoom <= immTarget + 0.001 ? 'immersive' : `zoom: ${Math.round(userZoom * 100)}%`);
-                        } else {
-                            // At immersive fit — reverse the timeline back to normal.
-                            // Don't manually exit fullscreen: the .call() at the
-                            // midpoint handles the class toggle as the timeline
-                            // plays backward.
-                            userZoom = _normalFitZoom;
-                            _zoomAdjustedByUser = false;
-                            mainPan.reset();
-                            mosaicPan.reset();
-                            _driveImmersive(0, 0.5);
-                            showStatus('zoom: fit');
-                        }
-                    } else {
-                        userZoom = Math.max(userZoom / 1.1, _normalFitZoom);
-                        if (!_snapZoomToFit()) {
-                            _zoomAdjustedByUser = true;
-                        }
-                        _scaleAllWithAnim();
-                        showStatus(userZoom <= _normalFitZoom ? 'zoom: fit' : `zoom: ${Math.round(userZoom * 100)}%`);
-                    }
+                    const floor = _fullscreenActive
+                        ? _calcAutoFitZoom(lastImgW || canvas.width, lastImgH || canvas.height, true) * 1.005
+                        : _normalFitZoom;
+                    userZoom = Math.max(userZoom / 1.1, floor);
+                    if (!_snapZoomToFit()) _zoomAdjustedByUser = true;
+                    _scaleAllWithAnim();
+                    showStatus(userZoom <= floor + 0.001 ? (_fullscreenActive ? 'immersive' : 'zoom: fit') : `zoom: ${Math.round(userZoom * 100)}%`);
                     saveState();
                 },
             },
@@ -13034,6 +12992,33 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         showStatus('zoom: fit');
                         saveState();
                     }
+                },
+            },
+            'immersive.toggle': {
+                title: 'Toggle immersive mode',
+                when: [],
+                run: (ctx, e) => {
+                    if (_fullscreenActive) {
+                        // Exit immersive — animated reverse via existing drive path.
+                        userZoom = _normalFitZoom;
+                        _zoomAdjustedByUser = false;
+                        mainPan.reset();
+                        mosaicPan.reset();
+                        _driveImmersive(0, 0.5);
+                        showStatus('zoom: fit');
+                    } else {
+                        // Enter immersive using the same landing-zoom the `=` key uses.
+                        const w = lastImgW || canvas.width;
+                        const h = lastImgH || canvas.height;
+                        if (!w || !h) { showStatus('immersive: unavailable'); return; }
+                        _immTargetZoom = _calcKeyboardImmersiveLandingZoom(w, h);
+                        _pendingImmersiveTargetZoom = _immTargetZoom;
+                        userZoom = _immTargetZoom;
+                        _zoomAdjustedByUser = true;
+                        _driveImmersive(1, 0.5);
+                        showStatus('immersive');
+                    }
+                    saveState();
                 },
             },
             'roi.cycleMode': {
@@ -14442,11 +14427,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         saveState();
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else if (activeDim === dim_y) {
                         flip_y = !flip_y;
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
                         lastDirection = 1;
@@ -14474,11 +14459,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         saveState();
                     } else if (activeDim === dim_x) {
                         flip_x = !flip_x;
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else if (activeDim === dim_y) {
                         flip_y = !flip_y;
-                        if (lastImageData) ctx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                     } else {
                         lastDirection = -1;
@@ -14568,6 +14553,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '=', command: 'zoom.in' },
             { key: '-', command: 'zoom.out' },
             { key: '0', command: 'zoom.reset' },
+            { key: 'F', command: 'immersive.toggle' },
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
@@ -14697,8 +14683,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Zoom & Pan', columnBreak: true,
                         entries: [
                             { key: 'Pinch / ⌘Scroll', action: 'Zoom in / out', hint: 'Ctrl+Scroll on Windows / Linux' },
+                            { key: '= / -', action: 'Zoom in / out (keyboard)' },
                             { key: '0', action: 'Reset zoom to fit' },
                             { key: 'Drag', action: 'Pan the image (when zoomed in)' },
+                            { key: 'Shift+F', action: 'Toggle immersive mode', hint: 'hides chrome and fills the viewport with the array' },
                             { key: 'Z', action: 'Zen mode — hide UI chrome', hint: 'in compare + center active, hides the two source panes instead' },
                         ]
                     },
@@ -19959,82 +19947,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }, 200);
                 return;
             }
-            // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly)
+            // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly).
+            // Pure zoom only — immersive mode is opt-in via Shift+F (immersive.toggle),
+            // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
+            // animation and surprised users.
             if (e.ctrlKey || e.metaKey) {
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
                 const zoomBase = (_scrubRequestedZoom !== null) ? _scrubRequestedZoom : userZoom;
-                const desiredZoom = Math.max(_normalFitZoom, Math.min(10.0, zoomBase * factor));
-                // Compute immersive-fit zoom unconditionally. The
-                // aspect-ratio heuristic in _shouldEnterImmersive() is
-                // only used by the `=` key's auto-entry decision — for
-                // pinch we always allow the crossfade as long as there's
-                // a meaningful zoom gain from removing the chrome reserve.
+                // Floor depends on whether immersive is currently active: if so, clamp
+                // to immersive-fit zoom so the user can't accidentally zoom below the
+                // settled immersive view via pinch (they must toggle with Shift+F).
                 const _wZ = lastImgW || canvas.width;
                 const _hZ = lastImgH || canvas.height;
-                const immFitZ = (_wZ && _hZ) ? _calcAutoFitZoom(_wZ, _hZ, true) : Infinity;
-                const immLandZ = immFitZ * 1.005;
-                const crossfadeAvailable = Number.isFinite(immLandZ) && immLandZ > _normalFitZoom * 1.005;
-                // Touch the zone if userZoom or desiredZoom is inside [normFit, immLand]
-                // OR the jump straddles it (one side below, one side above).
-                const userInZone    = crossfadeAvailable && (userZoom    >= _normalFitZoom && userZoom    <= immLandZ);
-                const desiredInZone = crossfadeAvailable && (desiredZoom >= _normalFitZoom && desiredZoom <= immLandZ);
-                const straddlesZone = crossfadeAvailable && (
-                    (userZoom <= _normalFitZoom && desiredZoom >= immLandZ) ||
-                    (userZoom >= immLandZ && desiredZoom <= _normalFitZoom)
-                );
-                // Also: if userZoom is already past immLand (we're fully
-                // immersive) and desiredZoom stays past immLand, pure zoom.
-                // But if desiredZoom DROPS below immLand, we need to drive
-                // the crossfade (overlay chrome fade-out + pane shrink).
-                if (window.__pinchDebug) {
-                    console.log('[pinch]', {
-                        dy: e.deltaY, uz: userZoom.toFixed(3), dz: desiredZoom.toFixed(3),
-                        nf: _normalFitZoom.toFixed(3), imm: Number.isFinite(immFitZ) ? immFitZ.toFixed(3) : 'Inf',
-                        userInZone, desiredInZone, straddlesZone,
-                        willDrive: crossfadeAvailable && (userInZone || desiredInZone || straddlesZone),
-                        fs: _fullscreenActive, hasTl: !!immersiveTl,
-                    });
-                }
-                // Also drive the crossfade when already settled in immersive and
-                // the user pinches back out (desiredZoom drops below immLand).
-                const inImmersiveReverse = _fullscreenActive && desiredZoom < immLandZ;
-                if (crossfadeAvailable && (userInZone || desiredInZone || straddlesZone || inImmersiveReverse)) {
-                    if (!immersiveTl) _buildImmersiveTl();
-                    if (immersiveTl) {
-                        _immTargetZoom = immLandZ;
-                        // Direct 1:1 mapping: zoom position → timeline progress.
-                        // No phase-split, no chasing tween — tracks fingers exactly
-                        // like overflow zoom tracks the minimap.
-                        const rawP = Math.max(0, Math.min(1, (desiredZoom - _normalFitZoom) / (immLandZ - _normalFitZoom)));
-                        // If leaving settled immersive, exit before scrubbing back.
-                        if (_fullscreenActive && rawP < 1) {
-                            _exitImmersive();
-                        }
-                        userZoom = desiredZoom;
-                        _zoomAdjustedByUser = true;
-                        _scrubRequestedZoom = null;
-                        immersiveTl.progress(rawP);
-                        if (rawP >= 1) {
-                            ModeRegistry.scaleAll();
-                            _settleImmersive();
-                        } else if (rawP <= 0) {
-                            // Fully pinched back out — kill timeline and restore chrome.
-                            immersiveTl.kill();
-                            immersiveTl = null;
-                            _resetImmersiveTransforms(); // clears _scrubDetached, restores #info
-                            _crossfadeCollapseP = 0;
-                            _crossfadeP = 0;
-                            ModeRegistry.scaleAll();
-                            saveState();
-                            return;
-                        }
-                        if (rawP < 1) ModeRegistry.scaleAll();
-                        saveState();
-                        return;
-                    }
-                }
-                // Fallthrough: pure zoom path (no crossfade interaction).
+                const floorZ = _fullscreenActive && _wZ && _hZ
+                    ? _calcAutoFitZoom(_wZ, _hZ, true) * 1.005
+                    : _normalFitZoom;
+                const desiredZoom = Math.max(floorZ, Math.min(10.0, zoomBase * factor));
                 _scrubRequestedZoom = null;
                 userZoom = desiredZoom;
                 if (!_snapZoomToFit()) {
