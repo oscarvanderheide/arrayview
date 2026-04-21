@@ -925,7 +925,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
     # not the FastAPI server.  Inline the vendored copy instead.
     gsap_js = _pkg_files("arrayview").joinpath("gsap.min.js").read_text(encoding="utf-8")
     template = template.replace(
-        '<script src="/gsap.min.js"></script>',
+        '<script src="gsap.min.js"></script>',
         f"<script>{gsap_js}</script>",
     )
 
