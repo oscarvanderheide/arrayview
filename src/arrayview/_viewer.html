@@ -13872,8 +13872,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 run: (ctx, e) => {
                     if (qmriActive) { showStatus('m-mode not available in qMRI mode'); return; } // kept inline: emits toast
                     const _view = modeManager.getFocusedView();
-                    // Phase 12: use view capability check; fall back to legacy rgbMode guard
-                    if (_view ? !_view.supportsComplexMode() : rgbMode) {
+                    // Block only rgb renderMode — real arrays still cycle through REAL_MODES (real ↔ mag).
+                    const _isRgbView = _view ? _view.displayState.renderMode === 'rgb' : rgbMode;
+                    if (_isRgbView) {
                         showStatus('complex mode: not available here');
                         return;
                     }
