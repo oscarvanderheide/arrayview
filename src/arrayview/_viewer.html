@@ -3310,15 +3310,39 @@
                 try { sink.blur(); } catch (_) {}
             }
         }
-        document.body.addEventListener('mouseenter', _viewerEngage);
+        // Re-focus the sink whenever we're engaged — idempotent, safe to
+        // call repeatedly. Guards against the sink silently losing focus
+        // (tab return, programmatic blur) while the user is still hovered.
+        function _syncSinkFocus() {
+            if (!_viewerEngaged || _isEditableActive()) return;
+            if (document.activeElement === sink) return;
+            try { sink.focus({ preventScroll: true }); } catch (_) {}
+        }
+        document.body.addEventListener('mouseenter', () => { _viewerEngage(); _syncSinkFocus(); });
         document.body.addEventListener('mouseleave', _viewerDisengage);
-        // focusin/out keep the flag in sync when engagement changes via
-        // focus (tab key, programmatic focus) without a mouse event.
-        document.body.addEventListener('focusin', () => { _viewerEngaged = true; });
+        // `mouseenter` doesn't fire if the mouse is already inside the
+        // body when the page loads — common when the viewer pops up in
+        // the current tab. Any mousemove engages us.
+        document.body.addEventListener('mousemove', () => {
+            if (!_viewerEngaged) { _viewerEngage(); _syncSinkFocus(); }
+        });
+        document.body.addEventListener('focusin', () => { _viewerEngaged = true; _syncSinkFocus(); });
         document.body.addEventListener('focusout', (e) => {
             // relatedTarget null => focus left the document entirely.
             if (!e.relatedTarget) _viewerEngaged = false;
         });
+        // Tab-return: re-engage and refocus the sink so shortcuts work
+        // again without requiring a click.
+        window.addEventListener('focus', () => {
+            _viewerEngaged = true;
+            _syncSinkFocus();
+        });
+        // Initial focus: if the document has focus on load, route keys to
+        // the sink immediately so the user doesn't have to click or move
+        // the mouse before shortcuts (m, d, /, etc.) start working.
+        const _initialSinkFocus = () => { if (document.hasFocus()) { _viewerEngage(); _syncSinkFocus(); } };
+        if (document.readyState === 'complete') _initialSinkFocus();
+        else window.addEventListener('load', _initialSinkFocus, { once: true });
 
         if (!sid) {
             document.getElementById('info').textContent = "No session ID provided in URL.";
