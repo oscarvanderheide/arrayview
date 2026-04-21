@@ -265,48 +265,36 @@ class TestDisplaySettings:
         )
         assert strip_visible, "Colormap strip should appear after pressing c"
 
-    def test_d_cycles_dr_and_canvas_changes(self, loaded_viewer, sid_2d):
+    def test_d_opens_histogram(self, loaded_viewer, sid_2d):
+        """Tap `d` shows 'histogram' in the status line (opens histogram mode)."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        before = page.evaluate(_JS_CENTER_PIXEL)
         page.keyboard.press("d")
-        page.wait_for_timeout(600)
-        after = page.evaluate(_JS_CENTER_PIXEL)
+        _wait_status(page, "histogram")
         status = _get_status(page)
-        assert "range" in status.lower() or "dynamic" in status.lower(), (
-            f"Expected DR status message, got: '{status}'"
+        assert "histogram" in status.lower(), (
+            f"Expected histogram status, got: '{status}'"
         )
-        # Canvas should re-render (pixel value likely changes for non-uniform data)
-        # (may be same for some DRs — at least status was correct)
 
     def test_d_status_message_correct(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
-        _wait_status(page, "range")
+        _wait_status(page, "histogram")
         status = _get_status(page)
-        assert "dynamic range" in status.lower() or "range" in status.lower()
+        assert "histogram" in status.lower()
 
-    def test_D_toggles_range_lock(self, loaded_viewer, sid_2d):
-        """D key toggles range lock — first press unlocks, second press re-locks."""
+    def test_D_is_unbound(self, loaded_viewer, sid_2d):
+        """Shift+D no longer has a key binding (range.toggleLock still lives
+        in the command palette for power users). Pressing it should not emit
+        a range-lock toast."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        # First press: locked → unlocked
         page.keyboard.press("D")
-        page.wait_for_timeout(400)
+        page.wait_for_timeout(300)
         toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
-        assert "unlocked" in toast.lower(), f"Expected 'unlocked' toast, got: '{toast}'"
-        # Second press: unlocked → locked
-        page.keyboard.press("D")
-        page.wait_for_timeout(400)
-        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
-        assert "locked" in toast.lower() and "unlocked" not in toast.lower(), \
-            f"Expected 'range: locked' toast on second press, got: '{toast}'"
-        # D should never open inline prompt
-        prompt_visible = page.evaluate(
-            "() => { const p = document.getElementById('inline-prompt'); return p && p.classList.contains('visible'); }"
-        )
-        assert not prompt_visible, "D should not open inline prompt"
+        assert "unlocked" not in toast.lower() and "range: locked" not in toast.lower(), \
+            f"D should be unbound now, got toast: '{toast}'"
 
     def test_L_log_scale_on_shows_log_egg(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)

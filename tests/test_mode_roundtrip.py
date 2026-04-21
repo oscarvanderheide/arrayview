@@ -152,7 +152,7 @@ MODES = {
 
 PERTURBATIONS = {
     "cycle_colormap":      _press("c"),
-    "cycle_dynamic_range": _press("d"),
+    "toggle_histogram":    _press("d"),
     "toggle_log":          _press("L"),
     "toggle_pixel_info":   _press("i"),
     "change_slice":        _press("l"),
@@ -163,7 +163,7 @@ PERTURBATIONS = {
 INTENTIONALLY_NOOP = {
     ("qmri",         "cycle_colormap"):      "qMRI: colormaps fixed per parameter map",
     ("qmri",         "toggle_log"):          "qMRI: log scale not applicable to parameter maps",
-    ("qmri",         "cycle_dynamic_range"): "qMRI: dynamic range fixed per parameter map",
+    ("qmri",         "toggle_histogram"):    "qMRI: histogram toggle affects per-pane colorbar; not captured as mode state",
 }
 
 
@@ -190,7 +190,10 @@ IGNORED_FIELDS_GLOBAL: set[str] = {"viewStates", "mmModeName"}
 # state-corruption bug — it's the whole point.
 PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
     "cycle_colormap":      {"colormap_idx", "customColormap"},
-    "cycle_dynamic_range": {"manualVmin", "manualVmax"},
+    # Tapping `d` toggles histogram mode — it expands the colorbar and flips
+    # lebesgueMode. manualVmin/manualVmax are left untouched by the toggle
+    # itself; quantile cycling has moved to the colorbar scroll / palette.
+    "toggle_histogram":    {"lebesgueMode"},
     # toggle_log changes logScale AND recomputes vmin/vmax for the new scale
     "toggle_log":          {"logScale", "manualVmin", "manualVmax"},
     "toggle_pixel_info":   {"_pixelInfoVisible"},

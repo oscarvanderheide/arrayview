@@ -547,19 +547,21 @@ class TestKeyboard:
             f"Expected --compare-cols=3 for 6 panes, got '{compare_cols}'"
         )
 
-    def test_d_cycles_dynamic_range_shows_status(self, loaded_viewer, sid_2d):
-        # First d press expands histogram; second cycles quantile range
+    def test_d_toggles_histogram(self, loaded_viewer, sid_2d):
+        # First d tap opens the histogram; second tap closes it.
+        # (Quantile cycling via repeated `d` was removed in favor of the
+        # hold-`d` dim-selector menu — see _viewer.html.)
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
         status = page.inner_text("#status").strip()
         assert "histogram" in status.lower(), f"Expected histogram status, got: '{status}'"
-        # Second press cycles quantile — shows range label
+        # Second press toggles off
         page.keyboard.press("d")
         page.wait_for_timeout(400)
         status = page.inner_text("#status").strip()
-        assert "range" in status.lower(), f"Expected range status, got: '{status}'"
+        assert "off" in status.lower(), f"Expected histogram-off status, got: '{status}'"
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

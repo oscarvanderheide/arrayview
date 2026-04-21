@@ -431,12 +431,12 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "16_borders_on")
     _press(page, "b")  # off
 
-    # ── 17: dynamic range (d) ────────────────────────────────────────────────
+    # ── 17: histogram toggle (d) ─────────────────────────────────────────────
+    # Tap `d` now toggles the histogram open/closed (quantile cycling was
+    # removed from the `d` key; hold-`d` picks the histogram aggregation dim).
     _press(page, "d")
-    _shot(page, "17_dynamic_range_1pct")
-    _press(page, "d")
-    _press(page, "d")
-    _press(page, "d")  # back to 0-100
+    _shot(page, "17_histogram_open")
+    _press(page, "d")  # close
 
     # ── 18: log scale (L = capital) ──────────────────────────────────────────
     _goto(page, base, sid2d)
@@ -689,22 +689,16 @@ def run_smoke(page, base, client, tmp):
     _press(page, "H", wait=200)  # re-enable
     _shot(page, "43c_hover_tooltip_back_on")
 
-    # ── 44: D key — toggle range lock ───────────────────────────────────────
-    # Uses arr4d_varied where each dim-0 index has 10× different scale, so
-    # per-slice vmin/vmax differ dramatically across navigation.
+    # ── 44: d key — toggle histogram ────────────────────────────────────────
+    # Tap `d` toggles the histogram-mode colorbar on/off. (Previous range-lock
+    # D binding removed; see commit notes. range.toggleLock still reachable via
+    # the command palette.)
     _goto(page, base, sid4d_varied)
     _focus(page)
     _press(page, "d", wait=600)  # open histogram
-    _press(page, "d", wait=600)  # cycle to 1-99% quantile (volume range)
-    _shot(page, "44a_D_locked_volume_range")
-    _press(page, "D", wait=400)  # unlock — should immediately re-render per-slice
-    _shot(page, "44b_D_unlocked_per_slice")
-    _press(page, "k", wait=400)  # scroll to next slice along dim 0
-    _shot(page, "44c_D_unlocked_after_k")
-    _press(page, "k", wait=400)  # scroll again — vmin/vmax should change again
-    _shot(page, "44d_D_unlocked_after_k2")
-    _press(page, "D", wait=400)  # re-lock
-    _shot(page, "44e_D_relocked")
+    _shot(page, "44a_histogram_open")
+    _press(page, "d", wait=600)  # close histogram
+    _shot(page, "44b_histogram_closed")
 
     # ── 45: unified picker — Cmd+O/Ctrl+O and P keys open #uni-picker ───────────────────
     # Cycle: open → compare → overlay → open…
@@ -1833,8 +1827,12 @@ def run_smoke(page, base, client, tmp):
     # ── 74: histogram height regression (d key must not expand colorbar) ─────
     _goto(page, base, sid2d)
     _focus(page)
-    # Ensure collapsed state first — press d four times to cycle back
-    for _ in range(4):
+    # Make sure we start from the collapsed state — the histogram auto-
+    # dismisses on its own, but a quick toggle-off guarantees it.
+    is_open = page.evaluate(
+        "() => !!(typeof primaryCb !== 'undefined' && primaryCb && primaryCb._expanded)"
+    )
+    if is_open:
         _press(page, "d", wait=200)
     h_before = page.evaluate(
         "() => { const el = document.getElementById('slim-cb-wrap'); return el ? el.offsetHeight : -1; }"
@@ -1850,9 +1848,7 @@ def run_smoke(page, base, client, tmp):
         f"FAIL: colorbar island height changed by {delta}px after pressing d "
         f"(before={h_before}, after={h_after}) — histogram must fit within colorbar"
     )
-    _press(page, "d", wait=200)
-    _press(page, "d", wait=200)
-    _press(page, "d", wait=200)  # cycle back to 0-100
+    _press(page, "d", wait=200)  # toggle off
     print(f"  OK: histogram height stable (delta={delta}px)")
 
     # ── 75: immersive crossfade handoff maps zoom to paneCutoff ────────────

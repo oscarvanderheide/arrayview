@@ -1697,6 +1697,77 @@
             border-color: var(--active-dim);
         }
 
+        /* ── Histogram-dim hold-d selector menu ─────────────────── */
+        #histdim-hold-menu {
+            display: none;
+            position: fixed;
+            left: 50%; bottom: 40px;
+            transform: translateX(-50%) scale(0.98);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 10px 12px 8px;
+            z-index: 45;
+            opacity: 0;
+            transition: opacity 0.12s ease, transform 0.12s ease;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: var(--text);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            max-width: min(640px, 92vw);
+            pointer-events: none;
+        }
+        #histdim-hold-menu.visible {
+            display: block;
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+        #histdim-hold-menu .hdh-title {
+            font-size: 10px; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.08em;
+            margin: 0 2px 8px; display: flex; gap: 10px; align-items: baseline;
+        }
+        #histdim-hold-menu .hdh-title .hdh-hint { color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
+        #histdim-hold-menu .hdh-row {
+            display: flex; gap: 4px; flex-wrap: wrap;
+        }
+        #histdim-hold-menu .hdh-cell {
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            padding: 6px 10px; border-radius: 6px;
+            border: 1.5px solid transparent;
+            background: transparent;
+            min-width: 48px;
+        }
+        #histdim-hold-menu .hdh-cell .hdh-label {
+            font-size: 12px; color: var(--text);
+        }
+        #histdim-hold-menu .hdh-cell .hdh-size {
+            font-size: 10px; color: var(--muted);
+        }
+        #histdim-hold-menu .hdh-cell.active {
+            border-color: var(--active-dim);
+            background: rgba(245,200,66,0.10);
+        }
+        #histdim-hold-menu .hdh-cell.active .hdh-label {
+            color: var(--active-dim);
+        }
+        #histdim-hold-menu .hdh-cell.active .hdh-size {
+            color: var(--active-dim);
+        }
+        #histdim-hold-menu .hdh-cell.disabled {
+            opacity: 0.4;
+        }
+        #histdim-hold-menu .hdh-lock-row {
+            margin: 0 0 6px; padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        #histdim-hold-menu .hdh-lock {
+            flex-direction: row; align-items: baseline; gap: 10px;
+            min-width: 100%;
+        }
+        #histdim-hold-menu .hdh-lock .hdh-size {
+            font-size: 10px; color: var(--muted);
+        }
+
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
             position:fixed; left:50%; transform:translateX(-50%);
@@ -2107,6 +2178,7 @@
     <div id="colormap-strip"></div>
     <div id="colormap-strip-right"></div>
     <div id="colormap-hold-menu" aria-hidden="true"></div>
+    <div id="histdim-hold-menu" aria-hidden="true"></div>
     <div id="compare-mode-strip"></div>
     <div id="compare-center-island"></div>
     <div id="inline-prompt">
@@ -2450,6 +2522,7 @@
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
         // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
+        let _histExtraDim = null;   // user-picked dim to aggregate over for the volume histogram (hold-`d`); null = auto (dim_z / current_slice_dim)
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
@@ -6673,8 +6746,17 @@
             } catch (_) { return null; }
         }
 
-        /** Return opts for _fetchVolumeHistogram that cover the full 3D spatial volume. */
+        /** Return opts for _fetchVolumeHistogram that cover the full 3D spatial volume.
+         *  If the user has picked a histogram dim via hold-`d`, that dim becomes the
+         *  third (aggregated) axis alongside dim_x/dim_y, provided it differs from
+         *  the current display axes. */
         function _volHistSpatialOpts() {
+            const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
+            const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
+            if (_histExtraDim != null && _histExtraDim !== dx && _histExtraDim !== dy
+                && _histExtraDim >= 0 && _histExtraDim < shape.length) {
+                return { dimX: dx, dimY: dy, scrollDim: _histExtraDim };
+            }
             if (multiViewActive && mvDims && mvDims.length === 3) {
                 return { dimX: mvDims[1], dimY: mvDims[0], scrollDim: mvDims[2] };
             }
@@ -6697,8 +6779,16 @@
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
-            // In mosaic mode, _volHistSpatialOpts uses dim_z as scrollDim
-            const sd = useMv ? mvDims[2] : (dim_z >= 0 ? dim_z : current_slice_dim);
+            // Match _volHistSpatialOpts precedence: user-picked extra dim > mvDims[2] > dim_z > current_slice_dim
+            let sd;
+            if (_histExtraDim != null && _histExtraDim !== dx && _histExtraDim !== dy
+                && _histExtraDim >= 0 && _histExtraDim < shape.length) {
+                sd = _histExtraDim;
+            } else if (useMv) {
+                sd = mvDims[2];
+            } else {
+                sd = (dim_z >= 0 ? dim_z : current_slice_dim);
+            }
             const parts = [];
             for (let i = 0; i < shape.length; i++) {
                 if (i === dx || i === dy || i === sd) continue;
@@ -12981,6 +13071,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // to do here — returning keeps the dispatcher happy.
                 },
             },
+            'histogram.openDimPicker': {
+                title: 'Open histogram dim & lock picker',
+                when: [],
+                run: (ctx, e) => {
+                    if (!_histDimPickerEligible()) return;
+                    if (_histDimPickerActive) _histDimPickerClose();
+                    else _histDimPickerOpen();
+                },
+            },
             'colormap.cycleNext': {
                 when: ['!rgbMode'],
                 run: (ctx, e) => {
@@ -13806,63 +13905,42 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'histogram.openOrCycle': {
-                title: 'Open histogram / cycle quantile',
+                title: 'Toggle histogram mode',
                 when: [],
                 run: async (ctx, e) => {
-                    // In diff mode: expand/cycle left+right colorbars in sync,
-                    // unless hovering over the center (diff) pane — then affect
-                    // only the center colorbar.
+                    // Tap `d` toggles the histogram colorbar open/closed.
+                    // Preset cycling is no longer bound to repeated `d` presses —
+                    // use the scroll-wheel on the colorbar or the command palette.
+                    // Hold-`d` opens the dim-selector menu (handled separately
+                    // in the sink keydown path).
+
+                    // In diff mode: toggle left+right colorbars in sync, or just
+                    // the center (diff) colorbar when hovering the center pane.
                     const _cmpLeftCb  = window._comparePaneCbs && window._comparePaneCbs[0];
                     const _cmpRightCb = window._comparePaneCbs && window._comparePaneCbs[1];
                     if (compareActive && diffMode > 0 && _cmpLeftCb) {
                         if (_mouseOverCenterPane && _diffCenterCb) {
-                            // Hovering center diff pane — expand/cycle center colorbar only
                             if (!_diffCenterCb.expanded) {
                                 await _diffCenterCb.expand();
                                 _diffCenterCb.startAutoDismiss();
+                                showStatus('diff histogram');
                             } else {
-                                const q = _diffCenterCb.cycleQuantile();
-                                if (q) {
-                                    _diffManualVmin = q.vmin;
-                                    _diffManualVmax = q.vmax;
-                                    { const _dv = modeManager.getViewById('compare-diff-center'); if (_dv) { _dv.displayState.vmin = _diffManualVmin; _dv.displayState.vmax = _diffManualVmax; } }
-                                    _diffCenterCb.draw();
-                                    _diffCenterCb.ensureAnimating();
-                                    fetchAndDrawDiff();
-                                    showToast(`diff ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
-                                }
-                                _diffCenterCb.startAutoDismiss();
+                                _diffCenterCb.collapse();
+                                showStatus('histogram: off');
                             }
-                            showStatus('diff histogram');
                         } else {
-                            // Hovering left/right pane — expand/cycle both in sync
                             const cbs = [_cmpLeftCb, _diffCenterCb].filter(Boolean);
                             if (!_cmpLeftCb.expanded) {
-                                for (const cb of cbs) {
-                                    await cb.expand();
-                                    cb.startAutoDismiss();
-                                }
+                                for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
+                                showStatus('histogram');
                             } else {
-                                const q = _cmpLeftCb.cycleQuantile();
-                                if (q) {
-                                    cmpManualVmin[0] = q.vmin; cmpManualVmax[0] = q.vmax;
-                                    cmpManualVmin[1] = q.vmin; cmpManualVmax[1] = q.vmax;
-                                    // Phase 4 dual-write
-                                    [0, 1].forEach(i => { const _v = modeManager.currentViews[i]; if (_v) { _v.displayState.vmin = q.vmin; _v.displayState.vmax = q.vmax; } });
-                                    _cmpLeftCb.draw(); _cmpRightCb?.draw();
-                                    _cmpLeftCb.ensureAnimating(); _cmpRightCb?.ensureAnimating();
-                                    compareRender();
-                                    showToast(_rangeStatusStr(q.label, q.vmin, q.vmax));
-                                }
-                                for (const cb of cbs) cb.startAutoDismiss();
+                                for (const cb of cbs) cb.collapse();
+                                showStatus('histogram: off');
                             }
-                            showStatus('histogram');
                         }
                         return;
                     }
-                    // In qMRI mode, hovering a specific pane: expand + cycle quantile
-                    // Phase 12 TODO: replace _hoveredQmriView with modeManager.getViewUnderMouse()
-                    // The mouseenter/mouseleave events on qmriViews canvases still set _hoveredQmriView (in enterQmri).
+                    // qMRI per-pane toggle (hovered pane wins).
                     if (qmriActive && _hoveredQmriView) {
                         const hv = _hoveredQmriView;
                         const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
@@ -13872,125 +13950,79 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             cb.startAutoDismiss();
                             showStatus('histogram');
                         } else {
-                            const q = cb.cycleQuantile();
-                            if (q) {
-                                hv.lockedVmin = q.vmin; hv.lockedVmax = q.vmax;
-                                const _hvIdx = qmriViews.indexOf(hv);
-                                if (_hvIdx >= 0) { const _qv = modeManager.currentViews[_hvIdx]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; } }
-                                hv.seq++; hv.rendering = false; hv.pending = false;
-                                qvRender(hv);
-                                cb.ensureAnimating();
-                                const paneLabel = QMRI_LABELS[hv.colormap] || hv.colormap;
-                                showToast(`${paneLabel}: ${_rangeStatusStr(q.label, q.vmin, q.vmax)}`);
-                            }
-                            cb.startAutoDismiss();
+                            cb.collapse();
+                            showStatus('histogram: off');
                         }
                         return;
                     }
-                    // In qMRI mode without hovered pane: show histograms for all panes; cycle quantile on repeat
                     if (qmriActive && !qmriMosaicActive) {
                         const cbs = qmriViews.map(v => v._colorBar).filter(Boolean);
                         if (cbs.some(cb => !cb._expanded)) {
                             for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
                             showStatus('histogram');
                         } else {
-                            let label = null;
-                            for (const [_qi, v] of qmriViews.entries()) {
-                                if (!v._colorBar) continue;
-                                const q = v._colorBar.cycleQuantile();
-                                if (q) {
-                                    v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label;
-                                    const _qv = modeManager.currentViews[_qi]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; }
-                                    v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._colorBar.ensureAnimating();
-                                }
-                                v._colorBar.startAutoDismiss();
-                            }
-                            if (label) showToast(_rangeStatusStr(label, null, null));
+                            for (const cb of cbs) cb.collapse();
+                            showStatus('histogram: off');
                         }
                         return;
                     }
-                    // In qMRI mosaic mode without hovered pane: show histograms for all panes; cycle quantile on repeat
                     if (qmriActive && qmriMosaicActive) {
                         const cbs = qmriViews.map(v => v._mosaicColorBar).filter(Boolean);
                         if (cbs.some(cb => !cb._expanded)) {
                             for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
                             showStatus('histogram');
                         } else {
-                            let label = null;
-                            for (const [_qi, v] of qmriViews.entries()) {
-                                if (!v._mosaicColorBar) continue;
-                                const q = v._mosaicColorBar.cycleQuantile();
-                                if (q) {
-                                    v.lockedVmin = q.vmin; v.lockedVmax = q.vmax; label = q.label;
-                                    const _qv = modeManager.currentViews[_qi]; if (_qv) { _qv.displayState.vmin = q.vmin; _qv.displayState.vmax = q.vmax; }
-                                    v.seq++; v.rendering = false; v.pending = false; qvRender(v); v._mosaicColorBar.ensureAnimating();
-                                }
-                                v._mosaicColorBar.startAutoDismiss();
-                            }
-                            if (label) showToast(_rangeStatusStr(label, null, null));
+                            for (const cb of cbs) cb.collapse();
+                            showStatus('histogram: off');
                         }
                         return;
                     }
                     if (rgbMode) return;
 
-                    if (lebesgueMode && _histData) {
-                        _pulseHistDims();
-                        // Re-fetch if histogram data is stale for current dim config
-                        if (_histDataVersion !== _expectedHistKey()) {
-                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                            if (volData) { _histData = volData; _buildKDE(); }
-                        }
-                        // Histogram mode open: cycle quantile presets with smooth indicator updates
-                        const preset = _cycleQuantilePreset();
-                        if (preset) {
-                            proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                            primaryCb.ensureAnimating();
-                            showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
-                        }
-                    } else {
-                        // Normal / multiview mode — expand histogram on first press, cycle quantiles on repeat
-                        if (!primaryCb._expanded) {
-                            // First press: expand histogram
-                            _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
-                            _pulseHistDims();
-                            _computeCbExpandedH();
-                            primaryCb._expanded = true;
-                            primaryCb._manualExpand = true; // prevent 200ms auto-close; global timer owns dismissal
-                            const triZone = document.getElementById('slim-cb-tri-zone');
-                            if (triZone) triZone.classList.add('expanded');
-                            if (compareActive) {
-                                await _fetchHistogramCompare();
-                            } else {
-                                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                                if (volData) _histData = volData;
-                            }
-                            _buildKDE();
-                            lebesgueMode = true;
-                            _fetchLebesgueSlice();
-                            primaryCb.startAnim(true);
-                            if (multiViewActive || compareMvActive) {
-                                drawMvColorbar();
-                            } else {
-                                drawSlimColorbar(cbMarkerFrac);
-                            }
-                            showStatus('histogram');
-                            _restartHistAutoDismiss();
+                    // Normal / multiview / compare: toggle the primary histogram.
+                    if (primaryCb._expanded) {
+                        // Close.
+                        if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
+                        lebesgueMode = false;
+                        primaryCb._expanded = false;
+                        primaryCb._manualExpand = false;
+                        _lebesgueManual = false;
+                        _clearLebesgueOverlay();
+                        const tz = document.getElementById('slim-cb-tri-zone');
+                        if (tz) tz.classList.remove('expanded');
+                        primaryCb.startAnim(false);
+                        if (multiViewActive || compareMvActive) {
+                            drawMvColorbar();
                         } else {
-                            // Subsequent presses: cycle quantile presets
-                            _pulseHistDims();
-                            // Re-fetch if histogram data is stale for current dim config
-                            if (!_histData || _histDataVersion !== _expectedHistKey()) {
-                                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                                if (volData) { _histData = volData; _buildKDE(); }
-                            }
-                            const preset = _cycleQuantilePreset();
-                            if (preset) {
-                                proxyFetch(`/clearcache/${sid}`).then(() => { updateView(); triggerPreload(); });
-                                primaryCb.ensureAnimating();
-                                showToast(_rangeStatusStr(preset.label, manualVmin, manualVmax));
-                            }
-                            _restartHistAutoDismiss();
+                            drawSlimColorbar(cbMarkerFrac);
                         }
+                        showStatus('histogram: off');
+                    } else {
+                        // Open.
+                        _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
+                        _pulseHistDims();
+                        _computeCbExpandedH();
+                        primaryCb._expanded = true;
+                        primaryCb._manualExpand = true;
+                        const tz = document.getElementById('slim-cb-tri-zone');
+                        if (tz) tz.classList.add('expanded');
+                        if (compareActive) {
+                            await _fetchHistogramCompare();
+                        } else {
+                            const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                            if (volData) _histData = volData;
+                        }
+                        _buildKDE();
+                        lebesgueMode = true;
+                        _fetchLebesgueSlice();
+                        primaryCb.startAnim(true);
+                        if (multiViewActive || compareMvActive) {
+                            drawMvColorbar();
+                        } else {
+                            drawSlimColorbar(cbMarkerFrac);
+                        }
+                        showStatus('histogram');
+                        _restartHistAutoDismiss();
                     }
                     saveState();
                 },
@@ -14670,7 +14702,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
             { key: 'd', command: 'histogram.openOrCycle' },
-            { key: 'D', command: 'range.toggleLock' },
+            { key: 'D', command: 'histogram.openDimPicker' },
             { key: 'j', command: 'slice.prev' },
             { key: 'ArrowDown', command: 'slice.prev' },
             { key: 'k', command: 'slice.next' },
@@ -14794,8 +14826,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Cycle colormap (tap) / hold to pick', hint: 'tap `c` to cycle next · hold `c` to open a preview grid (hjkl/arrows to browse · Enter or release to select · Esc cancels)' },
-                            { key: 'd', action: 'Open histogram / cycle quantile presets', hint: 'first press shows the volume histogram; repeat to tighten outliers' },
-                            { key: 'D', action: 'Toggle range lock', hint: 'unlock to make vmin/vmax follow the current slice; lock (default) to freeze' },
+                            { key: 'd', action: 'Toggle histogram', hint: 'show or hide the volume histogram on the colorbar' },
+                            { key: 'Shift+D', action: 'Histogram dim & lock picker', hint: 'j/k to switch rows · h/l across dims · Enter acts (toggle lock / commit dim) · Esc closes' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
                             { key: 'b', action: 'Toggle canvas borders' },
@@ -15667,9 +15699,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         sink.addEventListener('keydown', async (e) => {
             e.preventDefault();
             e.stopImmediatePropagation();
-            // Hold-menu navigation has priority once the menu is visible.
+            // Hold-menu navigation has priority once a menu is visible.
             if (_cmapHoldActive) {
                 if (_cmapHoldKey(e)) return;
+            }
+            if (_histDimPickerActive) {
+                if (_histDimPickerKey(e)) return;
             }
             // Intercept first-press of `c` (no modifiers) to arm the hold
             // timer. On keyup we either commit/cycle depending on whether
@@ -15759,7 +15794,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 } catch (_) {}
             }
         }, true);
-        // Safety: if focus leaves mid-hold, treat as cancel-to-tap.
+        // Safety: if focus leaves while the cmap-hold menu is up, cancel it;
+        // the dim-picker is a tap-to-open menu and closes itself on Esc/commit,
+        // so no blur coupling is needed for it.
         window.addEventListener('blur', () => {
             if (_cmapHoldOpenTimer !== null) {
                 clearTimeout(_cmapHoldOpenTimer);
@@ -15769,6 +15806,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapHoldCancel();
             }
             _cmapHoldKeyDown = false;
+            if (_histDimPickerActive) _histDimPickerClose(true);
         });
 
 
@@ -21670,6 +21708,177 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Swallow other keys while the menu is open so they don't trigger
             // other shortcuts (e.g. pressing `c` again shouldn't re-enter).
             if (k === 'c' || k === 'C') { e.preventDefault(); return true; }
+            return false;
+        }
+
+        // ── 3c. `D` histogram-dim / lock picker ───────────────────────
+        // Capital `D` opens a picker with two rows: a lock toggle and a dim
+        // strip for choosing the quantile aggregation axis. j/k moves between
+        // rows; h/l moves within the dim row; Enter acts on the highlighted
+        // row (toggle lock / commit dim); Esc closes without touching state.
+        // Pressing `D` again closes the menu. Visibility is driven by the
+        // `.visible` class via _reconcileHistDimPicker.
+        const _histDimHoldMenu = document.getElementById('histdim-hold-menu');
+        let _histDimPickerActive = false;
+        let _histDimPickerRow = 1;       // 0 = lock row, 1 = dim row
+        let _histDimPickerSelIdx = 0;    // index into _histDimPickerDims
+        let _histDimPickerDims = [];     // array of dim indices shown (all dims)
+
+        function _reconcileHistDimPicker() {
+            if (!_histDimHoldMenu) return;
+            _histDimHoldMenu.classList.toggle('visible', !!_histDimPickerActive);
+            _histDimHoldMenu.setAttribute('aria-hidden', _histDimPickerActive ? 'false' : 'true');
+        }
+
+        function _histDimPickerEligible() {
+            if (rgbMode) return false;
+            if (!Array.isArray(shape) || shape.length < 2) return false;
+            if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+            if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
+            if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
+            return true;
+        }
+
+        function _histDimPickerLabel(i) {
+            // Human-readable label for dim i, mirroring renderInfo()'s spatial
+            // assignments so users see the same symbols in both places.
+            if (multiViewActive && mvDims && mvDims.length === 3) {
+                const pos = mvDims.indexOf(i);
+                if (pos >= 0) return ['y', 'x', 'z'][pos] || `d${i}`;
+            }
+            if (i === dim_x) return 'x';
+            if (i === dim_y) return 'y';
+            if (i === dim_z) return 'z';
+            return `d${i}`;
+        }
+
+        function _histDimPickerBuild() {
+            if (!_histDimHoldMenu) return;
+            _histDimPickerDims = shape.map((_, i) => i);
+            const lockLabel = rangeLocked ? 'locked' : 'unlocked';
+            let html = '<div class="hdh-title"><span>histogram</span>'
+                + '<span class="hdh-hint">jk rows · hl cells · Enter act · Esc close</span></div>'
+                + `<div class="hdh-lock-row"><div class="hdh-cell hdh-lock" data-hdh-row="0">`
+                + `<span class="hdh-label">range: ${lockLabel}</span>`
+                + `<span class="hdh-size">Enter to toggle</span></div></div>`
+                + '<div class="hdh-row">';
+            const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
+            const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
+            for (const i of _histDimPickerDims) {
+                const disabled = (i === dx || i === dy);
+                const cls = disabled ? 'hdh-cell disabled' : 'hdh-cell';
+                const sz = Array.isArray(shape) ? shape[i] : '?';
+                html += `<div class="${cls}" data-hdh-dim="${i}">`
+                    + `<span class="hdh-label">${_histDimPickerLabel(i)}</span>`
+                    + `<span class="hdh-size">${sz}</span></div>`;
+            }
+            html += '</div>';
+            _histDimHoldMenu.innerHTML = html;
+        }
+
+        function _histDimPickerHighlight() {
+            if (!_histDimHoldMenu) return;
+            const lock = _histDimHoldMenu.querySelector('.hdh-lock');
+            if (lock) lock.classList.toggle('active', _histDimPickerRow === 0);
+            const cells = _histDimHoldMenu.querySelectorAll('.hdh-row .hdh-cell');
+            cells.forEach((cell, i) => {
+                cell.classList.toggle('active', _histDimPickerRow === 1 && i === _histDimPickerSelIdx);
+            });
+        }
+
+        function _histDimPickerOpen() {
+            if (!_histDimHoldMenu || _histDimPickerActive) return;
+            _histDimPickerBuild();
+            // Start on current _histExtraDim, or the auto dim so user sees
+            // what's active. Default to the dim row (not the lock row).
+            let startIdx = -1;
+            if (_histExtraDim != null) {
+                startIdx = _histDimPickerDims.indexOf(_histExtraDim);
+            }
+            if (startIdx < 0) {
+                const useMv = multiViewActive && mvDims && mvDims.length === 3;
+                const autoDim = useMv ? mvDims[2] : (dim_z >= 0 ? dim_z : current_slice_dim);
+                startIdx = _histDimPickerDims.indexOf(autoDim);
+            }
+            if (startIdx < 0) startIdx = 0;
+            _histDimPickerSelIdx = startIdx;
+            _histDimPickerRow = 1;
+            _histDimPickerActive = true;
+            _histDimPickerHighlight();
+            _reconcileHistDimPicker();
+        }
+
+        function _histDimPickerClose(silent) {
+            if (!_histDimPickerActive) return;
+            _histDimPickerActive = false;
+            _reconcileHistDimPicker();
+            if (!silent) showStatus('');
+        }
+
+        async function _histDimPickerCommitDim() {
+            const newDim = _histDimPickerDims[_histDimPickerSelIdx];
+            const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
+            const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
+            if (newDim === dx || newDim === dy) {
+                showToast('dim already shown — pick a non-display dim');
+                return;
+            }
+            _histExtraDim = newDim;
+            _invalidateVolHistCache();
+            if (primaryCb && primaryCb._expanded) {
+                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                if (volData) { _histData = volData; _buildKDE(); primaryCb.draw(); primaryCb.ensureAnimating(); }
+            }
+            showToast(`histogram dim: ${_histDimPickerLabel(newDim)}`);
+            _histDimPickerClose(true);
+        }
+
+        function _histDimPickerToggleLock() {
+            try { commands['range.toggleLock'].run(makeContext(null), null); } catch (_) {}
+            // Rebuild to reflect the new lock label without losing selection.
+            const prevRow = _histDimPickerRow;
+            const prevSel = _histDimPickerSelIdx;
+            _histDimPickerBuild();
+            _histDimPickerRow = prevRow;
+            _histDimPickerSelIdx = prevSel;
+            _histDimPickerHighlight();
+        }
+
+        function _histDimPickerNav(dx, dy) {
+            if (!_histDimPickerActive) return;
+            if (dy !== 0) {
+                const next = Math.max(0, Math.min(1, _histDimPickerRow + dy));
+                if (next !== _histDimPickerRow) {
+                    _histDimPickerRow = next;
+                    _histDimPickerHighlight();
+                }
+                return;
+            }
+            if (dx !== 0 && _histDimPickerRow === 1) {
+                const n = _histDimPickerDims.length;
+                const next = Math.max(0, Math.min(n - 1, _histDimPickerSelIdx + dx));
+                if (next !== _histDimPickerSelIdx) {
+                    _histDimPickerSelIdx = next;
+                    _histDimPickerHighlight();
+                }
+            }
+        }
+
+        function _histDimPickerKey(e) {
+            if (!_histDimPickerActive) return false;
+            const k = e.key;
+            if (k === 'Escape') { e.preventDefault(); _histDimPickerClose(); return true; }
+            if (k === 'Enter')  {
+                e.preventDefault();
+                if (_histDimPickerRow === 0) _histDimPickerToggleLock();
+                else _histDimPickerCommitDim();
+                return true;
+            }
+            if (k === 'h' || k === 'ArrowLeft')  { e.preventDefault(); _histDimPickerNav(-1, 0); return true; }
+            if (k === 'l' || k === 'ArrowRight') { e.preventDefault(); _histDimPickerNav( 1, 0); return true; }
+            if (k === 'j' || k === 'ArrowDown')  { e.preventDefault(); _histDimPickerNav( 0, 1); return true; }
+            if (k === 'k' || k === 'ArrowUp')    { e.preventDefault(); _histDimPickerNav( 0,-1); return true; }
+            if (k === 'D') { e.preventDefault(); _histDimPickerClose(); return true; }
             return false;
         }
 
