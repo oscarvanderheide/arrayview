@@ -14,7 +14,7 @@ edges:
     condition: when understanding how to use a technology in this codebase
   - target: context/architecture.md
     condition: when understanding how a library fits into the overall system
-last_updated: 2026-04-15
+last_updated: 2026-04-22
 ---
 
 # Stack
@@ -34,7 +34,7 @@ last_updated: 2026-04-15
 - **zarr 2.17+** — lazy chunk access for `.zarr` / `.zarr.zip` files; chunk preset utility in `_session.py`.
 - **pillow 12+** — PNG encoding for slice frames sent over WebSocket.
 - **pywebview 6.1+** — native OS window for CLI / script invocations; lazy, only started when `_can_native_window()` is true.
-- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; Git dependency (`oscarvanderheide/qmricolors`). Imported inside `_init_luts()`.
+- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; Git dependency (`https://github.com/oscarvanderheide/qmricolors.git`). Imported inside `_init_luts()`.
 - **scipy** — `.mat` file loading via `scipy.io.loadmat`; lazy in `_io.py`.
 - **h5py** — `.h5` / `.hdf5` file loading; lazy in `_io.py`.
 - **tifffile** — `.tif` / `.tiff` file loading; lazy in `_io.py`.

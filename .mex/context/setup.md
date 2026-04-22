@@ -13,7 +13,7 @@ edges:
     condition: when specific technology versions or library details are needed
   - target: context/architecture.md
     condition: when understanding how components connect during setup
-last_updated: 2026-04-15
+last_updated: 2026-04-22
 ---
 
 # Setup
@@ -28,7 +28,7 @@ last_updated: 2026-04-15
 
 1. Clone the repo
 2. `uv sync --all-groups` — installs all dependencies including dev and test groups
-3. `uv run arrayview dev/sample.npy` — smoke test: should open the viewer with a sample array
+3. `uv run arrayview debug/cig_meeting_examples/BraTS2021_00009_t1.nii.gz` — smoke test: should open the viewer with a sample array
 4. `uv run pytest tests/test_mode_consistency.py` — verify core render consistency passes
 
 For browser-based tests (playwright):
@@ -49,7 +49,7 @@ No `.env` file is needed. All env vars are optional overrides; the server runs w
 - `uvx arrayview <file>` — launch from anywhere without activating the venv
 - `uv run pytest tests/<target>` — run a specific test file
 - `uv run pytest tests/test_mode_consistency.py` — mode consistency suite (run after render changes)
-- `uv run pytest tests/visual_smoke.py` — browser smoke tests (requires playwright)
+- `uv run python tests/visual_smoke.py` — browser smoke tests (requires playwright)
 - `uv run pytest -m "not browser"` — all non-browser tests
 - `uv build` — build wheel + sdist in `dist/`
 

@@ -52,7 +52,7 @@ pywebview, or system browser).
 - **`_server.py`** — FastAPI app with all REST and WebSocket routes (`/meta/{sid}`, `/load`, `/slice`, `/ws/{sid}`, `/seg/*`, `/reload`, etc.). Dispatches render work to the render thread via `_render()` from `_session.py`.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
-- **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii/.nii.gz`, `.zarr`, `.zarr.zip`, `.pt/.pth`, `.h5/.hdf5`, `.tif/.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
+- **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii` and `.nii.gz`, `.zarr`, `.zarr.zip`, `.pt` and `.pth`, `.h5` and `.hdf5`, `.tif` and `.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
 - **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, webview panel and direct webview opening.
 - **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
@@ -77,7 +77,7 @@ Detection logic: `_platform.py`. Display opening: `_launcher.py` + `_vscode.py`.
 - **nibabel** — NIfTI file loading. Lazy-imported in `_io.py` via `_nib()`. Only loaded for `.nii` / `.nii.gz`.
 - **numpy** — Core array type throughout. The only non-lazy import in the render path.
 - **matplotlib** — Colormap LUT generation only. Lazy, initialized once by `_init_luts()` in `_render.py`.
-- **qmricolors** — Registers the `lipari` and `navia` colormaps. Git dependency (`oscarvanderheide/qmricolors`).
+- **qmricolors** — Registers the `lipari` and `navia` colormaps. Git dependency (`https://github.com/oscarvanderheide/qmricolors.git`).
 - **zarr** — Lazy chunk access for `.zarr` / `.zarr.zip`. Chunk presets via `zarr_chunk_preset()` in `_session.py`.
 - **pywebview** — Native OS window. Lazy, only started when `_can_native_window()` is true.
 

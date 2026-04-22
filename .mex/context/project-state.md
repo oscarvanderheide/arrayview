@@ -42,4 +42,4 @@ last_updated: 2026-04-17
 ## Not Yet Built
 
 - Independent split view for mismatched-shape arrays (designed, shelved)
-- Admin/config UI (file-based `~/.arrayview/config.toml` only)
+- Admin/config UI (design intent: file-based user config only, no in-app admin panel)
