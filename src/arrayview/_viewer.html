@@ -20342,10 +20342,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly).
+            // On macOS trackpads, a two-finger pinch gesture arrives as
+            // ctrl+wheel events, so this path also needs to anchor on the
+            // cursor — otherwise zooming pulls the image toward the viewport
+            // origin instead of the point under the fingers.
             // Pure zoom only — immersive mode is opt-in via Shift+F (immersive.toggle),
             // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
             // animation and surprised users.
             if (e.ctrlKey || e.metaKey) {
+                const anchor = _captureZoomAnchor(e.clientX, e.clientY);
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
                 const zoomBase = (_scrubRequestedZoom !== null) ? _scrubRequestedZoom : userZoom;
@@ -20364,6 +20369,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     _zoomAdjustedByUser = true;
                 }
                 ModeRegistry.scaleAll();
+                _applyZoomAnchor(anchor);
                 saveState();
                 return;
             }
@@ -22838,31 +22844,31 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 y: (touches[0].clientY + touches[1].clientY) / 2,
             };
         }
-        /** Snapshot current pan/zoom state and cursor-to-content mapping so
-         *  _applyZoomAnchor can keep the same content point under the cursor
-         *  across zoom changes. Returns null when no main canvas viewport. */
+        /** Snapshot the content-point under the cursor at zoom-start. Uses
+         *  getBoundingClientRect so CSS centering + existing pan translate
+         *  are both captured without having to reason about them manually.
+         *  Returns null when the canvas hasn't laid out yet. */
         function _captureZoomAnchor(clientX, clientY) {
-            const vp = document.getElementById('canvas-viewport');
-            if (!vp) return null;
-            const vpRect = vp.getBoundingClientRect();
-            const cursorVpX = clientX - vpRect.left;
-            const cursorVpY = clientY - vpRect.top;
-            const cssW = parseInt(canvas.style.width)  || canvas.width;
-            const cssH = parseInt(canvas.style.height) || canvas.height;
-            const fracX = cssW > 0 ? (cursorVpX - mainPan.x) / cssW : 0.5;
-            const fracY = cssH > 0 ? (cursorVpY - mainPan.y) / cssH : 0.5;
+            const r = canvas.getBoundingClientRect();
+            if (!r.width || !r.height) return null;
             return {
-                fracX: Math.max(0, Math.min(1, fracX)),
-                fracY: Math.max(0, Math.min(1, fracY)),
-                cursorVpX, cursorVpY,
+                clientX, clientY,
+                fracX: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
+                fracY: Math.max(0, Math.min(1, (clientY - r.top)  / r.height)),
             };
         }
+        /** After userZoom has been applied (scaleAll), shift pan so the
+         *  captured content-point is back under the cursor. Measuring the
+         *  canvas's post-scale rect gives the delta in client space, which
+         *  pan translates in the same coordinate system. */
         function _applyZoomAnchor(anchor) {
             if (!anchor) return;
-            const cssW = parseInt(canvas.style.width)  || canvas.width;
-            const cssH = parseInt(canvas.style.height) || canvas.height;
-            mainPan.x = anchor.cursorVpX - anchor.fracX * cssW;
-            mainPan.y = anchor.cursorVpY - anchor.fracY * cssH;
+            const r = canvas.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            const currentX = r.left + anchor.fracX * r.width;
+            const currentY = r.top  + anchor.fracY * r.height;
+            mainPan.x += anchor.clientX - currentX;
+            mainPan.y += anchor.clientY - currentY;
             mainPan.clamp();
             mainPan.apply();
         }
