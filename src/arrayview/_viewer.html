@@ -22800,16 +22800,58 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         // ── 9. Pinch to zoom ──────────────────────────────────────────
+        // Pinch / gesture zoom anchors on the pinch centroid (or cursor) so
+        // the image point under the fingers stays put as zoom changes. We
+        // capture the cursor-relative content fraction at gesture start and
+        // re-derive pan.x/pan.y after each scale so that same fraction is
+        // still under the cursor's viewport coordinates.
         let _pinchDist0 = null, _pinchZoom0 = null;
+        let _pinchAnchor = null;
         function _pinchDist(touches) {
             const dx = touches[0].clientX - touches[1].clientX;
             const dy = touches[0].clientY - touches[1].clientY;
             return Math.hypot(dx, dy);
         }
+        function _pinchCentroid(touches) {
+            return {
+                x: (touches[0].clientX + touches[1].clientX) / 2,
+                y: (touches[0].clientY + touches[1].clientY) / 2,
+            };
+        }
+        /** Snapshot current pan/zoom state and cursor-to-content mapping so
+         *  _applyZoomAnchor can keep the same content point under the cursor
+         *  across zoom changes. Returns null when no main canvas viewport. */
+        function _captureZoomAnchor(clientX, clientY) {
+            const vp = document.getElementById('canvas-viewport');
+            if (!vp) return null;
+            const vpRect = vp.getBoundingClientRect();
+            const cursorVpX = clientX - vpRect.left;
+            const cursorVpY = clientY - vpRect.top;
+            const cssW = parseInt(canvas.style.width)  || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            const fracX = cssW > 0 ? (cursorVpX - mainPan.x) / cssW : 0.5;
+            const fracY = cssH > 0 ? (cursorVpY - mainPan.y) / cssH : 0.5;
+            return {
+                fracX: Math.max(0, Math.min(1, fracX)),
+                fracY: Math.max(0, Math.min(1, fracY)),
+                cursorVpX, cursorVpY,
+            };
+        }
+        function _applyZoomAnchor(anchor) {
+            if (!anchor) return;
+            const cssW = parseInt(canvas.style.width)  || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            mainPan.x = anchor.cursorVpX - anchor.fracX * cssW;
+            mainPan.y = anchor.cursorVpY - anchor.fracY * cssH;
+            mainPan.clamp();
+            mainPan.apply();
+        }
         function _onTouchStart(e) {
             if (e.touches.length === 2) {
                 _pinchDist0 = _pinchDist(e.touches);
                 _pinchZoom0 = userZoom;
+                const c = _pinchCentroid(e.touches);
+                _pinchAnchor = _captureZoomAnchor(c.x, c.y);
                 e.preventDefault();
             }
         }
@@ -22821,10 +22863,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 userZoom = Math.max(0.1, Math.min(10, _pinchZoom0 * (d / _pinchDist0)));
                 _zoomAdjustedByUser = true;
                 ModeRegistry.scaleAll();
+                _applyZoomAnchor(_pinchAnchor);
             }
         }
         function _onTouchEnd(e) {
-            if (e.touches.length < 2) { _pinchDist0 = null; _pinchZoom0 = null; saveState(); }
+            if (e.touches.length < 2) {
+                _pinchDist0 = null; _pinchZoom0 = null; _pinchAnchor = null;
+                saveState();
+            }
         }
         [canvas, ...compareCanvases].forEach(el => {
             el.addEventListener('touchstart', _onTouchStart, { passive: false });
@@ -22834,9 +22880,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         // ── 9b. Safari pinch-to-zoom (GestureEvent) ─────────────────────
         let _gestureStartZoom = null;
+        let _gestureAnchor = null;
         function _onGestureStart(e) {
             e.preventDefault();
             _gestureStartZoom = userZoom;
+            _gestureAnchor = _captureZoomAnchor(e.clientX, e.clientY);
         }
         function _onGestureChange(e) {
             e.preventDefault();
@@ -22844,10 +22892,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             userZoom = Math.max(_normalFitZoom, Math.min(10.0, _gestureStartZoom * e.scale));
             _zoomAdjustedByUser = true;
             ModeRegistry.scaleAll();
+            _applyZoomAnchor(_gestureAnchor);
         }
         function _onGestureEnd(e) {
             e.preventDefault();
             _gestureStartZoom = null;
+            _gestureAnchor = null;
             saveState();
         }
         [canvas, ...compareCanvases].forEach(el => {
