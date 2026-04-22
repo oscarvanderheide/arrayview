@@ -2513,6 +2513,12 @@
         // primaryCb._expanded removed (Task 4) — use primaryCb._expanded
         // _cbHoverTimer removed (Task 4) — class handles auto-dismiss
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
+        // High-water mark for primary cb vmin/vmax label widths. We grow and
+        // never shrink so the colorbar doesn't flicker in width when digit
+        // count fluctuates as the user scrolls. Reset via _resetSlimCbLabelHWM
+        // at data boundaries (array switch, font-size change, layout mode flip).
+        let _slimCbLabelHWM = 0;
+        function _resetSlimCbLabelHWM() { _slimCbLabelHWM = 0; }
         // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
         // Per-dim state for the Shift+D picker. Three states:
@@ -4697,8 +4703,9 @@
                 if (_cvmax) { _cvmax.style.display = ''; _cvmax.innerHTML = _cbFmt(manualVmax ?? currentVmax); _cvmax.style.minWidth = ''; }
                 if (_cvmin && _cvmax) {
                     const _fmw = Math.max(_cvmin.offsetWidth, _cvmax.offsetWidth);
-                    _cvmin.style.minWidth = _fmw + 'px';
-                    _cvmax.style.minWidth = _fmw + 'px';
+                    if (_fmw > _slimCbLabelHWM) _slimCbLabelHWM = _fmw;
+                    _cvmin.style.minWidth = _slimCbLabelHWM + 'px';
+                    _cvmax.style.minWidth = _slimCbLabelHWM + 'px';
                 }
                 // Build KDE if needed, draw via morph
                 if (_histData && !_kdeSmooth) _buildKDE();
@@ -4827,12 +4834,15 @@
                     slimVmin.innerHTML = _cbFmt(manualVmin ?? currentVmin);
                     slimVmax.innerHTML = _cbFmt(manualVmax ?? currentVmax);
                 }
-                // Equalize vmin/vmax span widths so gradient is centered
+                // Equalize vmin/vmax span widths so gradient is centered.
+                // Use a session high-water mark so the colorbar doesn't flicker
+                // in width when digit count shifts between slices.
                 slimVmin.style.minWidth = '';
                 slimVmax.style.minWidth = '';
-                const mw = Math.max(slimVmin.offsetWidth, slimVmax.offsetWidth);
-                slimVmin.style.minWidth = mw + 'px';
-                slimVmax.style.minWidth = mw + 'px';
+                const natMw = Math.max(slimVmin.offsetWidth, slimVmax.offsetWidth);
+                if (natMw > _slimCbLabelHWM) _slimCbLabelHWM = natMw;
+                slimVmin.style.minWidth = _slimCbLabelHWM + 'px';
+                slimVmax.style.minWidth = _slimCbLabelHWM + 'px';
             }
         }
 
@@ -8621,6 +8631,7 @@
             });
             shape = data.shape;
             isComplex = data.is_complex || false;
+            _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
