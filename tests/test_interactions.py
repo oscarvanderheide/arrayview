@@ -265,36 +265,162 @@ class TestDisplaySettings:
         )
         assert strip_visible, "Colormap strip should appear after pressing c"
 
-    def test_d_opens_histogram(self, loaded_viewer, sid_2d):
-        """Tap `d` shows 'histogram' in the status line (opens histogram mode)."""
+    def test_d_first_tap_opens_only_second_tap_cycles(self, loaded_viewer, sid_2d):
+        """First tap `d` opens the histogram only (no percentile toast, no
+        vmin/vmax change). Second tap (while histogram is visible) cycles to
+        the first percentile preset and toasts."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
+        # First tap: opens histogram, must NOT toast a percentile.
         page.keyboard.press("d")
-        _wait_status(page, "histogram")
-        status = _get_status(page)
-        assert "histogram" in status.lower(), (
-            f"Expected histogram status, got: '{status}'"
+        page.wait_for_timeout(500)
+        toast1 = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''").lower()
+        expanded = page.evaluate("() => !!(primaryCb && primaryCb._expanded)")
+        assert expanded, "Expected histogram colorbar expanded after first tap"
+        assert "percentile" not in toast1, (
+            f"First tap should not toast a percentile, got: '{toast1}'"
+        )
+        # Second tap while open: cycles preset, toasts percentile.
+        page.keyboard.press("d")
+        page.wait_for_timeout(500)
+        toast2 = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''").lower()
+        assert "percentile" in toast2, (
+            f"Second tap should toast a percentile, got: '{toast2}'"
         )
 
-    def test_d_status_message_correct(self, loaded_viewer, sid_2d):
-        page = loaded_viewer(sid_2d)
+    def test_shift_d_opens_hist_picker(self, loaded_viewer, sid_3d):
+        """Shift+D opens the 3-state dim picker. Every dim label gets a
+        state class (hist-scope / hist-recompute / hist-frozen) and x/y
+        are marked hist-locked-dim. Shift+D again closes."""
+        page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("d")
-        _wait_status(page, "histogram")
-        status = _get_status(page)
-        assert "histogram" in status.lower()
-
-    def test_D_is_unbound(self, loaded_viewer, sid_2d):
-        """Shift+D no longer has a key binding (range.toggleLock still lives
-        in the command palette for power users). Pressing it should not emit
-        a range-lock toast."""
-        page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        page.keyboard.press("D")
+        page.keyboard.press("Shift+D")
         page.wait_for_timeout(300)
-        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
-        assert "unlocked" not in toast.lower() and "range: locked" not in toast.lower(), \
-            f"D should be unbound now, got toast: '{toast}'"
+        pick_mode = page.evaluate(
+            "() => document.getElementById('info').classList.contains('hist-pick-mode')"
+        )
+        assert pick_mode, "Expected #info.hist-pick-mode after Shift+D"
+        state_classes = page.evaluate("""
+            () => {
+                const labels = document.querySelectorAll('#info .dim-label[data-dim]');
+                return Array.from(labels).map(el => {
+                    if (el.classList.contains('hist-scope'))     return 'scope';
+                    if (el.classList.contains('hist-recompute')) return 'recompute';
+                    if (el.classList.contains('hist-frozen'))    return 'frozen';
+                    return null;
+                });
+            }
+        """)
+        assert all(s in ('scope', 'recompute', 'frozen') for s in state_classes), (
+            f"Every dim should carry a state class, got: {state_classes}"
+        )
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        pick_mode = page.evaluate(
+            "() => document.getElementById('info').classList.contains('hist-pick-mode')"
+        )
+        assert not pick_mode, "Expected picker closed after second Shift+D"
+
+    def test_shift_d_enter_cycles_active_dim_state(self, loaded_viewer, sid_3d):
+        """Pressing Enter while the picker is open cycles the state of the
+        current activeDim (keyboard parity with clicking)."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        # Point activeDim at a non-x/y dim so Enter actually changes state.
+        page.evaluate("""
+            () => {
+                const labels = [...document.querySelectorAll('#info .dim-label[data-dim]')];
+                const free = labels.find(el => !el.classList.contains('hist-locked-dim'));
+                if (free) activeDim = Number(free.getAttribute('data-dim'));
+            }
+        """)
+        state_before = page.evaluate("""
+            () => {
+                const el = document.querySelector(`#info .dim-label[data-dim="${activeDim}"]`);
+                return el.classList.contains('hist-scope') ? 'scope'
+                     : el.classList.contains('hist-recompute') ? 'recompute'
+                     : 'frozen';
+            }
+        """)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        state_after = page.evaluate("""
+            () => {
+                const el = document.querySelector(`#info .dim-label[data-dim="${activeDim}"]`);
+                return el.classList.contains('hist-scope') ? 'scope'
+                     : el.classList.contains('hist-recompute') ? 'recompute'
+                     : 'frozen';
+            }
+        """)
+        assert state_after != state_before, (
+            f"Enter should have cycled active dim state, still {state_after}"
+        )
+
+    def test_shift_d_click_updates_vmin_vmax_without_prior_preset(self, loaded_viewer, sid_3d):
+        """Clicking a dim in picker mode should update vmin/vmax, even when
+        the user hasn't cycled a percentile preset yet."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        # Make sure no preset has been applied yet.
+        page.evaluate("() => { window._dQuantileIdx = null; manualVmin = null; manualVmax = null; }")
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        before = page.evaluate("() => ({vmin: manualVmin, vmax: manualVmax})")
+        # Click first non-x/y dim.
+        page.evaluate("""
+            () => {
+                const labels = [...document.querySelectorAll('#info .dim-label[data-dim]')];
+                const free = labels.find(el => !el.classList.contains('hist-locked-dim'));
+                if (free) free.click();
+            }
+        """)
+        page.wait_for_timeout(600)
+        after = page.evaluate("() => ({vmin: manualVmin, vmax: manualVmax})")
+        assert (after['vmin'] != before['vmin']) or (after['vmax'] != before['vmax']), (
+            f"vmin/vmax should have changed after clicking a dim; before={before} after={after}"
+        )
+
+    def test_shift_d_click_cycles_dim_state(self, loaded_viewer, sid_3d):
+        """Clicking a non-x/y dim in picker mode cycles scope → recompute →
+        frozen → scope."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        # Find first non-x/y dim (hist-locked-dim marks x/y).
+        state_before = page.evaluate("""
+            () => {
+                const labels = [...document.querySelectorAll('#info .dim-label[data-dim]')];
+                const free = labels.find(el => !el.classList.contains('hist-locked-dim'));
+                if (!free) return null;
+                return {
+                    dim: free.getAttribute('data-dim'),
+                    state: free.classList.contains('hist-scope') ? 'scope'
+                         : free.classList.contains('hist-recompute') ? 'recompute'
+                         : 'frozen',
+                };
+            }
+        """)
+        assert state_before is not None, "Test needs at least one non-x/y dim"
+        # Click cycles to the next state.
+        page.evaluate(f"""
+            () => document.querySelector('#info .dim-label[data-dim=\"{state_before['dim']}\"]').click()
+        """)
+        page.wait_for_timeout(500)
+        state_after = page.evaluate(f"""
+            () => {{
+                const el = document.querySelector('#info .dim-label[data-dim=\"{state_before['dim']}\"]');
+                return el.classList.contains('hist-scope') ? 'scope'
+                     : el.classList.contains('hist-recompute') ? 'recompute'
+                     : 'frozen';
+            }}
+        """)
+        expected = {'scope': 'recompute', 'recompute': 'frozen', 'frozen': 'scope'}[state_before['state']]
+        assert state_after == expected, (
+            f"Expected {state_before['state']} → {expected}, got {state_after}"
+        )
 
     def test_L_log_scale_on_shows_log_egg(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
@@ -708,23 +834,21 @@ class TestModeGuards:
             "fixed" in status.lower() or "qmri" in status.lower()
         ), f"Expected colormap-blocked status in qMRI, got: '{status}'"
 
-    def test_D_toggles_lock_in_qmri(self, loaded_viewer, sid_4d):
-        """D toggles range lock in all modes including qMRI."""
+    def test_shift_d_opens_picker_in_qmri(self, loaded_viewer, sid_4d):
+        """Shift+D opens the 3-state dim picker in qMRI mode too."""
         page = loaded_viewer(sid_4d)
         self._enter_qmri(page, sid_4d)
         _focus_kb(page)
-        page.keyboard.press("D")
-        page.wait_for_timeout(400)
-        # D should NOT open inline prompt
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
         prompt_visible = page.evaluate(
             "() => { const p = document.getElementById('inline-prompt'); return p && p.classList.contains('visible'); }"
         )
-        assert not prompt_visible, "D should not open inline prompt"
-        # D should show a toggle toast
-        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''")
-        assert "range" in toast.lower() and ("lock" in toast.lower() or "unlock" in toast.lower()), (
-            f"Expected range lock toast, got: '{toast}'"
+        assert not prompt_visible, "Shift+D should not open inline prompt"
+        pick_mode = page.evaluate(
+            "() => document.getElementById('info').classList.contains('hist-pick-mode')"
         )
+        assert pick_mode, "Expected #info.hist-pick-mode after Shift+D in qMRI"
 
     def test_f_fft_blocked_in_qmri(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)
@@ -1049,16 +1173,18 @@ class TestROIMode:
 
 
 class TestCompareModeSync:
-    def test_d_in_compare_shows_status(self, loaded_viewer, sid_2d, sid_cmp_2d):
+    def test_d_in_compare_opens_then_cycles(self, loaded_viewer, sid_2d, sid_cmp_2d):
+        """In compare mode, first `d` opens the histogram only; second `d`
+        cycles percentile preset + toasts."""
         page = loaded_viewer(sid_2d)
         _enter_compare(page, sid_cmp_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
-        status = _get_status(page)
-        assert "range" in status.lower(), (
-            f"Expected DR status in compare, got: '{status}'"
-        )
+        page.keyboard.press("d")
+        page.wait_for_timeout(500)
+        toast = page.evaluate("() => (document.getElementById('toast') || {}).textContent || ''").lower()
+        assert "percentile" in toast, f"Expected 'percentile' toast after 2 taps in compare, got: '{toast}'"
 
     def test_d_in_compare_rerenders_both_panes(self, loaded_viewer, sid_2d, sid_cmp_2d):
         page = loaded_viewer(sid_2d)
@@ -1066,38 +1192,16 @@ class TestCompareModeSync:
         _focus_kb(page)
         left_before = page.evaluate(_JS_COMPARE_LEFT_PIXEL)
         right_before = page.evaluate(_JS_COMPARE_RIGHT_PIXEL)
+        # First tap only opens the histogram (no vmin/vmax change). The
+        # second tap cycles the percentile preset, which does re-render.
+        page.keyboard.press("d")
+        page.wait_for_timeout(400)
         page.keyboard.press("d")
         page.wait_for_timeout(600)
         left_after = page.evaluate(_JS_COMPARE_LEFT_PIXEL)
         right_after = page.evaluate(_JS_COMPARE_RIGHT_PIXEL)
-        # Both panes should re-render (at least one should change)
         assert left_before != left_after or right_before != right_after, (
-            "d in compare should re-render at least one pane"
-        )
-
-    def test_d_in_compare_clears_per_pane_overrides(
-        self, loaded_viewer, sid_2d, sid_cmp_2d
-    ):
-        """After colorbar adjustment on one pane (per-pane override),
-        pressing d should restore fair comparison (overrides cleared)."""
-        page = loaded_viewer(sid_2d)
-        _enter_compare(page, sid_cmp_2d)
-        # Adjust left pane's colorbar (creates per-pane override)
-        left_cb = page.locator("canvas#compare-left-pane-cb")
-        cb_box = left_cb.bounding_box()
-        if cb_box:
-            cy = cb_box["y"] + cb_box["height"] / 2
-            cx = cb_box["x"] + cb_box["width"] / 2
-            page.mouse.move(cx, cy)
-            page.mouse.wheel(0, -200)
-            page.wait_for_timeout(300)
-        # Now press d — should clear per-pane override and show status
-        _focus_kb(page)
-        page.keyboard.press("d")
-        page.wait_for_timeout(500)
-        status = _get_status(page)
-        assert "range" in status.lower(), (
-            f"Expected DR status after d in compare, got: '{status}'"
+            "d (tap, tap) in compare should re-render at least one pane"
         )
 
     def test_scroll_syncs_both_compare_panes(self, loaded_viewer, sid_3d, sid_cmp_3d):

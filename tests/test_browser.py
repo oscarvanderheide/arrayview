@@ -547,21 +547,18 @@ class TestKeyboard:
             f"Expected --compare-cols=3 for 6 panes, got '{compare_cols}'"
         )
 
-    def test_d_toggles_histogram(self, loaded_viewer, sid_2d):
-        # First d tap opens the histogram; second tap closes it.
-        # (Quantile cycling via repeated `d` was removed in favor of the
-        # hold-`d` dim-selector menu — see _viewer.html.)
+    def test_d_first_opens_second_cycles_percentile(self, loaded_viewer, sid_2d):
+        # First tap `d` opens the histogram only. Second tap cycles + toasts.
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("d")
         page.wait_for_timeout(400)
-        status = page.inner_text("#status").strip()
-        assert "histogram" in status.lower(), f"Expected histogram status, got: '{status}'"
-        # Second press toggles off
         page.keyboard.press("d")
-        page.wait_for_timeout(400)
-        status = page.inner_text("#status").strip()
-        assert "off" in status.lower(), f"Expected histogram-off status, got: '{status}'"
+        page.wait_for_timeout(500)
+        toast = page.evaluate(
+            "() => (document.getElementById('toast') || {}).textContent || ''"
+        ).lower()
+        assert "percentile" in toast, f"Expected 'percentile' toast after 2 taps, got: '{toast}'"
 
     def test_space_toggles_playback(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

@@ -288,6 +288,60 @@
             border-radius: 4px; transition: background 0.12s;
         }
         .dim-label:hover { background: transparent; }
+        /* Histogram-participation picker: three states per dim. Outline
+         * is drawn with `outline` + negative `outline-offset` so the dim
+         * box never widens — the dimbar keeps its exact size whether the
+         * picker is open or not.
+         *   hist-scope     — in scope (yellow solid)
+         *   hist-recompute — not in scope, vmin/vmax recomputes on nav (cyan)
+         *   hist-frozen    — not in scope, vmin/vmax stays put (dashed grey)
+         * x/y get hist-locked-dim (not togglable). */
+        #info.hist-pick-mode .dim-label {
+            cursor: pointer;
+            outline: 1px solid transparent;
+            outline-offset: -1px;
+            transition: outline-color 0.1s, background 0.1s, color 0.1s, opacity 0.1s;
+        }
+        #info.hist-pick-mode .dim-label.hist-scope {
+            outline-color: var(--active-dim);
+            background: rgba(245,200,66,0.08);
+        }
+        #info.hist-pick-mode .dim-label.hist-recompute {
+            outline: 1px solid #88c0d0;
+            outline-offset: -1px;
+            color: #88c0d0;
+        }
+        #info.hist-pick-mode .dim-label.hist-frozen {
+            outline: 1px dashed var(--muted);
+            outline-offset: -1px;
+            color: var(--muted);
+            opacity: 0.7;
+        }
+        #info.hist-pick-mode .dim-label.hist-scope:hover     { background: rgba(245,200,66,0.16); }
+        #info.hist-pick-mode .dim-label.hist-recompute:hover { background: rgba(136,192,208,0.12); }
+        #info.hist-pick-mode .dim-label.hist-frozen:hover    { opacity: 1; }
+        #info.hist-pick-mode .dim-label.hist-locked-dim { cursor: not-allowed; }
+
+        /* Fast custom tooltip for the picker. Native `title` has a ~600 ms
+         * delay; this one shows after ~150 ms and stays until hover exits. */
+        #hist-tooltip {
+            position: fixed;
+            display: none;
+            max-width: 320px;
+            padding: 6px 10px;
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.45;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+            pointer-events: none;
+            z-index: 200;
+            white-space: normal;
+        }
+        #hist-tooltip.visible { display: block; }
         .dim-idx { font-variant-numeric: tabular-nums; }
         .dim-slash {
             display: inline;
@@ -1292,6 +1346,7 @@
         .mv-pane.canvas-bordered .mv-canvas { outline: 1px solid var(--canvas-border); }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
+
         #reg-blend-bar-wrap {
             display: none; flex-direction: column; align-items: stretch; width: 100%;
         }
@@ -1695,77 +1750,6 @@
         }
         #colormap-hold-menu .cmh-cell.active canvas {
             border-color: var(--active-dim);
-        }
-
-        /* ── Histogram-dim hold-d selector menu ─────────────────── */
-        #histdim-hold-menu {
-            display: none;
-            position: fixed;
-            left: 50%; bottom: 40px;
-            transform: translateX(-50%) scale(0.98);
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 10px 12px 8px;
-            z-index: 45;
-            opacity: 0;
-            transition: opacity 0.12s ease, transform 0.12s ease;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            color: var(--text);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-            max-width: min(640px, 92vw);
-            pointer-events: none;
-        }
-        #histdim-hold-menu.visible {
-            display: block;
-            opacity: 1;
-            transform: translateX(-50%) scale(1);
-        }
-        #histdim-hold-menu .hdh-title {
-            font-size: 10px; color: var(--muted);
-            text-transform: uppercase; letter-spacing: 0.08em;
-            margin: 0 2px 8px; display: flex; gap: 10px; align-items: baseline;
-        }
-        #histdim-hold-menu .hdh-title .hdh-hint { color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
-        #histdim-hold-menu .hdh-row {
-            display: flex; gap: 4px; flex-wrap: wrap;
-        }
-        #histdim-hold-menu .hdh-cell {
-            display: flex; flex-direction: column; align-items: center; gap: 2px;
-            padding: 6px 10px; border-radius: 6px;
-            border: 1.5px solid transparent;
-            background: transparent;
-            min-width: 48px;
-        }
-        #histdim-hold-menu .hdh-cell .hdh-label {
-            font-size: 12px; color: var(--text);
-        }
-        #histdim-hold-menu .hdh-cell .hdh-size {
-            font-size: 10px; color: var(--muted);
-        }
-        #histdim-hold-menu .hdh-cell.active {
-            border-color: var(--active-dim);
-            background: rgba(245,200,66,0.10);
-        }
-        #histdim-hold-menu .hdh-cell.active .hdh-label {
-            color: var(--active-dim);
-        }
-        #histdim-hold-menu .hdh-cell.active .hdh-size {
-            color: var(--active-dim);
-        }
-        #histdim-hold-menu .hdh-cell.disabled {
-            opacity: 0.4;
-        }
-        #histdim-hold-menu .hdh-lock-row {
-            margin: 0 0 6px; padding-bottom: 6px;
-            border-bottom: 1px solid var(--border);
-        }
-        #histdim-hold-menu .hdh-lock {
-            flex-direction: row; align-items: baseline; gap: 10px;
-            min-width: 100%;
-        }
-        #histdim-hold-menu .hdh-lock .hdh-size {
-            font-size: 10px; color: var(--muted);
         }
 
         /* ── Compare mode preview strip ─────────────────────────── */
@@ -2178,7 +2162,6 @@
     <div id="colormap-strip"></div>
     <div id="colormap-strip-right"></div>
     <div id="colormap-hold-menu" aria-hidden="true"></div>
-    <div id="histdim-hold-menu" aria-hidden="true"></div>
     <div id="compare-mode-strip"></div>
     <div id="compare-center-island"></div>
     <div id="inline-prompt">
@@ -2522,7 +2505,15 @@
         let _histAutoDismissTimer = null; // auto-collapse histogram after 'd' key press
         // primaryCb._mouseOver removed (Task 3) — use primaryCb._mouseOver instead
         let _lebesgueManual = false; // true when histogram was toggled open via dblclick (no auto-dismiss)
-        let _histExtraDim = null;   // user-picked dim to aggregate over for the volume histogram (hold-`d`); null = auto (dim_z / current_slice_dim)
+        // Per-dim state for the Shift+D picker. Three states:
+        //   'scope'     — feeds the histogram (all slices aggregated).
+        //   'recompute' — not in histogram; vmin/vmax auto-recompute on nav.
+        //   'frozen'    — not in histogram; vmin/vmax stay put on nav.
+        // Missing entries fall back to auto defaults: x/y + spatial dims =
+        // 'scope'; non-spatial dims = 'frozen' (when rangeLocked) or
+        // 'recompute' (when !rangeLocked).
+        let _histDimState = new Map();    // Map<int, 'scope'|'recompute'|'frozen'>
+        let _histPickerActive = false;    // Shift+D picker mode toggle
         // _histVminX, _histVmaxX removed (Task 4) — primaryCb._hitVminX/Y handles hit-testing
         let lebesgueMode = false;       // Lebesgue integral: highlight pixels matching hovered bin
         let _lebesgueSlice = null;      // Float32Array of raw 2-D slice values (row-major)
@@ -2562,6 +2553,23 @@
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
+
+        // Spatial-dim heuristic: dim_x / dim_y are always spatial. Other dims
+        // count as spatial iff their size is >= 25% of max(shape[dim_x], shape[dim_y]).
+        // So (256,256,2,4) → only 0,1 spatial; (256,256,256,4) → 0,1,2; (3,256,256,120)
+        // with dim_x=1,dim_y=2 → dims 1,2,3 spatial (not 0). Used for initial-index
+        // selection (middle for spatial, 0 otherwise) and the histogram-picker default.
+        function _isSpatialDim(i) {
+            if (!Array.isArray(shape) || i < 0 || i >= shape.length) return false;
+            if (i === dim_x || i === dim_y) return true;
+            const ref = Math.max(Number(shape[dim_x]) || 0, Number(shape[dim_y]) || 0);
+            if (!ref) return false;
+            return (Number(shape[i]) || 0) >= 0.25 * ref;
+        }
+
+        function _initialIndices() {
+            return shape.map((s, i) => _isSpatialDim(i) ? Math.floor(s / 2) : 0);
+        }
 
         /* ── Crop Plugin ──────────────────────────────────────────────
          * Crop plugin lets the user pick an x-range along a spatial
@@ -6733,19 +6741,30 @@
         async function _fetchVolumeHistogram(opts = {}) {
             const fetchDimX = opts.dimX ?? dim_x;
             const fetchDimY = opts.dimY ?? dim_y;
-            const scrollDim = opts.scrollDim ?? current_slice_dim;
+            // Aggregation dims (may be empty): sent to server as scroll_dims.
+            // Legacy opts.scrollDim still accepted for back-compat.
+            let scrollDims = opts.scrollDims;
+            if (!Array.isArray(scrollDims)) {
+                if (opts.scrollDim != null && opts.scrollDim >= 0) scrollDims = [opts.scrollDim];
+                else scrollDims = [];
+            }
+            scrollDims = scrollDims.filter(d =>
+                Number.isInteger(d) && d >= 0 && d < shape.length && d !== fetchDimX && d !== fetchDimY
+            );
             const cMode = opts.complexMode ?? complexMode;
-            // Auto-build fixedIndices for non-display, non-scroll dims using current indices
+            // Auto-build fixedIndices for non-display, non-agg dims using current indices
             let fixedIndices = opts.fixedIndices;
             if (fixedIndices == null) {
+                const agg = new Set(scrollDims);
                 const parts = [];
                 for (let i = 0; i < shape.length; i++) {
-                    if (i === fetchDimX || i === fetchDimY || i === scrollDim) continue;
+                    if (i === fetchDimX || i === fetchDimY || agg.has(i)) continue;
                     parts.push(`${i}:${indices[i]}`);
                 }
                 fixedIndices = parts.join(',');
             }
-            const cacheKey = `${fetchDimX}:${fetchDimY}:${scrollDim}:${fixedIndices}:${cMode}`;
+            const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
+            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}`;
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
@@ -6755,10 +6774,10 @@
             const params = new URLSearchParams({
                 dim_x: fetchDimX,
                 dim_y: fetchDimY,
-                scroll_dim: scrollDim,
                 complex_mode: cMode,
                 bins: 64,
             });
+            if (scrollDims.length) params.set('scroll_dims', scrollDims.join(','));
             if (fixedIndices) params.set('fixed_indices', fixedIndices);
             try {
                 const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
@@ -6770,24 +6789,63 @@
             } catch (_) { return null; }
         }
 
-        /** Return opts for _fetchVolumeHistogram that cover the full 3D spatial volume.
-         *  If the user has picked a histogram dim via hold-`d`, that dim becomes the
-         *  third (aggregated) axis alongside dim_x/dim_y, provided it differs from
-         *  the current display axes. */
+        /** Resolve the picker state for dim `i`. Explicit entries in
+         *  _histDimState take precedence; otherwise fall back to auto
+         *  defaults: x/y + _isSpatialDim(i) → 'scope'; non-spatial →
+         *  'frozen' when rangeLocked (default), else 'recompute'. */
+        function _dimStateFor(i) {
+            if (_histDimState && _histDimState.has(i)) {
+                const v = _histDimState.get(i);
+                if (v === 'scope' || v === 'recompute' || v === 'frozen') return v;
+            }
+            if (_isSpatialDim(i)) return 'scope';
+            return rangeLocked ? 'frozen' : 'recompute';
+        }
+
+        /** Cycle a dim between scope → recompute → frozen → scope. x/y
+         *  stay locked to 'scope'. Used by click and Enter in picker mode. */
+        function _cycleDimState(i) {
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const dx = useMv ? mvDims[1] : dim_x;
+            const dy = useMv ? mvDims[0] : dim_y;
+            if (i === dx || i === dy) return false;
+            const cur = _dimStateFor(i);
+            const next = cur === 'scope' ? 'recompute' : cur === 'recompute' ? 'frozen' : 'scope';
+            if (!_histDimState) _histDimState = new Map();
+            _histDimState.set(i, next);
+            return next;
+        }
+
+        /** Dims currently in 'scope' (feed the histogram). x/y are always
+         *  in scope regardless of entry. */
+        function _histScopeDims() {
+            const out = new Set();
+            if (!Array.isArray(shape)) return out;
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const dx = useMv ? mvDims[1] : dim_x;
+            const dy = useMv ? mvDims[0] : dim_y;
+            for (let i = 0; i < shape.length; i++) {
+                if (i === dx || i === dy || _dimStateFor(i) === 'scope') out.add(i);
+            }
+            return out;
+        }
+
+        /** Reset picker state to auto (called on shape/dim changes). */
+        function _resetHistDimState() {
+            _histDimState = new Map();
+            _invalidateVolHistCache();
+        }
+
+        /** Return opts for _fetchVolumeHistogram — aggregate over every
+         *  in-scope dim except dim_x / dim_y. */
         function _volHistSpatialOpts() {
             const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
             const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
-            if (_histExtraDim != null && _histExtraDim !== dx && _histExtraDim !== dy
-                && _histExtraDim >= 0 && _histExtraDim < shape.length) {
-                return { dimX: dx, dimY: dy, scrollDim: _histExtraDim };
-            }
-            if (multiViewActive && mvDims && mvDims.length === 3) {
-                return { dimX: mvDims[1], dimY: mvDims[0], scrollDim: mvDims[2] };
-            }
-            if (dim_z >= 0) {
-                return { scrollDim: dim_z };
-            }
-            return {};
+            const set = _histScopeDims();
+            const scrollDims = [];
+            set.forEach(d => { if (d !== dx && d !== dy && d >= 0 && d < shape.length) scrollDims.push(d); });
+            scrollDims.sort((a, b) => a - b);
+            return { dimX: dx, dimY: dy, scrollDims };
         }
 
         function _invalidateVolHistCache() {
@@ -6799,37 +6857,45 @@
 
         /** Compute expected histogram version key for current dim/index config. */
         function _expectedHistKey() {
-            // In multiview, histogram is fetched with multiview dims, not global dims
             const useMv = multiViewActive && mvDims && mvDims.length === 3;
             const dx = useMv ? mvDims[1] : dim_x;
             const dy = useMv ? mvDims[0] : dim_y;
-            // Match _volHistSpatialOpts precedence: user-picked extra dim > mvDims[2] > dim_z > current_slice_dim
-            let sd;
-            if (_histExtraDim != null && _histExtraDim !== dx && _histExtraDim !== dy
-                && _histExtraDim >= 0 && _histExtraDim < shape.length) {
-                sd = _histExtraDim;
-            } else if (useMv) {
-                sd = mvDims[2];
-            } else {
-                sd = (dim_z >= 0 ? dim_z : current_slice_dim);
-            }
+            const set = _histScopeDims();
+            const agg = [];
+            set.forEach(d => { if (d !== dx && d !== dy && d >= 0 && d < shape.length) agg.push(d); });
+            agg.sort((a, b) => a - b);
+            const aggSet = new Set(agg);
             const parts = [];
             for (let i = 0; i < shape.length; i++) {
-                if (i === dx || i === dy || i === sd) continue;
+                if (i === dx || i === dy || aggSet.has(i)) continue;
                 parts.push(`${i}:${indices[i]}`);
             }
-            return `${dx}:${dy}:${sd}:${parts.join(',')}:${complexMode}`;
+            return `${dx}:${dy}:${agg.join(',')}:${parts.join(',')}:${complexMode}`;
         }
 
+        // Scoped nav signal: nav paths that move along a specific dim set this
+        // before calling updateView(), so _legacyUpdateView can ask
+        // _maybeAutoRecomputeRange to skip when the dim is participating.
+        // Consumed (cleared) inside _legacyUpdateView.
+        let _pendingNavDim = null;
+
         /**
-         * In unlocked mode, clear manualVmin/manualVmax so the next render
-         * uses the server's per-slice 1-99% range (effectively recomputing
-         * vmin/vmax from whatever data is currently visible). Called from
-         * navigation paths so every j/k/h/l press in unlocked mode picks up
-         * the new slice's range.
+         * Clear manualVmin/manualVmax so the next render recomputes vmin/vmax
+         * from whatever data is currently visible.
+         *
+         * Three-state dim semantics: when a specific nav dim is provided,
+         * only recompute if that dim's picker state is 'recompute'. 'scope'
+         * dims already aggregate into the histogram (no change needed);
+         * 'frozen' dims explicitly preserve vmin/vmax. Callers without a
+         * nav dim (dim swaps, RGB toggle, etc.) fall back to the global
+         * rangeLocked boolean for back-compat.
          */
-        function _maybeAutoRecomputeRange() {
-            if (rangeLocked) return;
+        function _maybeAutoRecomputeRange(navDim) {
+            if (Number.isInteger(navDim) && navDim >= 0) {
+                if (_dimStateFor(navDim) !== 'recompute') return;
+            } else if (rangeLocked) {
+                return;
+            }
             manualVmin = null;
             manualVmax = null;
             { const _dv = modeManager.getFocusedView() || modeManager.currentViews[0]; if (_dv) { _dv.displayState.vmin = null; _dv.displayState.vmax = null; } }
@@ -6884,8 +6950,15 @@
             }, 600);
         }
 
+        function _fmtPct(v) {
+            // Drop trailing .0 so "1" reads "1%" but "0.1" reads "0.1%".
+            const r = Math.round(v * 10) / 10;
+            return (r === Math.floor(r)) ? String(Math.floor(r)) : r.toFixed(1);
+        }
+
         const _QUANTILE_PRESETS = [
             { label: 'full range', lo: 0,    hi: 1    },
+            { label: '0.1\u201399.9%', lo: 0.001, hi: 0.999 },
             { label: '1\u201399%', lo: 0.01, hi: 0.99 },
             { label: '5\u201395%', lo: 0.05, hi: 0.95 },
             { label: '10\u201390%', lo: 0.10, hi: 0.90 },
@@ -8482,7 +8555,6 @@
             if (_isWelcomeScreen) {
                 document.body.classList.add('welcome-mode');
             }
-            indices = shape.map(s => Math.floor(s / 2));
             // Sane spatial dim defaults: last two dims if they are significantly larger
             // (e.g. (3,4,120,120) → dim_x=2, dim_y=3), otherwise fallback to first two.
             dim_x = 0; dim_y = 1;
@@ -8507,6 +8579,8 @@
                   _ux < shape.length && _uy < shape.length && _ux !== _uy) {
                   dim_x = _ux; dim_y = _uy;
               } }
+            // Initial indices: middle slice on spatial dims, first (0) on the rest.
+            indices = _initialIndices();
             // Pick current_slice_dim as first dim that is not dim_x or dim_y
             current_slice_dim = 0;
             for (let _i = 0; _i < shape.length; _i++) {
@@ -10552,8 +10626,38 @@
                 idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
             let text = idxStr;
-            document.getElementById('info').innerHTML = text;
+            const _info = document.getElementById('info');
+            _info.innerHTML = text;
+            _applyHistPickerClasses();
             renderEggs();
+        }
+
+        /** Paint hist-scope / hist-recompute / hist-frozen / hist-locked-dim
+         *  classes onto each dim label while the picker is active. Called
+         *  after every renderInfo(). */
+        function _applyHistPickerClasses() {
+            const _info = document.getElementById('info');
+            if (!_info) return;
+            _info.classList.toggle('hist-pick-mode', !!_histPickerActive);
+            const labels = _info.querySelectorAll('.dim-label[data-dim]');
+            if (!_histPickerActive) {
+                labels.forEach(el => {
+                    el.classList.remove('hist-scope', 'hist-recompute', 'hist-frozen', 'hist-locked-dim');
+                });
+                return;
+            }
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const pickDx = useMv ? mvDims[1] : dim_x;
+            const pickDy = useMv ? mvDims[0] : dim_y;
+            labels.forEach(el => {
+                const i = Number(el.getAttribute('data-dim'));
+                const state = _dimStateFor(i);
+                const locked = (i === pickDx || i === pickDy);
+                el.classList.toggle('hist-scope',     state === 'scope');
+                el.classList.toggle('hist-recompute', state === 'recompute');
+                el.classList.toggle('hist-frozen',    state === 'frozen');
+                el.classList.toggle('hist-locked-dim', locked);
+            });
         }
 
         // Lookup table: colormap name → a Nord/pastel color NOT present in that colormap.
@@ -11177,11 +11281,11 @@
             if (resp.error) { showStatus(`RGB: ${resp.error}`); return; }
             rgbMode = resp.is_rgb;
             shape = resp.spatial_shape;
-            // Reset indices, dims for new shape
-            indices = shape.map(s => Math.floor(s / 2));
+            // Reset dims first so the spatial heuristic can read them.
             dim_x = Math.min(dim_x, shape.length - 1);
             dim_y = Math.min(dim_y, shape.length - 1);
             if (dim_x === dim_y) dim_y = dim_x === 0 ? 1 : 0;
+            indices = _initialIndices();
             current_slice_dim = shape.length > 2 ? Math.min(2, shape.length - 1) : 0;
             activeDim = Math.min(activeDim, shape.length - 1);
             cbVisible = !rgbMode;
@@ -11265,7 +11369,11 @@
 
         function _legacyUpdateView() {
             renderInfo();
-            _maybeAutoRecomputeRange();
+            // Consume pending nav dim (set by slice.next/prev) so scoped lock
+            // semantics apply when unlocked: only non-participating nav resets.
+            const _navDim = _pendingNavDim;
+            _pendingNavDim = null;
+            _maybeAutoRecomputeRange(_navDim);
             // Lebesgue / hover caches are version-keyed, so stale entries are
             // never served for the wrong slice.  Don't eagerly clear — the old
             // data remains harmless while the async re-fetch is in flight, and
@@ -13111,12 +13219,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'histogram.openDimPicker': {
-                title: 'Open histogram dim & lock picker',
+                title: 'Toggle histogram dim participation picker',
                 when: [],
                 run: (ctx, e) => {
-                    if (!_histDimPickerEligible()) return;
-                    if (_histDimPickerActive) _histDimPickerClose();
-                    else _histDimPickerOpen();
+                    if (!_histPickerEligible()) return;
+                    if (_histPickerActive) _histPickerClose();
+                    else _histPickerOpenWithHistogram();
                 },
             },
             'colormap.cycleNext': {
@@ -13447,7 +13555,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                                 shape = info.shape;
                                 // Recenter indices so the new (likely larger)
                                 // volume shows its middle slice on each axis.
-                                indices = shape.map(s => Math.floor(s / 2));
+                                indices = _initialIndices();
                             }
                             // Note: /resample_ras already clears render caches
                             // server-side. Do NOT call /clearcache here — that
@@ -13945,101 +14053,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'histogram.openOrCycle': {
-                title: 'Toggle histogram mode',
-                when: [],
+                title: 'Open histogram / cycle percentile preset',
+                when: ['!rgbMode'],
                 run: async (ctx, e) => {
-                    // Tap `d` toggles the histogram colorbar open/closed.
-                    // Preset cycling is no longer bound to repeated `d` presses —
-                    // use the scroll-wheel on the colorbar or the command palette.
-                    // Hold-`d` opens the dim-selector menu (handled separately
-                    // in the sink keydown path).
-
-                    // In diff mode: toggle left+right colorbars in sync, or just
-                    // the center (diff) colorbar when hovering the center pane.
-                    const _cmpLeftCb  = window._comparePaneCbs && window._comparePaneCbs[0];
-                    const _cmpRightCb = window._comparePaneCbs && window._comparePaneCbs[1];
-                    if (compareActive && diffMode > 0 && _cmpLeftCb) {
-                        if (_mouseOverCenterPane && _diffCenterCb) {
-                            if (!_diffCenterCb.expanded) {
-                                await _diffCenterCb.expand();
-                                _diffCenterCb.startAutoDismiss();
-                                showStatus('diff histogram');
-                            } else {
-                                _diffCenterCb.collapse();
-                                showStatus('histogram: off');
-                            }
-                        } else {
-                            const cbs = [_cmpLeftCb, _diffCenterCb].filter(Boolean);
-                            if (!_cmpLeftCb.expanded) {
-                                for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
-                                showStatus('histogram');
-                            } else {
-                                for (const cb of cbs) cb.collapse();
-                                showStatus('histogram: off');
-                            }
-                        }
-                        return;
-                    }
-                    // qMRI per-pane toggle (hovered pane wins).
-                    if (qmriActive && _hoveredQmriView) {
-                        const hv = _hoveredQmriView;
-                        const cb = qmriMosaicActive ? hv._mosaicColorBar : hv._colorBar;
-                        if (!cb) return;
-                        if (!cb._expanded) {
-                            await cb.expand();
-                            cb.startAutoDismiss();
-                            showStatus('histogram');
-                        } else {
-                            cb.collapse();
-                            showStatus('histogram: off');
-                        }
-                        return;
-                    }
-                    if (qmriActive && !qmriMosaicActive) {
-                        const cbs = qmriViews.map(v => v._colorBar).filter(Boolean);
-                        if (cbs.some(cb => !cb._expanded)) {
-                            for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
-                            showStatus('histogram');
-                        } else {
-                            for (const cb of cbs) cb.collapse();
-                            showStatus('histogram: off');
-                        }
-                        return;
-                    }
-                    if (qmriActive && qmriMosaicActive) {
-                        const cbs = qmriViews.map(v => v._mosaicColorBar).filter(Boolean);
-                        if (cbs.some(cb => !cb._expanded)) {
-                            for (const cb of cbs) { await cb.expand(); cb.startAutoDismiss(); }
-                            showStatus('histogram');
-                        } else {
-                            for (const cb of cbs) cb.collapse();
-                            showStatus('histogram: off');
-                        }
-                        return;
-                    }
+                    // First tap `d`: open the histogram colorbar only — no
+                    // preset cycle, no vmin/vmax change. Auto-dismisses back
+                    // to the colorbar after the usual timer if the user does
+                    // nothing. Each subsequent tap while the histogram is
+                    // visible cycles to the next percentile preset and toasts
+                    // the new pair. Hold-`d` opens the participation picker.
                     if (rgbMode) return;
-
-                    // Normal / multiview / compare: toggle the primary histogram.
-                    if (primaryCb._expanded) {
-                        // Close.
-                        if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
-                        lebesgueMode = false;
-                        primaryCb._expanded = false;
-                        primaryCb._manualExpand = false;
+                    if (_histPickerActive) { _histPickerClose(); return; }
+                    const wasOpen = !!(primaryCb && primaryCb._expanded);
+                    if (!wasOpen) {
+                        // Open only — don't cycle, don't touch vmin/vmax.
                         _lebesgueManual = false;
-                        _clearLebesgueOverlay();
-                        const tz = document.getElementById('slim-cb-tri-zone');
-                        if (tz) tz.classList.remove('expanded');
-                        primaryCb.startAnim(false);
-                        if (multiViewActive || compareMvActive) {
-                            drawMvColorbar();
-                        } else {
-                            drawSlimColorbar(cbMarkerFrac);
-                        }
-                        showStatus('histogram: off');
-                    } else {
-                        // Open.
-                        _lebesgueManual = false; // 'd'-opened histograms still auto-dismiss
                         _pulseHistDims();
                         _computeCbExpandedH();
                         primaryCb._expanded = true;
@@ -14056,14 +14084,35 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         lebesgueMode = true;
                         _fetchLebesgueSlice();
                         primaryCb.startAnim(true);
-                        if (multiViewActive || compareMvActive) {
-                            drawMvColorbar();
-                        } else {
-                            drawSlimColorbar(cbMarkerFrac);
-                        }
-                        showStatus('histogram');
+                        if (multiViewActive || compareMvActive) drawMvColorbar();
+                        else drawSlimColorbar(cbMarkerFrac);
                         _restartHistAutoDismiss();
+                        saveState();
+                        return;
                     }
+                    // Histogram is already open — cycle preset.
+                    const preset = _cycleQuantilePreset();
+                    if (preset) {
+                        const label = (preset.lo === 0 && preset.hi === 1)
+                            ? 'percentile: full range'
+                            : `percentile ${_fmtPct(preset.lo * 100)}–${_fmtPct(preset.hi * 100)}%`;
+                        showToast(label);
+                    }
+                    if (multiViewActive) {
+                        mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                    } else if (compareActive) {
+                        compareRender();
+                    } else if (qmriActive) {
+                        qmriViews.forEach(v => qvRender(v));
+                    } else {
+                        updateView();
+                    }
+                    if (primaryCb && primaryCb._expanded) primaryCb.draw();
+                    if (multiViewActive || compareMvActive) drawMvColorbar();
+                    else drawSlimColorbar(cbMarkerFrac);
+                    // Reset the auto-dismiss window so the user has time to
+                    // see the new preset before the histogram fades.
+                    _restartHistAutoDismiss();
                     saveState();
                 },
             },
@@ -14577,7 +14626,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
                         indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
-                        _maybeAutoRecomputeRange();
+                        _maybeAutoRecomputeRange(activeDim);
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         _debouncedHoverPrefetch();
@@ -14593,6 +14642,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else {
                         lastDirection = 1;
                         indices[activeDim] = Math.min(shape[activeDim] - 1, indices[activeDim] + 1);
+                        _pendingNavDim = activeDim;
                         updateView();
                         saveState();
                     }
@@ -14609,7 +14659,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         drawVectorOverlay(); renderInfo(); saveState();
                     } else if (multiViewActive) {
                         indices[activeDim] = Math.max(0, indices[activeDim] - 1);
-                        _maybeAutoRecomputeRange();
+                        _maybeAutoRecomputeRange(activeDim);
                         renderInfo();
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
                         _debouncedHoverPrefetch();
@@ -14625,6 +14675,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     } else {
                         lastDirection = -1;
                         indices[activeDim] = Math.max(0, indices[activeDim] - 1);
+                        _pendingNavDim = activeDim;
                         updateView();
                         saveState();
                     }
@@ -14866,8 +14917,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Color & Range',
                         entries: [
                             { key: 'c', action: 'Cycle colormap (tap) / hold to pick', hint: 'tap `c` to cycle next · hold `c` to open a preview grid (hjkl/arrows to browse · Enter or release to select · Esc cancels)' },
-                            { key: 'd', action: 'Toggle histogram', hint: 'show or hide the volume histogram on the colorbar' },
-                            { key: 'Shift+D', action: 'Histogram dim & lock picker', hint: 'j/k to switch rows · h/l across dims · Enter acts (toggle lock / commit dim) · Esc closes' },
+                            { key: 'd', action: 'Open histogram / cycle percentile', hint: '1st tap opens the histogram · each subsequent tap cycles the percentile preset (full · 0.1–99.9% · 1–99% · 5–95% · 10–90%)' },
+                            { key: 'Shift+D', action: 'Histogram dim picker (3-state)', hint: 'Click a dim to cycle scope → recompute → frozen. scope = feeds histogram · recompute = rebuild vmin/vmax on nav · frozen = keep vmin/vmax. Hover a dim for details. Shift+D or Esc closes.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
                             { key: 'b', action: 'Toggle canvas borders' },
@@ -15743,8 +15794,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_cmapHoldActive) {
                 if (_cmapHoldKey(e)) return;
             }
-            if (_histDimPickerActive) {
-                if (_histDimPickerKey(e)) return;
+            if (_histPickerActive) {
+                if (_histPickerKey(e)) return;
             }
             // Intercept first-press of `c` (no modifiers) to arm the hold
             // timer. On keyup we either commit/cycle depending on whether
@@ -15846,7 +15897,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapHoldCancel();
             }
             _cmapHoldKeyDown = false;
-            if (_histDimPickerActive) _histDimPickerClose(true);
+            if (_histPickerActive) _histPickerClose(true);
         });
 
 
@@ -17653,10 +17704,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    cvWrap.appendChild(cv);
+                    // Tight box so axes-indicator's bottom:6px measures from the
+                    // canvas, not from below the colorbar sibling in cvWrap.
+                    const qvCvBox = document.createElement('div');
+                    qvCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    qvCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
-                    cvWrap.appendChild(qvPiEl);
+                    qvCvBox.appendChild(qvPiEl);
                     const _qvNS = 'http://www.w3.org/2000/svg';
                     const qvAxDiv = document.createElementNS(_qvNS, 'svg');
                     qvAxDiv.setAttribute('class', 'axes-indicator');
@@ -17667,7 +17722,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
                         + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
                         + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
-                    cvWrap.appendChild(qvAxDiv);
+                    qvCvBox.appendChild(qvAxDiv);
+                    cvWrap.appendChild(qvCvBox);
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
                     pane.appendChild(area);
@@ -17993,10 +18049,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     cvWrap.className = 'qv-canvas-wrap';
                     const cv = document.createElement('canvas');
                     cv.className = 'qv-canvas';
-                    cvWrap.appendChild(cv);
+                    // Tight box so axes-indicator's bottom:6px measures from the
+                    // canvas, not from below the colorbar sibling in cvWrap.
+                    const cqCvBox = document.createElement('div');
+                    cqCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    cqCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
-                    cvWrap.appendChild(qvPiEl);
+                    cqCvBox.appendChild(qvPiEl);
                     const _qvNS = 'http://www.w3.org/2000/svg';
                     const qvAxDiv = document.createElementNS(_qvNS, 'svg');
                     qvAxDiv.setAttribute('class', 'axes-indicator');
@@ -18007,7 +18067,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
                         + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
                         + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
-                    cvWrap.appendChild(qvAxDiv);
+                    cqCvBox.appendChild(qvAxDiv);
+                    cvWrap.appendChild(cqCvBox);
                     area.appendChild(cvWrap);
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
@@ -20029,6 +20090,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
+            // Picker mode: click cycles dim state (scope → recompute → frozen).
+            if (_histPickerActive) {
+                e.preventDefault();
+                _histPickerCycleDim(d);
+                return;
+            }
             // Skip dims in projection or quantization mode — they aren't navigable
             if (projectionMode > 0 && d === projectionDim) return;
             if ((qmriActive && d === qmriDim) || (compareQmriActive && d === compareQmriDim)) return;
@@ -20059,6 +20126,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Drag on a dim label to scrub through that dimension
         let _trackDrag = null; // { d, isVfield }
         infoEl.addEventListener('mousedown', (e) => {
+            if (_histPickerActive) return;  // picker owns the labels
             const span = e.target.closest('[data-dim]');
             if (!span) return;
             const d = parseInt(span.dataset.dim);
@@ -20087,9 +20155,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 renderInfo();
                 if (compareQmriActive) compareQmriViews.forEach(v => compareQmriRender(v));
                 else if (compareMvActive) compareMvViews.forEach(v => compareMvRender(v));
-                else if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                else if (multiViewActive) { _maybeAutoRecomputeRange(d); mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); }); }
                 else if (qmriActive) qmriViews.forEach(v => qvRender(v));
-                else { updateView(); return; }
+                else { _pendingNavDim = d; updateView(); return; }
                 _debouncedHoverPrefetch();
             }
         });
@@ -20109,16 +20177,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 hoveredDim = parseInt(span.dataset.dim);
                 _dimBarHovering = true;
                 _showAxesGnomon();
+                if (_histPickerActive) {
+                    _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
+                }
             } else {
                 hoveredDim = -1;
                 _dimBarHovering = false;
                 if (!axesFlashTimer) _hideAxesGnomon();
+                if (_histPickerActive) _hideHistTooltip();
             }
         });
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
             _dimBarHovering = false;
             if (!axesFlashTimer) _hideAxesGnomon();
+            if (_histPickerActive) _hideHistTooltip();
         });
         infoEl.addEventListener('wheel', (e) => {
             if (hoveredDim === VFIELD_T_DIM) {
@@ -20152,6 +20225,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             } else if (qmriActive) {
                 qmriViews.forEach(v => qvRender(v));
             } else {
+                _pendingNavDim = hoveredDim;
                 updateView();
                 saveState();
                 return;
@@ -21781,26 +21855,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return false;
         }
 
-        // ── 3c. `D` histogram-dim / lock picker ───────────────────────
-        // Capital `D` opens a picker with two rows: a lock toggle and a dim
-        // strip for choosing the quantile aggregation axis. j/k moves between
-        // rows; h/l moves within the dim row; Enter acts on the highlighted
-        // row (toggle lock / commit dim); Esc closes without touching state.
-        // Pressing `D` again closes the menu. Visibility is driven by the
-        // `.visible` class via _reconcileHistDimPicker.
-        const _histDimHoldMenu = document.getElementById('histdim-hold-menu');
-        let _histDimPickerActive = false;
-        let _histDimPickerRow = 1;       // 0 = lock row, 1 = dim row
-        let _histDimPickerSelIdx = 0;    // index into _histDimPickerDims
-        let _histDimPickerDims = [];     // array of dim indices shown (all dims)
+        // ── 3c. Shift+D histogram participation picker ───────────────
+        // Shift+D opens the histogram colorbar AND enters picker mode. Each
+        // dim in the top dimbar becomes a click-to-cycle button with three
+        // states: 'scope' (feeds histogram), 'recompute' (not in histogram,
+        // recompute vmin/vmax on nav), 'frozen' (not in histogram, freeze
+        // vmin/vmax). x/y are always 'scope' and not togglable. Shift+D
+        // again or Esc closes the picker.
 
-        function _reconcileHistDimPicker() {
-            if (!_histDimHoldMenu) return;
-            _histDimHoldMenu.classList.toggle('visible', !!_histDimPickerActive);
-            _histDimHoldMenu.setAttribute('aria-hidden', _histDimPickerActive ? 'false' : 'true');
-        }
-
-        function _histDimPickerEligible() {
+        function _histPickerEligible() {
             if (rgbMode) return false;
             if (!Array.isArray(shape) || shape.length < 2) return false;
             if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
@@ -21809,147 +21872,207 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return true;
         }
 
-        function _histDimPickerLabel(i) {
-            // Human-readable label for dim i, mirroring renderInfo()'s spatial
-            // assignments so users see the same symbols in both places.
-            if (multiViewActive && mvDims && mvDims.length === 3) {
-                const pos = mvDims.indexOf(i);
-                if (pos >= 0) return ['y', 'x', 'z'][pos] || `d${i}`;
-            }
-            if (i === dim_x) return 'x';
-            if (i === dim_y) return 'y';
-            if (i === dim_z) return 'z';
-            return `d${i}`;
+        function _reconcileHistPicker() {
+            _applyHistPickerClasses();
+            if (!_histPickerActive) _hideHistTooltip();
         }
 
-        function _histDimPickerBuild() {
-            if (!_histDimHoldMenu) return;
-            _histDimPickerDims = shape.map((_, i) => i);
-            const lockLabel = rangeLocked ? 'locked' : 'unlocked';
-            let html = '<div class="hdh-title"><span>histogram</span>'
-                + '<span class="hdh-hint">jk rows · hl cells · Enter act · Esc close</span></div>'
-                + `<div class="hdh-lock-row"><div class="hdh-cell hdh-lock" data-hdh-row="0">`
-                + `<span class="hdh-label">range: ${lockLabel}</span>`
-                + `<span class="hdh-size">Enter to toggle</span></div></div>`
-                + '<div class="hdh-row">';
-            const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
-            const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
-            for (const i of _histDimPickerDims) {
-                const disabled = (i === dx || i === dy);
-                const cls = disabled ? 'hdh-cell disabled' : 'hdh-cell';
-                const sz = Array.isArray(shape) ? shape[i] : '?';
-                html += `<div class="${cls}" data-hdh-dim="${i}">`
-                    + `<span class="hdh-label">${_histDimPickerLabel(i)}</span>`
-                    + `<span class="hdh-size">${sz}</span></div>`;
-            }
-            html += '</div>';
-            _histDimHoldMenu.innerHTML = html;
+        function _histPickerOpen() {
+            if (_histPickerActive) return;
+            _histPickerActive = true;
+            _reconcileHistPicker();
+            showStatus('histogram dims: click to cycle scope → recompute → frozen');
         }
 
-        function _histDimPickerHighlight() {
-            if (!_histDimHoldMenu) return;
-            const lock = _histDimHoldMenu.querySelector('.hdh-lock');
-            if (lock) lock.classList.toggle('active', _histDimPickerRow === 0);
-            const cells = _histDimHoldMenu.querySelectorAll('.hdh-row .hdh-cell');
-            cells.forEach((cell, i) => {
-                cell.classList.toggle('active', _histDimPickerRow === 1 && i === _histDimPickerSelIdx);
-            });
+        /** Open histogram colorbar + enter picker mode. Invoked by Shift+D. */
+        async function _histPickerOpenWithHistogram() {
+            _histPickerOpen();
+            // Also expand the histogram colorbar so dim-toggles give visual
+            // feedback.
+            if (!rgbMode && primaryCb && !primaryCb._expanded) {
+                _lebesgueManual = false;
+                _pulseHistDims();
+                _computeCbExpandedH();
+                primaryCb._expanded = true;
+                primaryCb._manualExpand = true;
+                const tz = document.getElementById('slim-cb-tri-zone');
+                if (tz) tz.classList.add('expanded');
+                if (compareActive) {
+                    await _fetchHistogramCompare();
+                } else {
+                    const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                    if (volData) _histData = volData;
+                }
+                _buildKDE();
+                lebesgueMode = true;
+                _fetchLebesgueSlice();
+                primaryCb.startAnim(true);
+                if (multiViewActive || compareMvActive) drawMvColorbar();
+                else drawSlimColorbar(cbMarkerFrac);
+                // While picker is open, suppress auto-dismiss so the
+                // histogram doesn't disappear mid-toggle.
+                if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
+            }
         }
 
-        function _histDimPickerOpen() {
-            if (!_histDimHoldMenu || _histDimPickerActive) return;
-            _histDimPickerBuild();
-            // Start on current _histExtraDim, or the auto dim so user sees
-            // what's active. Default to the dim row (not the lock row).
-            let startIdx = -1;
-            if (_histExtraDim != null) {
-                startIdx = _histDimPickerDims.indexOf(_histExtraDim);
-            }
-            if (startIdx < 0) {
-                const useMv = multiViewActive && mvDims && mvDims.length === 3;
-                const autoDim = useMv ? mvDims[2] : (dim_z >= 0 ? dim_z : current_slice_dim);
-                startIdx = _histDimPickerDims.indexOf(autoDim);
-            }
-            if (startIdx < 0) startIdx = 0;
-            _histDimPickerSelIdx = startIdx;
-            _histDimPickerRow = 1;
-            _histDimPickerActive = true;
-            _histDimPickerHighlight();
-            _reconcileHistDimPicker();
-        }
-
-        function _histDimPickerClose(silent) {
-            if (!_histDimPickerActive) return;
-            _histDimPickerActive = false;
-            _reconcileHistDimPicker();
+        function _histPickerClose(silent) {
+            if (!_histPickerActive) return;
+            _histPickerActive = false;
+            _reconcileHistPicker();
             if (!silent) showStatus('');
+            if (primaryCb && primaryCb._expanded) _restartHistAutoDismiss();
         }
 
-        async function _histDimPickerCommitDim() {
-            const newDim = _histDimPickerDims[_histDimPickerSelIdx];
-            const dx = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[1] : dim_x;
-            const dy = (multiViewActive && mvDims && mvDims.length === 3) ? mvDims[0] : dim_y;
-            if (newDim === dx || newDim === dy) {
-                showToast('dim already shown — pick a non-display dim');
+        /** Cycle the state of dim `d` and re-apply the histogram + preset.
+         *  Called on click (or Enter) in picker mode. */
+        async function _histPickerCycleDim(d) {
+            if (!_histPickerActive) return;
+            if (!Number.isInteger(d) || d < 0 || d >= shape.length) return;
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const dx = useMv ? mvDims[1] : dim_x;
+            const dy = useMv ? mvDims[0] : dim_y;
+            if (d === dx || d === dy) {
+                showToast('display axis — always in scope');
                 return;
             }
-            _histExtraDim = newDim;
+            const next = _cycleDimState(d);
+            if (!next) return;
             _invalidateVolHistCache();
-            if (primaryCb && primaryCb._expanded) {
-                const volData = await _fetchVolumeHistogram(_volHistSpatialOpts());
-                if (volData) { _histData = volData; _buildKDE(); primaryCb.draw(); primaryCb.ensureAnimating(); }
+            _reconcileHistPicker();
+            // Refetch histogram with the new scope set, then re-apply the
+            // active percentile preset so vmin/vmax actually update.
+            let fetched = null;
+            if (compareActive) {
+                await _fetchHistogramCompare();
+                fetched = _histData;
+            } else {
+                fetched = await _fetchVolumeHistogram(_volHistSpatialOpts());
+                if (fetched) _histData = fetched;
             }
-            showToast(`histogram dim: ${_histDimPickerLabel(newDim)}`);
-            _histDimPickerClose(true);
+            if (_histData) _buildKDE();
+            // If no preset was ever applied (user opened the picker without
+            // cycling d), default to full range so cycling a dim produces
+            // a visible vmin/vmax change based on the new histogram.
+            if (window._dQuantileIdx == null) window._dQuantileIdx = 0;
+            _reapplyCurrentQuantilePreset();
+            // Trigger the usual re-render path for the current mode.
+            if (multiViewActive) mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+            else if (compareActive) compareRender();
+            else if (qmriActive) qmriViews.forEach(v => qvRender(v));
+            else updateView();
+            if (primaryCb && primaryCb._expanded) { primaryCb.draw(); primaryCb.ensureAnimating(); }
+            if (multiViewActive || compareMvActive) drawMvColorbar();
+            else drawSlimColorbar(cbMarkerFrac);
+            const label = next === 'scope' ? 'in scope'
+                        : next === 'recompute' ? 'recompute on nav'
+                        : 'frozen';
+            showToast(`dim ${d}: ${label}`);
         }
 
-        function _histDimPickerToggleLock() {
-            try { commands['range.toggleLock'].run(makeContext(null), null); } catch (_) {}
-            // Rebuild to reflect the new lock label without losing selection.
-            const prevRow = _histDimPickerRow;
-            const prevSel = _histDimPickerSelIdx;
-            _histDimPickerBuild();
-            _histDimPickerRow = prevRow;
-            _histDimPickerSelIdx = prevSel;
-            _histDimPickerHighlight();
-        }
-
-        function _histDimPickerNav(dx, dy) {
-            if (!_histDimPickerActive) return;
-            if (dy !== 0) {
-                const next = Math.max(0, Math.min(1, _histDimPickerRow + dy));
-                if (next !== _histDimPickerRow) {
-                    _histDimPickerRow = next;
-                    _histDimPickerHighlight();
-                }
-                return;
-            }
-            if (dx !== 0 && _histDimPickerRow === 1) {
-                const n = _histDimPickerDims.length;
-                const next = Math.max(0, Math.min(n - 1, _histDimPickerSelIdx + dx));
-                if (next !== _histDimPickerSelIdx) {
-                    _histDimPickerSelIdx = next;
-                    _histDimPickerHighlight();
-                }
-            }
-        }
-
-        function _histDimPickerKey(e) {
-            if (!_histDimPickerActive) return false;
-            const k = e.key;
-            if (k === 'Escape') { e.preventDefault(); _histDimPickerClose(); return true; }
-            if (k === 'Enter')  {
+        function _histPickerKey(e) {
+            if (!_histPickerActive) return false;
+            if (e.key === 'Escape') { e.preventDefault(); _histPickerClose(); return true; }
+            // Enter cycles the state of the current activeDim (keyboard
+            // alternative to clicking). h/l / j/k still move activeDim
+            // and scroll indices through the normal key paths.
+            if (e.key === 'Enter') {
                 e.preventDefault();
-                if (_histDimPickerRow === 0) _histDimPickerToggleLock();
-                else _histDimPickerCommitDim();
+                if (Number.isInteger(activeDim) && activeDim >= 0 && activeDim < shape.length) {
+                    _histPickerCycleDim(activeDim);
+                }
                 return true;
             }
-            if (k === 'h' || k === 'ArrowLeft')  { e.preventDefault(); _histDimPickerNav(-1, 0); return true; }
-            if (k === 'l' || k === 'ArrowRight') { e.preventDefault(); _histDimPickerNav( 1, 0); return true; }
-            if (k === 'j' || k === 'ArrowDown')  { e.preventDefault(); _histDimPickerNav( 0, 1); return true; }
-            if (k === 'k' || k === 'ArrowUp')    { e.preventDefault(); _histDimPickerNav( 0,-1); return true; }
-            if (k === 'D') { e.preventDefault(); _histDimPickerClose(); return true; }
             return false;
+        }
+
+        // ── Fast custom tooltip for the picker ─────────────────────────
+        // Native `title` tooltips have a ~600 ms delay, which makes them
+        // feel broken. This tooltip shows after 150 ms and stays until
+        // pointer leaves or picker closes.
+        let _histTooltipEl = null;
+        let _histTooltipTimer = null;
+        function _ensureHistTooltip() {
+            if (_histTooltipEl) return _histTooltipEl;
+            const el = document.createElement('div');
+            el.id = 'hist-tooltip';
+            document.body.appendChild(el);
+            _histTooltipEl = el;
+            return el;
+        }
+        function _showHistTooltip(text, anchorRect) {
+            const el = _ensureHistTooltip();
+            el.textContent = text;
+            if (_histTooltipTimer) clearTimeout(_histTooltipTimer);
+            _histTooltipTimer = setTimeout(() => {
+                el.style.visibility = 'hidden';
+                el.classList.add('visible');
+                // Now measure and position below the anchor, centered.
+                const w = el.offsetWidth, h = el.offsetHeight;
+                const vw = window.innerWidth;
+                let left = Math.round(anchorRect.left + anchorRect.width / 2 - w / 2);
+                left = Math.max(8, Math.min(vw - w - 8, left));
+                const top = Math.round(anchorRect.bottom + 8);
+                el.style.left = `${left}px`;
+                el.style.top = `${top}px`;
+                el.style.visibility = 'visible';
+            }, 150);
+        }
+        function _hideHistTooltip() {
+            if (_histTooltipTimer) { clearTimeout(_histTooltipTimer); _histTooltipTimer = null; }
+            if (_histTooltipEl) _histTooltipEl.classList.remove('visible');
+        }
+        function _tooltipTextForDim(i) {
+            const useMv = multiViewActive && mvDims && mvDims.length === 3;
+            const dx = useMv ? mvDims[1] : dim_x;
+            const dy = useMv ? mvDims[0] : dim_y;
+            if (i === dx || i === dy) {
+                return 'Display axis — always in scope.';
+            }
+            const s = _dimStateFor(i);
+            if (s === 'scope') {
+                return 'IN SCOPE — every slice along this dim is included when computing the histogram. Scrolling this dim won’t change vmin/vmax.';
+            }
+            if (s === 'recompute') {
+                return 'RECOMPUTE — not in the histogram. vmin/vmax are recomputed (using the current percentile preset) each time you scroll along this dim.';
+            }
+            return 'FROZEN — not in the histogram. vmin/vmax stay put no matter how you scroll this dim.';
+        }
+
+        /** Re-apply the most recently used percentile preset to _histData.
+         *  Does nothing if the user hasn't cycled a preset yet (first-tap
+         *  opens histogram only, leaving vmin/vmax at their auto value). */
+        function _reapplyCurrentQuantilePreset() {
+            if (!_histData || !_histData.counts) return;
+            if (window._dQuantileIdx == null) return;
+            const preset = _QUANTILE_PRESETS[window._dQuantileIdx];
+            if (!preset) return;
+            if (preset.lo === 0 && preset.hi === 1) {
+                manualVmin = _histData.vmin;
+                manualVmax = _histData.vmax;
+            } else {
+                const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+                const total = counts.reduce((a, b) => a + b, 0);
+                let cumLo = 0, cumHi = 0;
+                let qLo = dmin, qHi = dmax;
+                for (let i = 0; i < counts.length; i++) {
+                    cumLo += counts[i];
+                    if (cumLo / total >= preset.lo) { qLo = edges[i]; break; }
+                }
+                for (let i = counts.length - 1; i >= 0; i--) {
+                    cumHi += counts[i];
+                    if (cumHi / total >= (1 - preset.hi)) { qHi = edges[i + 1]; break; }
+                }
+                manualVmin = qLo;
+                manualVmax = qHi;
+            }
+            const _dv = modeManager.getFocusedView() || modeManager.currentViews[0];
+            if (_dv) { _dv.displayState.vmin = manualVmin; _dv.displayState.vmax = manualVmax; }
+            cmpManualVmin.fill(null); cmpManualVmax.fill(null);
+            if (multiViewActive) mvViews.forEach((v, i) => {
+                v.lockedVmin = manualVmin; v.lockedVmax = manualVmax;
+                const mv = modeManager.currentViews[i];
+                if (mv) { mv.displayState.vmin = manualVmin; mv.displayState.vmax = manualVmax; }
+            });
         }
 
         // ── 4. A/B wipe comparator (cursor-following) ──────────────

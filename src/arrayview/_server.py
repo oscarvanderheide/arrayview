@@ -2130,21 +2130,24 @@ def get_volume_histogram(
     sid: str,
     dim_x: int,
     dim_y: int,
-    scroll_dim: int,
+    scroll_dim: int = -1,
+    scroll_dims: str = "",
     fixed_indices: str = "",
     complex_mode: int = 0,
     bins: int = 64,
     session: "Session" = Depends(get_session_or_404),
 ):
-    """Return a histogram sampled across the scroll dimension.
+    """Return a histogram sampled across one or more aggregation dims.
 
-    Subsamples up to 16 evenly-spaced slices along *scroll_dim*, merges
-    their pixel data, and returns a single histogram.  The result is
-    cached on the session so repeated requests are instant.
+    *scroll_dims* is a comma-separated list of dim indices to aggregate
+    over (in addition to *dim_x* / *dim_y*).  When unset, falls back to
+    the legacy single *scroll_dim* param.  The sampler enumerates index
+    combinations across all aggregation dims but caps total samples at
+    ~16 via stride-subsampling.
 
     *fixed_indices* is a comma-separated list of ``dim:idx`` pairs that
-    pin non-display, non-scroll dimensions (e.g. ``"3:0"`` to select the
-    first parameter map in qMRI mode).
+    pin non-display, non-aggregation dimensions (e.g. ``"3:0"`` to
+    select the first parameter map in qMRI mode).
     """
 
     # Parse fixed indices
@@ -2155,27 +2158,59 @@ def get_volume_histogram(
                 d, v = pair.split(":", 1)
                 fixed[int(d)] = int(v)
 
+    # Resolve aggregation dims: prefer scroll_dims, fall back to scroll_dim.
+    agg_dims: list[int] = []
+    if scroll_dims:
+        for tok in scroll_dims.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                d = int(tok)
+            except ValueError:
+                continue
+            if 0 <= d < len(session.shape) and d != dim_x and d != dim_y and d not in agg_dims:
+                agg_dims.append(d)
+    if not agg_dims and scroll_dim >= 0 and scroll_dim != dim_x and scroll_dim != dim_y:
+        agg_dims = [scroll_dim]
+
     # Check cache
-    cache_key = (dim_x, dim_y, scroll_dim, tuple(sorted(fixed.items())), complex_mode)
+    cache_key = (dim_x, dim_y, tuple(agg_dims), tuple(sorted(fixed.items())), complex_mode)
     if not hasattr(session, "_volume_hist_cache"):
         session._volume_hist_cache = {}
     cached = session._volume_hist_cache.get(cache_key)
     if cached is not None and cached.get("_data_version") == session.data_version:
         return cached["result"]
 
-    # Sample slices along scroll_dim
-    n = session.shape[scroll_dim]
+    # Build sample index lists per aggregation dim, stride-subsampled so
+    # their Cartesian product stays around ~16 samples total.
     max_samples = 16
-    if n <= max_samples:
-        sample_indices = list(range(n))
+    if not agg_dims:
+        # No aggregation dims — use the current middle slice only.
+        sample_combos = [tuple()]
     else:
-        step = n / max_samples
-        sample_indices = [int(i * step) for i in range(max_samples)]
+        per_dim_counts = [session.shape[d] for d in agg_dims]
+        # Target roughly equal sample count per dim so the product ≈ max_samples.
+        # Ceil to avoid zero; clamp to dim size.
+        k = len(agg_dims)
+        per_dim_target = max(1, int(round(max_samples ** (1.0 / k))))
+        sample_per_dim: list[list[int]] = []
+        for n in per_dim_counts:
+            m = min(n, per_dim_target)
+            if n <= m:
+                sample_per_dim.append(list(range(n)))
+            else:
+                step = n / m
+                sample_per_dim.append([int(i * step) for i in range(m)])
+        # Cartesian product with a hard cap.
+        import itertools as _it
+        sample_combos = list(_it.islice(_it.product(*sample_per_dim), max_samples))
 
     pixels = []
-    for si in sample_indices:
+    for combo in sample_combos:
         idx_list = [s // 2 for s in session.shape]
-        idx_list[scroll_dim] = si
+        for d, si in zip(agg_dims, combo):
+            idx_list[d] = si
         for d, v in fixed.items():
             idx_list[d] = v
         raw = extract_slice(session, dim_x, dim_y, idx_list)

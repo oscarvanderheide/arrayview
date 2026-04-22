@@ -689,16 +689,21 @@ def run_smoke(page, base, client, tmp):
     _press(page, "H", wait=200)  # re-enable
     _shot(page, "43c_hover_tooltip_back_on")
 
-    # ── 44: d key — toggle histogram ────────────────────────────────────────
-    # Tap `d` toggles the histogram-mode colorbar on/off. (Previous range-lock
-    # D binding removed; see commit notes. range.toggleLock still reachable via
-    # the command palette.)
+    # ── 44: d — 1st tap opens histogram, 2nd tap cycles percentile; Shift+D opens picker ─
+    # Tap `d`: first press opens the histogram colorbar only (no vmin/vmax
+    # change). Each subsequent tap cycles percentile preset (full · 0.1–99.9
+    # · 1–99 · 5–95 · 10–90) + toasts. Shift+D opens the participation
+    # picker (outlined-pill dim buttons + lock floater with tooltips).
     _goto(page, base, sid4d_varied)
     _focus(page)
-    _press(page, "d", wait=600)  # open histogram
-    _shot(page, "44a_histogram_open")
-    _press(page, "d", wait=600)  # close histogram
-    _shot(page, "44b_histogram_closed")
+    _press(page, "d", wait=600)  # 1st tap → opens histogram only
+    _shot(page, "44a_d_first_tap_opens_histogram")
+    _press(page, "d", wait=600)  # 2nd tap → cycles to first preset
+    _shot(page, "44b_d_second_tap_cycles_preset")
+    _press(page, "Shift+D", wait=300)  # Shift+D opens picker
+    _shot(page, "44c_picker_open")
+    _press(page, "Shift+D", wait=300)  # Shift+D closes picker
+    _shot(page, "44d_picker_closed")
 
     # ── 45: unified picker — Cmd+O/Ctrl+O and P keys open #uni-picker ───────────────────
     # Cycle: open → compare → overlay → open…
@@ -1824,32 +1829,34 @@ def run_smoke(page, base, client, tmp):
     _press(page, "v", wait=400)  # exit 3-view
     print("  OK: vectorfield arrows work in 3-view mode")
 
-    # ── 74: histogram height regression (d key must not expand colorbar) ─────
+    # ── 74: d key opens histogram (colorbar grows), second d cycles (stable) ─
     _goto(page, base, sid2d)
     _focus(page)
-    # Make sure we start from the collapsed state — the histogram auto-
-    # dismisses on its own, but a quick toggle-off guarantees it.
+    # Start from collapsed state: ensure hist is closed.
     is_open = page.evaluate(
         "() => !!(typeof primaryCb !== 'undefined' && primaryCb && primaryCb._expanded)"
     )
     if is_open:
-        _press(page, "d", wait=200)
-    h_before = page.evaluate(
+        # Close via the palette to avoid tap-d cycling again.
+        page.evaluate("() => { primaryCb._expanded = false; primaryCb._manualExpand = false; }")
+        page.wait_for_timeout(200)
+    _shot(page, "74a_before_d")
+    _press(page, "d", wait=600)  # 1st tap — opens histogram
+    h_open = page.evaluate(
         "() => { const el = document.getElementById('slim-cb-wrap'); return el ? el.offsetHeight : -1; }"
     )
-    _shot(page, "74a_histogram_before_d")
-    _press(page, "d", wait=600)  # toggle histogram on
-    h_after = page.evaluate(
+    _shot(page, "74b_after_first_d")
+    _press(page, "d", wait=600)  # 2nd tap — cycles preset, colorbar stays
+    h_cycled = page.evaluate(
         "() => { const el = document.getElementById('slim-cb-wrap'); return el ? el.offsetHeight : -1; }"
     )
-    _shot(page, "74b_histogram_after_d")
-    delta = abs(h_after - h_before)
+    _shot(page, "74c_after_second_d")
+    delta = abs(h_cycled - h_open)
     assert delta <= 4, (
-        f"FAIL: colorbar island height changed by {delta}px after pressing d "
-        f"(before={h_before}, after={h_after}) — histogram must fit within colorbar"
+        f"FAIL: colorbar island height changed by {delta}px between two d taps "
+        f"(open={h_open}, cycled={h_cycled}) — cycling shouldn't resize the island"
     )
-    _press(page, "d", wait=200)  # toggle off
-    print(f"  OK: histogram height stable (delta={delta}px)")
+    print(f"  OK: colorbar height stable across d-taps (delta={delta}px)")
 
     # ── 75: immersive crossfade handoff maps zoom to paneCutoff ────────────
     print("75: immersive crossfade handoff")

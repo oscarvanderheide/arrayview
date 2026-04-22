@@ -190,9 +190,11 @@ IGNORED_FIELDS_GLOBAL: set[str] = {"viewStates", "mmModeName"}
 # state-corruption bug — it's the whole point.
 PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
     "cycle_colormap":      {"colormap_idx", "customColormap"},
-    # Tapping `d` toggles histogram mode — it expands the colorbar and flips
-    # lebesgueMode. manualVmin/manualVmax are left untouched by the toggle
-    # itself; quantile cycling has moved to the colorbar scroll / palette.
+    # Tapping `d` opens the histogram colorbar (flips lebesgueMode). The
+    # first tap does NOT cycle percentile presets / touch vmin/vmax —
+    # subsequent taps while the histogram is visible do, but the mode
+    # round-trip only exercises a single tap. So the expected diff is the
+    # same lebesgueMode flip as before the preset work.
     "toggle_histogram":    {"lebesgueMode"},
     # toggle_log changes logScale AND recomputes vmin/vmax for the new scale
     "toggle_log":          {"logScale", "manualVmin", "manualVmax"},
