@@ -7459,6 +7459,10 @@
 
         function applyFlips(imageData, w, h) {
             if (!flip_x && !flip_y) return imageData;
+            // In mosaic mode the canvas is a grid of tiles — flip each tile
+            // individually so the slice orientation changes while the tile
+            // layout (which z-slice is in which cell) stays put.
+            if (dim_z >= 0) return _applyFlipsMosaic(imageData, w, h);
             const src = imageData.data;
             const out = new Uint8ClampedArray(src.length);
             for (let row = 0; row < h; row++) {
@@ -7469,6 +7473,35 @@
                     const di = (row * w + col) * 4;
                     out[di] = src[si]; out[di+1] = src[si+1];
                     out[di+2] = src[si+2]; out[di+3] = src[si+3];
+                }
+            }
+            return new ImageData(out, w, h);
+        }
+
+        /** Mosaic variant of applyFlips: flips each tile in-place within the
+         *  grid, leaving the tile ordering and the GAP pixels untouched. */
+        function _applyFlipsMosaic(imageData, w, h) {
+            const g = _mosaicGridInfo();
+            const { rows, cols, tileW, tileH, GAP } = g;
+            const src = imageData.data;
+            const out = new Uint8ClampedArray(src);  // copy → gaps preserved
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const x0 = c * (tileW + GAP);
+                    const y0 = r * (tileH + GAP);
+                    if (x0 + tileW > w || y0 + tileH > h) continue;  // defensive
+                    for (let j = 0; j < tileH; j++) {
+                        const srcJ = flip_y ? (tileH - 1 - j) : j;
+                        for (let i = 0; i < tileW; i++) {
+                            const srcI = flip_x ? (tileW - 1 - i) : i;
+                            const si = ((y0 + srcJ) * w + (x0 + srcI)) * 4;
+                            const di = ((y0 + j) * w + (x0 + i)) * 4;
+                            out[di]   = src[si];
+                            out[di+1] = src[si+1];
+                            out[di+2] = src[si+2];
+                            out[di+3] = src[si+3];
+                        }
+                    }
                 }
             }
             return new ImageData(out, w, h);
@@ -12745,15 +12778,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             sink.focus();
         });
 
-        /** Compute mosaic grid layout matching server's mosaic_shape(). */
+        /** Compute mosaic grid layout matching server's mosaic_shape().
+         *  Server extract_slice always returns a 2D array with shape
+         *  [dim_y_len, dim_x_len] (rows × cols after the dim_x < dim_y
+         *  transpose), so tileW = shape[dim_x] and tileH = shape[dim_y].
+         *  The previous max/min formula only matched when dim_x > dim_y. */
         function _mosaicGridInfo() {
             const n = shape[dim_z];
             let rows = Math.floor(Math.sqrt(n));
             let cols = Math.floor(n / rows);
             while (rows * cols < n) cols++;
             if ((rows - 1) * (cols + 1) === n) { rows--; cols++; }
-            const tileW = shape[dim_x < dim_y ? dim_y : dim_x];
-            const tileH = shape[dim_x < dim_y ? dim_x : dim_y];
+            const tileW = shape[dim_x];
+            const tileH = shape[dim_y];
             const GAP = 2;
             return { rows, cols, tileW, tileH, GAP, n };
         }
