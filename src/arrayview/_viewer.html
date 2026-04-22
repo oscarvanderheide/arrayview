@@ -1232,6 +1232,11 @@
         .oblique-flip-wrap {
             perspective: 1000px;
             display: flex; justify-content: center; align-items: center;
+            /* Spacing from panes above lives here, NOT on the cb-island/front.
+               If the front carried a top margin it would push the flip-inner's
+               layout height beyond the cb-island, and the absolute back face
+               (inset: 0) would inherit that inflated height. */
+            margin-top: 10px;
         }
         .oblique-flip-inner {
             position: relative;
@@ -1337,7 +1342,7 @@
         #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
         #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; margin-top: 10px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
