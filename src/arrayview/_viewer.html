@@ -15806,18 +15806,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_histPickerActive) {
                 if (_histPickerKey(e)) return;
             }
-            // Intercept first-press of `c` (no modifiers) to arm the hold
-            // timer. On keyup we either commit/cycle depending on whether
-            // the threshold fired. Auto-repeat (`e.repeat`) and all other
-            // keys fall through to the normal dispatcher.
+            // Intercept first-press of `c` (no modifiers): cycle immediately
+            // (tap feel) AND arm the hold-open timer. If the user keeps `c`
+            // pressed past the threshold, the menu opens and reverts to the
+            // pre-cycle colormap so Escape/cancel returns to the original.
+            // Auto-repeat and all other keys fall through to the dispatcher.
             if (e.key === 'c' && !e.repeat
                 && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
                 && _cmapHoldEligible()) {
                 _cmapHoldKeyDown = true;
+                // Snapshot pre-cycle state so a subsequent hold-open can
+                // revert cleanly on Escape.
+                _cmapHoldTapPrevIdx = colormap_idx;
+                _cmapHoldTapPrevCustom = customColormap;
+                _cmapHoldTapPrevStops = customGradientStops;
+                // Cycle right now so the tap is instant (no keyup latency).
+                try { commands['colormap.cycleNext'].run(makeContext(null), e); } catch (_) {}
                 clearTimeout(_cmapHoldOpenTimer);
                 _cmapHoldOpenTimer = setTimeout(() => {
                     _cmapHoldOpenTimer = null;
-                    if (_cmapHoldKeyDown) _cmapHoldOpen();
+                    if (_cmapHoldKeyDown) _cmapHoldOpen({
+                        prevIdx: _cmapHoldTapPrevIdx,
+                        prevCustom: _cmapHoldTapPrevCustom,
+                        prevStops: _cmapHoldTapPrevStops,
+                    });
                 }, _CMAP_HOLD_MS);
                 return;
             }
@@ -15871,12 +15883,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         });
 
-        // Hold-`c` finalizer. Short press (< _CMAP_HOLD_MS) = tap = cycleNext.
-        // Long press (menu visible) = commit highlighted selection. Listen on
-        // window so a blur/refocus mid-hold still releases cleanly; capture so
-        // upstream listeners can't swallow it. `_cmapHoldKeyDown` is only set
-        // by the sink keydown path (which ignores editable targets), so typing
-        // `c` in an input never reaches this branch.
+        // Hold-`c` finalizer. The cycle itself fires on keydown (for an
+        // instant tap feel); this handler only commits the hold-menu
+        // selection if the menu opened. Listen on window so a blur/refocus
+        // mid-hold still releases cleanly; capture so upstream listeners
+        // can't swallow it. `_cmapHoldKeyDown` is only set by the sink
+        // keydown path (which ignores editable targets), so typing `c` in an
+        // input never reaches this branch.
         window.addEventListener('keyup', (e) => {
             if (e.key !== 'c') return;
             if (!_cmapHoldKeyDown) return;
@@ -15887,12 +15900,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             if (_cmapHoldActive) {
                 _cmapHoldCommit();
-            } else {
-                // Tap — legacy cycle-next.
-                try {
-                    commands['colormap.cycleNext'].run(makeContext(null), null);
-                } catch (_) {}
             }
+            // Else: tap already cycled on keydown; nothing to do here.
         }, true);
         // Safety: if focus leaves while the cmap-hold menu is up, cancel it;
         // the dim-picker is a tap-to-open menu and closes itself on Esc/commit,
@@ -21614,6 +21623,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const _cmapStripRight = document.getElementById('colormap-strip-right');
         let _cmapStripTimer = null;
         let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
+        let _cmapStripFadedEls = [];   // chrome elements whose opacity the strip dims
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
         /* ── JS: Colormap Strip and Wipe/Flicker Compare Tools ───── */
@@ -21692,15 +21702,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             _cmapStrip.classList.add('visible');
             if (hasRightAnchor) _cmapStripRight.classList.add('visible');
+            // Remember which chrome elements were faded so _hideCmapStrip can
+            // restore them early (e.g. when the hold-menu opens mid-fade).
+            _cmapStripFadedEls = [];
+            if (cbWrap) _cmapStripFadedEls.push(cbWrap);
+            if (hasRightAnchor) extraFadeEls.forEach(el => { if (el) _cmapStripFadedEls.push(el); });
             clearTimeout(_cmapStripTimer);
-            _cmapStripTimer = setTimeout(() => {
-                _cmapStrip.classList.remove('visible');
-                if (cbWrap) cbWrap.style.opacity = '1';
-                if (hasRightAnchor) {
-                    _cmapStripRight.classList.remove('visible');
-                    extraFadeEls.forEach(el => { if (el) el.style.opacity = '1'; });
-                }
-            }, 1500);
+            _cmapStripTimer = setTimeout(_hideCmapStrip, 1500);
+        }
+
+        // Cancel the tap-c preview strip immediately (used by the hold-menu
+        // when it opens so we don't leave a dimmed colorbar behind it).
+        function _hideCmapStrip() {
+            if (_cmapStripTimer !== null) { clearTimeout(_cmapStripTimer); _cmapStripTimer = null; }
+            if (_cmapStrip) _cmapStrip.classList.remove('visible');
+            if (_cmapStripRight) _cmapStripRight.classList.remove('visible');
+            _cmapStripFadedEls.forEach(el => { if (el) el.style.opacity = '1'; });
+            _cmapStripFadedEls = [];
         }
 
         // ── 3b. Hold-`c` colormap preview menu ───────────────────────
@@ -21719,6 +21737,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _cmapHoldPrevIdx = 0;         // colormap_idx at open time (for cancel)
         let _cmapHoldPrevCustom = null;   // customColormap at open time
         let _cmapHoldPrevCustomStops = null;
+        // Snapshots taken at keydown, before the optimistic tap-cycle. When
+        // the hold-menu opens mid-press we pass these to _cmapHoldOpen so
+        // Escape reverts to the colormap the user started from, not the
+        // cycled-to one.
+        let _cmapHoldTapPrevIdx = 0;
+        let _cmapHoldTapPrevCustom = null;
+        let _cmapHoldTapPrevStops = null;
 
         function _reconcileCmapHold() {
             if (!_cmapHoldMenu) return;
@@ -21796,17 +21821,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _mipOnColormapChange();
         }
 
-        function _cmapHoldOpen() {
+        function _cmapHoldOpen(opts) {
             if (!_cmapHoldMenu || _cmapHoldActive) return;
             _cmapHoldBuild();
-            _cmapHoldPrevIdx = colormap_idx;
-            _cmapHoldPrevCustom = customColormap;
-            _cmapHoldPrevCustomStops = customGradientStops;
+            if (opts && typeof opts === 'object') {
+                _cmapHoldPrevIdx = ('prevIdx' in opts) ? opts.prevIdx : colormap_idx;
+                _cmapHoldPrevCustom = ('prevCustom' in opts) ? opts.prevCustom : customColormap;
+                _cmapHoldPrevCustomStops = ('prevStops' in opts) ? opts.prevStops : customGradientStops;
+            } else {
+                _cmapHoldPrevIdx = colormap_idx;
+                _cmapHoldPrevCustom = customColormap;
+                _cmapHoldPrevCustomStops = customGradientStops;
+            }
             // Start from current colormap (fall back to 0 for custom).
             _cmapHoldSelIdx = (colormap_idx >= 0 && colormap_idx < COLORMAPS.length) ? colormap_idx : 0;
             _cmapHoldActive = true;
             _cmapHoldHighlight();
             _reconcileCmapHold();
+            // Dismiss the tap-c preview strip — the menu is the richer UI
+            // and shouldn't sit on top of a ghost filmstrip.
+            _hideCmapStrip();
         }
 
         function _cmapHoldCommit() {
