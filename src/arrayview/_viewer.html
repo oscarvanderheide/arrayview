@@ -5169,6 +5169,10 @@
                         this._winVminTarget = vminFrac;
                         this._winVmaxTarget = vmaxFrac;
                         this._winTransStart = performance.now();
+                        // Drive the tween to completion even if no other event
+                        // (mouse, morph) is ticking the animation loop — otherwise
+                        // the handle lines stall mid-transition after a `d` cycle.
+                        this.ensureAnimating();
                     }
                     const elapsed = performance.now() - this._winTransStart;
                     const rawT = Math.min(1, elapsed / this._winTransDur);
@@ -5309,6 +5313,10 @@
                         this._winVminTarget = vminFrac;
                         this._winVmaxTarget = vmaxFrac;
                         this._winTransStart = performance.now();
+                        // Drive the tween to completion even if no other event
+                        // (mouse, morph) is ticking the animation loop — otherwise
+                        // the handle lines stall mid-transition after a `d` cycle.
+                        this.ensureAnimating();
                     }
                     const elapsed = performance.now() - this._winTransStart;
                     const rawT = Math.min(1, elapsed / this._winTransDur);
