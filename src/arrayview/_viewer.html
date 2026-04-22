@@ -21987,7 +21987,24 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _histPickerActive = false;
             _reconcileHistPicker();
             if (!silent) showStatus('');
-            if (primaryCb && primaryCb._expanded) _restartHistAutoDismiss();
+            // Collapse the histogram right away — leaving it expanded means
+            // the user has to wait 3 s for auto-dismiss before the colorbar
+            // returns, which feels like the `D` keypress didn't register.
+            _collapseHistogramImmediately();
+        }
+
+        function _collapseHistogramImmediately() {
+            if (_histAutoDismissTimer) { clearTimeout(_histAutoDismissTimer); _histAutoDismissTimer = null; }
+            if (!primaryCb || !primaryCb._expanded) return;
+            lebesgueMode = false;
+            primaryCb._expanded = false;
+            primaryCb._manualExpand = false;
+            _clearLebesgueOverlay();
+            const tz = document.getElementById('slim-cb-tri-zone');
+            if (tz) tz.classList.remove('expanded');
+            primaryCb.startAnim(false);
+            if (multiViewActive || compareMvActive) drawMvColorbar();
+            else drawSlimColorbar(cbMarkerFrac);
         }
 
         /** Cycle the state of dim `d` and re-apply the histogram + preset.
