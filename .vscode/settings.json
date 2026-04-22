@@ -196,6 +196,24 @@
       "label": "ArrayView",
       "onAutoForward": "silent",
       "privacy": "public"
+    },
+    "8777": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8778": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
+    },
+    "8779": {
+      "protocol": "http",
+      "label": "ArrayView",
+      "onAutoForward": "silent",
+      "privacy": "public"
     }
   },
   "search.exclude": {
