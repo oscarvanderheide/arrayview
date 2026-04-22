@@ -13731,8 +13731,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; } // kept inline: emits toast
                     if (multiViewActive) { showStatus('mosaic: not available in multi-view'); return; } // kept inline: emits toast
                     if (qmriActive) {
-                        // Toggle qMRI mosaic
-                        if (qmriMosaicActive) {
+                        // Toggle qMRI mosaic — or, if already active and the
+                        // user presses `z` with a different valid activeDim
+                        // selected, switch to that dim instead of toggling off.
+                        const _zCandidate = (activeDim >= 0
+                            && activeDim !== dim_x && activeDim !== dim_y
+                            && activeDim !== qmriDim) ? activeDim : -1;
+                        if (qmriMosaicActive && (_zCandidate < 0 || _zCandidate === _qmriMosaicZDim)) {
                             // Exit qMRI mosaic
                             qmriMosaicActive = false;
                             _qmriMosaicZDim = -1;
@@ -13750,11 +13755,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             });
                             document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'qmri' } }));
                         } else {
-                            // Find z-dim: not dim_x, not dim_y, not qmriDim
+                            // Prefer the user's selected dim as the z-dim; fall
+                            // back to scanning for the first non-reserved dim.
                             if (shape.length < 4) { showStatus('mosaic: need 4D+ array'); return; }
-                            let zd = -1;
-                            for (let i = 0; i < shape.length; i++) {
-                                if (i !== dim_x && i !== dim_y && i !== qmriDim) { zd = i; break; }
+                            let zd = _zCandidate;
+                            if (zd < 0) {
+                                for (let i = 0; i < shape.length; i++) {
+                                    if (i !== dim_x && i !== dim_y && i !== qmriDim) { zd = i; break; }
+                                }
                             }
                             if (zd < 0) { showStatus('mosaic: no z-dim available'); return; }
                             qmriMosaicActive = true;
@@ -14302,20 +14310,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; } // kept inline: emits toast
-                    if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; } // kept inline: emits toast
                     if (activeDim === VFIELD_T_DIM) { showStatus('Time dimension (vector field)'); return; } // kept inline: emits toast
                     if (shape.length < 3) return;
+                    // qMRI dim is reserved — it must stay as the per-pane
+                    // quantitative axis; re-assigning it to x would collapse
+                    // the qMRI mode.
+                    const _qd = qmriActive ? qmriDim : (compareQmriActive ? compareQmriDim : -1);
+                    if (_qd >= 0 && activeDim === _qd) {
+                        showStatus('axis assignment: qMRI dim is reserved'); return;
+                    }
                     if (activeDim === dim_x) {
                         // already x — flip its direction and repaint immediately
                         flip_x = !flip_x;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                         return;
                     }
                     else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
                     else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
                     dim_z = -1;
-                    updateView(); triggerPreload();
+                    if (qmriActive || compareQmriActive) qvScaleAllCanvases();
+                    updateView();
+                    if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
@@ -14510,20 +14528,27 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: [],
                 run: (ctx, e) => {
                     if (multiViewActive || compareMvActive) { showStatus('axis assignment: use V to reconfigure planes'); return; } // kept inline: emits toast
-                    if (qmriActive || compareQmriActive) { showStatus('axis assignment: fixed in qMRI mode'); return; } // kept inline: emits toast
                     if (activeDim === VFIELD_T_DIM) { showStatus('Time dim (vector field)'); return; } // kept inline: emits toast
                     if (shape.length < 3) return;
+                    const _qd = qmriActive ? qmriDim : (compareQmriActive ? compareQmriDim : -1);
+                    if (_qd >= 0 && activeDim === _qd) {
+                        showStatus('axis assignment: qMRI dim is reserved'); return;
+                    }
                     if (activeDim === dim_y) {
                         // already y — flip its direction and repaint immediately
                         flip_y = !flip_y;
-                        if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                        if (qmriActive) qmriViews.forEach(v => qvDrawFrame(v));
+                        else if (compareQmriActive) compareQmriViews.forEach(v => { if (v.lastImageData) v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0); });
+                        else if (lastImageData) canvas.getContext('2d').putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
                         renderInfo(); saveState();
                         return;
                     }
                     else if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
                     else { [dim_y, current_slice_dim] = [current_slice_dim, dim_y]; }
                     dim_z = -1;
-                    updateView(); triggerPreload();
+                    if (qmriActive || compareQmriActive) qvScaleAllCanvases();
+                    updateView();
+                    if (!qmriActive && !compareQmriActive) triggerPreload();
                     // Crop's readout_dim follows screen-axis rebinding.
                     if (typeof _cropReconcileBindings === 'function') _cropReconcileBindings();
                 },
