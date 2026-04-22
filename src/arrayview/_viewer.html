@@ -1707,13 +1707,14 @@
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
             color: var(--text);
             box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-            max-width: min(640px, 92vw);
+            max-width: min(560px, 92vw);
             pointer-events: none;
         }
         #colormap-hold-menu.visible {
             display: block;
             opacity: 1;
             transform: translateX(-50%) scale(1);
+            pointer-events: auto;
         }
         #colormap-hold-menu .cmh-title {
             font-size: 10px; color: var(--muted);
@@ -1730,11 +1731,15 @@
             padding: 4px; border-radius: 6px;
             border: 1.5px solid transparent;
             background: transparent;
+            cursor: pointer;
         }
         #colormap-hold-menu .cmh-cell canvas {
             display: block; width: 100%; height: 12px;
             border-radius: 3px;
             border: 1px solid rgba(255,255,255,0.08);
+        }
+        #colormap-hold-menu .cmh-cell:hover:not(.active) {
+            background: rgba(255,255,255,0.04);
         }
         #colormap-hold-menu .cmh-cell span {
             font-size: 10px; color: var(--muted);
@@ -13329,6 +13334,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 title: 'Toggle immersive mode',
                 when: [],
                 run: (ctx, e) => {
+                    if (multiViewActive || compareMvActive) {
+                        showStatus('immersive: not available in ortho view');
+                        return;
+                    }
                     if (_fullscreenActive) {
                         // Exit immersive — animated reverse via existing drive path.
                         userZoom = _normalFitZoom;
@@ -14916,7 +14925,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Color & Range',
                         entries: [
-                            { key: 'c', action: 'Cycle colormap (tap) / hold to pick', hint: 'tap `c` to cycle next · hold `c` to open a preview grid (hjkl/arrows to browse · Enter or release to select · Esc cancels)' },
+                            { key: 'c', action: 'Cycle colormap (tap) / hold to pick', hint: 'tap `c` to cycle next · hold `c` to open a preview grid (hover or hjkl/arrows to browse · Enter or release to select · Esc cancels)' },
                             { key: 'd', action: 'Open histogram / cycle percentile', hint: '1st tap opens the histogram · each subsequent tap cycles the percentile preset (full · 0.1–99.9% · 1–99% · 5–95% · 10–90%)' },
                             { key: 'Shift+D', action: 'Histogram dim picker (3-state)', hint: 'Click a dim to cycle scope → recompute → frozen. scope = feeds histogram · recompute = rebuild vmin/vmax on nav · frozen = keep vmin/vmax. Hover a dim for details. Shift+D or Esc closes.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
@@ -21724,27 +21733,37 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const n = COLORMAPS.length;
             _cmapHoldCols = Math.max(3, Math.min(6, Math.round(Math.sqrt(n) + 0.5)));
             let html = '<div class="cmh-title"><span>colormap</span>'
-                + '<span class="cmh-hint">hjkl/arrows · Enter select · Esc cancel</span></div>'
-                + `<div class="cmh-grid" style="grid-template-columns:repeat(${_cmapHoldCols}, minmax(88px, 1fr));">`;
+                + '<span class="cmh-hint">hjkl/arrows · hover · Enter select · Esc cancel</span></div>'
+                + `<div class="cmh-grid" style="grid-template-columns:repeat(${_cmapHoldCols}, minmax(76px, 1fr));">`;
             for (let i = 0; i < n; i++) {
-                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="120" height="12"></canvas><span>${COLORMAPS[i]}</span></div>`;
+                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="72" height="12"></canvas><span>${COLORMAPS[i]}</span></div>`;
             }
             html += '</div>';
             _cmapHoldMenu.innerHTML = html;
-            // Paint gradient swatches.
+            // Paint gradient swatches and wire hover/click.
             const cells = _cmapHoldMenu.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => {
                 const cv = cell.querySelector('canvas');
                 const stops = COLORMAP_GRADIENT_STOPS[COLORMAPS[i]];
-                if (!cv || !stops) return;
-                const g = cv.getContext('2d');
-                // whitelisted non-ColorBar use: colormap hold-menu swatches
-                const grad = g.createLinearGradient(0, 0, cv.width, 0);
-                stops.forEach(([r, gv, b], j) => {
-                    grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                if (cv && stops) {
+                    const g = cv.getContext('2d');
+                    // whitelisted non-ColorBar use: colormap hold-menu swatches
+                    const grad = g.createLinearGradient(0, 0, cv.width, 0);
+                    stops.forEach(([r, gv, b], j) => {
+                        grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                    });
+                    g.fillStyle = grad;
+                    g.fillRect(0, 0, cv.width, cv.height);
+                }
+                cell.addEventListener('mouseover', () => {
+                    _cmapHoldSelIdx = i;
+                    _cmapHoldHighlight();
+                    _cmapHoldApply(i);
                 });
-                g.fillStyle = grad;
-                g.fillRect(0, 0, cv.width, cv.height);
+                cell.addEventListener('click', () => {
+                    _cmapHoldSelIdx = i;
+                    _cmapHoldCommit();
+                });
             });
         }
 
@@ -21786,10 +21805,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmapHoldActive = false;
             _reconcileCmapHold();
             saveState();
-            if (typeof showColormapStrip === 'function') {
-                _cmapStripMode = 'normal';
-                showColormapStrip();
-            }
         }
 
         function _cmapHoldCancel() {
