@@ -1732,7 +1732,13 @@
         }
         #colormap-hold-menu .cmh-title .cmh-hint { color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
         #colormap-hold-menu .cmh-grid {
-            display: grid;
+            /* flex-wrap instead of CSS grid so partial last rows center
+               naturally (no dead "ghost column" on the right) and the
+               menu shrink-wraps to the actual swatch content instead of
+               stretching to whatever width the hint text demands */
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
             gap: 4px;
         }
         #colormap-hold-menu .cmh-cell {
@@ -1741,6 +1747,7 @@
             border: 1.5px solid transparent;
             background: transparent;
             cursor: pointer;
+            width: 68px; flex: 0 0 auto; box-sizing: border-box;
         }
         #colormap-hold-menu .cmh-cell canvas {
             /* match the inactive tap-c strip thumb (60×10) so the hold-menu
@@ -21804,10 +21811,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _cmapHoldBuild() {
             if (!_cmapHoldMenu) return;
             const n = COLORMAPS.length;
-            _cmapHoldCols = Math.max(3, Math.min(6, Math.round(Math.sqrt(n) + 0.5)));
+            // Target a near-square layout but honour a 5-column ceiling so
+            // the menu stays compact — flex-wrap handles partial last rows.
+            _cmapHoldCols = Math.max(3, Math.min(5, Math.ceil(Math.sqrt(n))));
+            // Size the menu's content area to exactly N cells + gaps so the
+            // flex-wrap lands at the intended column count. Menu padding is
+            // content-box, so this value is the content width (not outer).
+            const CELL_W = 68, GAP = 4;
+            const contentW = _cmapHoldCols * CELL_W + (_cmapHoldCols - 1) * GAP;
+            _cmapHoldMenu.style.width = contentW + 'px';
             let html = '<div class="cmh-title"><span>colormap</span>'
-                + '<span class="cmh-hint">hjkl/arrows · hover · Enter select · Esc cancel</span></div>'
-                + `<div class="cmh-grid" style="grid-template-columns:repeat(${_cmapHoldCols}, 68px);">`;
+                + '<span class="cmh-hint">hover · Enter · Esc</span></div>'
+                + '<div class="cmh-grid">';
             for (let i = 0; i < n; i++) {
                 html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${COLORMAPS[i]}</span></div>`;
             }
