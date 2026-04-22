@@ -7015,6 +7015,37 @@
             return preset;
         }
 
+        /** Estimate the current percentile bracket {lo, hi} ∈ [0,1] corresponding
+         *  to a given (vmin, vmax) window, by integrating the cached histogram.
+         *  Returns null if no histogram is available. */
+        function _currentQuantileFromHist(vmin, vmax) {
+            if (!_histData || !_histData.counts || !_histData.counts.length) return null;
+            const { counts, edges, vmin: dmin, vmax: dmax } = _histData;
+            let total = 0;
+            for (let i = 0; i < counts.length; i++) total += counts[i];
+            if (total === 0) return null;
+            const accum = (v) => {
+                if (v <= dmin) return 0;
+                if (v >= dmax) return total;
+                let s = 0;
+                for (let i = 0; i < counts.length; i++) {
+                    const e0 = edges[i], e1 = edges[i + 1];
+                    if (v >= e1) { s += counts[i]; continue; }
+                    if (v > e0) s += counts[i] * (v - e0) / (e1 - e0);
+                    break;
+                }
+                return s;
+            };
+            return { lo: accum(vmin) / total, hi: accum(vmax) / total };
+        }
+
+        /** Format a percentile bracket as a toast label. */
+        function _quantileLabel(lo, hi) {
+            return (lo <= 0.0005 && hi >= 0.9995)
+                ? 'percentile: full range'
+                : `percentile ${_fmtPct(lo * 100)}–${_fmtPct(hi * 100)}%`;
+        }
+
         /**
          * (Re)start the 3-second auto-dismiss timer for the expanded histogram.
          * If the mouse is still hovering when the timer fires, defer until mouseleave.
@@ -14160,6 +14191,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         primaryCb.startAnim(true);
                         if (multiViewActive || compareMvActive) drawMvColorbar();
                         else drawSlimColorbar(cbMarkerFrac);
+                        // Show the current percentile bracket so the user knows
+                        // the in-effect window on the very first tap.
+                        const q = _currentQuantileFromHist(
+                            manualVmin ?? currentVmin,
+                            manualVmax ?? currentVmax,
+                        );
+                        if (q) showToast(_quantileLabel(q.lo, q.hi));
                         _restartHistAutoDismiss();
                         saveState();
                         return;
@@ -14167,10 +14205,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // Histogram is already open — cycle preset.
                     const preset = _cycleQuantilePreset();
                     if (preset) {
-                        const label = (preset.lo === 0 && preset.hi === 1)
-                            ? 'percentile: full range'
-                            : `percentile ${_fmtPct(preset.lo * 100)}–${_fmtPct(preset.hi * 100)}%`;
-                        showToast(label);
+                        showToast(_quantileLabel(preset.lo, preset.hi));
                     }
                     if (multiViewActive) {
                         mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
