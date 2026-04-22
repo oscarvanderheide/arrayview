@@ -158,8 +158,17 @@
         .axes-indicator polygon { paint-order:stroke; stroke:var(--bg); stroke-width:3px; stroke-linejoin:round; }
         .axes-indicator line { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
         #slim-cb-wrap {
-            text-align: center; padding: 5px 12px; position: fixed; z-index: 2;
-            transition: opacity 0.26s ease, transform 0.26s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            text-align: center;
+            /* Horizontal padding fixed; top padding grows via --cb-extra-top
+               when hold-`c` opens the integrated colormap preview. The wrap is
+               top-anchored in normal layout, so margin-top carries the same
+               extra upward to keep the colorbar row visually fixed while the
+               island extends above it. */
+            --cb-extra-top: 0px;
+            padding: calc(5px + var(--cb-extra-top)) 12px 5px;
+            margin-top: calc(-1 * var(--cb-extra-top));
+            position: fixed; z-index: 2;
+            transition: opacity 0.26s ease, transform 0.26s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
             border-radius: 18px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -1575,7 +1584,7 @@
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
             border-radius: 14px !important;
             pointer-events: none;
-            padding: 6px 14px !important;
+            padding: calc(6px + var(--cb-extra-top, 0px)) 14px 6px !important;
         }
         body.fullscreen-mode #slim-cb-wrap > * { pointer-events: auto; }
         /* Compare mode immersive: panes touch, gray borders, no titles */
@@ -1709,48 +1718,21 @@
         .cmap-thumb span { font-size:9px; color:var(--muted); font-family:monospace; white-space:nowrap; text-align:center; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
         .cmap-thumb.active span { color:var(--fg); }
 
-        /* ── Colormap hold-c preview menu ───────────────────────── */
-        #colormap-hold-menu {
-            display: none;
-            position: fixed;
-            left: 50%; bottom: 40px;
-            transform: translateX(-50%) scale(0.98);
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 10px 12px 8px;
-            z-index: 45;
-            opacity: 0;
-            transition: opacity 0.12s ease, transform 0.12s ease;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            color: var(--text);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-            max-width: min(560px, 92vw);
-            pointer-events: none;
-        }
-        #colormap-hold-menu.visible {
-            display: block;
-            opacity: 1;
-            transform: translateX(-50%) scale(1);
-            pointer-events: auto;
-        }
-        #colormap-hold-menu .cmh-title {
-            font-size: 10px; color: var(--muted);
-            text-transform: uppercase; letter-spacing: 0.08em;
-            margin: 0 2px 8px; display: flex; gap: 10px; align-items: baseline;
-        }
-        #colormap-hold-menu .cmh-title .cmh-hint { color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
-        #colormap-hold-menu .cmh-grid {
-            /* flex-wrap instead of CSS grid so partial last rows center
-               naturally (no dead "ghost column" on the right) and the
-               menu shrink-wraps to the actual swatch content instead of
-               stretching to whatever width the hint text demands */
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
+        /* ── Colormap hold-c: integrated preview inside colorbar island ──
+           The grid is absolute-positioned inside #slim-cb-wrap, in the space
+           opened up by animating the wrap's top padding (--cb-extra-top).
+           Swatches fade in only after the island finishes extending. */
+        #slim-cb-preview {
+            position: absolute;
+            top: 6px; left: 12px; right: 12px;
+            display: flex; flex-wrap: wrap;
+            justify-content: center; align-content: flex-start;
             gap: 4px;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.14s ease;
         }
-        #colormap-hold-menu .cmh-cell {
+        #slim-cb-preview.fade-in { opacity: 1; pointer-events: auto; }
+        #slim-cb-preview .cmh-cell {
             display: flex; flex-direction: column; align-items: stretch; gap: 3px;
             padding: 4px; border-radius: 6px;
             border: 1.5px solid transparent;
@@ -1758,33 +1740,27 @@
             cursor: pointer;
             width: 68px; flex: 0 0 auto; box-sizing: border-box;
         }
-        #colormap-hold-menu .cmh-cell canvas {
-            /* match the inactive tap-c strip thumb (60×10) so the hold-menu
-               doesn't look blown-up compared to tapping c */
+        #slim-cb-preview .cmh-cell canvas {
             display: block; width: 60px; height: 10px;
             border-radius: 3px;
             border: 1px solid rgba(255,255,255,0.08);
             margin: 0 auto;
         }
-        #colormap-hold-menu .cmh-cell:hover:not(.active) {
+        #slim-cb-preview .cmh-cell:hover:not(.active) {
             background: rgba(255,255,255,0.04);
         }
-        #colormap-hold-menu .cmh-cell span {
+        #slim-cb-preview .cmh-cell span {
             font-size: 9px; color: var(--muted);
             font-family: monospace;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             text-align: center;
         }
-        #colormap-hold-menu .cmh-cell.active {
+        #slim-cb-preview .cmh-cell.active {
             border-color: var(--active-dim);
             background: rgba(245,200,66,0.10);
         }
-        #colormap-hold-menu .cmh-cell.active span {
-            color: var(--active-dim);
-        }
-        #colormap-hold-menu .cmh-cell.active canvas {
-            border-color: var(--active-dim);
-        }
+        #slim-cb-preview .cmh-cell.active span { color: var(--active-dim); }
+        #slim-cb-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
 
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
@@ -1961,6 +1937,7 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
+            <div id="slim-cb-preview" aria-hidden="true"></div>
             <span class="slim-cb-val" id="slim-cb-vmin"></span>
             <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
                 <canvas id="slim-cb"></canvas>
@@ -2195,7 +2172,6 @@
     <div id="preload-status"></div>
     <div id="colormap-strip"></div>
     <div id="colormap-strip-right"></div>
-    <div id="colormap-hold-menu" aria-hidden="true"></div>
     <div id="compare-mode-strip"></div>
     <div id="compare-center-island"></div>
     <div id="inline-prompt">
@@ -8737,6 +8713,11 @@
             // Don't reposition while eggs are hidden during histogram expand/collapse —
             // wrap height is animated and would give a wrong anchor.
             if (el.style.display === 'none') return;
+            // Don't reposition while the hold-c colormap preview is expanded
+            // or collapsing: transient sub-pixel fluctuations from the
+            // padding/margin animation would cause eggs to jitter. Eggs
+            // re-settle via the explicit call at the end of _cmapHoldClose.
+            if (typeof _cmapHoldAnim !== 'undefined' && _cmapHoldAnim) return;
 
             // Fullscreen normal mode: special inline positioning
             if (_fullscreenActive && !multiViewActive && !qmriActive && !compareQmriActive && !compareMvActive) {
@@ -15945,17 +15926,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _cmapHoldTapPrevIdx = colormap_idx;
                 _cmapHoldTapPrevCustom = customColormap;
                 _cmapHoldTapPrevStops = customGradientStops;
-                // Cycle right now so the tap is instant (no keyup latency).
+                // Cycle right now so the tap is instant, but suppress the
+                // mini-preview strip: it would flash behind the hold menu if
+                // the user ends up holding. We re-show it on keyup (below) if
+                // this turns out to be a pure tap.
+                _cmapSuppressStripOnce = _cmapHoldMenuEligible();
                 try { commands['colormap.cycleNext'].run(makeContext(null), e); } catch (_) {}
+                _cmapSuppressStripOnce = false;
                 clearTimeout(_cmapHoldOpenTimer);
-                _cmapHoldOpenTimer = setTimeout(() => {
-                    _cmapHoldOpenTimer = null;
-                    if (_cmapHoldKeyDown) _cmapHoldOpen({
-                        prevIdx: _cmapHoldTapPrevIdx,
-                        prevCustom: _cmapHoldTapPrevCustom,
-                        prevStops: _cmapHoldTapPrevStops,
-                    });
-                }, _CMAP_HOLD_MS);
+                // Only arm the hold timer when the integrated menu can open
+                // here. In multiview / center modes we stay in tap-only mode.
+                if (_cmapHoldMenuEligible()) {
+                    _cmapHoldOpenTimer = setTimeout(() => {
+                        _cmapHoldOpenTimer = null;
+                        if (_cmapHoldKeyDown) _cmapHoldOpen({
+                            prevIdx: _cmapHoldTapPrevIdx,
+                            prevCustom: _cmapHoldTapPrevCustom,
+                            prevStops: _cmapHoldTapPrevStops,
+                        });
+                    }, _CMAP_HOLD_MS);
+                }
                 return;
             }
             if (e.key === '?') {
@@ -16019,14 +16009,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (e.key !== 'c') return;
             if (!_cmapHoldKeyDown) return;
             _cmapHoldKeyDown = false;
+            const wasTap = _cmapHoldOpenTimer !== null && !_cmapHoldActive;
             if (_cmapHoldOpenTimer !== null) {
                 clearTimeout(_cmapHoldOpenTimer);
                 _cmapHoldOpenTimer = null;
             }
             if (_cmapHoldActive) {
                 _cmapHoldCommit();
+                return;
             }
-            // Else: tap already cycled on keydown; nothing to do here.
+            if (wasTap) {
+                // Pure tap: the strip was suppressed on keydown to avoid a
+                // flash before the hold menu could open. Show it now as the
+                // familiar tap-c feedback.
+                try { showColormapStrip(); } catch (_) {}
+            }
         }, true);
         // Safety: if focus leaves while the cmap-hold menu is up, cancel it;
         // the dim-picker is a tap-to-open menu and closes itself on Esc/commit,
@@ -21488,9 +21485,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const w = [];
 
             // Rule 4 — Height sync: #info and #slim-cb-wrap heights within 4px
+            // (skipped while the hold-c colormap preview is expanded)
             const _vInfo = document.getElementById('info');
             const _vCbWrap = document.getElementById('slim-cb-wrap');
-            if (_vInfo && _vCbWrap &&
+            const _cbExpanded = _vCbWrap && (_vCbWrap.style.getPropertyValue('--cb-extra-top') || '').trim();
+            if (_vInfo && _vCbWrap && !_cbExpanded &&
                 _vInfo.style.display !== 'none' && _vCbWrap.style.display !== 'none' &&
                 _vInfo.offsetWidth > 0 && _vCbWrap.offsetWidth > 0) {
                 const hDiff = Math.abs(_vInfo.offsetHeight - _vCbWrap.offsetHeight);
@@ -21758,12 +21757,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _cmapStripTimer = null;
         let _cmapStripMode = 'normal'; // 'normal' | 'diff-center' | 'diff-side'
         let _cmapStripFadedEls = [];   // chrome elements whose opacity the strip dims
+        // Set true by the tap-or-hold keydown handler so the strip doesn't
+        // flash during the hold-c threshold. The keyup handler re-shows it
+        // explicitly when the press turned out to be a pure tap.
+        let _cmapSuppressStripOnce = false;
         // anchorEl: optional DOM element to position the strip on (instead of default colorbar)
         // extraFadeEls: optional array of extra DOM elements to fade out alongside the anchor
         /* ── JS: Colormap Strip and Wipe/Flicker Compare Tools ───── */
 
         function showColormapStrip(overrideName, overridePool, anchorEl, extraFadeEls) {
             if (!_cmapStrip || !COLORMAP_GRADIENT_STOPS) return;
+            if (_cmapSuppressStripOnce) return;
             const pool = overridePool || COLORMAPS;
             const ci = overrideName ? pool.indexOf(overrideName) : (colormap_idx === -1 ? 0 : colormap_idx);
             // Compute how many thumbs fit — never wider than the colorbar
@@ -21855,22 +21859,30 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmapStripFadedEls = [];
         }
 
-        // ── 3b. Hold-`c` colormap preview menu ───────────────────────
+        // ── 3b. Hold-`c` colormap preview — integrated into colorbar island ──
         // Short-press `c` (tap) cycles to the next colormap (legacy behavior).
-        // Holding `c` past _CMAP_HOLD_MS opens a grid of colormap gradients
-        // with live preview. hjkl/arrows navigate (clamped); Enter or release
-        // of `c` commits the highlighted colormap; Escape cancels and reverts.
-        // Visibility is driven by the `.visible` class via _reconcileCmapHold.
+        // Holding `c` past _CMAP_HOLD_MS animates the colorbar island (#slim-cb-wrap)
+        // upward by growing its top padding (--cb-extra-top), exposing a grid of
+        // colormap gradient swatches inside the same island. Swatches fade in
+        // only after the expand transition completes. hjkl/arrows navigate;
+        // Enter or release of `c` commits; Escape cancels and reverts.
         const _CMAP_HOLD_MS = 180;
-        const _cmapHoldMenu = document.getElementById('colormap-hold-menu');
+        const _CMAP_EXPAND_MS = 250;   // matches CSS padding transition (0.25s)
+        const _CMAP_FADE_MS = 140;     // matches CSS opacity transition
+        const _cmapCbWrap = document.getElementById('slim-cb-wrap');
+        const _cmapPreview = document.getElementById('slim-cb-preview');
         let _cmapHoldActive = false;      // menu is shown (or pending-commit)
+        let _cmapHoldAnim = false;        // island is mid-expand or mid-collapse (used by positionEggs to freeze)
         let _cmapHoldOpenTimer = null;    // threshold timer (null when not pending)
         let _cmapHoldKeyDown = false;     // `c` currently pressed
         let _cmapHoldSelIdx = 0;          // selected linear index in COLORMAPS
-        let _cmapHoldCols = 4;            // grid column count
+        let _cmapHoldCols = 4;            // grid column count (recomputed after layout)
         let _cmapHoldPrevIdx = 0;         // colormap_idx at open time (for cancel)
         let _cmapHoldPrevCustom = null;   // customColormap at open time
         let _cmapHoldPrevCustomStops = null;
+        let _cmapFadeInTimer = null;      // pending fade-in after expand
+        let _cmapCollapseTimer = null;    // pending collapse after fade-out
+        let _cmapSettleTimer = null;      // re-settles chrome (eggs) after collapse
         // Snapshots taken at keydown, before the optimistic tap-cycle. When
         // the hold-menu opens mid-press we pass these to _cmapHoldOpen so
         // Escape reverts to the colormap the user started from, not the
@@ -21879,46 +21891,51 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let _cmapHoldTapPrevCustom = null;
         let _cmapHoldTapPrevStops = null;
 
-        function _reconcileCmapHold() {
-            if (!_cmapHoldMenu) return;
-            _cmapHoldMenu.classList.toggle('visible', !!_cmapHoldActive);
-            _cmapHoldMenu.setAttribute('aria-hidden', _cmapHoldActive ? 'false' : 'true');
-        }
-
         function _cmapHoldEligible() {
-            // Mirror the guard used by 'colormap.cycleNext'.
+            // Gate for the tap-or-hold dispatcher. Mirrors the guard used by
+            // 'colormap.cycleNext' — keeps the basic tap-to-cycle working
+            // anywhere a colormap is meaningful.
             if (rgbMode) return false;
             if (qmriActive || compareQmriActive) return false;
-            // While a plugin/shelf/palette/modal is open, defer to the tap
-            // behavior (simple cycle) rather than opening a menu.
             if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
             if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
             if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
             return true;
         }
 
+        function _cmapHoldMenuEligible() {
+            // Separate, stricter gate for actually opening the integrated
+            // preview menu. The menu lives inside #slim-cb-wrap, so fall back
+            // to plain tap-cycle when the shared colorbar wrap isn't visible
+            // (multiview uses #mv-cb-wrap; center/diff modes hide the wrap).
+            if (!_cmapHoldEligible()) return false;
+            if (!_cmapCbWrap || _cmapCbWrap.style.display === 'none') return false;
+            return true;
+        }
+
+        function _cmapHoldComputeCols() {
+            if (!_cmapPreview) return 1;
+            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
+            if (!cells.length) return 1;
+            const firstTop = cells[0].offsetTop;
+            let cols = 0;
+            for (const c of cells) {
+                if (c.offsetTop === firstTop) cols++;
+                else break;
+            }
+            return Math.max(1, cols);
+        }
+
         function _cmapHoldBuild() {
-            if (!_cmapHoldMenu) return;
+            if (!_cmapPreview) return;
             const n = COLORMAPS.length;
-            // Target a near-square layout but honour a 5-column ceiling so
-            // the menu stays compact — flex-wrap handles partial last rows.
-            _cmapHoldCols = Math.max(3, Math.min(5, Math.ceil(Math.sqrt(n))));
-            // Size the menu's content area to exactly N cells + gaps so the
-            // flex-wrap lands at the intended column count. Menu padding is
-            // content-box, so this value is the content width (not outer).
-            const CELL_W = 68, GAP = 4;
-            const contentW = _cmapHoldCols * CELL_W + (_cmapHoldCols - 1) * GAP;
-            _cmapHoldMenu.style.width = contentW + 'px';
-            let html = '<div class="cmh-title"><span>colormap</span>'
-                + '<span class="cmh-hint">hover · Enter · Esc</span></div>'
-                + '<div class="cmh-grid">';
+            let html = '';
             for (let i = 0; i < n; i++) {
                 html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${COLORMAPS[i]}</span></div>`;
             }
-            html += '</div>';
-            _cmapHoldMenu.innerHTML = html;
+            _cmapPreview.innerHTML = html;
             // Paint gradient swatches and wire hover/click.
-            const cells = _cmapHoldMenu.querySelectorAll('.cmh-cell');
+            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => {
                 const cv = cell.querySelector('canvas');
                 const stops = COLORMAP_GRADIENT_STOPS[COLORMAPS[i]];
@@ -21933,11 +21950,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     g.fillRect(0, 0, cv.width, cv.height);
                 }
                 cell.addEventListener('mouseover', () => {
+                    if (!_cmapHoldActive) return;
                     _cmapHoldSelIdx = i;
                     _cmapHoldHighlight();
                     _cmapHoldApply(i);
                 });
                 cell.addEventListener('click', () => {
+                    if (!_cmapHoldActive) return;
                     _cmapHoldSelIdx = i;
                     _cmapHoldCommit();
                 });
@@ -21945,8 +21964,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldHighlight() {
-            if (!_cmapHoldMenu) return;
-            const cells = _cmapHoldMenu.querySelectorAll('.cmh-cell');
+            if (!_cmapPreview) return;
+            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => cell.classList.toggle('active', i === _cmapHoldSelIdx));
         }
 
@@ -21964,7 +21983,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldOpen(opts) {
-            if (!_cmapHoldMenu || _cmapHoldActive) return;
+            if (!_cmapPreview || !_cmapCbWrap || _cmapHoldActive) return;
             _cmapHoldBuild();
             if (opts && typeof opts === 'object') {
                 _cmapHoldPrevIdx = ('prevIdx' in opts) ? opts.prevIdx : colormap_idx;
@@ -21978,18 +21997,56 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Start from current colormap (fall back to 0 for custom).
             _cmapHoldSelIdx = (colormap_idx >= 0 && colormap_idx < COLORMAPS.length) ? colormap_idx : 0;
             _cmapHoldActive = true;
+            _cmapHoldAnim = true;
             _cmapHoldHighlight();
-            _reconcileCmapHold();
-            // Dismiss the tap-c preview strip — the menu is the richer UI
-            // and shouldn't sit on top of a ghost filmstrip.
+            // Cancel any pending collapse from a rapid re-open.
+            if (_cmapCollapseTimer) { clearTimeout(_cmapCollapseTimer); _cmapCollapseTimer = null; }
+            if (_cmapFadeInTimer)   { clearTimeout(_cmapFadeInTimer);   _cmapFadeInTimer = null; }
+            if (_cmapSettleTimer)   { clearTimeout(_cmapSettleTimer);   _cmapSettleTimer = null; }
+            // Dismiss the tap-c preview strip — the expanded island replaces
+            // that filmstrip and shouldn't sit behind a ghost.
             _hideCmapStrip();
+            // Measure the grid height while hidden (opacity 0 still yields
+            // layout), then grow the wrap's top padding. CSS transitions the
+            // padding smoothly; once settled we fade the swatches in.
+            // Force a layout read so offsetHeight is current.
+            const gridH = _cmapPreview.offsetHeight;
+            // 6px top of preview + gap (4px) between swatches and colorbar row
+            const extra = Math.max(0, gridH + 6 + 4);
+            _cmapCbWrap.style.setProperty('--cb-extra-top', extra + 'px');
+            // Column count depends on actual wrap/grid layout.
+            _cmapHoldCols = _cmapHoldComputeCols();
+            _cmapFadeInTimer = setTimeout(() => {
+                _cmapFadeInTimer = null;
+                if (_cmapHoldActive && _cmapPreview) _cmapPreview.classList.add('fade-in');
+            }, _CMAP_EXPAND_MS);
+        }
+
+        function _cmapHoldClose() {
+            // Fade swatches out and collapse the island concurrently so the
+            // motion feels like one reversal of _cmapHoldOpen. Swatches
+            // (140ms) finish first so the wrap (250ms) is empty for the tail
+            // of its collapse.
+            if (_cmapFadeInTimer) { clearTimeout(_cmapFadeInTimer); _cmapFadeInTimer = null; }
+            if (_cmapCollapseTimer) { clearTimeout(_cmapCollapseTimer); _cmapCollapseTimer = null; }
+            if (_cmapPreview) _cmapPreview.classList.remove('fade-in');
+            if (_cmapCbWrap) _cmapCbWrap.style.removeProperty('--cb-extra-top');
+            // Keep _cmapHoldAnim true through the collapse so positionEggs
+            // doesn't re-run on transient wrap geometry; settle eggs once
+            // the padding/margin transition finishes.
+            if (_cmapSettleTimer) clearTimeout(_cmapSettleTimer);
+            _cmapSettleTimer = setTimeout(() => {
+                _cmapSettleTimer = null;
+                _cmapHoldAnim = false;
+                if (typeof positionEggs === 'function') positionEggs();
+            }, _CMAP_EXPAND_MS + 20);
         }
 
         function _cmapHoldCommit() {
             if (!_cmapHoldActive) return;
             _cmapHoldApply(_cmapHoldSelIdx);
             _cmapHoldActive = false;
-            _reconcileCmapHold();
+            _cmapHoldClose();
             saveState();
         }
 
@@ -22012,7 +22069,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             refreshAxesColor();
             _mipOnColormapChange();
             _cmapHoldActive = false;
-            _reconcileCmapHold();
+            _cmapHoldClose();
             // Suppress the subsequent `c` keyup from firing the tap-cycle
             // fallback. The user already dismissed via Escape; a cycle here
             // would surprise them.
