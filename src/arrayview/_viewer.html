@@ -17910,7 +17910,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
-                            () => qvRender(view),
+                            // In postMessage mode the transport is instantly ready, so skip
+                            // per-view onopen callbacks — all panes are batched below in one
+                            // setTimeout so their requests hit the server simultaneously.
+                            postMessageTransport ? null : () => qvRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -17929,6 +17932,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             qvScaleAllCanvases();
             if (httpTransport) {
                 qmriViews.forEach(v => qvRender(v));
+            } else if (postMessageTransport) {
+                // Batch all initial renders into one setTimeout so all N postMessage
+                // calls are sent synchronously — they arrive at the extension together
+                // and the server can batch+parallelise them.
+                setTimeout(() => qmriViews.forEach(v => qvRender(v)), 0);
             }
             renderInfo();
             if (_pixelInfoVisible) _prefetchHoverSlices();
@@ -18154,7 +18162,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
                             (event) => compareQmriOnMessage(view, event),
-                            () => compareQmriRender(view),
+                            postMessageTransport ? null : () => compareQmriRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -18172,6 +18180,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             if (httpTransport) {
                 compareQmriViews.forEach(v => compareQmriRender(v));
+            } else if (postMessageTransport) {
+                setTimeout(() => compareQmriViews.forEach(v => compareQmriRender(v)), 0);
             }
             renderInfo();
             _reconcileUI();
