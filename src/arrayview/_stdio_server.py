@@ -943,7 +943,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
     """Return the rendered viewer HTML with template substitutions."""
     from importlib.resources import files as _pkg_files
 
-    from arrayview._config import get_viewer_colormaps, get_viewer_theme
+    from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
     from arrayview._render import COLORMAP_GRADIENT_STOPS, COMPLEX_MODES, REAL_MODES
     from arrayview._session import COLORMAPS
 
@@ -980,6 +980,8 @@ def _handle_get_viewer_html(msg: dict) -> None:
     _theme_names = ["dark", "light", "solarized", "nord"]
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
+    _cfg_rounded = get_viewer_rounded_panes()
+    _default_rounded_panes = "true" if _cfg_rounded else "false"
 
     html = (
         template.replace("__COLORMAPS__", str(_active_colormaps))
@@ -988,6 +990,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
+        .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
     )
 

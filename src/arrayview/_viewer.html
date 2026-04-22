@@ -139,6 +139,15 @@
             background: var(--bg);
         }
         .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--canvas-border); }
+        /* Rounded panes — Shift+B toggles; default from config viewer.rounded_panes.
+           Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
+        body.rounded-panes #canvas-viewport,
+        body.rounded-panes .mv-canvas-wrap,
+        body.rounded-panes .qv-canvas-wrap {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        body.rounded-panes .compare-canvas { border-radius: 10px; }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 48px; height: 48px;
             pointer-events: none; overflow: visible; z-index: 2;
@@ -2826,6 +2835,7 @@
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = false; // toggled by 'b' key
+        let roundedPanes = __DEFAULT_ROUNDED_PANES__; // toggled by Shift+B; default from config viewer.rounded_panes
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -13668,6 +13678,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     showToast(canvasBorders ? 'borders: on' : 'borders: off');
                 },
             },
+            'panes.rounded.toggle': {
+                title: 'Toggle rounded panes',
+                when: [],
+                run: (ctx, e) => {
+                    roundedPanes = !roundedPanes;
+                    _reconcileLayout();
+                    showToast(roundedPanes ? 'rounded panes: on' : 'rounded panes: off');
+                },
+            },
             'view.transpose': {
                 title: 'Transpose x/y',
                 when: [],
@@ -14897,6 +14916,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'r', command: 'view.rotateOrFlip' },
             { key: 't', command: 'view.transpose' },
             { key: 'b', command: 'borders.toggle' },
+            { key: 'B', command: 'panes.rounded.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'screenshot.save' },
@@ -15035,6 +15055,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
                             { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
                             { key: 'b', action: 'Toggle canvas borders' },
+                            { key: 'Shift+B', action: 'Toggle rounded panes' },
                         ]
                     },
                     {
@@ -21652,6 +21673,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
+
+            // 6. Rounded panes — single body-level class drives CSS across all modes
+            document.body.classList.toggle('rounded-panes', roundedPanes);
         }
 
         // ── Compare sub-mode state reconciler ────────────────────────

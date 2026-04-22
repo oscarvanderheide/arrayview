@@ -74,7 +74,7 @@ from arrayview._render import (
 )
 
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
-from arrayview._config import get_viewer_colormaps, get_viewer_theme
+from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
 
 
 # ── Vector Field Helpers ──────────────────────────────────────────
@@ -4271,6 +4271,8 @@ def get_ui(sid: str = None):
     _theme_names = ["dark", "light", "solarized", "nord"]
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
+    _cfg_rounded = get_viewer_rounded_panes()
+    _default_rounded_panes = "true" if _cfg_rounded else "false"
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))
@@ -4278,6 +4280,7 @@ def get_ui(sid: str = None):
         .replace("__REAL_MODES__", str(REAL_MODES))
         .replace("__ARRAYVIEW_QUERY__", query_val)
         .replace("__DEFAULT_THEME_IDX__", str(_default_theme_idx))
+        .replace("__DEFAULT_ROUNDED_PANES__", _default_rounded_panes)
         .replace("__BODY_CLASS__", "av-loading" if sid else "")
     )
     headers = {"Cache-Control": "no-store"}

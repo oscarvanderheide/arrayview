@@ -56,6 +56,24 @@ def get_viewer_theme() -> str | None:
     return None
 
 
+def get_viewer_rounded_panes() -> bool | None:
+    """Return user-configured default for rounded panes, or None if not configured."""
+    cfg = load_config()
+    viewer_cfg = cfg.get("viewer", {})
+    if not isinstance(viewer_cfg, dict):
+        return None
+    val = viewer_cfg.get("rounded_panes")
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        s = val.strip().lower()
+        if s in ("true", "1", "yes", "on"):
+            return True
+        if s in ("false", "0", "no", "off"):
+            return False
+    return None
+
+
 def get_nninteractive_url() -> str | None:
     """Return configured nnInteractive server URL, or None.
 
