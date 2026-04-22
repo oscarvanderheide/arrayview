@@ -1248,10 +1248,14 @@
             border-radius: 14px;
             background: rgb(26, 26, 26);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 4px 10px;
+            /* Keep content inside the cb-island's natural height — buttons
+               are 20px and island content ≈ 28px, so 2px padding leaves no
+               visible growth when the flip plays. */
+            padding: 2px 10px;
             display: flex; align-items: center; justify-content: space-between;
             gap: 8px;
             box-sizing: border-box;
+            overflow: hidden;
         }
         :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
         :root.solarized .oblique-flip-back { background: rgb(238, 232, 213); border-color: rgba(0,0,0,0.1); }
@@ -1264,10 +1268,10 @@
         }
         .ob-btn-row { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
         .ob-btn {
-            height: 24px; min-width: 32px; padding: 0 7px;
-            border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
+            height: 20px; min-width: 28px; padding: 0 6px;
+            border-radius: 5px; border: 1px solid rgba(255,255,255,0.18);
             background: rgba(255,255,255,0.04); color: var(--text, #ddd);
-            font-family: inherit; font-size: 11px; letter-spacing: 0;
+            font-family: inherit; font-size: 10px; letter-spacing: 0;
             cursor: pointer; white-space: nowrap;
             display: inline-flex; align-items: center; justify-content: center; gap: 4px;
             transition: background 120ms, border-color 120ms, color 120ms;
@@ -10144,7 +10148,7 @@
                 + '<button type="button" class="ob-btn" id="oblique-lock-btn" aria-pressed="false"'
                 + ' data-tip="Keep planes orthogonal (90\u00b0 crosshairs)">'
                 + '90\u00b0'
-                + '<svg class="ob-lock-icon" viewBox="0 0 16 16" width="11" height="11"'
+                + '<svg class="ob-lock-icon" viewBox="0 0 16 16" width="10" height="10"'
                 + ' fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">'
                 + '<rect x="3.5" y="7.5" width="9" height="6.5" rx="1"/>'
                 + '<path class="ob-lock-shackle" d="M5.5 7.5V5.25a2.5 2.5 0 0 1 5 0V7.5"/>'
@@ -10154,7 +10158,7 @@
                 + ' data-tip="Save current plane orientation">Save</button>'
                 + '<button type="button" class="ob-btn" id="oblique-load-btn"'
                 + ' data-tip="Load most recent saved orientation">'
-                + '<svg viewBox="0 0 16 16" width="11" height="11" fill="none"'
+                + '<svg viewBox="0 0 16 16" width="10" height="10" fill="none"'
                 + ' stroke="currentColor" stroke-width="1.5">'
                 + '<path d="M13.5 8a5.5 5.5 0 1 1-1.5-3.8"/>'
                 + '<path d="M13.5 2.5v3h-3"/></svg>'
