@@ -5152,6 +5152,10 @@
                     const win = this.opts.getWindow();
                     vminFrac = (win.vmin - dmin) / range;
                     vmaxFrac = (win.vmax - dmin) / range;
+                    // Snap to the data extrema so the dim check doesn't flag a
+                    // 1-pixel sliver when the window sits at full range.
+                    if (vminFrac <= 0) vminFrac = 0;
+                    if (vmaxFrac >= 1) vmaxFrac = 1;
                 }
                 if (this._dragActive) {
                     this._winVminF = vminFrac;
@@ -5229,9 +5233,8 @@
                 // Draw horizontal indicator lines at vmin/vmax positions
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
-                    const isFullRange = vminFrac <= 0.005 && vmaxFrac >= 0.995;
-                    if (!isFullRange) [effVmin, effVmax].forEach(f => {
-                        const y = Math.max(2, Math.min(cssH - 2, Math.round((1 - f) * cssH)));
+                    [effVmin, effVmax].forEach(f => {
+                        const y = Math.max(1, Math.min(cssH - 1, Math.round((1 - f) * cssH)));
                         const coreColor = isDark ? 'rgba(255,255,100,0.9)' : 'rgba(180,130,0,0.9)';
                         const outlineColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
                         ctx.fillStyle = outlineColor;
@@ -5286,6 +5289,10 @@
                     const win = this.opts.getWindow();
                     vminFrac = (win.vmin - dmin) / range;
                     vmaxFrac = (win.vmax - dmin) / range;
+                    // Snap to the data extrema so the dim check doesn't flag a
+                    // 1-pixel sliver when the window sits at full range.
+                    if (vminFrac <= 0) vminFrac = 0;
+                    if (vmaxFrac >= 1) vmaxFrac = 1;
                 }
 
                 // Lerp animated window fractions toward target (snap during drag)
@@ -5371,12 +5378,12 @@
                 if (aT > 0.1) {
                     ctx.globalAlpha = aT;
 
-                    // Solid handle lines at vmin/vmax. Only skip when BOTH endpoints
-                    // are at the data extremes (full range) — otherwise each line must
-                    // remain visible even when pressed right against dmin or dmax.
-                    const isFullRange = vminFrac <= 0.005 && vmaxFrac >= 0.995;
-                    if (!isFullRange) [effVmin, effVmax].forEach(f => {
-                        const x = Math.max(2, Math.min(cssW - 2, Math.round(f * cssW)));
+                    // Solid handle lines at vmin/vmax. Drawn in every state,
+                    // including full range. The core line is 2 px wide: when
+                    // f=1 we pin it to the right-most two columns so it sits
+                    // flush with the canvas edge (mirrored for f=0).
+                    [effVmin, effVmax].forEach(f => {
+                        const x = Math.max(1, Math.min(cssW - 1, Math.round(f * cssW)));
 
                         const lineH = cssH - labelH;
                         const lineTop = labelH;
