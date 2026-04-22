@@ -14341,8 +14341,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         return;
                     }
                     else if (activeDim === dim_y) { [dim_x, dim_y] = [dim_y, dim_x]; }
-                    else { [dim_x, current_slice_dim] = [current_slice_dim, dim_x]; }
-                    dim_z = -1;
+                    else {
+                        // Make activeDim the new x-axis and relocate the old
+                        // x-dim into whichever slot activeDim just vacated —
+                        // preserves mosaic (dim_z / _qmriMosaicZDim) and the
+                        // current scroll dim across the rebind. Pressing x on
+                        // a random dim previously ran [dim_x, current_slice_dim]
+                        // = [current_slice_dim, dim_x] and then dim_z = -1,
+                        // which silently exited mosaic.
+                        const oldX = dim_x;
+                        dim_x = activeDim;
+                        if (current_slice_dim === activeDim) current_slice_dim = oldX;
+                        else if (dim_z === activeDim) dim_z = oldX;
+                        else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldX;
+                        else current_slice_dim = oldX;
+                    }
                     if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                     updateView();
                     if (!qmriActive && !compareQmriActive) triggerPreload();
@@ -14556,8 +14569,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         return;
                     }
                     else if (activeDim === dim_x) { [dim_x, dim_y] = [dim_y, dim_x]; }
-                    else { [dim_y, current_slice_dim] = [current_slice_dim, dim_y]; }
-                    dim_z = -1;
+                    else {
+                        // Mirror of axis.assignX: preserve mosaic / current
+                        // slice dim by routing the old y-dim into whichever
+                        // slot activeDim came from.
+                        const oldY = dim_y;
+                        dim_y = activeDim;
+                        if (current_slice_dim === activeDim) current_slice_dim = oldY;
+                        else if (dim_z === activeDim) dim_z = oldY;
+                        else if (qmriMosaicActive && _qmriMosaicZDim === activeDim) _qmriMosaicZDim = oldY;
+                        else current_slice_dim = oldY;
+                    }
                     if (qmriActive || compareQmriActive) qvScaleAllCanvases();
                     updateView();
                     if (!qmriActive && !compareQmriActive) triggerPreload();
