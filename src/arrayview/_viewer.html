@@ -10626,23 +10626,38 @@
             renderInfo();
         }
 
-        function flashAxesIndicators() {
-            // When hover info is active, dimbar shows coordinates — don't flash arrows
-            if (_pixelInfoVisible) return;
+        // Gnomon visibility: shown while a dim-bar token is hovered, or flashed
+        // briefly when activeDim changes via h/l/←/→. Hidden otherwise.
+        // In oblique mode the x/y labels no longer name axis-aligned directions,
+        // so the gnomon is suppressed.
+        let _dimBarHovering = false;
+        function _gnomonAllowed() {
+            if (_pixelInfoVisible) return false;
+            if (typeof obliqueVecs !== 'undefined' && obliqueVecs) return false;
+            return true;
+        }
+        function _showAxesGnomon() {
+            if (!_gnomonAllowed()) return;
             refreshAxesColor();
             document.querySelectorAll('.axes-indicator').forEach(el => {
-                el.style.transition = 'none';  // snap to visible immediately
+                el.style.transition = 'none';
                 el.style.opacity = '1';
             });
+            if (axesFlashTimer) { clearTimeout(axesFlashTimer); axesFlashTimer = null; }
+        }
+        function _hideAxesGnomon() {
+            document.querySelectorAll('.axes-indicator').forEach(el => {
+                el.style.transition = 'opacity 0.6s ease';
+                el.style.opacity = '0';
+            });
+        }
+        function flashAxesIndicators() {
+            if (!_gnomonAllowed()) return;
+            _showAxesGnomon();
             if (axesFlashTimer) clearTimeout(axesFlashTimer);
-            // In multi-view or compare-mv mode, keep axes indicators always visible
-            if (multiViewActive || compareMvActive) return;
             axesFlashTimer = setTimeout(() => {
-                document.querySelectorAll('.axes-indicator').forEach(el => {
-                    el.style.transition = 'opacity 0.6s ease';
-                    el.style.opacity = '0';
-                });
                 axesFlashTimer = null;
+                if (!_dimBarHovering) _hideAxesGnomon();
             }, 1500);
         }
 
@@ -17642,6 +17657,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
+                    const _qvNS = 'http://www.w3.org/2000/svg';
+                    const qvAxDiv = document.createElementNS(_qvNS, 'svg');
+                    qvAxDiv.setAttribute('class', 'axes-indicator');
+                    qvAxDiv.setAttribute('viewBox', '0 0 48 48');
+                    qvAxDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
+                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
+                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
+                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
+                    cvWrap.appendChild(qvAxDiv);
                     area.appendChild(cvWrap);
                     pane.appendChild(label);
                     pane.appendChild(area);
@@ -17971,6 +17997,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
                     cvWrap.appendChild(qvPiEl);
+                    const _qvNS = 'http://www.w3.org/2000/svg';
+                    const qvAxDiv = document.createElementNS(_qvNS, 'svg');
+                    qvAxDiv.setAttribute('class', 'axes-indicator');
+                    qvAxDiv.setAttribute('viewBox', '0 0 48 48');
+                    qvAxDiv.innerHTML = `<line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="32,39 37,42 32,45" fill="currentColor"/>`
+                        + `<line x1="6" y1="42" x2="6" y2="16" stroke="currentColor" stroke-width="1.5"/>`
+                        + `<polygon points="3,16 6,11 9,16" fill="currentColor"/>`
+                        + `<text class="axes-lbl-x" x="40" y="46" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">x</text>`
+                        + `<text class="axes-lbl-y" x="1" y="6" font-size="13" font-family="monospace" fill="currentColor" text-anchor="start">y</text>`;
+                    cvWrap.appendChild(qvAxDiv);
                     area.appendChild(cvWrap);
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
@@ -20070,11 +20107,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const span = e.target.closest('[data-dim]');
             if (span) {
                 hoveredDim = parseInt(span.dataset.dim);
+                _dimBarHovering = true;
+                _showAxesGnomon();
             } else {
                 hoveredDim = -1;
+                _dimBarHovering = false;
+                if (!axesFlashTimer) _hideAxesGnomon();
             }
         });
-        infoEl.addEventListener('mouseleave', () => { hoveredDim = -1; });
+        infoEl.addEventListener('mouseleave', () => {
+            hoveredDim = -1;
+            _dimBarHovering = false;
+            if (!axesFlashTimer) _hideAxesGnomon();
+        });
         infoEl.addEventListener('wheel', (e) => {
             if (hoveredDim === VFIELD_T_DIM) {
                 e.preventDefault();
