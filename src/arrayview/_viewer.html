@@ -1762,6 +1762,98 @@
         #slim-cb-preview .cmh-cell.active span { color: var(--active-dim); }
         #slim-cb-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
 
+        /* ── Hold-g grid layout picker ──────────────────────────── */
+        .layout-picker {
+            position: fixed;
+            left: 50%; bottom: 28px;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+            padding: 10px 12px;
+            background: rgba(20, 20, 20, 0.78);
+            backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.16s ease;
+            z-index: 40;
+            font-family: monospace;
+            color: var(--fg);
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+        }
+        .layout-picker.is-visible { opacity: 1; pointer-events: auto; }
+        :root.light .layout-picker { background: rgba(245, 245, 245, 0.88); border-color: rgba(0,0,0,0.08); }
+        :root.solarized .layout-picker { background: rgba(238, 232, 213, 0.88); border-color: rgba(0,0,0,0.08); }
+        :root.nord .layout-picker { background: rgba(36, 41, 56, 0.88); border-color: rgba(216,222,233,0.08); }
+        .layout-picker__title {
+            font-size: 11px; letter-spacing: 0.06em; text-transform: lowercase;
+            color: var(--muted); padding: 0 4px;
+        }
+        .layout-picker__grid {
+            display: flex; flex-direction: row; gap: 6px;
+        }
+        .layout-picker__option {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            padding: 8px 10px;
+            background: transparent;
+            border: 1.5px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            position: relative;
+            min-width: 64px;
+        }
+        .layout-picker__option:hover:not(.is-selected) {
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .layout-picker__option.is-selected {
+            border-color: var(--active-dim);
+            background: rgba(245, 200, 66, 0.10);
+        }
+        .layout-picker__schematic svg {
+            display: block;
+            color: var(--fg);
+            opacity: 0.85;
+        }
+        .layout-picker__schematic svg rect {
+            fill: currentColor;
+            fill-opacity: 0.18;
+            stroke: currentColor;
+            stroke-opacity: 0.55;
+            stroke-width: 1;
+        }
+        .layout-picker__option.is-selected .layout-picker__schematic svg rect {
+            fill-opacity: 0.32;
+            stroke-opacity: 0.95;
+            stroke: var(--active-dim);
+        }
+        .layout-picker__label {
+            font-size: 10px; color: var(--muted);
+            text-align: center; white-space: nowrap;
+        }
+        .layout-picker__option.is-selected .layout-picker__label {
+            color: var(--active-dim);
+        }
+        .layout-picker__key {
+            position: absolute; top: 2px; right: 4px;
+            font-size: 8px; color: var(--muted);
+            background: rgba(255,255,255,0.05);
+            border-radius: 3px;
+            padding: 1px 4px;
+            opacity: 0.7;
+        }
+        .layout-picker__hint {
+            font-size: 9px; color: var(--muted); padding: 0 4px;
+            text-align: center; letter-spacing: 0.04em;
+        }
+        /* Stacked pane state — drop shadow gives the card-deck feel during
+           the hold-g gesture. Transform is owned by GSAP. */
+        .mv-pane.is-stacked {
+            position: absolute;
+            box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+            border-radius: 6px;
+            transform-origin: 0 0;
+            will-change: transform;
+        }
+
         /* ── Compare mode preview strip ─────────────────────────── */
         #compare-mode-strip {
             position:fixed; left:50%; transform:translateX(-50%);
@@ -2845,6 +2937,11 @@
         let compareDisplaySids = [];
         let _compareExplicitSids = null; // when set, getCompareRenderSids() returns this directly
         let compareLayoutMode = null;    // null=auto, 'horizontal', 'vertical', 'grid'
+        // Ortho-view grid layout. null/'horizontal' keep the legacy flex-row
+        // path; other values switch #mv-panes to absolute positioning driven
+        // by the matching ORTHO_PRESETS entry.
+        let orthoLayoutMode = null;
+        let _orthoLayoutPicker = null;   // populated by _initOrthoLayoutPicker()
         let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
         let registrationMode = false;  // derived from compareCenterMode
@@ -13328,6 +13425,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     // to do here — returning keeps the dispatcher happy.
                 },
             },
+            'grid.holdOrTap': {
+                title: 'Grid layout picker (hold g)',
+                when: ['multiViewActive'],
+                run: (ctx, e) => {
+                    if (e && e.repeat) {
+                        if (_orthoLayoutPicker && !_orthoLayoutPicker.isActive()
+                            && _orthoLayoutPicker.eligible()) {
+                            _orthoLayoutPicker.open();
+                        }
+                        return;
+                    }
+                    if (!e) {
+                        if (_orthoLayoutPicker) _orthoLayoutPicker.cycleNext();
+                        return;
+                    }
+                },
+            },
             'histogram.openDimPicker': {
                 title: 'Toggle histogram dim participation picker',
                 when: [],
@@ -14963,7 +15077,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'screenshot.save' },
             { key: 'N', command: 'slice.exportNpy' },
-            { key: 'g', command: 'gif.save' },
+            { key: 'g', command: 'grid.holdOrTap' },
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
@@ -15077,7 +15191,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Export',
                         entries: [
                             { key: 's', action: 'Save screenshot' },
-                            { key: 'g', action: 'Save GIF animation' },
+                            { key: 'palette', action: 'Save GIF animation', hint: 'press / and search for "GIF" — direct g binding moved to grid layout picker' },
                             { key: 'e', action: 'Copy shareable URL' },
                         ]
                     }
@@ -15143,6 +15257,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { key: 'Scroll', action: 'Step along the pane normal', hint: 'in oblique mode the wheel moves through slices perpendicular to the hovered pane, even when the plane is tilted off-axis' },
                             { key: 'Save planes', action: 'Save current plane orientation', hint: 'stored in ~/.arrayview/oblique_recent.json — reloaded by Load planes on this or another array' },
                             { key: 'Load planes', action: 'Restore last saved orientation', hint: 'applies the most recent preset; works across arrays with compatible rank' },
+                        ]
+                    },
+                    {
+                        title: 'Layout',
+                        entries: [
+                            { key: 'g (hold)', action: 'Open grid layout picker', hint: 'panes stack as cards · hover or arrows/hjkl to choose · release g to commit · Esc cancels' },
+                            { key: 'g (tap)', action: 'Cycle to next preset', hint: 'horizontal → vertical → big-left → big-top' },
                         ]
                     }
                 ]
@@ -15970,6 +16091,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_cmapHoldActive) {
                 if (_cmapHoldKey(e)) return;
             }
+            if (_orthoLayoutPicker && _orthoLayoutPicker.isActive()) {
+                if (_orthoLayoutPicker.keyEvent(e)) return;
+            }
             if (_histPickerActive) {
                 if (_histPickerKey(e)) return;
             }
@@ -16008,6 +16132,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     }, _CMAP_HOLD_MS);
                 }
                 return;
+            }
+            // First-press of `g` (no modifiers) in ortho: arm the hold timer
+            // for the grid layout picker. Auto-repeat falls through to the
+            // dispatcher (grid.holdOrTap) which opens the picker immediately.
+            if (e.key === 'g' && !e.repeat
+                && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+                _initOrthoLayoutPicker();
+                if (_orthoLayoutPicker.eligible() && _orthoLayoutPicker.armDown(e)) {
+                    return;
+                }
             }
             if (e.key === '?') {
                 const _activePlugin = (qmriActive || compareQmriActive) ? 'qmri'
@@ -16059,6 +16193,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         });
 
+        // Hold-`g` finalizer. The picker handles its own commit/cancel
+        // through armUp(); this listener just routes the keyup to it. Listen
+        // on window + capture so a blur/refocus mid-hold still releases.
+        window.addEventListener('keyup', (e) => {
+            if (e.key !== 'g' && e.key !== 'G') return;
+            if (!_orthoLayoutPicker) return;
+            _orthoLayoutPicker.armUp();
+        }, true);
+
         // Hold-`c` finalizer. The cycle itself fires on keydown (for an
         // instant tap feel); this handler only commits the hold-menu
         // selection if the menu opened. Listen on window so a blur/refocus
@@ -16099,6 +16242,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             _cmapHoldKeyDown = false;
             if (_histPickerActive) _histPickerClose(true);
+            if (_orthoLayoutPicker && _orthoLayoutPicker.isActive()) {
+                _orthoLayoutPicker.cancel();
+            }
         });
 
 
@@ -20148,6 +20294,94 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (_zoomAnimId) { cancelAnimationFrame(_zoomAnimId); _zoomAnimId = null; }
             }
             const T = Math.min(Math.max(50, Math.floor(absMaxT * userZoom)), absMaxT);
+            // Grid layout presets: when orthoLayoutMode names a preset other
+            // than horizontal, switch the panes container to absolute and size
+            // each pane per preset.compute(). The default 'horizontal' / null
+            // path keeps the legacy flex-row behaviour intact below.
+            const _mvPanesEl = document.getElementById('mv-panes');
+            const _activePreset = (typeof orthoLayoutMode === 'string'
+                && orthoLayoutMode && orthoLayoutMode !== 'horizontal')
+                ? _getOrthoPreset(orthoLayoutMode) : null;
+            if (!_activePreset && _mvPanesEl) {
+                _mvPanesEl.style.removeProperty('position');
+                _mvPanesEl.style.removeProperty('width');
+                _mvPanesEl.style.removeProperty('height');
+                _mvPanesEl.style.removeProperty('display');
+                ready.forEach(v => {
+                    if (!v.pane) return;
+                    v.pane.style.removeProperty('position');
+                    v.pane.style.removeProperty('left');
+                    v.pane.style.removeProperty('top');
+                    v.pane.style.removeProperty('width');
+                    v.pane.style.removeProperty('height');
+                });
+            }
+            if (_activePreset) {
+                const paneCount = ready.length;
+                const cW = Math.max(50, window.innerWidth - 80);
+                const cH = Math.max(50, window.innerHeight - uiReserveH);
+                const rects = _activePreset.compute(paneCount, cW, cH, gap);
+                if (Array.isArray(rects) && rects.length >= paneCount) {
+                    let presetBase = Infinity;
+                    ready.forEach((v, i) => {
+                        const rt = rects[i];
+                        if (!rt || !rt.w || !rt.h) return;
+                        const fit = Math.min(rt.w / v.lastW, rt.h / v.lastH);
+                        if (fit < presetBase) presetBase = fit;
+                    });
+                    if (!Number.isFinite(presetBase) || presetBase <= 0) {
+                        presetBase = absMaxT / Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
+                    }
+                    if (_mvPanesEl) {
+                        _mvPanesEl.style.position = 'relative';
+                        _mvPanesEl.style.width = cW + 'px';
+                        _mvPanesEl.style.height = cH + 'px';
+                        _mvPanesEl.style.display = 'block';
+                    }
+                    const _presetPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
+                    ready.forEach((v, i) => {
+                        const rt = rects[i];
+                        if (!rt) return;
+                        _scalePane(
+                            { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _presetPanStub },
+                            v.pane || null,
+                            {
+                                maxW: rt.w, maxH: rt.h,
+                                baseScale: presetBase,
+                                squareStretch: squareStretch,
+                                updateAutoFit: false,
+                                allowOverflowRecalc: false,
+                                forceViewport: { w: rt.w, h: rt.h },
+                            }
+                        );
+                        if (v.pane) {
+                            v.pane.style.position = 'absolute';
+                            v.pane.style.left = rt.x + 'px';
+                            v.pane.style.top = rt.y + 'px';
+                            v.pane.style.width = rt.w + 'px';
+                            v.pane.style.height = rt.h + 'px';
+                        }
+                        if (v.wrap) {
+                            v.wrap.style.width = v.canvas.style.width;
+                            v.wrap.style.height = v.canvas.style.height;
+                        }
+                    });
+                    const minPaneW = Math.min(...rects.filter(r => r && r.w).map(r => r.w));
+                    const mvCbWp = document.getElementById('mv-cb-wrap');
+                    if (mvCbWp) {
+                        const mvCbTarget = cbTargetWidth(minPaneW || T);
+                        if (mvCbTarget == null) {
+                            mvCbWp.style.display = 'none';
+                        } else {
+                            mvCbWp.style.display = '';
+                            mvCbWp.style.width = mvCbTarget + 'px';
+                        }
+                    }
+                    fixWrapperAlignment();
+                    positionEggs();
+                    return _mvAtMax ? 'max' : null;
+                }
+            }
             // Global scale: largest side across all views fits in T — all canvases use
             // the same scale factor so a pixel in one view equals a pixel in another.
             // userZoom is already baked into T above (T = absMaxT * userZoom, then
@@ -22172,6 +22406,443 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // other shortcuts (e.g. pressing `c` again shouldn't re-enter).
             if (k === 'c' || k === 'C') { e.preventDefault(); return true; }
             return false;
+        }
+
+        // ── 3b2. Hold-`g` grid layout picker ─────────────────────────
+        // Holding `g` past _GRID_HOLD_MS in ortho stacks the three panes as
+        // cards and reveals a small menu of grid-layout presets. Hover or
+        // arrow-keys highlight a preset; releasing `g` commits and the panes
+        // animate (FLIP-style via GSAP) into the chosen layout. Other UI
+        // chrome fades during the gesture and returns once the layout settles.
+        //
+        // The choreography lives in LayoutPicker so it can later host the
+        // same gesture for compare, qMRI, and multi-array modes — only the
+        // preset registry and the "what to lay out" callbacks differ per mode.
+
+        const _GRID_HOLD_MS = 180;        // tap-vs-hold threshold
+        const _GRID_STACK_MS = 0.28;      // sec — pane stack-in animation
+        const _GRID_COMMIT_MS = 0.38;     // sec — pane FLIP-out animation
+        const _GRID_FADE_MS = 0.16;       // sec — chrome fade in/out
+        const _GRID_STACK_OFFSET = 6;     // px per layer in the stack
+
+        // Each preset returns target rects (relative to the container's
+        // content box) for the given pane count and container size. Returning
+        // null means "preset doesn't apply for this pane count".
+        const ORTHO_PRESETS = [
+            {
+                id: 'horizontal',
+                label: 'Horizontal',
+                schematic: '<svg viewBox="0 0 36 24" width="36" height="24" aria-hidden="true">'
+                    + '<rect x="1" y="2" width="10" height="20" rx="1.5"/>'
+                    + '<rect x="13" y="2" width="10" height="20" rx="1.5"/>'
+                    + '<rect x="25" y="2" width="10" height="20" rx="1.5"/>'
+                    + '</svg>',
+                compute: (n, W, H, gap) => {
+                    if (n < 1) return [];
+                    const w = (W - gap * (n - 1)) / n;
+                    const out = [];
+                    for (let i = 0; i < n; i++) out.push({ x: i * (w + gap), y: 0, w, h: H });
+                    return out;
+                },
+            },
+            {
+                id: 'vertical',
+                label: 'Vertical',
+                schematic: '<svg viewBox="0 0 24 36" width="24" height="36" aria-hidden="true">'
+                    + '<rect x="2" y="1" width="20" height="10" rx="1.5"/>'
+                    + '<rect x="2" y="13" width="20" height="10" rx="1.5"/>'
+                    + '<rect x="2" y="25" width="20" height="10" rx="1.5"/>'
+                    + '</svg>',
+                compute: (n, W, H, gap) => {
+                    if (n < 1) return [];
+                    const h = (H - gap * (n - 1)) / n;
+                    const out = [];
+                    for (let i = 0; i < n; i++) out.push({ x: 0, y: i * (h + gap), w: W, h });
+                    return out;
+                },
+            },
+            {
+                id: 'big-left',
+                label: 'Big left',
+                schematic: '<svg viewBox="0 0 36 24" width="36" height="24" aria-hidden="true">'
+                    + '<rect x="1" y="2" width="22" height="20" rx="1.5"/>'
+                    + '<rect x="25" y="2" width="10" height="9" rx="1.5"/>'
+                    + '<rect x="25" y="13" width="10" height="9" rx="1.5"/>'
+                    + '</svg>',
+                compute: (n, W, H, gap) => {
+                    if (n < 3) return null;
+                    const leftW = (W - gap) * (2 / 3);
+                    const rightW = W - gap - leftW;
+                    const stackH = (H - gap) / 2;
+                    const out = [
+                        { x: 0, y: 0, w: leftW, h: H },
+                        { x: leftW + gap, y: 0, w: rightW, h: stackH },
+                        { x: leftW + gap, y: stackH + gap, w: rightW, h: stackH },
+                    ];
+                    for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
+                    return out;
+                },
+            },
+            {
+                id: 'big-top',
+                label: 'Big top',
+                schematic: '<svg viewBox="0 0 36 24" width="36" height="24" aria-hidden="true">'
+                    + '<rect x="1" y="1" width="34" height="14" rx="1.5"/>'
+                    + '<rect x="1" y="17" width="16" height="6" rx="1.5"/>'
+                    + '<rect x="19" y="17" width="16" height="6" rx="1.5"/>'
+                    + '</svg>',
+                compute: (n, W, H, gap) => {
+                    if (n < 3) return null;
+                    const topH = (H - gap) * (2 / 3);
+                    const botH = H - gap - topH;
+                    const halfW = (W - gap) / 2;
+                    const out = [
+                        { x: 0, y: 0, w: W, h: topH },
+                        { x: 0, y: topH + gap, w: halfW, h: botH },
+                        { x: halfW + gap, y: topH + gap, w: halfW, h: botH },
+                    ];
+                    for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
+                    return out;
+                },
+            },
+        ];
+
+        function _getOrthoPreset(id) {
+            return ORTHO_PRESETS.find(p => p.id === id) || null;
+        }
+
+        // Reusable hold-key layout picker. One instance per mode; the ortho
+        // instance is constructed lazily via _initOrthoLayoutPicker().
+        class LayoutPicker {
+            constructor(opts) {
+                this.opts = opts;
+                this._key = opts.triggerKey;
+                this._presets = opts.presets;
+                this._holdMs = opts.holdMs ?? _GRID_HOLD_MS;
+                this._active = false;
+                this._anim = false;
+                this._keyDown = false;
+                this._openTimer = null;
+                this._selIdx = 0;
+                this._menu = null;
+                this._optionEls = [];
+                this._priorMode = null;
+                this._chromeTl = null;
+                this._paneTl = null;
+            }
+
+            isActive() { return this._active; }
+            isAnimating() { return this._anim; }
+
+            eligible() {
+                if (typeof this.opts.eligible === 'function' && !this.opts.eligible()) return false;
+                if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+                if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
+                if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
+                return true;
+            }
+
+            _availablePresets() {
+                const panes = this.opts.panes() || [];
+                return this._presets.filter(p => {
+                    const r = p.compute(panes.length, 100, 100, 12);
+                    return Array.isArray(r) && r.length > 0;
+                });
+            }
+
+            // ─── keydown/keyup wiring ───────────────────────────────────
+            armDown(e) {
+                if (e.repeat) return false;
+                if (!this.eligible()) return false;
+                this._keyDown = true;
+                clearTimeout(this._openTimer);
+                this._openTimer = setTimeout(() => {
+                    this._openTimer = null;
+                    if (this._keyDown && !this._active) this.open();
+                }, this._holdMs);
+                return true;
+            }
+
+            armUp() {
+                if (!this._keyDown) return false;
+                this._keyDown = false;
+                const wasTap = this._openTimer !== null && !this._active;
+                if (this._openTimer !== null) {
+                    clearTimeout(this._openTimer);
+                    this._openTimer = null;
+                }
+                if (this._active) {
+                    this.commit();
+                    return true;
+                }
+                if (wasTap && typeof this.opts.onTap === 'function') {
+                    try { this.opts.onTap(); } catch (_) {}
+                }
+                return wasTap;
+            }
+
+            // ─── menu DOM ────────────────────────────────────────────────
+            _ensureMenu() {
+                if (this._menu) return;
+                const m = document.createElement('div');
+                m.className = 'layout-picker';
+                m.setAttribute('aria-hidden', 'true');
+                m.innerHTML = '<div class="layout-picker__title">grid layout</div>'
+                    + '<div class="layout-picker__grid"></div>'
+                    + '<div class="layout-picker__hint">hover · arrows · 1–4 · release ' + this._key + '</div>';
+                document.body.appendChild(m);
+                this._menu = m;
+            }
+
+            _buildOptions() {
+                if (!this._menu) return;
+                const grid = this._menu.querySelector('.layout-picker__grid');
+                grid.innerHTML = '';
+                this._optionEls = [];
+                const presets = this._availablePresets();
+                presets.forEach((p, i) => {
+                    const el = document.createElement('div');
+                    el.className = 'layout-picker__option';
+                    el.dataset.id = p.id;
+                    el.innerHTML = '<div class="layout-picker__schematic">' + p.schematic + '</div>'
+                        + '<div class="layout-picker__label">' + p.label + '</div>'
+                        + '<kbd class="layout-picker__key">' + (i + 1) + '</kbd>';
+                    el.addEventListener('mouseenter', () => {
+                        this._selIdx = i;
+                        this._highlight();
+                    });
+                    el.addEventListener('click', () => {
+                        this._selIdx = i;
+                        this.commit();
+                    });
+                    grid.appendChild(el);
+                    this._optionEls.push(el);
+                });
+                this._highlight();
+            }
+
+            _highlight() {
+                this._optionEls.forEach((el, i) => {
+                    el.classList.toggle('is-selected', i === this._selIdx);
+                });
+            }
+
+            navigate(dx) {
+                const n = this._optionEls.length;
+                if (!n) return;
+                this._selIdx = (this._selIdx + dx + n) % n;
+                this._highlight();
+            }
+
+            jumpTo(idx) {
+                if (idx < 0 || idx >= this._optionEls.length) return;
+                this._selIdx = idx;
+                this._highlight();
+            }
+
+            // ─── chrome fade ─────────────────────────────────────────────
+            _fadeChrome(toHidden) {
+                const els = (typeof this.opts.chromeToFade === 'function')
+                    ? this.opts.chromeToFade().filter(Boolean) : [];
+                if (this._chromeTl) { this._chromeTl.kill(); this._chromeTl = null; }
+                if (typeof gsap === 'undefined' || !els.length) return;
+                this._chromeTl = gsap.to(els, {
+                    opacity: toHidden ? 0 : 1,
+                    duration: _GRID_FADE_MS,
+                    ease: 'power1.out',
+                    overwrite: 'auto',
+                    onComplete: () => {
+                        if (!toHidden) {
+                            els.forEach(el => { el.style.removeProperty('opacity'); });
+                        }
+                    },
+                });
+            }
+
+            // ─── pane animation ─────────────────────────────────────────
+            _stackedTransform(rect, container, idx) {
+                const cw = container.clientWidth, ch = container.clientHeight;
+                const side = Math.min(cw, ch) * 0.8;
+                const cRect = container.getBoundingClientRect();
+                const stackX = (cw - side) / 2 + idx * _GRID_STACK_OFFSET;
+                const stackY = (ch - side) / 2 + idx * _GRID_STACK_OFFSET;
+                const dx = stackX - (rect.left - cRect.left);
+                const dy = stackY - (rect.top - cRect.top);
+                const sx = side / Math.max(1, rect.width);
+                const sy = side / Math.max(1, rect.height);
+                return { x: dx, y: dy, scaleX: sx, scaleY: sy };
+            }
+
+            _animateToStack() {
+                const panes = this.opts.panes() || [];
+                const container = this.opts.container();
+                if (!panes.length || !container || typeof gsap === 'undefined') return;
+                if (this._paneTl) { this._paneTl.kill(); this._paneTl = null; }
+                gsap.set(panes, { clearProps: 'transform,zIndex' });
+                this._anim = true;
+                const tl = gsap.timeline({ onComplete: () => { this._anim = false; } });
+                panes.forEach((p, i) => {
+                    p.classList.add('is-stacked');
+                    const rect = p.getBoundingClientRect();
+                    const t = this._stackedTransform(rect, container, i);
+                    const z = 100 + (panes.length - i);
+                    tl.to(p, {
+                        x: t.x, y: t.y, scaleX: t.scaleX, scaleY: t.scaleY,
+                        zIndex: z,
+                        duration: _GRID_STACK_MS, ease: 'power2.out',
+                        transformOrigin: '0 0',
+                    }, 0);
+                });
+                this._paneTl = tl;
+            }
+
+            _flipToFlow(targetMode) {
+                const panes = this.opts.panes() || [];
+                const container = this.opts.container();
+                if (!panes.length || !container || typeof gsap === 'undefined') {
+                    if (targetMode != null) this.opts.setMode(targetMode);
+                    this._anim = false;
+                    return Promise.resolve();
+                }
+                if (this._paneTl) { this._paneTl.kill(); this._paneTl = null; }
+                const fromRects = panes.map(p => p.getBoundingClientRect());
+                gsap.set(panes, { clearProps: 'transform,zIndex' });
+                panes.forEach(p => p.classList.remove('is-stacked'));
+                if (targetMode !== undefined && targetMode !== null) {
+                    this.opts.setMode(targetMode);
+                } else {
+                    this.opts.refresh();
+                }
+                void container.offsetWidth;
+                const toRects = panes.map(p => p.getBoundingClientRect());
+                this._anim = true;
+                return new Promise(resolve => {
+                    const tl = gsap.timeline({ onComplete: () => { this._anim = false; resolve(); } });
+                    panes.forEach((p, i) => {
+                        const f = fromRects[i], t = toRects[i];
+                        if (!t.width || !t.height) return;
+                        const dx = f.left - t.left;
+                        const dy = f.top - t.top;
+                        const sx = f.width / t.width;
+                        const sy = f.height / t.height;
+                        tl.fromTo(p,
+                            { x: dx, y: dy, scaleX: sx, scaleY: sy, transformOrigin: '0 0' },
+                            { x: 0, y: 0, scaleX: 1, scaleY: 1,
+                                duration: _GRID_COMMIT_MS, ease: 'power2.inOut',
+                                onComplete: () => { gsap.set(p, { clearProps: 'transform' }); },
+                            }, 0);
+                    });
+                    this._paneTl = tl;
+                });
+            }
+
+            // ─── lifecycle ──────────────────────────────────────────────
+            open() {
+                if (this._active) return;
+                this._active = true;
+                this._priorMode = this.opts.getMode();
+                this._ensureMenu();
+                this._buildOptions();
+                const ids = this._optionEls.map(el => el.dataset.id);
+                const idx = this._priorMode ? ids.indexOf(this._priorMode) : 0;
+                this._selIdx = (idx >= 0) ? idx : 0;
+                this._highlight();
+                this._menu.classList.add('is-visible');
+                this._menu.setAttribute('aria-hidden', 'false');
+                this._fadeChrome(true);
+                this._animateToStack();
+            }
+
+            commit() {
+                if (!this._active) return;
+                const presets = this._availablePresets();
+                const chosen = presets[this._selIdx] || presets[0];
+                const id = chosen ? chosen.id : null;
+                this._closeMenu();
+                this._active = false;
+                this._flipToFlow(id).then(() => this._fadeChrome(false));
+            }
+
+            cancel() {
+                if (!this._active) return;
+                this._closeMenu();
+                this._active = false;
+                this._flipToFlow(this._priorMode).then(() => this._fadeChrome(false));
+            }
+
+            cycleNext() {
+                const presets = this._availablePresets();
+                if (!presets.length) return;
+                const cur = this.opts.getMode();
+                const idx = Math.max(0, presets.findIndex(p => p.id === cur));
+                const next = presets[(idx + 1) % presets.length];
+                this.opts.setMode(next.id);
+                if (typeof this.opts.onCycleNotice === 'function') {
+                    this.opts.onCycleNotice(next);
+                }
+            }
+
+            _closeMenu() {
+                if (!this._menu) return;
+                this._menu.classList.remove('is-visible');
+                this._menu.setAttribute('aria-hidden', 'true');
+            }
+
+            keyEvent(e) {
+                if (!this._active) return false;
+                const k = e.key;
+                if (k === 'Escape') { e.preventDefault(); this.cancel(); return true; }
+                if (k === 'Enter')  { e.preventDefault(); this.commit(); return true; }
+                if (k === 'h' || k === 'ArrowLeft')  { e.preventDefault(); this.navigate(-1); return true; }
+                if (k === 'l' || k === 'ArrowRight') { e.preventDefault(); this.navigate( 1); return true; }
+                if (k === 'j' || k === 'ArrowDown')  { e.preventDefault(); this.navigate( 1); return true; }
+                if (k === 'k' || k === 'ArrowUp')    { e.preventDefault(); this.navigate(-1); return true; }
+                if (/^[1-9]$/.test(k)) {
+                    e.preventDefault();
+                    this.jumpTo(parseInt(k, 10) - 1);
+                    return true;
+                }
+                if (k === this._key || k === this._key.toUpperCase()) {
+                    e.preventDefault();
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        function _initOrthoLayoutPicker() {
+            if (_orthoLayoutPicker) return _orthoLayoutPicker;
+            _orthoLayoutPicker = new LayoutPicker({
+                triggerKey: 'g',
+                holdMs: _GRID_HOLD_MS,
+                presets: ORTHO_PRESETS,
+                eligible: () => !!multiViewActive,
+                container: () => document.getElementById('mv-panes'),
+                panes: () => Array.from(document.querySelectorAll('#mv-panes > .mv-pane')),
+                getMode: () => orthoLayoutMode,
+                setMode: (id) => {
+                    orthoLayoutMode = id;
+                    if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+                },
+                refresh: () => {
+                    if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+                },
+                chromeToFade: () => {
+                    const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
+                        '#help-hint', '#shelf-hint', '#island-hint',
+                        '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
+                    const set = new Set();
+                    sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
+                    return Array.from(set);
+                },
+                onTap: () => {
+                    if (_orthoLayoutPicker) _orthoLayoutPicker.cycleNext();
+                },
+                onCycleNotice: (preset) => {
+                    if (typeof showStatus === 'function') showStatus('grid: ' + preset.label);
+                },
+            });
+            return _orthoLayoutPicker;
         }
 
         // ── 3c. Shift+D histogram participation picker ───────────────
