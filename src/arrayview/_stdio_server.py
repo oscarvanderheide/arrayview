@@ -12,6 +12,7 @@ The binary payload has the same format as the WebSocket binary response for
 slice requests, and is length-prefixed JSON for metadata/register/sessions.
 """
 
+import concurrent.futures as _futures
 import json
 import io
 import arrayview._session as _session_mod
@@ -798,13 +799,35 @@ def _handle_fetch_proxy(msg: dict) -> None:
         _write_error(f"unsupported endpoint: {endpoint}")
 
 
-def _handle_slice(msg: dict) -> None:
-    """Render a slice and write the binary response."""
+# Slice render pool: renders multi-pane modes (qMRI, multiview, compare) in
+# parallel instead of serializing on the stdin read loop.  Responses are still
+# written to stdout in arrival order by the caller.  Per-cache locks on the
+# Session protect raw/rgba/mosaic caches from concurrent access.
+_SLICE_POOL: _futures.ThreadPoolExecutor | None = None
+
+
+def _get_slice_pool() -> _futures.ThreadPoolExecutor:
+    global _SLICE_POOL
+    if _SLICE_POOL is None:
+        from arrayview._session import _RENDER_WORKERS
+        _SLICE_POOL = _futures.ThreadPoolExecutor(
+            max_workers=_RENDER_WORKERS,
+            thread_name_prefix="arrayview-stdio-render",
+        )
+    return _SLICE_POOL
+
+
+def _build_slice_payload(msg: dict) -> bytes:
+    """Render a slice and return its binary payload.
+
+    Raises on missing session / bad input; does NOT write to stdout so this is
+    safe to call from a thread pool.  The caller is responsible for writing
+    the returned bytes (or the error) in arrival order.
+    """
     sid = msg["sid"]
     session = SESSIONS.get(sid)
     if not session:
-        _write_error("session not found")
-        return
+        raise RuntimeError("session not found")
 
     seq = int(msg.get("seq", 0))
     dim_x = int(msg["dim_x"])
@@ -908,7 +931,12 @@ def _handle_slice(msg: dict) -> None:
             ).tobytes()
             payload += vf_hdr + vf_scale + arrows.tobytes()
 
-    _write_response(payload)
+    return payload
+
+
+def _handle_slice(msg: dict) -> None:
+    """Render a slice and write the binary response (single-slice path)."""
+    _write_response(_build_slice_payload(msg))
 
 
 def _handle_get_viewer_html(msg: dict) -> None:
@@ -1085,17 +1113,33 @@ def run_stdio_server() -> None:
                 pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
                 latest_for_pane[pane_key] = i
 
-            # Process in arrival order: skip stale same-pane dups, render the rest
+            # Submit non-stale renders to the thread pool so multi-pane modes
+            # (qMRI, multiview, compare) don't serialize on the read loop.
+            # Per-cache locks on the Session make concurrent renders safe.
+            pool = _get_slice_pool() if len(pending_slices) > 1 else None
+            payload_futures: dict[int, _futures.Future] = {}
+            for i, s in enumerate(pending_slices):
+                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                if latest_for_pane[pane_key] != i:
+                    continue
+                payload_futures[i] = (
+                    pool.submit(_build_slice_payload, s) if pool is not None else None
+                )
+
+            # Write responses in arrival order to match the extension's FIFO
+            # callback matching.
             for i, s in enumerate(pending_slices):
                 pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
                 if latest_for_pane[pane_key] != i:
                     _write_skip_response(s)
-                else:
-                    try:
-                        _handle_slice(s)
-                    except Exception as e:
-                        traceback.print_exc(file=sys.stderr)
-                        _write_error(str(e))
+                    continue
+                try:
+                    fut = payload_futures.get(i)
+                    payload = fut.result() if fut is not None else _build_slice_payload(s)
+                    _write_response(payload)
+                except Exception as e:
+                    traceback.print_exc(file=sys.stderr)
+                    _write_error(str(e))
 
             for def_type, def_msg in deferred:
                 try:
