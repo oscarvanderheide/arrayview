@@ -20322,16 +20322,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cH = Math.max(50, window.innerHeight - uiReserveH);
                 const rects = _activePreset.compute(paneCount, cW, cH, gap);
                 if (Array.isArray(rects) && rects.length >= paneCount) {
-                    let presetBase = Infinity;
-                    ready.forEach((v, i) => {
-                        const rt = rects[i];
-                        if (!rt || !rt.w || !rt.h) return;
-                        const fit = Math.min(rt.w / v.lastW, rt.h / v.lastH);
-                        if (fit < presetBase) presetBase = fit;
-                    });
-                    if (!Number.isFinite(presetBase) || presetBase <= 0) {
-                        presetBase = absMaxT / Math.max(...ready.map(v => Math.max(v.lastW, v.lastH)));
-                    }
                     if (_mvPanesEl) {
                         _mvPanesEl.style.position = 'relative';
                         _mvPanesEl.style.width = cW + 'px';
@@ -20339,15 +20329,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _mvPanesEl.style.display = 'block';
                     }
                     const _presetPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
+                    // Rects are square (see ORTHO_PRESETS). Pane frame = rect
+                    // so borders are square "as if stretch-to-square was on".
+                    // Per-pane fit scales each canvas to fill its own square,
+                    // keeping image aspect ratio — the big pane in big-left
+                    // / big-top is visibly bigger instead of clamped to the
+                    // smallest pane's scale.
                     ready.forEach((v, i) => {
                         const rt = rects[i];
-                        if (!rt) return;
+                        if (!rt || !rt.w || !rt.h) return;
+                        const fit = Math.min(rt.w / v.lastW, rt.h / v.lastH);
                         _scalePane(
                             { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _presetPanStub },
                             v.pane || null,
                             {
                                 maxW: rt.w, maxH: rt.h,
-                                baseScale: presetBase,
+                                baseScale: fit,
                                 squareStretch: squareStretch,
                                 updateAutoFit: false,
                                 allowOverflowRecalc: false,
@@ -20356,13 +20353,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         );
                         if (v.pane) {
                             v.pane.style.position = 'absolute';
-                            v.pane.style.left = rt.x + 'px';
-                            v.pane.style.top = rt.y + 'px';
-                            v.pane.style.width = rt.w + 'px';
+                            v.pane.style.left   = rt.x + 'px';
+                            v.pane.style.top    = rt.y + 'px';
+                            v.pane.style.width  = rt.w + 'px';
                             v.pane.style.height = rt.h + 'px';
                         }
                         if (v.wrap) {
-                            v.wrap.style.width = v.canvas.style.width;
+                            v.wrap.style.width  = v.canvas.style.width;
                             v.wrap.style.height = v.canvas.style.height;
                         }
                     });
@@ -22428,6 +22425,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Each preset returns target rects (relative to the container's
         // content box) for the given pane count and container size. Returning
         // null means "preset doesn't apply for this pane count".
+        // Presets return square rects — every pane is a square, so the pane
+        // frame is square "as if stretch-to-square were on", independent of
+        // the image's aspect. The whole cluster is centered in the container
+        // so the panes stay pinned together as the window resizes (no drift).
+        //
+        // big-left / big-top enforce big_side = 2·small_side + gap so the
+        // combined height (big-left) or width (big-top) of the small pair
+        // matches the big pane exactly — no empty gutter above/below/beside.
         const ORTHO_PRESETS = [
             {
                 id: 'horizontal',
@@ -22439,9 +22444,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     + '</svg>',
                 compute: (n, W, H, gap) => {
                     if (n < 1) return [];
-                    const w = (W - gap * (n - 1)) / n;
+                    const S = Math.max(1, Math.floor(Math.min(H, (W - gap * (n - 1)) / n)));
+                    const totalW = n * S + (n - 1) * gap;
+                    const offX = Math.round((W - totalW) / 2);
+                    const offY = Math.round((H - S) / 2);
                     const out = [];
-                    for (let i = 0; i < n; i++) out.push({ x: i * (w + gap), y: 0, w, h: H });
+                    for (let i = 0; i < n; i++) {
+                        out.push({ x: offX + i * (S + gap), y: offY, w: S, h: S });
+                    }
                     return out;
                 },
             },
@@ -22455,9 +22465,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     + '</svg>',
                 compute: (n, W, H, gap) => {
                     if (n < 1) return [];
-                    const h = (H - gap * (n - 1)) / n;
+                    const S = Math.max(1, Math.floor(Math.min(W, (H - gap * (n - 1)) / n)));
+                    const totalH = n * S + (n - 1) * gap;
+                    const offX = Math.round((W - S) / 2);
+                    const offY = Math.round((H - totalH) / 2);
                     const out = [];
-                    for (let i = 0; i < n; i++) out.push({ x: 0, y: i * (h + gap), w: W, h });
+                    for (let i = 0; i < n; i++) {
+                        out.push({ x: offX, y: offY + i * (S + gap), w: S, h: S });
+                    }
                     return out;
                 },
             },
@@ -22471,13 +22486,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     + '</svg>',
                 compute: (n, W, H, gap) => {
                     if (n < 3) return null;
-                    const leftW = (W - gap) * (2 / 3);
-                    const rightW = W - gap - leftW;
-                    const stackH = (H - gap) / 2;
+                    // L = big square side. R = small square side. Constraint
+                    // L = 2R + gap so the two right squares (with gap between)
+                    // match L vertically. Row layout: [L][gap][R] so total
+                    // width = L + gap + R = 1.5 L + 0.5 gap. Row height = L.
+                    const L = Math.max(2, Math.floor(Math.min(H, (2 * W - gap) / 3)));
+                    const R = Math.max(1, Math.floor((L - gap) / 2));
+                    const totalW = L + gap + R;
+                    const totalH = L;
+                    const offX = Math.round((W - totalW) / 2);
+                    const offY = Math.round((H - totalH) / 2);
                     const out = [
-                        { x: 0, y: 0, w: leftW, h: H },
-                        { x: leftW + gap, y: 0, w: rightW, h: stackH },
-                        { x: leftW + gap, y: stackH + gap, w: rightW, h: stackH },
+                        { x: offX, y: offY, w: L, h: L },
+                        { x: offX + L + gap, y: offY, w: R, h: R },
+                        { x: offX + L + gap, y: offY + R + gap, w: R, h: R },
                     ];
                     for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
                     return out;
@@ -22493,13 +22515,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     + '</svg>',
                 compute: (n, W, H, gap) => {
                     if (n < 3) return null;
-                    const topH = (H - gap) * (2 / 3);
-                    const botH = H - gap - topH;
-                    const halfW = (W - gap) / 2;
+                    // T = big square side. B = small square side. Constraint
+                    // T = 2B + gap so the two bottom squares match T across.
+                    // Column layout: [T] then below [B][gap][B] — column width
+                    // is T, total height = T + gap + B.
+                    const T = Math.max(2, Math.floor(Math.min(W, (2 * H - gap) / 3)));
+                    const B = Math.max(1, Math.floor((T - gap) / 2));
+                    const totalW = T;
+                    const totalH = T + gap + B;
+                    const offX = Math.round((W - totalW) / 2);
+                    const offY = Math.round((H - totalH) / 2);
                     const out = [
-                        { x: 0, y: 0, w: W, h: topH },
-                        { x: 0, y: topH + gap, w: halfW, h: botH },
-                        { x: halfW + gap, y: topH + gap, w: halfW, h: botH },
+                        { x: offX, y: offY, w: T, h: T },
+                        { x: offX, y: offY + T + gap, w: B, h: B },
+                        { x: offX + B + gap, y: offY + T + gap, w: B, h: B },
                     ];
                     for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
                     return out;
@@ -22660,38 +22689,71 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             // ─── pane animation ─────────────────────────────────────────
-            _stackedTransform(rect, container, idx) {
-                const cw = container.clientWidth, ch = container.clientHeight;
-                const side = Math.min(cw, ch) * 0.8;
-                const cRect = container.getBoundingClientRect();
-                const stackX = (cw - side) / 2 + idx * _GRID_STACK_OFFSET;
-                const stackY = (ch - side) / 2 + idx * _GRID_STACK_OFFSET;
-                const dx = stackX - (rect.left - cRect.left);
-                const dy = stackY - (rect.top - cRect.top);
-                const sx = side / Math.max(1, rect.width);
-                const sy = side / Math.max(1, rect.height);
-                return { x: dx, y: dy, scaleX: sx, scaleY: sy };
-            }
-
             _animateToStack() {
                 const panes = this.opts.panes() || [];
                 const container = this.opts.container();
                 if (!panes.length || !container || typeof gsap === 'undefined') return;
                 if (this._paneTl) { this._paneTl.kill(); this._paneTl = null; }
+
+                // Snapshot the current visual rects (FLIP first) so the
+                // animation can interpolate from whatever layout the user is
+                // coming from.
                 gsap.set(panes, { clearProps: 'transform,zIndex' });
+                const fromRects = panes.map(p => p.getBoundingClientRect());
+
+                // Normalise to horizontal so the panes get their canonical
+                // "tile" size (T×T from mvScaleAllCanvases). This guarantees
+                // the stacked size is identical regardless of which preset
+                // we entered hold-g from. The mode flips back on cancel.
+                this.opts.setMode('horizontal');
+
+                // Reflow so getBoundingClientRect reflects horizontal layout.
+                void container.offsetWidth;
+                const horizRects = panes.map(p => p.getBoundingClientRect());
+                const tileW = horizRects[0] ? horizRects[0].width  : 0;
+                const tileH = horizRects[0] ? horizRects[0].height : 0;
+                if (!tileW || !tileH) return;
+
+                // Position panes absolutely at the stacked target (uniform
+                // size, layered offset). Container becomes the absolute
+                // anchor — its bounds drive the centre.
+                const cw = container.clientWidth;
+                const ch = container.clientHeight;
+                container.style.position = 'relative';
+                container.style.width = cw + 'px';
+                container.style.height = ch + 'px';
+                container.style.display = 'block';
+
+                panes.forEach((p, i) => {
+                    p.classList.add('is-stacked');
+                    p.style.position = 'absolute';
+                    p.style.left = ((cw - tileW) / 2 + i * _GRID_STACK_OFFSET) + 'px';
+                    p.style.top  = ((ch - tileH) / 2 + i * _GRID_STACK_OFFSET) + 'px';
+                    p.style.width  = tileW + 'px';
+                    p.style.height = tileH + 'px';
+                    p.style.zIndex = 100 + (panes.length - i);
+                });
+
+                void container.offsetWidth;
+                const toRects = panes.map(p => p.getBoundingClientRect());
+
+                // FLIP from fromRects (visual entry state) to toRects
+                // (uniform stacked state). Inverse transform makes each pane
+                // appear at its original position; tween to identity.
                 this._anim = true;
                 const tl = gsap.timeline({ onComplete: () => { this._anim = false; } });
                 panes.forEach((p, i) => {
-                    p.classList.add('is-stacked');
-                    const rect = p.getBoundingClientRect();
-                    const t = this._stackedTransform(rect, container, i);
-                    const z = 100 + (panes.length - i);
-                    tl.to(p, {
-                        x: t.x, y: t.y, scaleX: t.scaleX, scaleY: t.scaleY,
-                        zIndex: z,
-                        duration: _GRID_STACK_MS, ease: 'power2.out',
-                        transformOrigin: '0 0',
-                    }, 0);
+                    const f = fromRects[i], t = toRects[i];
+                    if (!t.width || !t.height) return;
+                    const dx = f.left - t.left;
+                    const dy = f.top  - t.top;
+                    const sx = f.width  / t.width;
+                    const sy = f.height / t.height;
+                    tl.fromTo(p,
+                        { x: dx, y: dy, scaleX: sx, scaleY: sy, transformOrigin: '0 0' },
+                        { x: 0, y: 0, scaleX: 1, scaleY: 1,
+                            duration: _GRID_STACK_MS, ease: 'power2.out',
+                        }, 0);
                 });
                 this._paneTl = tl;
             }
@@ -22707,7 +22769,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 if (this._paneTl) { this._paneTl.kill(); this._paneTl = null; }
                 const fromRects = panes.map(p => p.getBoundingClientRect());
                 gsap.set(panes, { clearProps: 'transform,zIndex' });
-                panes.forEach(p => p.classList.remove('is-stacked'));
+                // Drop the inline absolute-positioning we layered in
+                // _animateToStack so the new mode's mvScaleAllCanvases owns
+                // pane geometry cleanly. Container styles are owned by the
+                // layout function — leave them for setMode/refresh to set.
+                panes.forEach(p => {
+                    p.classList.remove('is-stacked');
+                    p.style.removeProperty('position');
+                    p.style.removeProperty('left');
+                    p.style.removeProperty('top');
+                    p.style.removeProperty('width');
+                    p.style.removeProperty('height');
+                });
                 if (targetMode !== undefined && targetMode !== null) {
                     this.opts.setMode(targetMode);
                 } else {
