@@ -1038,9 +1038,10 @@
         }
         #help-hint { right: 16px; }
         #shelf-hint { right: 46px; }
-        #island-hint { top: 14px; left: 16px; bottom: auto; display: none; }
+        #island-hint { right: 76px; display: none; }
         #island-hint.visible { display: flex; }
-        #help-hint:hover, #island-hint:hover, #shelf-hint:hover { color: var(--text); border-color: var(--muted); }
+        #island-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
+        #help-hint:hover, #island-hint:not(.active):hover, #shelf-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
             background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
@@ -1089,16 +1090,6 @@
             transform: rotate(-90deg);
         }
         #dynamic-island .po-section.collapsed .po-section-body { display: none; }
-        #island-collapse-btn {
-            width: 22px; height: 22px; border-radius: 50%;
-            border: 1px solid var(--border); color: var(--muted);
-            font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer; user-select: none; flex-shrink: 0;
-            transition: color 0.12s, border-color 0.12s;
-            background: transparent;
-        }
-        #island-collapse-btn:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
         #dynamic-island .island-toolbar {
@@ -9437,18 +9428,16 @@
             const hint = document.getElementById('island-hint');
             if (!el || !hint) return;
             _islandUserHidden = true;
-            el.style.transformOrigin = 'top left';
-            el.style.transition = 'transform 0.3s ease, opacity 0.25s ease';
-            el.style.transform = 'scale(0.05)';
+            hint.classList.remove('active');
+            el.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+            el.style.transform = 'translateY(-4px) scale(0.98)';
             el.style.opacity = '0';
             setTimeout(() => {
                 el.classList.remove('visible');
                 el.style.transition = '';
                 el.style.transform = '';
                 el.style.opacity = '';
-                el.style.transformOrigin = '';
-                hint.classList.add('visible');
-            }, 320);
+            }, 200);
         }
 
         function _expandIslandFromHint() {
@@ -9457,20 +9446,18 @@
             if (!el || !hint) return;
             _islandUserHidden = false;
             renderIsland();
-            el.style.transformOrigin = 'top left';
-            el.style.transform = 'scale(0.05)';
+            el.style.transform = 'translateY(-4px) scale(0.98)';
             el.style.opacity = '0';
             el.style.transition = 'none';
             el.offsetHeight; // force reflow
-            el.style.transition = 'transform 0.3s ease, opacity 0.25s ease';
+            el.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
             el.style.transform = 'none';
             el.style.opacity = '1';
             setTimeout(() => {
                 el.style.transition = '';
                 el.style.transform = '';
                 el.style.opacity = '';
-                el.style.transformOrigin = '';
-            }, 320);
+            }, 200);
         }
 
         let _islandLastActive = null; // tracks plugin transitions for auto-reset
@@ -10208,21 +10195,22 @@
             const hint = document.getElementById('island-hint');
             if (!activePlugins.length) {
                 el.classList.remove('visible');
-                if (hint) hint.classList.remove('visible');
+                if (hint) { hint.classList.remove('visible'); hint.classList.remove('active'); }
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
-            // External hint is only for the collapsed state; hide it while the island is expanded.
-            if (hint) hint.classList.toggle('visible', _islandUserHidden);
+            // Hint is always visible while a plugin is active; `.active` mirrors panel open-state.
+            if (hint) {
+                hint.classList.add('visible');
+                hint.classList.toggle('active', !_islandUserHidden);
+            }
             if (_islandUserHidden) {
                 el.classList.remove('visible');
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
 
-            // Persistent header: collapse circle + PLUGIN OPTIONS title
             let html = `<div class="po-header">`;
-            html += `<span id="island-collapse-btn" title="Collapse (~)">~</span>`;
             html += `<span class="po-title">PLUGIN OPTIONS</span>`;
             html += `</div>`;
 
@@ -10369,11 +10357,6 @@
             }
 
             el.innerHTML = html;
-            const collapseBtn = document.getElementById('island-collapse-btn');
-            if (collapseBtn) collapseBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                _collapseIslandToHint();
-            });
             el.classList.add('visible');
             _positionIsland();
             _hideRoiRowTooltip();
@@ -13258,7 +13241,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, #island-collapse-btn, .po-section-header, .island-pill')) return;
+                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, .po-section-header, .island-pill')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
