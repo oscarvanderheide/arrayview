@@ -257,12 +257,14 @@ class TestKeyboard:
                         width: r.width, height: r.height,
                     };
                 };
-                return {
-                    wrap: box(document.getElementById('slim-cb-wrap')),
-                    preview: box(document.getElementById('slim-cb-preview')),
-                    bar: box(document.getElementById('slim-cb')),
-                };
-            }"""
+                    return {
+                        wrap: box(document.getElementById('slim-cb-wrap')),
+                        preview: box(document.getElementById('slim-cb-preview')),
+                        bar: box(document.getElementById('slim-cb')),
+                        active: box(document.querySelector('#slim-cb-preview .cmh-cell.active')),
+                        swatch: box(document.querySelector('#slim-cb-preview .cmh-cell.active canvas')),
+                    };
+                }"""
         )
         assert boxes["preview"]["top"] >= boxes["wrap"]["top"] + 4
         assert boxes["preview"]["left"] >= boxes["wrap"]["left"] + 8
@@ -270,6 +272,13 @@ class TestKeyboard:
         assert boxes["preview"]["bottom"] <= boxes["bar"]["top"] - 2, (
             "Colormap previews should sit above the colorbar row"
         )
+        active_center = (boxes["active"]["left"] + boxes["active"]["right"]) / 2
+        swatch_center = (boxes["swatch"]["left"] + boxes["swatch"]["right"]) / 2
+        assert abs(active_center - swatch_center) <= 2, (
+            "Active colormap frame should be centered on its swatch"
+        )
+        assert boxes["swatch"]["left"] >= boxes["active"]["left"] + 4
+        assert boxes["swatch"]["right"] <= boxes["active"]["right"] - 4
 
     def test_c_preview_navigation_and_hover_hold(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
