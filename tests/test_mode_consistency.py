@@ -315,10 +315,11 @@ class TestMultiviewStateRoundTrip:
                 "}"
             )
 
-        # Cycle colormap twice so we're not on the default
+        # Open the colormap menu, cycle away from default, then commit.
         page.keyboard.press("c")
-        page.wait_for_timeout(200)
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2000)
         page.keyboard.press("c")
+        page.keyboard.press("Enter")
         page.wait_for_timeout(200)
         cmap_before = _read_cmap(page)
         _enter_multiview(page)

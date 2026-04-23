@@ -40,6 +40,17 @@ def _press(key):
     return _f
 
 
+def _cycle_colormap(page):
+    page.keyboard.press("c")
+    page.wait_for_timeout(350)
+    menu_open = page.evaluate(
+        "() => !!document.querySelector('#slim-cb-preview.fade-in')"
+    )
+    if menu_open:
+        page.keyboard.press("c")
+        page.keyboard.press("Enter")
+
+
 # --- multiview ---
 def _enter_multiview(page):
     page.keyboard.press("v")
@@ -151,7 +162,7 @@ MODES = {
 
 
 PERTURBATIONS = {
-    "cycle_colormap":      _press("c"),
+    "cycle_colormap":      _cycle_colormap,
     "toggle_histogram":    _press("d"),
     "toggle_log":          _press("L"),
     "toggle_pixel_info":   _press("i"),
@@ -185,8 +196,9 @@ IGNORED_FIELDS_GLOBAL: set[str] = {"viewStates", "mmModeName"}
 # a mode round-trip is the *correct* behavior. Without these entries, the
 # round-trip test would falsely flag every successful perturbation as a bug.
 #
-# Example: pressing `c` cycles the colormap. Entering compare, pressing `c`,
-# and exiting compare should leave the new colormap in place. That's not a
+# Example: pressing `c` opens the picker; pressing `c` again cycles the
+# colormap. Entering compare, cycling the colormap, and exiting compare
+# should leave the new colormap in place. That's not a
 # state-corruption bug — it's the whole point.
 PERTURBATION_EXPECTED_CHANGES: dict[str, set[str]] = {
     "cycle_colormap":      {"colormap_idx", "customColormap"},

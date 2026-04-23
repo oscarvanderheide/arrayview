@@ -251,19 +251,23 @@ class TestDisplaySettings:
         _focus_kb(page)
         before = page.evaluate(_JS_CENTER_PIXEL)
         page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2000)
+        opened = page.evaluate(_JS_CENTER_PIXEL)
+        assert before == opened, "First c should open the colormap menu only"
+        page.keyboard.press("c")
         page.wait_for_timeout(800)
         after = page.evaluate(_JS_CENTER_PIXEL)
-        assert before != after, "Canvas unchanged after c (colormap cycle)"
+        assert before != after, "Canvas unchanged after second c (colormap cycle)"
 
-    def test_c_shows_colormap_strip(self, loaded_viewer, sid_2d):
+    def test_c_shows_colormap_menu(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("c")
-        page.wait_for_timeout(200)
-        strip_visible = page.evaluate(
-            "() => { const s = document.getElementById('colormap-strip'); return s && s.textContent.trim() !== ''; }"
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2000)
+        menu_visible = page.evaluate(
+            "() => { const s = document.getElementById('slim-cb-preview'); return s && s.textContent.trim() !== ''; }"
         )
-        assert strip_visible, "Colormap strip should appear after pressing c"
+        assert menu_visible, "Colormap menu should appear after pressing c"
 
     def test_d_first_tap_opens_only_second_tap_cycles(self, loaded_viewer, sid_2d):
         """First tap `d` opens the histogram only (no percentile toast, no

@@ -230,10 +230,65 @@ class TestKeyboard:
         _focus_kb(page)
         before = page.evaluate(_JS_CENTER_PIXEL)
         page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
+        opened = page.evaluate(_JS_CENTER_PIXEL)
+        assert before == opened, (
+            "First c press should open the colormap menu without cycling"
+        )
+        page.keyboard.press("c")
         page.wait_for_timeout(800)
         after = page.evaluate(_JS_CENTER_PIXEL)
         assert before != after, (
-            "Center pixel unchanged after pressing c (colormap cycle)"
+            "Center pixel unchanged after pressing c twice (colormap cycle)"
+        )
+
+    def test_c_preview_is_anchored_above_colorbar(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
+        boxes = page.evaluate(
+            """() => {
+                const box = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return {
+                        top: r.top, bottom: r.bottom,
+                        left: r.left, right: r.right,
+                        width: r.width, height: r.height,
+                    };
+                };
+                return {
+                    wrap: box(document.getElementById('slim-cb-wrap')),
+                    preview: box(document.getElementById('slim-cb-preview')),
+                    bar: box(document.getElementById('slim-cb')),
+                };
+            }"""
+        )
+        assert boxes["preview"]["top"] >= boxes["wrap"]["top"] + 4
+        assert boxes["preview"]["left"] >= boxes["wrap"]["left"] + 8
+        assert boxes["preview"]["right"] <= boxes["wrap"]["right"] - 8
+        assert boxes["preview"]["bottom"] <= boxes["bar"]["top"] - 2, (
+            "Colormap previews should sit above the colorbar row"
+        )
+
+    def test_c_preview_navigation_and_hover_hold(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
+        first = page.evaluate("() => colormap_idx")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(300)
+        right = page.evaluate("() => colormap_idx")
+        assert right != first, "ArrowRight should preview the next colormap"
+        page.keyboard.press("h")
+        page.wait_for_timeout(300)
+        left = page.evaluate("() => colormap_idx")
+        assert left == first, "h should preview the previous colormap"
+        page.hover("#slim-cb-preview .cmh-cell[data-cmh-idx='2']")
+        page.wait_for_timeout(3300)
+        assert page.is_visible("#slim-cb-preview.fade-in"), (
+            "Colormap menu should stay open while the mouse is inside it"
         )
 
     def test_help_overlay_opens_and_closes(self, loaded_viewer, sid_2d):
@@ -670,6 +725,9 @@ class TestKeyboard:
         page.context.grant_permissions(["clipboard-read", "clipboard-write"])
         _focus_kb(page)
         page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
+        page.keyboard.press("c")
+        page.keyboard.press("Enter")
         page.wait_for_timeout(500)
         expected_px = page.evaluate(_JS_CENTER_PIXEL)
         page.keyboard.press("e")
@@ -842,6 +900,9 @@ class TestKeyboard:
 
         # Trigger a saveState() by cycling colormap, so we have a baseline in sessionStorage
         page.keyboard.press("c")
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
+        page.keyboard.press("c")
+        page.keyboard.press("Enter")
         page.wait_for_timeout(300)
 
         before = page.evaluate("""(sid) => {
@@ -949,10 +1010,11 @@ class TestSessionStorage:
     def test_colormap_persists_across_reload(self, loaded_viewer, sid_2d, server_url):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        # Press c twice to cycle away from gray
+        # Open the colormap menu, cycle away from gray, then commit.
         page.keyboard.press("c")
-        page.wait_for_timeout(600)
+        page.wait_for_selector("#slim-cb-preview.fade-in", timeout=2_000)
         page.keyboard.press("c")
+        page.keyboard.press("Enter")
         page.wait_for_timeout(600)
         before = page.evaluate(_JS_CENTER_PIXEL)
         # Reload the same URL (sessionStorage persists within session)
@@ -1004,10 +1066,11 @@ class TestVisualRegression:
     def test_2d_gradient_viridis(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        # Cycle to viridis (gray → lipari → navia → viridis after 3 presses)
-        for _ in range(3):
+        # Open then cycle to viridis (gray → lipari → navia → viridis).
+        for _ in range(4):
             page.keyboard.press("c")
             page.wait_for_timeout(600)
+        page.keyboard.press("Enter")
         _compare_snapshot(page, "2d_gradient_viridis")
 
     def test_3d_multiview(self, loaded_viewer, sid_3d):

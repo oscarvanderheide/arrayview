@@ -2,7 +2,7 @@
 
 ## Colormaps
 
-`c` cycles through defaults: gray, lipari, navia, viridis, plasma, and more.
+`c` opens the colormap grid. Press `c` again to cycle; `Enter` accepts, `Esc` cancels.
 `C` enters any matplotlib colormap by name.
 
 ## Dynamic range

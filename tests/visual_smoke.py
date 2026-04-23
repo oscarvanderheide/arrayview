@@ -35,7 +35,7 @@ AXES & VIEWS
 
 DISPLAY
   b               toggle border             ✓ 16
-  c               cycle colormap            ✓ 02-03
+  c               colormap grid/cycle       ✓ 02-03
   C               custom colormap (dialog)  ✗ (requires dialog input)
   d               cycle dynamic range       ✓ 17, 74 (height regression)
   D               toggle range lock         ✓ 44 (D unlocks → k changes vmin/vmax per slice)
@@ -325,13 +325,24 @@ def run_smoke(page, base, client, tmp):
     # ── 02-03: colormap cycling (c) ──────────────────────────────────────────
     _focus(page)
     _press(page, "c")
+    _press(page, "c")
+    _press(page, "Enter")
     _shot(page, "02_2d_colormap_lipari")
     _press(page, "c")
     _press(page, "c")
+    _press(page, "c")
+    _press(page, "Enter")
     _shot(page, "03_2d_colormap_viridis")
     # reset
-    for _ in range(4):
-        _press(page, "c", wait=100)
+    page.evaluate("""() => {
+        customColormap = null;
+        customGradientStops = null;
+        colormap_idx = 0;
+        modeManager.forEachView(v => { v.displayState.cmapIdx = 0; });
+        refreshAxesColor();
+        updateView();
+        saveState();
+    }""")
 
     # ── 04-05: zoom (+ / - / 0) ──────────────────────────────────────────────
     _press(page, "+")
@@ -1103,6 +1114,8 @@ def run_smoke(page, base, client, tmp):
     _shot(page, "54b_colorbar_lebesgue_expanded")
     # Cycle colormap while expanded
     _press(page, "c", wait=400)
+    _press(page, "c", wait=400)
+    _press(page, "Enter", wait=200)
     _shot(page, "54c_colorbar_expanded_after_c")
     if cb_initial_h <= 10 and cb_expanded_h >= 30:
         print(

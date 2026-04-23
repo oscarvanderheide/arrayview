@@ -39,6 +39,7 @@ CORE_MODES = [
 
 
 ESSENTIAL_COMMANDS = [
+    "colormap.openOrCycle",
     "colormap.cycleNext",
     "zoom.in",
     "zoom.out",
