@@ -2504,6 +2504,37 @@ def arrayview():
                         print(f"[ArrayView] Killed process {pid} on port {args.port}")
                     except ProcessLookupError:
                         pass
+                deadline = time.time() + 1.0
+                while time.time() < deadline:
+                    alive = []
+                    for pid in pids:
+                        try:
+                            os.kill(pid, 0)
+                            alive.append(pid)
+                        except ProcessLookupError:
+                            pass
+                    if not alive:
+                        break
+                    time.sleep(0.05)
+                else:
+                    for pid in alive:
+                        try:
+                            os.kill(pid, _signal.SIGKILL)
+                            print(f"[ArrayView] Force-killed process {pid} on port {args.port}")
+                        except ProcessLookupError:
+                            pass
+                    deadline = time.time() + 2.0
+                    while time.time() < deadline:
+                        alive = []
+                        for pid in pids:
+                            try:
+                                os.kill(pid, 0)
+                                alive.append(pid)
+                            except ProcessLookupError:
+                                pass
+                        if not alive:
+                            break
+                        time.sleep(0.05)
         return
 
     # -- --serve: start a persistent empty server and exit --

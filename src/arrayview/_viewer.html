@@ -9,7 +9,7 @@
             --bg: #0c0c0c; --surface: #141414; --surface-2: #1c1c1c;
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
-            --highlight: #fff; --canvas-border: rgba(180,180,180,0.35);
+            --highlight: #fff; --canvas-border: rgba(255,255,255,0.06);
             --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
             --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
@@ -19,7 +19,7 @@
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
             --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
             --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
-            --highlight: #000; --canvas-border: rgba(180,180,180,0.35);
+            --highlight: #000; --canvas-border: rgba(0,0,0,0.08);
             --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
             --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
@@ -29,7 +29,7 @@
             --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
             --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
             --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
-            --highlight: #073642; --canvas-border: rgba(180,180,180,0.35);
+            --highlight: #073642; --canvas-border: rgba(0,0,0,0.08);
             --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
             --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
@@ -39,7 +39,7 @@
             --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
             --border: #3b4252; --border-subtle: rgba(216,222,233,0.07);
             --text: #d8dee9; --muted: #616e88; --subtle: #3b4252;
-            --highlight: #eceff4; --canvas-border: rgba(180,180,180,0.35);
+            --highlight: #eceff4; --canvas-border: rgba(216,222,233,0.08);
             --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #88c0d0; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
             --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
@@ -142,7 +142,7 @@
         /* Rounded panes — Shift+B toggles; default from config viewer.rounded_panes.
            Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
         body.rounded-panes #canvas-viewport,
-        body.rounded-panes .mv-canvas-wrap,
+        body.rounded-panes .mv-pane,
         body.rounded-panes .qv-canvas-wrap {
             border-radius: 10px;
             overflow: hidden;
@@ -1434,12 +1434,14 @@
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
-        .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--bg); overflow: hidden; }
+        .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--mv-pane-fill, var(--bg)); overflow: hidden; transition: background-color 0.2s ease; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-        /* Outline only the canvas (image), not the pane container —
-           the pane can be larger than the image when stretch-to-square is off. */
-        .mv-pane.canvas-bordered .mv-canvas { outline: 1px solid var(--canvas-border); }
+        .mv-canvas-box { position: relative; display: inline-flex; overflow: hidden; }
+        /* In ortho the border should frame the full square pane, including the
+           empty background area, so draw it on the pane itself. */
+        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .mv-pane.canvas-bordered .mv-canvas { outline: none; }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
 
@@ -3013,7 +3015,7 @@
         let obliqueOrthoLock = true; // keep oblique triad orthogonal (90° crosshairs)
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
-        let canvasBorders = false; // toggled by 'b' key
+        let canvasBorders = true; // toggled by 'b' key
         let roundedPanes = __DEFAULT_ROUNDED_PANES__; // toggled by Shift+B; default from config viewer.rounded_panes
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
@@ -8910,6 +8912,7 @@
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();
             if (compareSid && !multiViewActive && !qmriActive) enterCompareModeBySid(compareSid);
+            _reconcileUI();
 
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
             // new-tab signals so CLI tab injection still works.
@@ -10997,6 +11000,7 @@
         function refreshAxesColor() {
             const color = _axesColorForColormap();
             document.querySelectorAll('.axes-indicator').forEach(el => { el.style.color = color; });
+            _updateMvPaneFill();
         }
 
         function _dimHoverPadded(val, maxVal) {
@@ -17338,7 +17342,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 cv.className = 'mv-canvas';
                 // Tight container so axes indicator is positioned relative to canvas
                 const cvBox = document.createElement('div');
-                cvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                cvBox.className = 'mv-canvas-box';
                 cvBox.appendChild(cv);
                 const _axLetters = ['x', 'y', 'z'];
                 const _axX = _axLetters[dims.indexOf(def.dimX)] || '?';
@@ -20442,6 +20446,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function drawMvColorbar() {
+            _updateMvPaneFill();
             if (!window._mvColorBar) return;
             const cb = window._mvColorBar;
             if (!colorbarVisible()) {
@@ -22176,6 +22181,23 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // 6. Rounded panes — single body-level class drives CSS across all modes
             document.body.classList.toggle('rounded-panes', roundedPanes);
+            _updateMvPaneFill();
+        }
+
+        function _updateMvPaneFill() {
+            const panesRow = document.getElementById('mv-panes');
+            if (!panesRow) return;
+            if (!multiViewActive) {
+                panesRow.style.removeProperty('--mv-pane-fill');
+                return;
+            }
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!Array.isArray(stops) || !stops.length || !Array.isArray(stops[0]) || stops[0].length < 3) {
+                panesRow.style.removeProperty('--mv-pane-fill');
+                return;
+            }
+            const [r, g, b] = stops[0].map(v => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
+            panesRow.style.setProperty('--mv-pane-fill', `rgb(${r}, ${g}, ${b})`);
         }
 
         // ── Compare sub-mode state reconciler ────────────────────────

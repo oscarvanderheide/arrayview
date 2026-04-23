@@ -737,18 +737,100 @@ class TestKeyboard:
             f"Expected screenshot status message, got: '{status}'"
         )
 
-    def test_border_toggle_uses_subtle_outline(self, loaded_viewer, sid_2d):
-        """Border toggle (b) should use 1px gray outline, not 2px highlight."""
+    def test_border_defaults_on_and_uses_subtle_outline(self, loaded_viewer, sid_2d):
+        """Borders should be on by default and use a subtle 1px outline."""
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
-        page.keyboard.press("b")
-        page.wait_for_timeout(200)
         outline = page.evaluate(
             "() => getComputedStyle(document.querySelector('#canvas-viewport')).outline"
         )
         # Should be 1px, not 2px; should NOT be pure white
         assert "1px" in outline, f"expected 1px outline, got: {outline}"
         assert "rgb(255, 255, 255)" not in outline, f"border should not be pure white: {outline}"
+
+    def test_first_border_toggle_turns_default_border_off(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("b")
+        page.wait_for_timeout(200)
+        state = page.evaluate(
+            """() => ({
+                status: document.querySelector('#status')?.innerText?.trim() || '',
+                outline: getComputedStyle(document.querySelector('#canvas-viewport')).outline,
+            })"""
+        )
+        assert "border" in state["status"].lower() and "off" in state["status"].lower(), (
+            f"expected first press to disable default border, got: {state}"
+        )
+        assert ("0px" in state["outline"]) or ("none" in state["outline"]), (
+            f"expected border outline to disappear after first press, got: {state}"
+        )
+
+    def test_multiview_default_border_draws_visible_border(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        state = page.evaluate(
+            """() => ({
+                boxShadow: getComputedStyle(document.querySelector('.mv-pane')).boxShadow,
+                paneClass: document.querySelector('.mv-pane').classList.contains('canvas-bordered'),
+                status: document.querySelector('#status')?.innerText?.trim() || '',
+            })"""
+        )
+        assert state["paneClass"], f"multiview pane should start bordered, got: {state}"
+        assert state["boxShadow"] != "none", f"multiview border should be visibly drawn, got: {state}"
+
+    def test_multiview_rounded_panes_round_visible_box(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        page.keyboard.press("Shift+B")
+        page.wait_for_timeout(200)
+        state = page.evaluate(
+            """() => ({
+                status: document.querySelector('#status')?.innerText?.trim() || '',
+                bodyRounded: document.body.classList.contains('rounded-panes'),
+                radius: getComputedStyle(document.querySelector('.mv-pane')).borderRadius,
+                overflow: getComputedStyle(document.querySelector('.mv-pane')).overflow,
+            })"""
+        )
+
+        assert state["bodyRounded"], f"rounded panes body class should be enabled, got: {state}"
+        assert state["radius"] != "0px", f"multiview visible box should get rounded corners, got: {state}"
+        assert state["overflow"] == "hidden", f"multiview visible box should clip to rounded corners, got: {state}"
+        assert "rounded panes" in state["status"].lower() and "on" in state["status"].lower(), (
+            f"expected Shift+B to enable rounded panes, got: {state}"
+        )
+
+    def test_multiview_empty_square_uses_colormap_min_fill(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+        page.keyboard.press("c")
+        page.wait_for_timeout(250)
+
+        state = page.evaluate(
+            """() => {
+                const pane = document.querySelector('.mv-pane');
+                const bg = getComputedStyle(pane).backgroundColor;
+                const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+                const expected = stops && stops[0] ? `rgb(${stops[0][0]}, ${stops[0][1]}, ${stops[0][2]})` : null;
+                return { bg, expected, colormap: currentColormap() };
+            }"""
+        )
+
+        assert state["expected"] is not None, f"expected current colormap to expose gradient stops, got: {state}"
+        assert state["bg"] == state["expected"], (
+            f"multiview square background should use the colormap minimum color, got: {state}"
+        )
 
     def test_multiview_rotate_updates_all_panes(self, loaded_viewer, sid_3d):
         """Pressing r in multiview should swap axes globally across all 3 panes."""
