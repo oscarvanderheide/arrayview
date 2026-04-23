@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-04-17
+last_updated: 2026-04-24
 ---
 
 # Project State
@@ -21,7 +21,7 @@ last_updated: 2026-04-17
 - NIfTI spatial metadata, RAS resampling
 - VS Code extension v0.14.5 — stable window ID via `EnvironmentVariableCollection`; `arrayview.openInFloatingWindow` setting moves new tabs to a floating window; `view(arr, floating=True)` and `arrayview file.npy --floating` open in a floating window per-call regardless of global setting; `!vscode.env.remoteName` guard removed (remote VS Code supports floating windows); floating mode now uses a single persistent shell hub panel (`_shell.html`) so all arrays share one floating window as tabs instead of opening separate windows; fixed: second CLI call now injects tab via `new_tab` postMessage relay (extension -> hub wrapper -> shell iframe) instead of relying on WebSocket notify which wasn't sent in VS Code mode
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)
-- Colorbar island flip: `c` and `d` keys trigger 3D `rotateX` card flip (front=colorbar, back=cmap thumbnails/histogram)
+- Colormap picker: `c` opens an expanded colorbar-island grid without changing the colormap; subsequent `c` taps cycle, hover/hjkl/arrows live-preview, Enter/click commits, Esc cancels, and auto-dismiss pauses while hovered
 - Cold-start loading spinner in VS Code and native shell
 - Plugin shelf (`/` menu) supports multi-select: spacebar toggles plugins, Enter applies selection. Mutual exclusion enforced (ROI ↔ Segmentation, and overlay/vectorfield ↔ everything else). Cursor indicator shows focused tile via yellow background + left accent bar
 - Dynamic island renders sections for all active plugins simultaneously (qMRI pills + ROI shapes/stats separated by divider), replacing the old single-plugin priority chain
