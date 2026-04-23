@@ -554,7 +554,7 @@ class TestKeyExhaustiveness:
       x/y     — axis assignment: blocked in multiview (use V to reconfigure) ✓
       T       — theme: global, no state interaction ✓
       F       — zen mode: global, no state interaction ✓
-      s       — screenshot: works everywhere ✓
+      s       — save menu: works everywhere ✓
       e       — copy URL: global ✓
       i       — info overlay: global ✓
       H       — hover info toggle: global ✓

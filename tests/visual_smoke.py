@@ -66,8 +66,7 @@ INFO & EXPORT
   H               toggle pixel hover tip    ✓ 43
   i               data info overlay         ✓ 27, 59 (colormap reason row)
   N               export current slice .npy ✗ (triggers download dialog)
-   s               save screenshot           ✗ (triggers download dialog)
-   s (annotation)  slice info burned in PNG  ✓ 57 (canvas annotation pixel check)
+   s               open save menu            ✓ 57 (menu opens, Esc closes)
   g               save GIF                  ✗ (triggers download dialog)
   e               copy URL                  ✗ (clipboard, no visual change)
   ?               help overlay              ✓ 28
@@ -1211,39 +1210,23 @@ def run_smoke(page, base, client, tmp):
             f"  INFO: titles — before=({title_before_left!r}, {title_before_right!r}), after=({title_after_left!r}, {title_after_right!r})"
         )
 
-    # ── 57: screenshot annotation burns in slice info ─────────────────────────
-    print("57: screenshot annotation embeds slice info into PNG")
+    # ── 57: save menu flips the colorbar on s and restores on Esc ────────────
+    print("57: s flips colorbar to reveal save icons; Esc flips back")
     _goto(page, base, sid3d, wait=1500)
     _focus(page)
-    # Verify the _annotateCanvas helper draws annotation onto an offscreen canvas.
-    # We check that it produces dark pixels when drawn over a white background.
-    annotated_ok = page.evaluate("""() => {
-        const dst = document.createElement('canvas');
-        dst.width = 100; dst.height = 60;
-        const ctx = dst.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, 100, 60);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(4, 30, 60, 26);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '12px monospace';
-        ctx.fillText('test', 8, 46);
-        const imgd = ctx.getImageData(6, 32, 4, 4);
-        for (let i = 0; i < imgd.data.length; i += 4) {
-            const r = imgd.data[i], a = imgd.data[i+3];
-            if (a === 255 && r < 200) return true;
-        }
-        return false;
-    }""")
-    _shot(page, "57_screenshot_annotation_check")
-    if annotated_ok:
-        print(
-            "  OK: _annotateCanvas correctly renders dark overlay box over light background"
-        )
+    _press(page, "s", wait=400)
+    flipped = page.evaluate(
+        "() => document.getElementById('slim-cb-save-flip')?.classList.contains('flipped') === true"
+    )
+    _shot(page, "57_save_menu_flipped")
+    _press(page, "Escape", wait=400)
+    unflipped = page.evaluate(
+        "() => document.getElementById('slim-cb-save-flip')?.classList.contains('flipped') === false"
+    )
+    if flipped and unflipped:
+        print("  OK: colorbar flip + restore works")
     else:
-        print(
-            "  WARN: annotation box pixels not detected — check _annotateCanvas logic"
-        )
+        print(f"  WARN: flip toggle failed — flipped={flipped} unflipped={unflipped}")
 
     # ── 58: rectangle ROI mode (A key) ────────────────────────────────────────
     print("58: A key toggles rectangle ROI mode")

@@ -1056,39 +1056,6 @@ class TestFloodFillROI:
         assert n_large >= n_small
 
 
-# ---------------------------------------------------------------------------
-# /export_slice
-# ---------------------------------------------------------------------------
-
-
-class TestExportSlice:
-    def test_returns_npy_file(self, client, sid_2d):
-        r = client.get(
-            f"/export_slice/{sid_2d}",
-            params={"dim_x": 1, "dim_y": 0, "indices": "0,0", "complex_mode": 0},
-        )
-        assert r.status_code == 200
-        assert "octet-stream" in r.headers["content-type"]
-        arr = np.load(io.BytesIO(r.content))
-        # arr_2d is 100×80; dim_x=1 (cols=80), dim_y=0 (rows=100)
-        assert arr.shape == (100, 80)
-
-    def test_filename_in_content_disposition(self, client, sid_2d):
-        r = client.get(
-            f"/export_slice/{sid_2d}",
-            params={"dim_x": 1, "dim_y": 0, "indices": "0,0"},
-        )
-        assert "attachment" in r.headers.get("content-disposition", "")
-        assert ".npy" in r.headers.get("content-disposition", "")
-
-    def test_unknown_sid_is_404(self, client):
-        r = client.get(
-            "/export_slice/doesnotexist000",
-            params={"dim_x": 1, "dim_y": 0, "indices": "0,0"},
-        )
-        assert r.status_code == 404
-
-
 class TestColormap:
     def test_known_matplotlib_colormap_returns_200(self, client):
         r = client.get("/colormap/hot")

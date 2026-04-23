@@ -1025,6 +1025,7 @@ def _build_metadata(session) -> dict:
         "has_vectorfield": session.vfield is not None,
         "vfield_n_times": _vfield_n_times(session),
         "is_rgb": session.rgb_axis is not None,
+        "has_source_file": bool(getattr(session, "filepath", None)),
     }
     target_shape = (
         session.spatial_shape if session.rgb_axis is not None else session.shape
@@ -2368,34 +2369,19 @@ def get_lebesgue_slice(
     )
 
 
-@app.get("/export_slice/{sid}")
-def export_slice(
+@app.get("/export_array/{sid}")
+def export_array(
     sid: str,
-    dim_x: int,
-    dim_y: int,
-    indices: str,
-    complex_mode: int = 0,
     save_to_downloads: int = 0,
     session: "Session" = Depends(get_session_or_404),
 ):
-    """Return the current 2-D slice as a downloadable .npy file.
-
-    The slice is the raw floating-point data (before colormap/LUT), with the
-    complex mode applied (mag/phase/real/imag). Used by the N-key shortcut.
-
-    When save_to_downloads=1 (PyWebView), saves the file directly to ~/Downloads
-    instead of returning it as a download response.
-    """
-    idx_tuple = tuple(int(v) for v in indices.split(","))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
+    """Return the full N-D array as a downloadable .npy file (raw data, no transforms)."""
+    data = np.asarray(session.data)
     buf = io.BytesIO()
     np.save(buf, data)
     buf.seek(0)
-    # Build a suggested filename: sessionname_dim_x_dim_y_idx.npy
-    name_stem = (session.name or "slice").replace(" ", "_").replace("/", "_")
-    idx_str = "_".join(str(v) for v in idx_tuple)
-    filename = f"{name_stem}_x{dim_x}_y{dim_y}_{idx_str}.npy"
+    name_stem = (session.name or "array").replace(" ", "_").replace("/", "_")
+    filename = f"{name_stem}.npy"
     if save_to_downloads:
         import pathlib
         downloads = pathlib.Path.home() / "Downloads"

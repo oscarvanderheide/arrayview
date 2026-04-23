@@ -177,6 +177,7 @@
             box-sizing: border-box;
             --fly-y: 0px;
             transform: translateY(var(--fly-y, 0px));
+            perspective: 1000px;
         }
         :root.light #slim-cb-wrap {
             background: rgba(240, 240, 240, 0.85);
@@ -692,6 +693,83 @@
             background: rgba(255,255,255,0.06); font-family: var(--mono);
             font-size: 9px; color: var(--help-key);
         }
+        /* Save flip — the slim colorbar flips around to reveal save icons.
+           Reuses the same 400ms cubic-bezier rotateX(180deg) curve as the
+           oblique-flip used in ortho-view. See openSaveMenu(). */
+        .save-flip-inner {
+            position: relative;
+            display: flex; align-items: center; gap: 8px;
+            flex: 1 1 auto; min-width: 0;
+            transform-style: preserve-3d; -webkit-transform-style: preserve-3d;
+            transition: transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .save-flip-inner.flipped { transform: rotateX(180deg); }
+        .save-flip-front {
+            display: flex; align-items: center; gap: 8px;
+            flex: 1 1 auto; min-width: 0;
+            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+        }
+        /* Back face sits absolute over the front; an opaque background keeps
+           the colorbar from bleeding through once the inner is flipped
+           (canvas children of the front defeat backface-visibility alone). */
+        .save-flip-back {
+            position: absolute; inset: 0;
+            transform: rotateX(180deg);
+            backface-visibility: hidden; -webkit-backface-visibility: hidden;
+            background: rgb(26, 26, 26);
+            border-radius: 14px;
+            display: flex; align-items: center; gap: 10px;
+            padding: 0 12px;
+            box-sizing: border-box;
+        }
+        :root.light .save-flip-back { background: rgb(240, 240, 240); }
+        :root.solarized .save-flip-back { background: rgb(238, 232, 213); }
+        :root.nord .save-flip-back { background: rgb(36, 41, 56); }
+        .save-flip-label {
+            font-size: 11px; color: var(--active-dim);
+            font-weight: 600; flex-shrink: 0; white-space: nowrap;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+        }
+        .save-flip-btn-row {
+            display: flex; align-items: center; gap: 8px;
+            flex: 1 1 auto; justify-content: center;
+        }
+        .save-btn {
+            height: 28px; min-width: 34px; padding: 0 3px;
+            border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.04); color: var(--text, #ddd);
+            font-family: inherit; font-size: 11px; letter-spacing: 0;
+            cursor: pointer; white-space: nowrap;
+            display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms;
+            position: relative;
+        }
+        .save-btn svg { width: 22px; height: 22px; }
+        .save-btn[data-save-id="url"] svg { width: 18px; height: 18px; }
+        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); }
+        .save-btn:disabled { opacity: 0.3; cursor: default; }
+        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); }
+        .save-btn svg { flex-shrink: 0; }
+        .save-btn[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px); left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 10, 10, 0.96);
+            color: var(--text, #ddd);
+            font-family: inherit; font-size: 11px; letter-spacing: 0; font-weight: 400;
+            padding: 4px 8px; border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap; pointer-events: none;
+            opacity: 0; transition: opacity 120ms;
+            z-index: 1000;
+        }
+        .save-btn[data-tip]:hover::after {
+            opacity: 1; transition-delay: 200ms;
+        }
+        :root.light .save-btn { color: #222; border-color: rgba(0,0,0,0.22); background: rgba(0,0,0,0.04); }
+        :root.light .save-btn:hover { background: rgba(0,0,0,0.08); color: #7a4cd9; }
+        :root.light .save-btn[data-tip]::after { background: rgba(245,245,245,0.97); color: #222; border-color: rgba(0,0,0,0.12); }
         #info-box {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius-lg);
@@ -1586,7 +1664,9 @@
             pointer-events: none;
             padding: calc(6px + var(--cb-extra-top, 0px)) 14px 6px !important;
         }
-        body.fullscreen-mode #slim-cb-wrap > * { pointer-events: auto; }
+        body.fullscreen-mode #slim-cb-wrap > *,
+        body.fullscreen-mode #slim-cb-wrap .save-flip-front > *,
+        body.fullscreen-mode #slim-cb-wrap .save-flip-back > * { pointer-events: auto; }
         /* Compare mode immersive: panes touch, gray borders, no titles */
         body.fullscreen-mode #compare-view-wrap.active {
             gap: 0;
@@ -2029,18 +2109,23 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
-            <div id="slim-cb-preview" aria-hidden="true"></div>
-            <span class="slim-cb-val" id="slim-cb-vmin"></span>
-            <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
-                <canvas id="slim-cb"></canvas>
-                <div id="slim-cb-tri-zone">
-                    <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
-                    <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
+            <div class="save-flip-inner" id="slim-cb-save-flip">
+                <div class="save-flip-front">
+                    <div id="slim-cb-preview" aria-hidden="true"></div>
+                    <span class="slim-cb-val" id="slim-cb-vmin"></span>
+                    <div id="slim-cb-col" style="flex:1;min-width:60px;display:flex;flex-direction:column;">
+                        <canvas id="slim-cb"></canvas>
+                        <div id="slim-cb-tri-zone">
+                            <div class="slim-cb-tri" id="slim-cb-tri-vmin"></div>
+                            <div class="slim-cb-tri" id="slim-cb-tri-vmax"></div>
+                        </div>
+                    </div>
+                    <span class="slim-cb-val" id="slim-cb-vmax"></span>
+                    <div id="slim-cb-labels"></div>
+                    <div id="slim-cb-tooltip"></div>
                 </div>
+                <div class="save-flip-back" id="slim-cb-save-back"></div>
             </div>
-            <span class="slim-cb-val" id="slim-cb-vmax"></span>
-            <div id="slim-cb-labels"></div>
-            <div id="slim-cb-tooltip"></div>
         </div>
         <div id="compare-view-wrap">
             <div id="compare-panes">
@@ -2516,6 +2601,34 @@
         }
 
         /**
+         * Kick the initial render for every pane in a multi-pane mode
+         * (ortho/multiview, qMRI, and their compare variants).
+         *
+         * Why this helper exists: in VS Code tab (postMessage transport) each
+         * `vscodeApi.postMessage` landed in its own event-loop tick when panes
+         * were rendered from per-view WS `onopen` callbacks. That staggered
+         * requests into stdin one-by-one, defeating the server's parallel
+         * render pool and making panes pop in visibly. Batching them through
+         * one `setTimeout(..., 0)` flushes all N sends in a single tick so the
+         * server can coalesce + parallelise them.
+         *
+         * Callers must also skip the per-view `onopen` render callback in
+         * postMessage mode (pass `postMessageTransport ? null : () => ...`)
+         * — otherwise the staggered onopen fires anyway.
+         *
+         * WebSocket (native pywebview) does not need batching because local
+         * `ws.onopen` callbacks all fire in the same tick.
+         */
+        function _kickInitialRenders(views, renderFn) {
+            if (httpTransport) {
+                views.forEach(v => renderFn(v));
+            } else if (postMessageTransport) {
+                setTimeout(() => views.forEach(v => renderFn(v)), 0);
+            }
+            // else: WebSocket — per-view onopen handles it.
+        }
+
+        /**
          * Proxy fetch through the VS Code extension in postMessage mode.
          * In ws/http mode, just calls native fetch.
          */
@@ -2730,6 +2843,7 @@
         const _EYE_OFF_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.4 18.4 0 0 1 4.22-5.22M9.9 4.24A11 11 0 0 1 12 4c7 0 11 7 11 7a18.4 18.4 0 0 1-2.16 3.19M6.71 6.71l10.58 10.58"/></svg>';
         let lastImageData = null, lastImgW = 0, lastImgH = 0;
         let hasVectorfield = false;
+        let hasSourceFile = false;
         let vfieldNTimes = 0;   // 0=no vfield, 1=no time dim, >1=has time dim
         let vfieldVisible = true;
         let vfieldT = 0;        // current time frame index
@@ -8730,6 +8844,7 @@
             isComplex = data.is_complex || false;
             _resetSlimCbLabelHWM();
             hasVectorfield = data.has_vectorfield || false;
+            hasSourceFile = !!data.has_source_file;
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
             if (!hasVectorfield) vfieldVisible = true;
@@ -11763,59 +11878,22 @@
         }
 
         function saveScreenshot() {
-            // Build annotation lines: name + slice index info
-            function _buildAnnotation() {
-                const name = document.getElementById('array-name-text')?.textContent?.trim() || sid.slice(0, 8);
-                const shapeStr = shape.length ? shape.join('×') : '';
-                const idxStr = indices.length ? `[${indices.map((v, i) => {
-                    if (shape.length > 2) {
-                        if (i === dim_x) return ':';
-                        if (i === dim_y) return ':';
-                        return String(v);
-                    }
-                    return String(v);
-                }).join(', ')}]` : '';
-                const lines = [name];
-                if (shapeStr) lines.push(`shape: ${shapeStr}`);
-                if (idxStr) lines.push(`idx: ${idxStr}`);
-                return lines;
-            }
-            function _annotateCanvas(src, lines) {
-                // Render screenshot at CSS display size for crisp output
+            function _rescaleCanvas(src) {
+                // Render at CSS display size so output is crisp and matches what the user sees
                 const cssW = parseInt(src.style.width) || src.width;
                 const cssH = parseInt(src.style.height) || src.height;
                 const dpr = window.devicePixelRatio || 1;
-                const outW = Math.round(cssW * dpr);
-                const outH = Math.round(cssH * dpr);
+                const outW = Math.max(1, Math.round(cssW * dpr));
+                const outH = Math.max(1, Math.round(cssH * dpr));
                 const dst = document.createElement('canvas');
                 dst.width = outW; dst.height = outH;
                 const ctx = dst.getContext('2d');
-                // Draw source scaled up to CSS display size
                 ctx.imageSmoothingEnabled = false;
                 ctx.drawImage(src, 0, 0, outW, outH);
-                if (!lines || !lines.length) return dst;
-                // Annotation text scaled for output resolution
-                const fontSize = Math.max(12, Math.round(14 * dpr));
-                ctx.font = `${fontSize}px monospace`;
-                const lineH = fontSize + 3;
-                const pad = Math.round(6 * dpr);
-                const maxW = lines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
-                const boxW = maxW + pad * 2;
-                const boxH = lineH * lines.length + pad * 2;
-                const bx = pad;
-                const by = outH - boxH - pad;
-                ctx.fillStyle = 'rgba(0,0,0,0.55)';
-                ctx.fillRect(bx, by, boxW, boxH);
-                ctx.fillStyle = '#ffffff';
-                lines.forEach((line, i) => {
-                    ctx.fillText(line, bx + pad, by + pad + lineH * i + fontSize - 1);
-                });
                 return dst;
             }
             let dataUrl, filename;
-            const lines = _buildAnnotation();
             if (multiViewActive && mvViews.length) {
-                // Composite all multiview canvases side by side
                 const gap = 12;
                 const canvases = mvViews.map(v => v.canvas).filter(c => c.width && c.height);
                 if (!canvases.length) return;
@@ -11829,14 +11907,13 @@
                     offCtx.drawImage(c, x, Math.round((totalH - c.height) / 2));
                     x += c.width + gap;
                 });
-                dataUrl = _annotateCanvas(off, lines).toDataURL('image/png');
+                dataUrl = _rescaleCanvas(off).toDataURL('image/png');
                 filename = `multiview_${indices.join('-')}.png`;
             } else {
-                dataUrl = _annotateCanvas(canvas, lines).toDataURL('image/png');
+                dataUrl = _rescaleCanvas(canvas).toDataURL('image/png');
                 filename = `slice_${indices.join('-')}.png`;
             }
             _downloadFile(dataUrl, filename);
-            // Capture to gallery
             _galleryAdd(dataUrl);
             setStatus('Screenshot saved to Downloads.');
             setTimeout(() => setStatus(''), 2000);
@@ -14170,34 +14247,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveState();
                 },
             },
-            'slice.exportNpy': {
-                title: 'Export current slice as .npy',
-                when: [],
-                run: (ctx, e) => {
-                    // Export current 2-D slice as .npy
-                    if (ModeRegistry.isMultiPane) { showStatus('slice export: not available in this mode'); return; } // kept inline: emits toast
-                    if (rgbMode) { showStatus('export slice: not available in RGB mode'); return; } // kept inline: emits toast
-                    const idxStr = indices.join(',');
-                    const params = new URLSearchParams({
-                        dim_x: dim_x, dim_y: dim_y,
-                        indices: idxStr,
-                        complex_mode: complexMode,
-                    });
-                    if (_inPyWebView) {
-                        proxyFetch(`/export_slice/${sid}?${params}&save_to_downloads=1`)
-                            .then(r => r.ok ? setStatus('slice saved to Downloads (.npy)') : setStatus('slice export failed'))
-                            .catch(() => setStatus('slice export failed'));
-                    } else {
-                        const a = document.createElement('a');
-                        a.href = `/export_slice/${sid}?${params}`;
-                        a.download = '';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        showStatus('slice saved to Downloads (.npy)');
-                    }
-                },
-            },
             'gif.save': {
                 title: 'Save animated GIF',
                 when: [],
@@ -14976,6 +15025,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveScreenshot();
                 },
             },
+            'saveMenu.open': {
+                title: 'Open save menu',
+                when: ['!saveMenuOpen'],
+                run: (ctx, e) => { openSaveMenu(); },
+            },
+            'saveMenu.close': {
+                title: 'Close save menu',
+                when: ['saveMenuOpen'],
+                run: (ctx, e) => { closeSaveMenu(); },
+            },
+            'array.exportNpy': {
+                title: 'Export full array as .npy',
+                when: [],
+                run: (ctx, e) => { _saveFullArrayNpy(); },
+            },
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
@@ -15075,8 +15139,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'B', command: 'panes.rounded.toggle' },
             { key: 'a', command: 'view.toggleSquareStretch' },
             { key: 'A', command: 'nifti.toggleRasResample' },
-            { key: 's', command: 'screenshot.save' },
-            { key: 'N', command: 'slice.exportNpy' },
+            { key: 's', command: 'saveMenu.open' },
             { key: 'g', command: 'grid.holdOrTap' },
             { key: 'G', command: 'compare.cycleLayoutOrGallery' },
             { key: 'm', command: 'complex.cycleMode' },
@@ -15133,6 +15196,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
+                saveMenuOpen: (typeof saveMenuOpen !== 'undefined') ? !!saveMenuOpen : false,
                 anyPluginActive: (
                     qmriActive
                     || (typeof compareQmriActive !== 'undefined' && compareQmriActive)
@@ -15190,8 +15254,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Export',
                         entries: [
-                            { key: 's', action: 'Save screenshot' },
-                            { key: 'palette', action: 'Save GIF animation', hint: 'press / and search for "GIF" — direct g binding moved to grid layout picker' },
+                            { key: 's', action: 'Flip colorbar → save icons', hint: 'click or press icon letter (s / g / a / u) to save; Esc to flip back' },
                             { key: 'e', action: 'Copy shareable URL' },
                         ]
                     }
@@ -15895,6 +15958,169 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             try { sink.focus(); } catch (_) {}
         }
 
+        // ── Save menu (colorbar flip) ────────────────────────────
+        // Pressing `s` flips the main colorbar around (same rotateX animation
+        // the ortho-view uses for Alt-held) to reveal a row of save icons.
+        // Icons tooltip via data-tip; `s` again, Escape, or an action closes.
+        let saveMenuOpen = false;
+        let _saveMenuBuilt = false;
+        const SAVE_MENU_ITEMS = [
+            {
+                id: 'screenshot', label: 'Screenshot (PNG)', keyHint: 's',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h3.3l1.4-2.3h8.6L17.7 8H21v11.5a.8.8 0 0 1-.8.8H3.8a.8.8 0 0 1-.8-.8z"/><circle cx="12" cy="13.5" r="4.2"/></svg>',
+                isEnabled: () => true,
+                run: () => saveScreenshot(),
+            },
+            {
+                id: 'gif', label: 'Animated GIF', keyHint: 'g',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.8"/><polygon points="10,8.5 10,15.5 16,12" fill="currentColor" stroke="none"/></svg>',
+                isEnabled: () => !ModeRegistry.isMultiPane,
+                run: () => saveGif(),
+            },
+            {
+                id: 'array', label: 'Save full array (.npy)', keyHint: 'a',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 11l5 5 5-5"/><path d="M4 19h16"/><path d="M4 19v1.5"/><path d="M20 19v1.5"/></svg>',
+                isEnabled: () => !hasSourceFile,
+                run: () => _saveFullArrayNpy(),
+            },
+            {
+                id: 'url', label: 'Copy shareable URL', keyHint: 'u',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 1 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 1 0 7 7l1-1"/></svg>',
+                isEnabled: () => true,
+                run: () => _runCommand('url.copyReusable'),
+            },
+        ];
+
+        function _runCommand(id) {
+            const cmd = commands[id];
+            if (cmd && typeof cmd.run === 'function') cmd.run(makeContext(null), null);
+        }
+
+        function _saveFullArrayNpy() {
+            if (_inPyWebView) {
+                proxyFetch(`/export_array/${sid}?save_to_downloads=1`)
+                    .then(r => r.ok ? setStatus('Array saved to Downloads (.npy)') : setStatus('Array export failed'))
+                    .catch(() => setStatus('Array export failed'));
+            } else {
+                const a = document.createElement('a');
+                a.href = `/export_array/${sid}`;
+                a.download = '';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showStatus('Array saved to Downloads (.npy)');
+            }
+        }
+
+        function _saveMenuItemEnabled(item) {
+            try { return item && item.isEnabled && item.isEnabled(); } catch (_) { return false; }
+        }
+
+        function _saveMenuButtons() {
+            return Array.from(document.querySelectorAll('#slim-cb-save-back .save-btn'));
+        }
+
+        function _buildSaveMenu() {
+            const back = document.getElementById('slim-cb-save-back');
+            if (!back) return;
+            back.innerHTML = '';
+            const label = document.createElement('span');
+            label.className = 'save-flip-label';
+            label.textContent = 'Save:';
+            back.appendChild(label);
+            const row = document.createElement('div');
+            row.className = 'save-flip-btn-row';
+            SAVE_MENU_ITEMS.forEach((item) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'save-btn';
+                button.dataset.saveId = item.id;
+                button.setAttribute('data-tip', `${item.label} (${item.keyHint})`);
+                button.innerHTML = item.icon;
+                button.addEventListener('mousedown', (e) => e.preventDefault());
+                button.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    if (button.disabled) return;
+                    _saveMenuRun(item.id);
+                });
+                row.appendChild(button);
+            });
+            back.appendChild(row);
+            _saveMenuBuilt = true;
+            _refreshSaveMenu();
+        }
+
+        function _refreshSaveMenu() {
+            const buttons = _saveMenuButtons();
+            SAVE_MENU_ITEMS.forEach((item, i) => {
+                const btn = buttons[i];
+                if (!btn) return;
+                btn.disabled = !_saveMenuItemEnabled(item);
+            });
+        }
+
+        function _saveMenuRun(id) {
+            const item = SAVE_MENU_ITEMS.find(it => it.id === id);
+            if (!item || !_saveMenuItemEnabled(item)) return;
+            closeSaveMenu();
+            try { item.run(); } catch (err) { console.warn('save menu run failed', err); }
+        }
+
+        function _saveMenuFindQuickKey(key) {
+            const target = String(key || '').toLowerCase();
+            if (!target || target.length !== 1) return null;
+            for (const item of SAVE_MENU_ITEMS) {
+                if ((item.keyHint || '').toLowerCase() === target) return item;
+            }
+            return null;
+        }
+
+        function _saveMenuKey(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault(); e.stopPropagation();
+                closeSaveMenu();
+                return true;
+            }
+            const item = _saveMenuFindQuickKey(e.key);
+            if (item && _saveMenuItemEnabled(item)) {
+                e.preventDefault(); e.stopPropagation();
+                _saveMenuRun(item.id);
+                return true;
+            }
+            e.preventDefault(); e.stopPropagation();
+            return true;
+        }
+
+        function openSaveMenu() {
+            if (saveMenuOpen) return;
+            // Only flip the main colorbar; skip multi-pane modes for now.
+            if (ModeRegistry.isMultiPane) {
+                showStatus('save menu: only in single-pane view');
+                return;
+            }
+            const wrap = document.getElementById('slim-cb-wrap');
+            if (!wrap || wrap.style.display === 'none') {
+                // No colorbar visible (welcome / loading) — silently ignore.
+                return;
+            }
+            closeCommandPalette();
+            closeSpecialModesShelf();
+            if (!_saveMenuBuilt) _buildSaveMenu();
+            _refreshSaveMenu();
+            saveMenuOpen = true;
+            const inner = document.getElementById('slim-cb-save-flip');
+            if (inner) inner.classList.add('flipped');
+            setTimeout(() => sink.focus(), 0);
+        }
+
+        function closeSaveMenu() {
+            if (!saveMenuOpen) return;
+            saveMenuOpen = false;
+            const inner = document.getElementById('slim-cb-save-flip');
+            if (inner) inner.classList.remove('flipped');
+            try { sink.focus(); } catch (_) {}
+        }
+
         // Command palette -----------------------------------------------------
         function formatKeybind(b) {
             const parts = [];
@@ -16159,6 +16385,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             if (specialModesOpen) {
                 if (_specialModesKey(e)) return;
+                return;
+            }
+            if (saveMenuOpen) {
+                if (_saveMenuKey(e)) return;
                 return;
             }
             if (helpOverlay.classList.contains('visible')) {
@@ -17345,18 +17575,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // Pre-size panes using known array shape so all panes are equal from the start.
             mvViews.forEach(v => { v.lastW = shape[v.dimX]; v.lastH = shape[v.dimY]; });
             mvScaleAllCanvases();
-            if (httpTransport) {
-                mvViews.forEach(v => mvRender(v));
-            } else {
+            if (!httpTransport) {
                 mvViews.forEach(v => {
                     v.ws = createTransport(sid,
                         (event) => mvOnMessage(v, event),
-                        () => mvRender(v),
+                        // Skip per-view onopen in postMessage so all 3 initial
+                        // renders fire in one tick via _kickInitialRenders below.
+                        postMessageTransport ? null : () => mvRender(v),
                         () => { v.rendering = false; },
                         () => { v.rendering = false; if (v.ws) v.ws.close(); }
                     );
                 });
             }
+            _kickInitialRenders(mvViews, mvRender);
             // Retry any panes that haven't received their first frame after 3 s.
             // Handles slow disk reads on large arrays and transient WS connect errors.
             setTimeout(() => {
@@ -18268,14 +18499,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             // Pre-size canvases immediately so layout is correct before first frame arrives
             qvScaleAllCanvases();
-            if (httpTransport) {
-                qmriViews.forEach(v => qvRender(v));
-            } else if (postMessageTransport) {
-                // Batch all initial renders into one setTimeout so all N postMessage
-                // calls are sent synchronously — they arrive at the extension together
-                // and the server can batch+parallelise them.
-                setTimeout(() => qmriViews.forEach(v => qvRender(v)), 0);
-            }
+            _kickInitialRenders(qmriViews, qvRender);
             renderInfo();
             if (_pixelInfoVisible) _prefetchHoverSlices();
             _reconcileUI();
@@ -18516,11 +18740,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (ri < allRows.length - 1) row.classList.add('cq-inner-row');
                 });
             }
-            if (httpTransport) {
-                compareQmriViews.forEach(v => compareQmriRender(v));
-            } else if (postMessageTransport) {
-                setTimeout(() => compareQmriViews.forEach(v => compareQmriRender(v)), 0);
-            }
+            _kickInitialRenders(compareQmriViews, compareQmriRender);
             renderInfo();
             _reconcileUI();
             showStatus(`compare qMRI — ${compareQmriSids.length} arrays × ${nMaps} maps — / to exit`, 3000);
@@ -18982,7 +19202,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (!httpTransport) {
                         view.ws = createTransport(sidVal,
                             (event) => compareMvOnMessage(view, event),
-                            () => compareMvRender(view),
+                            // Skip per-view onopen in postMessage — _kickInitialRenders
+                            // below batches all panes into one tick.
+                            postMessageTransport ? null : () => compareMvRender(view),
                             () => { view.rendering = false; },
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
@@ -19004,9 +19226,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (ri < allRows.length - 1) row.classList.add('cq-inner-row');
                 });
             }
-            if (httpTransport) {
-                compareMvViews.forEach(v => compareMvRender(v));
-            }
+            _kickInitialRenders(compareMvViews, compareMvRender);
             flashAxesIndicators();
             renderInfo();
             _reconcileUI();
@@ -20512,6 +20732,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         document.getElementById('special-modes-shelf').addEventListener('click', (e) => {
             if (e.target === document.getElementById('special-modes-shelf')) closeSpecialModesShelf();
         });
+        // Clicking outside the flipped colorbar closes the save menu.
+        document.addEventListener('mousedown', (e) => {
+            if (!saveMenuOpen) return;
+            const wrap = document.getElementById('slim-cb-wrap');
+            if (wrap && !wrap.contains(e.target)) closeSaveMenu();
+        }, true);
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });

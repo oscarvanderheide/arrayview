@@ -1577,6 +1577,10 @@ class TestExportKeys:
     def test_s_screenshot_shows_status(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
+        # First `s` flips the colorbar; second `s` triggers the Screenshot icon's
+        # quick-key.
+        page.keyboard.press("s")
+        page.wait_for_timeout(200)
         page.keyboard.press("s")
         page.wait_for_timeout(400)
         status = _get_status(page)
@@ -1610,17 +1614,6 @@ class TestExportKeys:
         # Should NOT show the multi-canvas guard message in normal mode
         assert "not available in this mode" not in status.lower(), (
             f"g should work in normal mode 3D, but got blocked: '{status}'"
-        )
-
-    def test_N_npy_in_normal_mode_works(self, loaded_viewer, sid_2d):
-        """N in normal mode should trigger a download, not show a blocked message."""
-        page = loaded_viewer(sid_2d)
-        _focus_kb(page)
-        page.keyboard.press("N")
-        page.wait_for_timeout(400)
-        status = _get_status(page)
-        assert "not available in this mode" not in status.lower(), (
-            f"N should work in normal mode, but got blocked: '{status}'"
         )
 
 
