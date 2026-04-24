@@ -378,8 +378,9 @@ class TestMetadata:
         assert r.json()["shape"] == [20, 64, 64]
 
     def test_4d_memmap_metadata_prefers_trailing_dims_for_strided_startup(
-        self, client, tmp_path
+        self, client, tmp_path, monkeypatch
     ):
+        monkeypatch.setenv("AV_NPY_EAGER_BYTES", "1")
         arr = np.zeros((8, 6, 6, 6), dtype=np.float32)
         path = tmp_path / "memmap_4d.npy"
         np.save(path, arr)
@@ -391,8 +392,9 @@ class TestMetadata:
         assert body["default_dims"] == [2, 3]
 
     def test_4d_memmap_metadata_keeps_legacy_dims_when_trailing_plane_is_small(
-        self, client, tmp_path
+        self, client, tmp_path, monkeypatch
     ):
+        monkeypatch.setenv("AV_NPY_EAGER_BYTES", "1")
         arr = np.zeros((8, 8, 3, 3), dtype=np.float32)
         path = tmp_path / "memmap_small_trailing.npy"
         np.save(path, arr)
@@ -401,7 +403,7 @@ class TestMetadata:
         body = client.get(f"/metadata/{sid}").json()
 
         assert body["shape"] == [8, 8, 3, 3]
-        assert "default_dims" not in body
+        assert body["default_dims"] == [0, 1]
 
     def test_unknown_sid_is_404(self, client):
         r = client.get("/metadata/doesnotexist000")

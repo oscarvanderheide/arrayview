@@ -85,6 +85,7 @@ from arrayview._routes_persistence import (
     _CROP_STATE,
     register_persistence_routes,
 )
+from arrayview._routes_query import register_query_routes
 from arrayview._routes_segmentation import register_segmentation_routes
 from arrayview._routes_state import register_state_routes
 from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
@@ -469,6 +470,12 @@ register_loading_routes(app, notify_shells=_notify_shells, setup_rgb=_setup_rgb)
 register_persistence_routes(app)
 register_segmentation_routes(app, get_session_or_404)
 register_state_routes(app, get_session_or_404)
+register_query_routes(
+    app,
+    get_session_or_404=get_session_or_404,
+    pil_image=_pil_image,
+    pil_imageops=_pil_imageops,
+)
 
 # ── REST Routes: Cache, Metadata, and Session Management ─────────
 
@@ -531,28 +538,6 @@ def get_preload_status(sid: str):
             "total": session.preload_total,
             "skipped": session.preload_skipped,
         }
-
-
-@app.get("/metadata/{sid}")
-async def get_metadata(sid: str):
-    session = SESSIONS.get(sid)
-    if not session and sid in PENDING_SESSIONS:
-        for _ in range(1200):
-            await asyncio.sleep(0.1)
-            session = SESSIONS.get(sid)
-            if session:
-                break
-    if not session:
-        return Response(status_code=404)
-    try:
-        return _build_metadata(session)
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        return Response(
-            status_code=500, content=str(e).encode(), media_type="text/plain"
-        )
 
 
 @app.get("/vectorfield/{sid}")
@@ -647,48 +632,6 @@ async def save_file(request: Request):
     dest = downloads / filename if downloads.is_dir() else pathlib.Path(filename)
     dest.write_bytes(raw)
     return JSONResponse({"path": str(dest)})
-
-
-@app.get("/info/{sid}")
-def get_info(sid: str, session: "Session" = Depends(get_session_or_404)):
-
-    try:
-        dtype_str = str(session.data.dtype)
-    except AttributeError:
-        dtype_str = "unknown"
-    info: dict = {
-        "shape": list(session.shape),
-        "dtype": dtype_str,
-        "ndim": len(session.shape),
-        "total_elements": int(np.prod(session.shape)),
-        "is_complex": bool(np.iscomplexobj(session.data)),
-        "filepath": session.filepath,
-    }
-    try:
-        info["size_mb"] = round(session.data.nbytes / 1024**2, 2)
-    except AttributeError:
-        info["size_mb"] = None
-    # Colormap reason for the info overlay (feature: info-overlay-enhanced)
-    try:
-        reason = _session_mod._recommend_colormap_reason(session.data)
-        info["recommended_colormap"] = reason.split(" ")[0]
-        info["recommended_colormap_reason"] = reason
-    except Exception:
-        info["recommended_colormap"] = None
-        info["recommended_colormap_reason"] = None
-    if session.fft_axes is not None:
-        info["fft_axes"] = list(session.fft_axes)
-    if getattr(session, "spatial_meta", None) is not None:
-        sm = session.spatial_meta
-        info["spatial_meta"] = {
-            "voxel_sizes": list(sm["voxel_sizes"]),
-            "axis_labels": list(sm["axis_labels"]),
-            "is_oblique": bool(sm["is_oblique"]),
-        }
-        info["ras_resample_active"] = bool(getattr(session, "ras_resample_active", False))
-    return info
-
-
 
 
 # ── REST Routes: Slice Rendering, Diff, and Oblique ──────────────
@@ -1324,128 +1267,6 @@ def ping():
         "hostname": socket.gethostname(),
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
     }
-
-
-@app.get("/listfiles")
-def list_files(directory: str = ""):
-    """List supported array files recursively (depth ≤ 4, max 300 files).
-
-    Returns entries sorted by relative path; files directly in the target
-    directory use just the filename as ``name``, nested files use a relative
-    path (e.g. ``subdir/scan.npy``).  Hidden directories (name starts with
-    ``.``) are skipped.
-    """
-    target = os.path.abspath(directory) if directory else os.getcwd()
-    MAX_FILES = 300
-    MAX_DEPTH = 4
-    results = []
-    try:
-        for root, dirs, files in os.walk(target):
-            rel_root = os.path.relpath(root, target)
-            depth = 0 if rel_root == "." else rel_root.count(os.sep) + 1
-            # Prune hidden dirs and stop recursing beyond MAX_DEPTH
-            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-            if depth >= MAX_DEPTH:
-                dirs.clear()
-            for fname in sorted(files):
-                name_lower = fname.lower()
-                ext = (
-                    ".nii.gz"
-                    if name_lower.endswith(".nii.gz")
-                    else os.path.splitext(name_lower)[1]
-                )
-                if ext not in _SUPPORTED_EXTS:
-                    continue
-                fpath = os.path.join(root, fname)
-                rel = os.path.relpath(fpath, target)
-                name = fname if root == target else rel
-                try:
-                    file_size = os.path.getsize(fpath)
-                except OSError:
-                    continue
-                shape = _peek_file_shape(fpath, ext)
-                results.append(
-                    {"name": name, "path": fpath, "size": file_size, "shape": shape}
-                )
-                if len(results) >= MAX_FILES:
-                    break
-            if len(results) >= MAX_FILES:
-                break
-    except Exception as e:
-        return {"error": str(e)}
-    return results
-
-
-@app.get("/sessions")
-def get_sessions():
-    """Returns list of active sessions with metadata for the picker sidebar."""
-    result = []
-    for s in SESSIONS.values():
-        dtype_str = str(getattr(s.data, "dtype", "unknown"))
-        result.append({
-            "sid": s.sid,
-            "name": s.name,
-            "shape": [int(x) for x in s.shape],
-            "filepath": s.filepath,
-            "dtype": dtype_str,
-            "estimated_mem": s._estimated_mem,
-        })
-    return result
-
-
-@app.get("/thumbnail/{sid}")
-async def get_thumbnail(sid: str, w: int = 96, h: int = 72, session: "Session" = Depends(get_session_or_404)):
-    """Return a JPEG preview for the session's startup view.
-
-    The native shell uses this as a preload image while the live iframe warms up.
-    """
-
-    target_shape = session.spatial_shape if session.rgb_axis is not None else session.shape
-    ndim = len(target_shape)
-    if ndim < 2:
-        rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
-    else:
-        default_dims = _session_mod._startup_dims_for_data(session.data, target_shape)
-        if default_dims is None:
-            dim_x = ndim - 1
-            dim_y = ndim - 2
-        else:
-            dim_x = int(default_dims[0])
-            dim_y = int(default_dims[1])
-        idx_list = [int(s // 2) for s in target_shape]
-        try:
-            if session.rgb_axis is not None:
-                rgba = await asyncio.to_thread(
-                    render_rgb_rgba, session, dim_x, dim_y, list(idx_list)
-                )
-            else:
-                rgba = await asyncio.to_thread(
-                    render_rgba, session, dim_x, dim_y, tuple(idx_list),
-                    "gray", 1, 0, False, None, None,
-                )
-        except Exception:
-            rgba = np.full((1, 1, 4), 128, dtype=np.uint8)
-
-    # Resize into the preview box while preserving the slice aspect ratio.
-    Image = _pil_image()
-    ImageOps = _pil_imageops()
-    img = Image.fromarray(rgba[:, :, :3])
-    img = ImageOps.contain(
-        img,
-        (max(1, int(w)), max(1, int(h))),
-        method=Image.NEAREST if max(rgba.shape[:2]) < h else Image.LANCZOS,
-    )
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=60)
-    return Response(
-        content=buf.getvalue(),
-        media_type="image/jpeg",
-        headers={
-            "Cache-Control": "max-age=30",
-            "X-ArrayView-Width": str(img.width),
-            "X-ArrayView-Height": str(img.height),
-        },
-    )
 
 
 @app.post("/exploded/{sid}")
