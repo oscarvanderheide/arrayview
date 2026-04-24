@@ -988,6 +988,38 @@ class TestLauncherDimsHelpers:
         assert _parse_dims_spec("abc") is None
 
 
+class TestViewWindowHelpers:
+    def test_normalize_view_window_request_inline(self):
+        from arrayview._launcher import _normalize_view_window_request
+
+        assert _normalize_view_window_request("inline", None) == {
+            "window": False,
+            "inline": True,
+            "force_browser": False,
+            "force_vscode": False,
+            "explicit_inline": False,
+            "explicit_window": True,
+        }
+
+    def test_normalize_view_window_request_browser(self):
+        from arrayview._launcher import _normalize_view_window_request
+
+        assert _normalize_view_window_request("browser", True) == {
+            "window": False,
+            "inline": False,
+            "force_browser": True,
+            "force_vscode": False,
+            "explicit_inline": True,
+            "explicit_window": True,
+        }
+
+    def test_normalize_view_window_request_invalid_mode(self):
+        from arrayview._launcher import _normalize_view_window_request
+
+        with pytest.raises(ValueError, match="window must be"):
+            _normalize_view_window_request("sideways", None)
+
+
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
 # ---------------------------------------------------------------------------

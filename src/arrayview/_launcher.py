@@ -561,6 +561,44 @@ def _should_notify_webview(use_webview: bool, overlay_sid: str | None) -> bool:
     return use_webview and overlay_sid is None
 
 
+def _normalize_view_window_request(
+    window: str | bool | None, inline: bool | None
+) -> dict[str, bool | str | None]:
+    force_browser = False
+    force_vscode = False
+    explicit_inline = inline is not None
+    explicit_window = window is not None
+    if isinstance(window, str):
+        window_lower = window.lower()
+        if window_lower == "inline":
+            inline = True
+            window = False
+        elif window_lower == "native":
+            inline = False
+            window = True
+        elif window_lower == "browser":
+            window = False
+            inline = False
+            force_browser = True
+        elif window_lower == "vscode":
+            window = False
+            inline = False
+            force_vscode = True
+        else:
+            raise ValueError(
+                "window must be 'inline', 'native', 'browser', or 'vscode', "
+                f"got {window!r}"
+            )
+    return {
+        "window": window,
+        "inline": inline,
+        "force_browser": force_browser,
+        "force_vscode": force_vscode,
+        "explicit_inline": explicit_inline,
+        "explicit_window": explicit_window,
+    }
+
+
 def _load_compare_sids(port: int, compare_files: list[str]) -> list[str]:
     compare_sids: list[str] = []
     for compare_file in compare_files:
@@ -1148,30 +1186,13 @@ def view(
     rgb_primary = rgbs[0]
 
     # --- Normalise string window modes ---
-    _force_browser = False
-    _force_vscode = False
-    _explicit_inline = inline is not None
-    _explicit_window = window is not None
-    if isinstance(window, str):
-        _w = window.lower()
-        if _w == "inline":
-            inline = True
-            window = False
-        elif _w == "native":
-            inline = False
-            window = True
-        elif _w == "browser":
-            window = False
-            inline = False
-            _force_browser = True
-        elif _w == "vscode":
-            window = False
-            inline = False
-            _force_vscode = True
-        else:
-            raise ValueError(
-                f"window must be 'inline', 'native', 'browser', or 'vscode', got {window!r}"
-            )
+    _window_request = _normalize_view_window_request(window, inline)
+    window = _window_request["window"]
+    inline = _window_request["inline"]
+    _force_browser = bool(_window_request["force_browser"])
+    _force_vscode = bool(_window_request["force_vscode"])
+    _explicit_inline = bool(_window_request["explicit_inline"])
+    _explicit_window = bool(_window_request["explicit_window"])
 
     # Remote/tunnel: if the caller didn't override the port and a --serve server
     # is already running on the CLI default (8000), use that instead of 8123.
