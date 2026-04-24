@@ -66,120 +66,30 @@ from arrayview._render import (
     render_rgb_rgba,
     render_rgba,
     render_projection_rgba,
-    _extract_overlay_mask,
-    _composite_overlay_mask,
-    _overlay_is_label_map,
     render_mosaic,
     _run_preload,
 )
 
+from arrayview._diff import (
+    _compute_diff,
+    _diff_histogram,
+    _render_diff_rgba,
+    _render_normalized,
+    _render_normalized_mosaic,
+)
 from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
+from arrayview._overlays import _composite_overlays
 from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
+from arrayview._vectorfield import (
+    _MAX_VFIELD_ARROWS,
+    _compute_vfield_arrows,
+    _configure_vectorfield,
+    _get_vfield_layout,
+    _resolve_vfield_layout,
+    _vfield_counts_for_level,
+    _vfield_n_times,
+)
 
-
-# ── Vector Field Helpers ──────────────────────────────────────────
-
-
-def _normalize_axis(axis: int, ndim: int, flag_name: str) -> int:
-    axis = int(axis)
-    if axis < 0:
-        axis += ndim
-    if axis < 0 or axis >= ndim:
-        raise ValueError(
-            f"{flag_name} must be in [-{ndim}, {ndim - 1}], got {axis}."
-        )
-    return axis
-
-
-def _resolve_vfield_layout(
-    vf_shape: tuple[int, ...],
-    image_shape: tuple[int, ...],
-    components_dim: int | None = None,
-) -> dict[str, object]:
-    vf_shape = tuple(int(s) for s in vf_shape)
-    image_shape = tuple(int(s) for s in image_shape)
-    if len(vf_shape) < len(image_shape) + 1:
-        raise ValueError(
-            f"vector field shape {vf_shape} is too small for image shape {image_shape}."
-        )
-
-    if components_dim is not None:
-        comp_dim = _normalize_axis(
-            components_dim, len(vf_shape), "--vectorfield-components-dim"
-        )
-        if vf_shape[comp_dim] != 3:
-            raise ValueError(
-                f"--vectorfield-components-dim points to axis {comp_dim}, but that axis has size {vf_shape[comp_dim]} instead of 3."
-            )
-    else:
-        candidates = [i for i, s in enumerate(vf_shape) if s == 3]
-        if not candidates:
-            raise ValueError(
-                f"vector field shape {vf_shape} has no axis of size 3 for the xyz displacement components; specify one with --vectorfield-components-dim."
-            )
-        if len(candidates) > 1:
-            raise ValueError(
-                f"vector field shape {vf_shape} has multiple axes of size 3 ({candidates}); specify the xyz displacement axis with --vectorfield-components-dim."
-            )
-        comp_dim = candidates[0]
-
-    remaining_axes = [ax for ax in range(len(vf_shape)) if ax != comp_dim]
-    if len(remaining_axes) == len(image_shape):
-        time_dim = None
-        spatial_axes = tuple(remaining_axes)
-    elif len(remaining_axes) == len(image_shape) + 1:
-        time_dim = remaining_axes[0]
-        spatial_axes = tuple(remaining_axes[1:])
-    else:
-        raise ValueError(
-            f"vector field shape {vf_shape} is incompatible with image shape {image_shape}; expected spatial dims {image_shape} plus one component axis of size 3, with at most one extra leading time axis."
-        )
-
-    vf_spatial_shape = tuple(vf_shape[ax] for ax in spatial_axes)
-    if vf_spatial_shape != image_shape:
-        raise ValueError(
-            f"vector field spatial shape {vf_spatial_shape} does not match image shape {image_shape}."
-        )
-
-    return {
-        "components_dim": comp_dim,
-        "time_dim": time_dim,
-        "spatial_axes": spatial_axes,
-        "n_times": int(vf_shape[time_dim]) if time_dim is not None else 1,
-    }
-
-
-def _configure_vectorfield(
-    session: Session, vf_data, components_dim: int | None = None
-) -> dict[str, object]:
-    layout = _resolve_vfield_layout(
-        tuple(int(s) for s in np.shape(vf_data)),
-        tuple(int(s) for s in session.spatial_shape),
-        components_dim,
-    )
-    session.vfield = vf_data
-    session.vfield_component_dim = int(layout["components_dim"])
-    session.vfield_time_dim = layout["time_dim"]
-    session.vfield_spatial_axes = tuple(int(a) for a in layout["spatial_axes"])
-    return layout
-
-
-def _get_vfield_layout(session: Session) -> dict[str, object] | None:
-    if session.vfield is None:
-        return None
-    if (
-        session.vfield_component_dim is not None
-        and session.vfield_spatial_axes is not None
-    ):
-        return {
-            "components_dim": int(session.vfield_component_dim),
-            "time_dim": session.vfield_time_dim,
-            "spatial_axes": tuple(int(a) for a in session.vfield_spatial_axes),
-            "n_times": int(np.shape(session.vfield)[session.vfield_time_dim])
-            if session.vfield_time_dim is not None
-            else 1,
-        }
-    return _configure_vectorfield(session, session.vfield)
 
 # ── Lazy PIL Import ───────────────────────────────────────────────
 
@@ -205,54 +115,6 @@ def _pil_imageops():
 
         _pil_imageops_mod = ImageOps
     return _pil_imageops_mod
-
-
-# ── Overlay Helpers ───────────────────────────────────────────────
-
-
-def _parse_hex_color(hex_str: str) -> np.ndarray | None:
-    """Parse a 6-char hex string like 'ff4444' into a uint8 RGB array, or None."""
-    h = hex_str.strip().lstrip("#")
-    if len(h) != 6:
-        return None
-    try:
-        return np.array(
-            [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)], dtype=np.uint8
-        )
-    except ValueError:
-        return None
-
-
-def _composite_overlays(
-    rgba: np.ndarray,
-    overlay_sid_str: str | None,
-    overlay_colors_str: str | None,
-    overlay_alpha: float,
-    dim_x: int,
-    dim_y: int,
-    idx_tuple: tuple[int, ...],
-    shape_hw: tuple[int, int],
-) -> np.ndarray:
-    """Composite one or more overlays onto rgba.  overlay_sid_str is comma-separated."""
-    if not overlay_sid_str:
-        return rgba
-    sids = [s.strip() for s in overlay_sid_str.split(",") if s.strip()]
-    colors_raw = (
-        [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
-    )
-    for i, sid in enumerate(sids):
-        color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
-        ov_raw = _extract_overlay_mask(
-            sid, dim_x, dim_y, idx_tuple, expected_shape=shape_hw
-        )
-        rgba = _composite_overlay_mask(
-            rgba,
-            ov_raw,
-            alpha=overlay_alpha,
-            is_label=_overlay_is_label_map(sid, ov_raw),
-            override_color=color,
-        )
-    return rgba
 
 
 # ── Oblique Preset Helpers ────────────────────────────────────────
@@ -1002,13 +864,6 @@ def get_preload_status(sid: str):
         }
 
 
-def _vfield_n_times(session) -> int:
-    """Return number of time frames in the vector field (0 = no vfield, 1 = no time dim)."""
-    if session.vfield is None:
-        return 0
-    return int((_get_vfield_layout(session) or {}).get("n_times", 1))
-
-
 def _build_metadata(session) -> dict:
     """Build metadata dict for a session (shared by HTTP and WebSocket paths)."""
     meta = {
@@ -1068,140 +923,6 @@ async def get_metadata(sid: str):
         return Response(
             status_code=500, content=str(e).encode(), media_type="text/plain"
         )
-
-
-# density_offset → arrow sampling target.
-#
-# Historically we picked an integer `stride` per level, but on small slices
-# consecutive levels rounded to the same stride — pressing ] did nothing for
-# a few presses and then jumped. Instead we interpolate the *number of
-# arrows* in log-space between a sparse endpoint and H*W, which stays
-# monotonic on every slice size. The effective stride (float) is derived
-# from n_arrows for the visual arrow-length scale. Level +5 switches to
-# grid sampling covering every pixel.
-
-
-_MAX_VFIELD_ARROWS = 65536
-
-
-def _vfield_counts_for_level(density_offset: int, H: int, W: int, base_stride: int):
-    """Return ``(n_arrows, effective_stride, use_grid)`` for a density level.
-
-    ``effective_stride`` is a float used only to scale arrow visual length;
-    ``n_arrows`` drives the actual sampling count.
-    """
-    level = max(-5, min(5, int(density_offset)))
-    total = max(1, H * W)
-    if level >= 5:
-        return min(total, _MAX_VFIELD_ARROWS), 1.0, True
-    # Sparse endpoint (level -5): ~ (H/(2·base_stride)) × (W/(2·base_stride))
-    # — meaningfully sparser than the default without disappearing on small
-    # slices.
-    sparse_stride = max(1, base_stride * 2)
-    n_min = max(1, max(1, H // sparse_stride) * max(1, W // sparse_stride))
-    # Dense endpoint (level +4, just below the +5 grid). Two caps apply:
-    #   - total // 2 so +4 is always visibly sparser than the grid
-    #   - _MAX_VFIELD_ARROWS // 2 so large slices (H·W > 2·MAX) don't clamp
-    #     +3 and +4 to the same capped count
-    n_max = max(n_min * 2, min(total // 2, _MAX_VFIELD_ARROWS // 2))
-    log_min = float(np.log2(n_min))
-    log_max = float(np.log2(n_max))
-    t = (level + 5) / 9.0  # 0 at -5, 1 at +4
-    log_n = log_min + t * (log_max - log_min)
-    n_arrows = max(1, min(total, int(round(2.0**log_n))))
-    effective_stride = float((total / n_arrows) ** 0.5)
-    return n_arrows, effective_stride, False
-
-
-def _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index=0, density_offset=0):
-    """Compute downsampled vector field arrows for a 2-D view.
-
-    Returns ``{"arrows": coords, "scale": float, "stride": int}`` where
-    *coords* is a float32 numpy array of shape (N, 4), or ``None`` if no
-    vector field is available.
-    """
-    if session.vfield is None:
-        return None
-    layout = _get_vfield_layout(session)
-    if layout is None:
-        return None
-
-    vf = session.vfield
-
-    slices = [slice(None)] * vf.ndim
-    time_dim = layout["time_dim"]
-    if time_dim is not None:
-        t = max(0, min(int(layout["n_times"]) - 1, t_index))
-        slices[int(time_dim)] = t
-
-    spatial_axes = tuple(int(ax) for ax in layout["spatial_axes"])
-    comp_dim = int(layout["components_dim"])
-    vf_x_axis = spatial_axes[dim_x]
-    vf_y_axis = spatial_axes[dim_y]
-    for img_dim, vf_axis in enumerate(spatial_axes):
-        if img_dim in (dim_x, dim_y):
-            continue
-        slices[vf_axis] = int(idx_tuple[img_dim])
-
-    vf_slice = np.asarray(vf[tuple(slices)], dtype=np.float32)
-    free_axes = [ax for ax, sl in enumerate(slices) if isinstance(sl, slice)]
-    axis_pos = {ax: i for i, ax in enumerate(free_axes)}
-    vf_slice = vf_slice.transpose(
-        axis_pos[vf_y_axis], axis_pos[vf_x_axis], axis_pos[comp_dim]
-    )
-
-    H, W = vf_slice.shape[:2]
-    n_comp = vf_slice.shape[2]
-    n_spatial = len(spatial_axes)
-
-    # Component mapping: when the image has more spatial dims than the VF
-    # has components (e.g. 4-D image with a time-like leading dim but only
-    # 3 displacement components), the components align to the *last*
-    # n_comp spatial dims.  Dims before that offset have no displacement.
-    comp_offset = n_spatial - n_comp
-    cy = dim_y - comp_offset
-    cx = dim_x - comp_offset
-    vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
-    vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
-
-    # density_offset in [-5, +5]. n_arrows is interpolated in log-space so
-    # every level produces a different count on every slice size. The top
-    # level (+5) is the only one that switches to grid sampling — all
-    # other levels use random scatter for the organic look.
-    base_stride = max(1, max(H, W) // 32)
-    n_arrows_target, effective_stride, use_grid = _vfield_counts_for_level(
-        density_offset, H, W, base_stride
-    )
-    if use_grid:
-        ys = np.arange(0, H, dtype=int)
-        xs = np.arange(0, W, dtype=int)
-        gy_grid, gx_grid = np.meshgrid(ys, xs, indexing="ij")
-        gy = gy_grid.ravel()
-        gx = gx_grid.ravel()
-        if gy.size > _MAX_VFIELD_ARROWS:
-            keep = np.linspace(0, gy.size - 1, _MAX_VFIELD_ARROWS).astype(int)
-            gy = gy[keep]
-            gx = gx[keep]
-    else:
-        # Random scatter — organic look, stable across slices via a fixed
-        # seed derived from (H, W).
-        n_arrows = min(n_arrows_target, _MAX_VFIELD_ARROWS)
-        rng = np.random.default_rng(int(H) * 10007 + int(W))
-        gy = rng.integers(0, H, n_arrows).astype(int)
-        gx = rng.integers(0, W, n_arrows).astype(int)
-
-    vx_s = vx_comp[gy, gx]
-    vy_s = vy_comp[gy, gx]
-
-    # Scale: effective_stride * 0.75 / p95_magnitude (image pixels per voxel unit)
-    mags = np.sqrt(vx_s**2 + vy_s**2)
-    nonzero = mags[mags > 0]
-    p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
-    scale = float(effective_stride * 0.75 / max(p95, 1e-9))
-
-    # Stack into a single array for faster serialization
-    coords = np.column_stack([gx, gy, vx_s, vy_s]).astype(np.float32)
-    return {"arrows": coords, "scale": scale, "stride": int(round(effective_stride))}
 
 
 @app.get("/vectorfield/{sid}")
@@ -2783,61 +2504,6 @@ def get_slice(
     )
 
 
-def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
-    """Extract a slice and normalize to [0, 1] float32 using per-slice display range."""
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
-    if vmax > vmin:
-        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
-    else:
-        normalized = np.zeros_like(data)
-    return normalized.astype(np.float32)
-
-
-def _render_normalized_mosaic(
-    session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale
-):
-    """Return (float32 normalized mosaic grid [0,1], nan_mask) for all z-slices."""
-    n = session.shape[dim_z]
-    idx_list = list(idx_tuple)
-    frames_raw = [
-        extract_slice(
-            session,
-            dim_x,
-            dim_y,
-            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
-        )
-        for i in range(n)
-    ]
-    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
-    if log_scale:
-        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
-    all_data = np.stack(frames)
-    if log_scale:
-        vmin = float(np.percentile(all_data, 1))
-        vmax = float(np.percentile(all_data, 99))
-    else:
-        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
-    rows, cols = mosaic_shape(n)
-    H, W = frames[0].shape
-    GAP = 2
-    total_h = rows * H + (rows - 1) * GAP
-    total_w = cols * W + (cols - 1) * GAP
-    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
-    for k in range(n):
-        r, c = divmod(k, cols)
-        r0, c0 = r * (H + GAP), c * (W + GAP)
-        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
-    nan_mask = np.isnan(grid)
-    if vmax > vmin:
-        normalized = np.clip(
-            np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1
-        )
-    else:
-        normalized = np.zeros_like(grid)
-    return normalized.astype(np.float32), nan_mask
-
-
 @app.get("/diff/{sid_a}/{sid_b}")
 def get_diff(
     sid_a: str,
@@ -2858,73 +2524,28 @@ def get_diff(
     session_b = SESSIONS.get(sid_b)
     if not session_a or not session_b:
         return Response(status_code=404)
-    idx_tuple = tuple(int(x) for x in indices.split(","))
-    # Use the shorter index tuple to handle mismatched dimensionalities
-    ndim_a = len(session_a.shape)
-    ndim_b = len(session_b.shape)
-    idx_a = idx_tuple[:ndim_a]
-    idx_b = idx_tuple[:ndim_b]
-    nan_mask = None
     try:
-        if dim_z >= 0:
-            a, nan_mask_a = _render_normalized_mosaic(
-                session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale
-            )
-            b, nan_mask_b = _render_normalized_mosaic(
-                session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale
-            )
-            nan_mask = nan_mask_a | nan_mask_b
-        else:
-            a = _render_normalized(
-                session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale
-            )
-            b = _render_normalized(
-                session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale
-            )
+        raw, vmin, vmax, colormap, nan_mask = _compute_diff(
+            session_a,
+            session_b,
+            dim_x,
+            dim_y,
+            indices,
+            dim_z,
+            dr,
+            complex_mode,
+            log_scale,
+            diff_mode,
+        )
     except Exception:
         return Response(status_code=422)
-    # Resize b to match a if shapes differ
-    if a.shape != b.shape:
-        try:
-            from PIL import Image as _Image
-
-            b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
-            b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
-            b = np.array(b_img, dtype=np.float32) / 255.0
-        except Exception:
-            return Response(status_code=422)
-    if diff_mode == 1:
-        raw = a - b
-        vmin, vmax = -1.0, 1.0
-        colormap = "RdBu_r"
-    elif diff_mode == 2:
-        raw = np.abs(a - b)
-        vmax = float(raw.max()) or 1.0
-        vmin = 0.0
-        colormap = "afmhot"
-    else:  # diff_mode == 3
-        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
-        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
-        vmax = float(raw.max()) or 1.0
-        vmin = 0.0
-        colormap = "afmhot"
-    # Allow frontend to override vmin/vmax
     if vmin_override is not None:
         vmin = vmin_override
     if vmax_override is not None:
         vmax = vmax_override
-    # Allow frontend to override the colormap
     if diff_colormap and _ensure_lut(diff_colormap):
         colormap = diff_colormap
-    if vmax > vmin:
-        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
-    else:
-        normalized = np.zeros_like(raw)
-    _ensure_lut(colormap)
-    lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
-    if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
-        rgba[nan_mask] = [22, 22, 22, 255]  # dark separator (matches mosaic_render)
+    rgba = _render_diff_rgba(raw, vmin, vmax, colormap, nan_mask)
     img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
@@ -2958,53 +2579,22 @@ def get_diff_histogram(
     session_b = SESSIONS.get(sid_b)
     if not session_a or not session_b:
         return Response(status_code=404)
-    idx_tuple = tuple(int(x) for x in indices.split(","))
-    ndim_a = len(session_a.shape)
-    ndim_b = len(session_b.shape)
-    idx_a = idx_tuple[:ndim_a]
-    idx_b = idx_tuple[:ndim_b]
     try:
-        if dim_z >= 0:
-            a, _ = _render_normalized_mosaic(
-                session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale
-            )
-            b, _ = _render_normalized_mosaic(
-                session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale
-            )
-        else:
-            a = _render_normalized(
-                session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale
-            )
-            b = _render_normalized(
-                session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale
-            )
+        raw, _, _, _, _ = _compute_diff(
+            session_a,
+            session_b,
+            dim_x,
+            dim_y,
+            indices,
+            dim_z,
+            dr,
+            complex_mode,
+            log_scale,
+            diff_mode,
+        )
     except Exception:
         return Response(status_code=422)
-    if a.shape != b.shape:
-        try:
-            from PIL import Image as _Image
-
-            b_img = _Image.fromarray((b * 255).astype(np.uint8), mode="L")
-            b_img = b_img.resize((a.shape[1], a.shape[0]), _Image.BILINEAR)
-            b = np.array(b_img, dtype=np.float32) / 255.0
-        except Exception:
-            return Response(status_code=422)
-    if diff_mode == 1:
-        raw = a - b
-    elif diff_mode == 2:
-        raw = np.abs(a - b)
-    else:
-        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
-        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
-    vmin = float(raw.min())
-    vmax = float(raw.max())
-    counts, edges = np.histogram(raw.ravel(), bins=bins)
-    return {
-        "counts": counts.tolist(),
-        "edges": edges.tolist(),
-        "vmin": vmin,
-        "vmax": vmax,
-    }
+    return _diff_histogram(raw, bins)
 
 
 @app.get("/oblique/{sid}")

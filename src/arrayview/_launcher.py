@@ -1832,10 +1832,10 @@ def _serve_daemon(
                 _setup_rgb(session)
             if vfield_filepath:
                 try:
+                    from arrayview._vectorfield import _configure_vectorfield
+
                     vf_data = load_data(vfield_filepath)
-                    _server_mod()._configure_vectorfield(
-                        session, vf_data, vfield_components_dim
-                    )
+                    _configure_vectorfield(session, vf_data, vfield_components_dim)
                     _vprint(
                         f"[ArrayView] Loaded vector field {vfield_filepath} shape {vf_data.shape} component_axis={session.vfield_component_dim}",
                         flush=True,
@@ -2281,7 +2281,7 @@ def arrayview():
 
             # Attach vector field if provided
             if getattr(args, "vectorfield", None):
-                from arrayview._server import _configure_vectorfield
+                from arrayview._vectorfield import _configure_vectorfield
 
                 vf_data = load_data(args.vectorfield)
                 _configure_vectorfield(
@@ -2605,7 +2605,7 @@ def arrayview():
         try:
             from arrayview._io import load_data
             from arrayview._render import _detect_rgb_axis
-            from arrayview._server import _resolve_vfield_layout
+            from arrayview._vectorfield import _resolve_vfield_layout
 
             base_data = load_data(base_file)
             image_shape = tuple(int(s) for s in base_data.shape)

@@ -14,7 +14,6 @@ slice requests, and is length-prefixed JSON for metadata/register/sessions.
 
 import concurrent.futures as _futures
 import json
-import io
 import arrayview._session as _session_mod
 import os
 import select
@@ -25,20 +24,16 @@ import uuid
 
 import numpy as np
 
-from arrayview._io import load_data, load_data_with_meta
+from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
+from arrayview._io import load_data_with_meta
+from arrayview._overlays import _composite_overlays
 from arrayview._render import (
-    LUTS,
-    _composite_overlay_mask,
-    _compute_vmin_vmax,
     _ensure_lut,
-    _extract_overlay_mask,
     _init_luts,
-    _overlay_is_label_map,
     _prepare_display,
     apply_complex_mode,
     extract_projection,
     extract_slice,
-    mosaic_shape,
     render_mosaic,
     render_projection_rgba,
     render_rgb_rgba,
@@ -46,6 +41,7 @@ from arrayview._render import (
     _setup_rgb,
 )
 from arrayview._session import SESSIONS, Session
+from arrayview._vectorfield import _compute_vfield_arrows, _vfield_n_times
 
 
 # ---------------------------------------------------------------------------
@@ -61,145 +57,6 @@ def _pil_image():
 
         _pil_image_mod = Image
     return _pil_image_mod
-
-
-# ---------------------------------------------------------------------------
-# Overlay helpers (mirrors _server.py logic)
-# ---------------------------------------------------------------------------
-
-
-def _parse_hex_color(hex_str: str) -> np.ndarray | None:
-    """Parse 'ff4444' into uint8 RGB array, or None."""
-    h = hex_str.strip().lstrip("#")
-    if len(h) != 6:
-        return None
-    try:
-        return np.array(
-            [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)], dtype=np.uint8
-        )
-    except ValueError:
-        return None
-
-
-def _composite_overlays(
-    rgba: np.ndarray,
-    overlay_sid_str: str | None,
-    overlay_colors_str: str | None,
-    overlay_alpha: float,
-    dim_x: int,
-    dim_y: int,
-    idx_tuple: tuple[int, ...],
-    shape_hw: tuple[int, int],
-) -> np.ndarray:
-    """Composite one or more overlays onto rgba."""
-    if not overlay_sid_str:
-        return rgba
-    sids = [s.strip() for s in overlay_sid_str.split(",") if s.strip()]
-    colors_raw = (
-        [c.strip() for c in overlay_colors_str.split(",")] if overlay_colors_str else []
-    )
-    for i, sid in enumerate(sids):
-        color = _parse_hex_color(colors_raw[i]) if i < len(colors_raw) else None
-        ov_raw = _extract_overlay_mask(
-            sid, dim_x, dim_y, idx_tuple, expected_shape=shape_hw
-        )
-        rgba = _composite_overlay_mask(
-            rgba,
-            ov_raw,
-            alpha=overlay_alpha,
-            is_label=_overlay_is_label_map(sid, ov_raw),
-            override_color=color,
-        )
-    return rgba
-
-
-# ---------------------------------------------------------------------------
-# Vector field helpers (mirrors _server.py logic)
-# ---------------------------------------------------------------------------
-
-
-def _get_vfield_layout(session) -> dict[str, object] | None:
-    if session.vfield is None:
-        return None
-    if (
-        session.vfield_component_dim is not None
-        and session.vfield_spatial_axes is not None
-    ):
-        return {
-            "components_dim": int(session.vfield_component_dim),
-            "time_dim": session.vfield_time_dim,
-            "spatial_axes": tuple(int(a) for a in session.vfield_spatial_axes),
-            "n_times": int(np.shape(session.vfield)[session.vfield_time_dim])
-            if session.vfield_time_dim is not None
-            else 1,
-        }
-    return None
-
-
-def _compute_vfield_arrows(session, dim_x, dim_y, idx_tuple, t_index=0, density_offset=0):
-    """Compute downsampled vector field arrows for a 2-D view."""
-    if session.vfield is None:
-        return None
-    layout = _get_vfield_layout(session)
-    if layout is None:
-        return None
-
-    vf = session.vfield
-    slices = [slice(None)] * vf.ndim
-    time_dim = layout["time_dim"]
-    if time_dim is not None:
-        t = max(0, min(int(layout["n_times"]) - 1, t_index))
-        slices[int(time_dim)] = t
-
-    spatial_axes = tuple(int(ax) for ax in layout["spatial_axes"])
-    comp_dim = int(layout["components_dim"])
-    vf_x_axis = spatial_axes[dim_x]
-    vf_y_axis = spatial_axes[dim_y]
-    for img_dim, vf_axis in enumerate(spatial_axes):
-        if img_dim in (dim_x, dim_y):
-            continue
-        slices[vf_axis] = int(idx_tuple[img_dim])
-
-    vf_slice = np.asarray(vf[tuple(slices)], dtype=np.float32)
-    free_axes = [ax for ax, sl in enumerate(slices) if isinstance(sl, slice)]
-    axis_pos = {ax: i for i, ax in enumerate(free_axes)}
-    vf_slice = vf_slice.transpose(
-        axis_pos[vf_y_axis], axis_pos[vf_x_axis], axis_pos[comp_dim]
-    )
-
-    H, W = vf_slice.shape[:2]
-    n_comp = vf_slice.shape[2]
-    n_spatial = len(spatial_axes)
-    comp_offset = n_spatial - n_comp
-    cy = dim_y - comp_offset
-    cx = dim_x - comp_offset
-    vy_comp = vf_slice[:, :, cy] if 0 <= cy < n_comp else np.zeros((H, W), dtype=np.float32)
-    vx_comp = vf_slice[:, :, cx] if 0 <= cx < n_comp else np.zeros((H, W), dtype=np.float32)
-
-    base_stride = max(1, max(H, W) // 32)
-    stride = max(1, round(base_stride * (1.4142 ** -density_offset)))
-    MAX_ARROWS = 4096
-    n_arrows = min(max(1, (H // stride) * (W // stride)), MAX_ARROWS)
-    rng = np.random.default_rng(int(H) * 10007 + int(W))
-    gy = rng.integers(0, H, n_arrows).astype(int)
-    gx = rng.integers(0, W, n_arrows).astype(int)
-
-    vx_s = vx_comp[gy, gx]
-    vy_s = vy_comp[gy, gx]
-
-    mags = np.sqrt(vx_s ** 2 + vy_s ** 2)
-    nonzero = mags[mags > 0]
-    p95 = float(np.percentile(nonzero, 95)) if nonzero.size else 1.0
-    scale = float(stride * 0.75 / max(p95, 1e-9))
-
-    coords = np.column_stack([gx, gy, vx_s, vy_s]).astype(np.float32)
-    return {"arrows": coords, "scale": scale, "stride": int(stride)}
-
-
-def _vfield_n_times(session) -> int:
-    if session.vfield is None:
-        return 0
-    return int((_get_vfield_layout(session) or {}).get("n_times", 1))
 
 
 # ---------------------------------------------------------------------------
@@ -554,104 +411,6 @@ def _handle_pixel(sid: str, params: dict) -> None:
     _write_json({"value": val})
 
 
-# ---------------------------------------------------------------------------
-# Diff / Compare helpers
-# ---------------------------------------------------------------------------
-
-def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
-    """Extract a slice and normalize to [0, 1] float32."""
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data, vmin, vmax = _prepare_display(session, raw, complex_mode, dr, log_scale)
-    if vmax > vmin:
-        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
-    else:
-        normalized = np.zeros_like(data)
-    return normalized.astype(np.float32)
-
-
-def _render_normalized_mosaic(session, dim_x, dim_y, dim_z, idx_tuple, dr, complex_mode, log_scale):
-    """Return (float32 normalized mosaic [0,1], nan_mask)."""
-    n = session.shape[dim_z]
-    idx_list = list(idx_tuple)
-    frames_raw = [
-        extract_slice(
-            session, dim_x, dim_y,
-            [i if j == dim_z else idx_list[j] for j in range(len(session.shape))],
-        )
-        for i in range(n)
-    ]
-    frames = [apply_complex_mode(f, complex_mode) for f in frames_raw]
-    if log_scale:
-        frames = [np.log1p(np.abs(f)).astype(np.float32) for f in frames]
-    all_data = np.stack(frames)
-    if log_scale:
-        vmin = float(np.percentile(all_data, 1))
-        vmax = float(np.percentile(all_data, 99))
-    else:
-        vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
-    rows, cols = mosaic_shape(n)
-    H, W = frames[0].shape
-    GAP = 2
-    total_h = rows * H + (rows - 1) * GAP
-    total_w = cols * W + (cols - 1) * GAP
-    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
-    for k in range(n):
-        r, c = divmod(k, cols)
-        r0, c0 = r * (H + GAP), c * (W + GAP)
-        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
-    nan_mask = np.isnan(grid)
-    if vmax > vmin:
-        normalized = np.clip(np.where(nan_mask, 0.0, (grid - vmin) / (vmax - vmin)), 0, 1)
-    else:
-        normalized = np.zeros_like(grid)
-    return normalized.astype(np.float32), nan_mask
-
-
-def _compute_diff(session_a, session_b, dim_x, dim_y, indices, dim_z, dr, complex_mode, log_scale, diff_mode):
-    """Shared diff logic for both diff image and diff histogram handlers.
-
-    Returns (raw_diff, vmin, vmax, colormap, nan_mask_or_None).
-    """
-    idx_tuple = tuple(int(x) for x in indices.split(",")) if isinstance(indices, str) else indices
-    ndim_a = len(session_a.shape)
-    ndim_b = len(session_b.shape)
-    idx_a = idx_tuple[:ndim_a]
-    idx_b = idx_tuple[:ndim_b]
-    nan_mask = None
-
-    if dim_z >= 0:
-        a, nan_mask_a = _render_normalized_mosaic(session_a, dim_x, dim_y, dim_z, idx_a, dr, complex_mode, log_scale)
-        b, nan_mask_b = _render_normalized_mosaic(session_b, dim_x, dim_y, dim_z, idx_b, dr, complex_mode, log_scale)
-        nan_mask = nan_mask_a | nan_mask_b
-    else:
-        a = _render_normalized(session_a, dim_x, dim_y, idx_a, dr, complex_mode, log_scale)
-        b = _render_normalized(session_b, dim_x, dim_y, idx_b, dr, complex_mode, log_scale)
-
-    # Resize b to match a if shapes differ
-    if a.shape != b.shape:
-        b_img = _pil_image().fromarray((b * 255).astype(np.uint8), mode="L")
-        b_img = b_img.resize((a.shape[1], a.shape[0]), _pil_image().BILINEAR)
-        b = np.array(b_img, dtype=np.float32) / 255.0
-
-    if diff_mode == 1:
-        raw = a - b
-        vmin, vmax = -1.0, 1.0
-        colormap = "RdBu_r"
-    elif diff_mode == 2:
-        raw = np.abs(a - b)
-        vmax = float(raw.max()) or 1.0
-        vmin = 0.0
-        colormap = "afmhot"
-    else:
-        raw = np.abs(a - b) / np.maximum(np.abs(a), 1e-6)
-        raw = np.clip(raw, 0.0, 2.0).astype(np.float32)
-        vmax = float(raw.max()) or 1.0
-        vmin = 0.0
-        colormap = "afmhot"
-
-    return raw, vmin, vmax, colormap, nan_mask
-
-
 def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
     """Render a diff image and return as base64 JPEG with metadata headers."""
     import base64
@@ -693,16 +452,7 @@ def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
     if diff_colormap and _ensure_lut(diff_colormap):
         colormap = diff_colormap
 
-    if vmax > vmin:
-        normalized = np.clip((raw - vmin) / (vmax - vmin), 0, 1)
-    else:
-        normalized = np.zeros_like(raw)
-    _ensure_lut(colormap)
-    lut = LUTS.get(colormap, LUTS["gray"])
-    rgba = lut[(normalized * 255).astype(np.uint8)]
-    if nan_mask is not None and nan_mask.shape == rgba.shape[:2]:
-        rgba[nan_mask] = [22, 22, 22, 255]
-
+    rgba = _render_diff_rgba(raw, vmin, vmax, colormap, nan_mask)
     img = _pil_image().fromarray(rgba[:, :, :3], mode="RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
@@ -745,15 +495,7 @@ def _handle_diff_histogram(sid_a: str, sid_b: str, params: dict) -> None:
         _write_json({"error": str(e)})
         return
 
-    vmin = float(raw.min())
-    vmax = float(raw.max())
-    counts, edges = np.histogram(raw.ravel(), bins=bins)
-    _write_json({
-        "counts": counts.tolist(),
-        "edges": edges.tolist(),
-        "vmin": vmin,
-        "vmax": vmax,
-    })
+    _write_json(_diff_histogram(raw, bins))
 
 
 def _handle_fetch_proxy(msg: dict) -> None:

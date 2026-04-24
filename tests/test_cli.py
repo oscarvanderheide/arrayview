@@ -23,6 +23,14 @@ class _DummyResponse:
         return json.dumps(self._payload).encode()
 
 
+def _record_opened_url(opened: dict):
+    def _open(url, *args, **kwargs):
+        opened.setdefault("url", url)
+        return url
+
+    return _open
+
+
 def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     base = str(tmp_path / "base.npy")
     cmp1 = str(tmp_path / "cmp1.npy")
@@ -38,9 +46,7 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
-        lambda url, blocking=False, force_vscode=False, title=None, filepath=None: opened.setdefault(
-            "url", url
-        ),
+        _record_opened_url(opened),
     )
 
     def fake_urlopen(req, timeout=5):
@@ -88,9 +94,7 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
-        lambda url, blocking=False, force_vscode=False, title=None, filepath=None: opened.setdefault(
-            "url", url
-        ),
+        _record_opened_url(opened),
     )
 
     def fake_urlopen(req, timeout=5):
@@ -134,7 +138,7 @@ def test_cli_vectorfield_components_dim_is_sent_to_attach(monkeypatch, tmp_path)
     monkeypatch.setattr(
         _launcher_mod,
         "_open_browser",
-        lambda url, blocking=False, force_vscode=False, title=None, filepath=None: url,
+        lambda url, *args, **kwargs: url,
     )
 
     def fake_urlopen(req, timeout=5):
