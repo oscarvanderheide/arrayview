@@ -967,6 +967,51 @@ class TestLauncherDecisionHelpers:
         assert _should_notify_webview(True, "sid_overlay") is False
         assert _should_notify_webview(False, None) is False
 
+    def test_plan_cli_port_strategy_for_busy_ssh_tunnel(self):
+        from arrayview._launcher import _plan_cli_port_strategy
+
+        assert _plan_cli_port_strategy(
+            port_in_use=True,
+            is_arrayview_server=False,
+            is_ssh=True,
+            is_vscode_remote=False,
+        ) == {
+            "attempt_ssh_relay_before_scan": True,
+            "requires_fixed_remote_port_error": False,
+            "should_scan_for_port": True,
+            "should_check_existing_ssh_relay": False,
+        }
+
+    def test_plan_cli_port_strategy_for_remote_busy_port(self):
+        from arrayview._launcher import _plan_cli_port_strategy
+
+        assert _plan_cli_port_strategy(
+            port_in_use=True,
+            is_arrayview_server=False,
+            is_ssh=False,
+            is_vscode_remote=True,
+        ) == {
+            "attempt_ssh_relay_before_scan": False,
+            "requires_fixed_remote_port_error": True,
+            "should_scan_for_port": False,
+            "should_check_existing_ssh_relay": False,
+        }
+
+    def test_plan_cli_port_strategy_for_existing_ssh_relay(self):
+        from arrayview._launcher import _plan_cli_port_strategy
+
+        assert _plan_cli_port_strategy(
+            port_in_use=False,
+            is_arrayview_server=True,
+            is_ssh=True,
+            is_vscode_remote=False,
+        ) == {
+            "attempt_ssh_relay_before_scan": False,
+            "requires_fixed_remote_port_error": False,
+            "should_scan_for_port": False,
+            "should_check_existing_ssh_relay": True,
+        }
+
 
 class TestLauncherDimsHelpers:
     def test_parse_dims_spec_accepts_xy_markers(self):

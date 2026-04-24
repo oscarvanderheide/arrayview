@@ -561,6 +561,22 @@ def _should_notify_webview(use_webview: bool, overlay_sid: str | None) -> bool:
     return use_webview and overlay_sid is None
 
 
+def _plan_cli_port_strategy(
+    *,
+    port_in_use: bool,
+    is_arrayview_server: bool,
+    is_ssh: bool,
+    is_vscode_remote: bool,
+) -> dict[str, bool]:
+    busy_non_arrayview = port_in_use and not is_arrayview_server
+    return {
+        "attempt_ssh_relay_before_scan": busy_non_arrayview and is_ssh,
+        "requires_fixed_remote_port_error": busy_non_arrayview and is_vscode_remote,
+        "should_scan_for_port": busy_non_arrayview and not is_vscode_remote,
+        "should_check_existing_ssh_relay": is_arrayview_server and is_ssh,
+    }
+
+
 def _normalize_view_window_request(
     window: str | bool | None, inline: bool | None
 ) -> dict[str, bool | str | None]:
@@ -2807,7 +2823,14 @@ def arrayview():
     _is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
 
     is_arrayview_server = _server_alive(args.port)
-    if _port_in_use(args.port) and not is_arrayview_server and _is_ssh:
+    port_busy = _port_in_use(args.port)
+    port_plan = _plan_cli_port_strategy(
+        port_in_use=port_busy,
+        is_arrayview_server=is_arrayview_server,
+        is_ssh=_is_ssh,
+        is_vscode_remote=_is_vscode_remote(),
+    )
+    if port_plan["attempt_ssh_relay_before_scan"]:
         # Port occupied but not responding to a fast HTTP check.  When port 8000
         # is bound by a reverse SSH tunnel (ssh -R 8000:localhost:8000), the TCP
         # connection to 127.0.0.1:8000 succeeds immediately (SSH daemon's listener)
@@ -2827,18 +2850,18 @@ def arrayview():
         except Exception as _relay_exc:
             print(f"[ArrayView] Relay attempt failed: {_relay_exc}", flush=True)
             # Fall through — not an ArrayView relay server; start our own.
-    if _port_in_use(args.port) and not is_arrayview_server:
-        if _is_vscode_remote():
-            # In tunnel mode the port must be predictable so the user can set
-            # the right port to Public.  Auto-scanning would silently pick a
-            # different port, leaving the user's Ports tab stale.
-            print(
-                f"[ArrayView] Port {args.port} is in use by another process.\n"
-                f"  Run 'arrayview --kill --port {args.port}' to free it, "
-                f"or use --port to specify a different port.",
-                flush=True,
-            )
-            sys.exit(1)
+    if port_plan["requires_fixed_remote_port_error"]:
+        # In tunnel mode the port must be predictable so the user can set
+        # the right port to Public.  Auto-scanning would silently pick a
+        # different port, leaving the user's Ports tab stale.
+        print(
+            f"[ArrayView] Port {args.port} is in use by another process.\n"
+            f"  Run 'arrayview --kill --port {args.port}' to free it, "
+            f"or use --port to specify a different port.",
+            flush=True,
+        )
+        sys.exit(1)
+    if port_plan["should_scan_for_port"]:
         # Non-tunnel: auto-scan for a free port.
         args.port, is_arrayview_server_new = _find_server_port(args.port + 1)
         is_arrayview_server = is_arrayview_server_new
@@ -2856,7 +2879,7 @@ def arrayview():
     # Relay detection: if we're connected via SSH and the existing server on
     # this port is actually on a different machine (reverse SSH tunnel), send
     # the array bytes there instead of a filepath the remote server can't access.
-    if is_arrayview_server and _is_ssh:
+    if port_plan["should_check_existing_ssh_relay"]:
         import socket as _socket
 
         # Use a generous timeout: _server_hostname also goes through the SSH tunnel.
