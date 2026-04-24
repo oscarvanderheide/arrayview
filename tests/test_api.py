@@ -1012,6 +1012,19 @@ class TestLauncherDecisionHelpers:
             "should_check_existing_ssh_relay": True,
         }
 
+    def test_resolve_view_port_prefers_cli_server_on_remote(self):
+        from arrayview._launcher import _resolve_view_port
+
+        assert _resolve_view_port(
+            8123, is_vscode_remote=True, cli_default_port_alive=True
+        ) == 8000
+        assert _resolve_view_port(
+            8123, is_vscode_remote=False, cli_default_port_alive=True
+        ) == 8123
+        assert _resolve_view_port(
+            9000, is_vscode_remote=True, cli_default_port_alive=True
+        ) == 9000
+
 
 class TestLauncherDimsHelpers:
     def test_parse_dims_spec_accepts_xy_markers(self):
@@ -1063,6 +1076,70 @@ class TestViewWindowHelpers:
 
         with pytest.raises(ValueError, match="window must be"):
             _normalize_view_window_request("sideways", None)
+
+    def test_resolve_view_display_defaults_applies_jupyter_and_config(self):
+        from arrayview._launcher import _resolve_view_display_defaults
+
+        assert _resolve_view_display_defaults(
+            inline=None,
+            window=None,
+            is_jupyter=True,
+            explicit_window=False,
+            explicit_inline=False,
+            force_browser=False,
+            force_vscode=False,
+            config_window=None,
+        ) == {
+            "inline": True,
+            "window": False,
+            "force_browser": False,
+            "force_vscode": False,
+        }
+
+        assert _resolve_view_display_defaults(
+            inline=None,
+            window=None,
+            is_jupyter=False,
+            explicit_window=False,
+            explicit_inline=False,
+            force_browser=False,
+            force_vscode=False,
+            config_window="browser",
+        ) == {
+            "inline": False,
+            "window": False,
+            "force_browser": True,
+            "force_vscode": False,
+        }
+
+    def test_promote_view_to_vscode_terminal_only_when_implicit(self):
+        from arrayview._launcher import _promote_view_to_vscode_terminal
+
+        assert _promote_view_to_vscode_terminal(
+            in_vscode_terminal=True,
+            inline=False,
+            window=True,
+            explicit_window=False,
+            explicit_inline=False,
+            force_vscode=False,
+            force_browser=False,
+        ) == {
+            "window": False,
+            "force_vscode": True,
+        }
+
+        assert _promote_view_to_vscode_terminal(
+            in_vscode_terminal=True,
+            inline=False,
+            window=True,
+            explicit_window=True,
+            explicit_inline=False,
+            force_vscode=False,
+            force_browser=False,
+        ) == {
+            "window": True,
+            "force_vscode": False,
+        }
 
 
 # ---------------------------------------------------------------------------

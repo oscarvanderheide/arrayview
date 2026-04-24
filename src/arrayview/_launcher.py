@@ -577,6 +577,14 @@ def _plan_cli_port_strategy(
     }
 
 
+def _resolve_view_port(
+    port: int, *, is_vscode_remote: bool, cli_default_port_alive: bool
+) -> int:
+    if port == 8123 and is_vscode_remote and cli_default_port_alive:
+        return 8000
+    return port
+
+
 def _normalize_view_window_request(
     window: str | bool | None, inline: bool | None
 ) -> dict[str, bool | str | None]:
@@ -645,6 +653,79 @@ def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
         except ValueError:
             pass
     return None
+
+
+def _resolve_view_display_defaults(
+    *,
+    inline: bool | None,
+    window: str | bool | None,
+    is_jupyter: bool,
+    explicit_window: bool,
+    explicit_inline: bool,
+    force_browser: bool,
+    force_vscode: bool,
+    config_window: str | None,
+) -> dict[str, bool | None]:
+    if inline is None:
+        inline = is_jupyter
+    if window is None:
+        window = not is_jupyter
+    if window:
+        inline = False
+    if (
+        not explicit_window
+        and not explicit_inline
+        and not force_browser
+        and not force_vscode
+        and config_window
+    ):
+        if config_window == "inline":
+            inline = True
+            window = False
+        elif config_window == "native":
+            window = True
+            inline = False
+        elif config_window == "browser":
+            window = False
+            inline = False
+            force_browser = True
+        elif config_window == "vscode":
+            window = False
+            inline = False
+            force_vscode = True
+    return {
+        "inline": inline,
+        "window": window,
+        "force_browser": force_browser,
+        "force_vscode": force_vscode,
+    }
+
+
+def _promote_view_to_vscode_terminal(
+    *,
+    in_vscode_terminal: bool,
+    inline: bool | None,
+    window: str | bool | None,
+    explicit_window: bool,
+    explicit_inline: bool,
+    force_vscode: bool,
+    force_browser: bool,
+) -> dict[str, bool | str | None]:
+    if (
+        in_vscode_terminal
+        and not inline
+        and not explicit_window
+        and not explicit_inline
+        and not force_vscode
+        and not force_browser
+    ):
+        force_vscode = True
+        if window is True:
+            window = False
+    return {
+        "window": window,
+        "force_vscode": force_vscode,
+    }
 
 
 def _port_in_use(port: int) -> bool:
@@ -1213,8 +1294,11 @@ def view(
     # Remote/tunnel: if the caller didn't override the port and a --serve server
     # is already running on the CLI default (8000), use that instead of 8123.
     _CLI_DEFAULT_PORT = 8000
-    if port == 8123 and _is_vscode_remote() and _server_alive(_CLI_DEFAULT_PORT):
-        port = _CLI_DEFAULT_PORT
+    port = _resolve_view_port(
+        port,
+        is_vscode_remote=_is_vscode_remote(),
+        cli_default_port_alive=_server_alive(_CLI_DEFAULT_PORT),
+    )
 
     # --- Julia path: only single-array supported ---
     if _is_julia_env():
@@ -1265,49 +1349,35 @@ def view(
         )
 
     is_jupyter = _in_jupyter()
-    if inline is None:
-        inline = is_jupyter
-    if window is None:
-        window = not is_jupyter
-    if window:
-        inline = False
+    from arrayview._config import get_window_default
+    from arrayview._platform import detect_environment
 
-    # User config: apply persistent window preference if no explicit arg was given
-    if (
-        not _explicit_window
-        and not _explicit_inline
-        and not _force_browser
-        and not _force_vscode
-    ):
-        from arrayview._config import get_window_default
-        from arrayview._platform import detect_environment
+    display_plan = _resolve_view_display_defaults(
+        inline=inline,
+        window=window,
+        is_jupyter=is_jupyter,
+        explicit_window=_explicit_window,
+        explicit_inline=_explicit_inline,
+        force_browser=_force_browser,
+        force_vscode=_force_vscode,
+        config_window=get_window_default(detect_environment()),
+    )
+    inline = display_plan["inline"]
+    window = display_plan["window"]
+    _force_browser = bool(display_plan["force_browser"])
+    _force_vscode = bool(display_plan["force_vscode"])
 
-        _cfg_window = get_window_default(detect_environment())
-        if _cfg_window:
-            if _cfg_window == "inline":
-                inline = True
-                window = False
-            elif _cfg_window == "native":
-                window = True
-            elif _cfg_window == "browser":
-                window = False
-                _force_browser = True
-            elif _cfg_window == "vscode":
-                window = False
-                _force_vscode = True
-
-    # Auto-detect VS Code terminal: prefer VS Code tab over native window
-    if (
-        _in_vscode_terminal()
-        and not inline
-        and not _explicit_window
-        and not _explicit_inline
-        and not _force_vscode
-        and not _force_browser
-    ):
-        _force_vscode = True
-        if window is True:
-            window = False
+    vscode_promotion = _promote_view_to_vscode_terminal(
+        in_vscode_terminal=_in_vscode_terminal(),
+        inline=inline,
+        window=window,
+        explicit_window=_explicit_window,
+        explicit_inline=_explicit_inline,
+        force_vscode=_force_vscode,
+        force_browser=_force_browser,
+    )
+    window = vscode_promotion["window"]
+    _force_vscode = bool(vscode_promotion["force_vscode"])
 
     # Julia/PythonCall (second check after inline/window resolution)
     if not inline and _is_julia_env():
