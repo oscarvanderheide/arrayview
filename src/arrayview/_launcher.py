@@ -759,6 +759,57 @@ def _register_cli_session_with_existing_server(
     }
 
 
+def _handle_cli_existing_server(
+    *,
+    port: int,
+    base_file: str,
+    name: str,
+    compare_files: list[str],
+    overlay_files: list[str],
+    rgb: bool,
+    vectorfield: str | None,
+    vfield_components_dim: int | None,
+    use_webview: bool,
+    dims_override: tuple[int, int] | None,
+    watch: bool,
+    window_mode: str | None,
+    floating: bool,
+) -> None:
+    try:
+        session_info = _register_cli_session_with_existing_server(
+            port=port,
+            overlay_paths=overlay_files,
+            compare_files=compare_files,
+            base_file=base_file,
+            name=name,
+            rgb=rgb,
+            use_webview=use_webview,
+            vectorfield=vectorfield,
+            vfield_components_dim=vfield_components_dim,
+        )
+    except Exception as e:
+        print(
+            f"Error: port {port} is in use by another process. "
+            f"Use --port to pick another. ({e})"
+        )
+        sys.exit(1)
+
+    _open_cli_existing_server_view(
+        port=port,
+        sid=str(session_info["sid"]),
+        compare_sids=session_info["compare_sids"],
+        overlay_sid=session_info["overlay_sid"],
+        dims_override=dims_override,
+        notify_webview=bool(session_info["notify_webview"]),
+        notified=bool(session_info["notified"]),
+        name=name,
+        base_file=base_file,
+        watch=watch,
+        window_mode=window_mode,
+        floating=floating,
+    )
+
+
 def _open_cli_spawned_view(
     *,
     port: int,
@@ -3192,37 +3243,17 @@ def arrayview():
         )
 
     if launch_path == "existing_server":
-        # Server already running — register the new array.
-        # If using webview, notify the existing shell to inject a new tab.
-        try:
-            session_info = _register_cli_session_with_existing_server(
-                port=args.port,
-                overlay_paths=list(args.overlay or []),
-                compare_files=compare_files,
-                base_file=base_file,
-                name=name,
-                rgb=args.rgb,
-                use_webview=use_webview,
-                vectorfield=args.vectorfield,
-                vfield_components_dim=vfield_components_dim,
-            )
-        except Exception as e:
-            print(
-                f"Error: port {args.port} is in use by another process. "
-                f"Use --port to pick another. ({e})"
-            )
-            sys.exit(1)
-
-        _open_cli_existing_server_view(
+        _handle_cli_existing_server(
             port=args.port,
-            sid=str(session_info["sid"]),
-            compare_sids=session_info["compare_sids"],
-            overlay_sid=session_info["overlay_sid"],
-            dims_override=dims_override,
-            notify_webview=bool(session_info["notify_webview"]),
-            notified=bool(session_info["notified"]),
-            name=name,
             base_file=base_file,
+            name=name,
+            compare_files=compare_files,
+            overlay_files=list(args.overlay or []),
+            rgb=args.rgb,
+            vectorfield=args.vectorfield,
+            vfield_components_dim=vfield_components_dim,
+            use_webview=use_webview,
+            dims_override=dims_override,
             watch=getattr(args, "watch", False),
             window_mode=window_mode,
             floating=args.floating,

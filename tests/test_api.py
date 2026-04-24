@@ -1342,6 +1342,60 @@ class TestCliOpenHelpers:
         }
         assert attach_calls == [(8000, "sid_base", "/tmp/vf.npy", 2)]
 
+    def test_handle_cli_existing_server_opens_registered_session(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        opened = []
+        monkeypatch.setattr(
+            launcher,
+            "_register_cli_session_with_existing_server",
+            lambda **kwargs: {
+                "sid": "sid_base",
+                "overlay_sid": None,
+                "compare_sids": ["sid_cmp"],
+                "notify_webview": True,
+                "notified": False,
+            },
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_existing_server_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+
+        launcher._handle_cli_existing_server(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=["/tmp/cmp.npy"],
+            overlay_files=[],
+            rgb=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            use_webview=True,
+            dims_override=(1, 2),
+            watch=True,
+            window_mode="native",
+            floating=False,
+        )
+
+        assert opened == [
+            {
+                "port": 8000,
+                "sid": "sid_base",
+                "compare_sids": ["sid_cmp"],
+                "overlay_sid": None,
+                "dims_override": (1, 2),
+                "notify_webview": True,
+                "notified": False,
+                "name": "base.npy",
+                "base_file": "/tmp/base.npy",
+                "watch": True,
+                "window_mode": "native",
+                "floating": False,
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
