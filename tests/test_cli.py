@@ -69,6 +69,8 @@ def test_cli_positional_compare_paths_register_and_open(monkeypatch, tmp_path):
     assert requests[0]["filepath"] == cmp1
     assert requests[1]["filepath"] == cmp2
     assert requests[2]["filepath"] == base
+    assert opened["url"].startswith("http://localhost:8000/?sid=sid_base")
+    assert "127.0.0.1" not in opened["url"]
     assert "compare_sid=sid_cmp1" in opened["url"]
     assert "compare_sids=sid_cmp1,sid_cmp2" in opened["url"]
 
@@ -110,8 +112,63 @@ def test_cli_accepts_six_total_files_for_compare(monkeypatch, tmp_path):
 
     assert len(requests) == 6
     compare_sid_csv = ",".join([f"sid_{i}" for i in range(1, 6)])
+    assert opened["url"].startswith("http://localhost:8000/?sid=sid_0")
+    assert "127.0.0.1" not in opened["url"]
     assert "compare_sid=sid_1" in opened["url"]
     assert f"compare_sids={compare_sid_csv}" in opened["url"]
+
+
+def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
+    monkeypatch, tmp_path
+):
+    base = str(tmp_path / "base.npy")
+    overlay = str(tmp_path / "overlay.npy")
+    np.save(base, np.zeros((8, 8, 4), dtype=np.float32))
+    np.save(overlay, np.ones((8, 8, 4), dtype=np.float32))
+    opened = {}
+    requests = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "arrayview",
+            base,
+            "--overlay",
+            overlay,
+            "--dims",
+            "1,2",
+            "--browser",
+        ],
+    )
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        _record_opened_url(opened),
+    )
+
+    def fake_urlopen(req, timeout=5):
+        body = json.loads((req.data or b"{}").decode())
+        requests.append(body)
+        fp = body.get("filepath")
+        if fp == overlay:
+            return _DummyResponse({"sid": "sid_overlay", "name": "overlay.npy"})
+        if fp == base:
+            return _DummyResponse({"sid": "sid_base", "name": "base.npy"})
+        return _DummyResponse({"error": f"unexpected filepath: {fp}"})
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    assert [body["filepath"] for body in requests] == [overlay, base]
+    assert opened["url"] == (
+        "http://localhost:8000/?sid=sid_base"
+        "&overlay_sid=sid_overlay"
+        "&dim_x=1"
+        "&dim_y=2"
+    )
 
 
 def test_cli_vectorfield_components_dim_is_sent_to_attach(monkeypatch, tmp_path):

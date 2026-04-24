@@ -854,6 +854,51 @@ class TestViewHandle:
         assert h == "http://localhost:8123/?sid=abc"
 
 
+class TestLauncherUrlHelpers:
+    """Pure URL helper tests; no server required."""
+
+    def test_viewer_url_preserves_existing_query_shape(self):
+        from arrayview._launcher import _viewer_url
+
+        assert _viewer_url(
+            8123,
+            "base",
+            compare_sids=["cmp1", "cmp2"],
+            overlay_sids=["ov1", "ov2"],
+            overlay_colors=["ff4444", "44cc44"],
+            dims=(0, 2),
+            inline=True,
+        ) == (
+            "http://localhost:8123/?sid=base"
+            "&overlay_sid=ov1,ov2"
+            "&overlay_colors=ff4444,44cc44"
+            "&compare_sid=cmp1"
+            "&compare_sids=cmp1,cmp2"
+            "&dim_x=0"
+            "&dim_y=2"
+            "&inline=1"
+        )
+
+    def test_viewer_path_matches_browser_url_path(self):
+        from arrayview._launcher import _viewer_path
+
+        assert _viewer_path("base", compare_sids=["cmp"]) == (
+            "/?sid=base&compare_sid=cmp&compare_sids=cmp"
+        )
+
+    def test_shell_url_uses_localhost_and_existing_name_encoding(self):
+        from arrayview._launcher import _shell_url
+
+        assert _shell_url(
+            9000, "base", "sample volume", compare_sids=["cmp1", "cmp2"]
+        ) == (
+            "http://localhost:9000/shell?init_sid=base"
+            "&init_name=sample%20volume"
+            "&init_compare_sid=cmp1"
+            "&init_compare_sids=cmp1,cmp2"
+        )
+
+
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
 # ---------------------------------------------------------------------------

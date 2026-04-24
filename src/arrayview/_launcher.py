@@ -680,6 +680,93 @@ _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
 
 
+type _CSVValues = str | list[str] | tuple[str, ...]
+type _CompareSids = list[str] | tuple[str, ...]
+
+
+def _join_query_values(values: _CSVValues) -> str:
+    if isinstance(values, str):
+        return values
+    return ",".join(str(value) for value in values)
+
+
+def _viewer_query(
+    sid: str,
+    *,
+    compare_sids: _CompareSids | None = None,
+    overlay_sids: _CSVValues | None = None,
+    overlay_colors: _CSVValues | None = None,
+    dims: tuple[int, int] | None = None,
+    inline: bool = False,
+) -> str:
+    parts = [f"sid={sid}"]
+    if overlay_sids:
+        parts.append(f"overlay_sid={_join_query_values(overlay_sids)}")
+    if overlay_colors:
+        parts.append(f"overlay_colors={_join_query_values(overlay_colors)}")
+    if compare_sids:
+        parts.append(f"compare_sid={compare_sids[0]}")
+        parts.append(f"compare_sids={_join_query_values(compare_sids)}")
+    if dims is not None:
+        parts.append(f"dim_x={dims[0]}")
+        parts.append(f"dim_y={dims[1]}")
+    if inline:
+        parts.append("inline=1")
+    return "?" + "&".join(parts)
+
+
+def _viewer_path(
+    sid: str,
+    *,
+    compare_sids: _CompareSids | None = None,
+    overlay_sids: _CSVValues | None = None,
+    overlay_colors: _CSVValues | None = None,
+    dims: tuple[int, int] | None = None,
+    inline: bool = False,
+) -> str:
+    return "/" + _viewer_query(
+        sid,
+        compare_sids=compare_sids,
+        overlay_sids=overlay_sids,
+        overlay_colors=overlay_colors,
+        dims=dims,
+        inline=inline,
+    )
+
+
+def _viewer_url(
+    port: int,
+    sid: str,
+    *,
+    compare_sids: _CompareSids | None = None,
+    overlay_sids: _CSVValues | None = None,
+    overlay_colors: _CSVValues | None = None,
+    dims: tuple[int, int] | None = None,
+    inline: bool = False,
+) -> str:
+    return f"http://localhost:{port}" + _viewer_path(
+        sid,
+        compare_sids=compare_sids,
+        overlay_sids=overlay_sids,
+        overlay_colors=overlay_colors,
+        dims=dims,
+        inline=inline,
+    )
+
+
+def _shell_url(
+    port: int, sid: str, name: str, *, compare_sids: _CompareSids | None = None
+) -> str:
+    parts = [
+        f"init_sid={sid}",
+        f"init_name={urllib.parse.quote(str(name))}",
+    ]
+    if compare_sids:
+        parts.append(f"init_compare_sid={compare_sids[0]}")
+        parts.append(f"init_compare_sids={_join_query_values(compare_sids)}")
+    return f"http://localhost:{port}/shell?" + "&".join(parts)
+
+
 def _jupyter_base_url_prefix() -> str:
     for key in (
         "ARRAYVIEW_JUPYTER_BASE_URL",
@@ -1180,7 +1267,6 @@ def view(
             if "error" in result:
                 raise RuntimeError(result["error"])
             sid = result["sid"]
-            url_viewer = f"http://localhost:{port}/?sid={sid}"
 
             # Load compare arrays (arrays[1:])
             _compare_sids = []
@@ -1207,14 +1293,14 @@ def view(
                     raise RuntimeError(_cresult["error"])
                 _compare_sids.append(_cresult["sid"])
 
-            if _compare_sids:
-                url_viewer += f"&compare_sid={_compare_sids[0]}"
-                url_viewer += f"&compare_sids={','.join(_compare_sids)}"
+            url_viewer = _viewer_url(port, sid, compare_sids=_compare_sids)
 
             if inline:
                 from IPython.display import IFrame, display as _ipy_display
 
-                _inline_url = url_viewer + "&inline=1"
+                _inline_url = _viewer_url(
+                    port, sid, compare_sids=_compare_sids, inline=True
+                )
                 if _should_use_jupyter_proxy_inline():
                     _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
                     if n_arrays == 1:
@@ -1344,11 +1430,9 @@ def view(
             try:
                 wp = _session_mod._window_process
                 if wp is None or wp.poll() is not None:
-                    encoded_name_early = urllib.parse.quote(name)
-                    url_shell_early = f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name_early}"
-                    if _compare_sids:
-                        url_shell_early += f"&init_compare_sid={_compare_sids[0]}"
-                        url_shell_early += f"&init_compare_sids={','.join(_compare_sids)}"
+                    url_shell_early = _shell_url(
+                        port, session.sid, name, compare_sids=_compare_sids
+                    )
                     _session_mod._window_process = _open_webview_with_fallback(
                         url_shell_early, win_w, win_h, shell_port=port, floating=floating
                     )
@@ -1379,26 +1463,29 @@ def view(
     # SERVER_LOOP is set as the first statement of _serve_background, before
     # _server_ready_event fires, so it is guaranteed non-None by this point.
 
-    url_viewer = f"http://localhost:{port}/?sid={session.sid}"
-    if _overlay_sids:
-        url_viewer += f"&overlay_sid={','.join(_overlay_sids)}"
-        url_viewer += f"&overlay_colors={','.join(_overlay_colors)}"
-    if _compare_sids:
-        url_viewer += f"&compare_sid={_compare_sids[0]}"
-        url_viewer += f"&compare_sids={','.join(_compare_sids)}"
-    encoded_name = urllib.parse.quote(name)
-    url_shell = (
-        f"http://localhost:{port}/shell?init_sid={session.sid}&init_name={encoded_name}"
+    url_viewer = _viewer_url(
+        port,
+        session.sid,
+        compare_sids=_compare_sids,
+        overlay_sids=_overlay_sids,
+        overlay_colors=_overlay_colors,
     )
-    if _compare_sids:
-        url_shell += f"&init_compare_sid={_compare_sids[0]}"
-        url_shell += f"&init_compare_sids={','.join(_compare_sids)}"
+    url_shell = _shell_url(
+        port, session.sid, name, compare_sids=_compare_sids
+    )
 
     if inline:
         from IPython.display import IFrame, display as _ipy_display
 
         # Add inline=1 param so the viewer starts in immersive mode
-        _inline_url = url_viewer + "&inline=1"
+        _inline_url = _viewer_url(
+            port,
+            session.sid,
+            compare_sids=_compare_sids,
+            overlay_sids=_overlay_sids,
+            overlay_colors=_overlay_colors,
+            inline=True,
+        )
         if _should_use_jupyter_proxy_inline():
             _inline_html = _make_jupyter_proxy_inline_html(_inline_url, port, height)
             if n_arrays == 1:
@@ -1422,11 +1509,12 @@ def view(
             try:
                 server_loop = _session_mod.SERVER_LOOP
                 if server_loop is not None:
-                    tab_url = f"/?sid={session.sid}"
-                    if _compare_sids:
-                        tab_url += f"&compare_sid={_compare_sids[0]}&compare_sids={','.join(_compare_sids)}"
-                    if _overlay_sids:
-                        tab_url += f"&overlay_sid={','.join(_overlay_sids)}&overlay_colors={','.join(_overlay_colors)}"
+                    tab_url = _viewer_path(
+                        session.sid,
+                        compare_sids=_compare_sids,
+                        overlay_sids=_overlay_sids,
+                        overlay_colors=_overlay_colors,
+                    )
                     asyncio.run_coroutine_threadsafe(
                         _server_mod()._notify_shells(session.sid, name, url=tab_url, wait=True),
                         server_loop,
@@ -1679,13 +1767,12 @@ def _view_subprocess(
                 pass
             raise RuntimeError(f"ArrayView server failed to start on port {port}.")
 
-    url_viewer = f"http://localhost:{port}/?sid={sid}"
-    encoded_name = urllib.parse.quote(name)
-    url_shell = f"http://localhost:{port}/shell?init_sid={sid}&init_name={encoded_name}"
+    url_viewer = _viewer_url(port, sid)
+    url_shell = _shell_url(port, sid, name)
     _print_viewer_location(url_viewer)
 
     if inline:
-        _inline_url = url_viewer + "&inline=1"
+        _inline_url = _viewer_url(port, sid, inline=True)
         iframe_html = (
             f"<iframe src='{_inline_url}' width='100%'"
             f" height='{height}' frameborder='0'></iframe>"
@@ -2841,34 +2928,24 @@ def arrayview():
             sys.exit(1)
 
         sid = result["sid"]
-        encoded_name_inject = urllib.parse.quote(name)
-        qs = f"?sid={sid}"
-        if overlay_sid:
-            qs += f"&overlay_sid={overlay_sid}"
-        if compare_sids:
-            qs += f"&compare_sid={compare_sids[0]}"
-            qs += f"&compare_sids={','.join(compare_sids)}"
-        if dims_override:
-            qs += f"&dim_x={dims_override[0]}&dim_y={dims_override[1]}"
+        url = _viewer_url(
+            args.port,
+            sid,
+            compare_sids=compare_sids,
+            overlay_sids=overlay_sid,
+            dims=dims_override,
+        )
         if notify_webview and result.get("notified"):
             # Tab was injected into existing webview window (with or without compare)
             _vprint(f"Injected into existing window (port {args.port})")
         elif notify_webview and not result.get("notified"):
             # Native window was requested but the shell is gone — open a new native window.
-            init_qs = f"init_sid={sid}&init_name={encoded_name_inject}"
-            if compare_sids:
-                init_qs += (
-                    f"&init_compare_sid={compare_sids[0]}"
-                    f"&init_compare_sids={','.join(compare_sids)}"
-                )
-            url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
+            url_shell = _shell_url(args.port, sid, name, compare_sids=compare_sids)
             if not _open_webview_cli(url_shell, 1200, 800):
                 _vprint("[ArrayView] Falling back to browser", flush=True)
-                url = f"http://localhost:{args.port}/{qs}"
                 _print_viewer_location(url)
                 _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file, floating=args.floating)
         else:
-            url = f"http://localhost:{args.port}/{qs}"
             if getattr(args, "watch", False):
                 _start_watch_thread(base_file, sid, args.port)
             _open_browser(
@@ -2913,7 +2990,6 @@ def arrayview():
     overlay_files = list(args.overlay or [])
     overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
     overlay_sid = ",".join(overlay_sids) if overlay_sids else None
-    encoded_name = urllib.parse.quote(name)
 
     # Configure VS Code port settings before starting the server.
     if not use_webview:
@@ -2982,26 +3058,18 @@ def arrayview():
             print(f"Error while loading compare array {compare_file}: {e}")
             sys.exit(1)
 
-    qs = f"?sid={sid}"
-    if overlay_sid:
-        qs += f"&overlay_sid={overlay_sid}"
-    if compare_sids:
-        qs += f"&compare_sid={compare_sids[0]}"
-        qs += f"&compare_sids={','.join(compare_sids)}"
-    if dims_override:
-        qs += f"&dim_x={dims_override[0]}&dim_y={dims_override[1]}"
+    url = _viewer_url(
+        args.port,
+        sid,
+        compare_sids=compare_sids,
+        overlay_sids=overlay_sid,
+        dims=dims_override,
+    )
 
     if use_webview and overlay_sid is None:
-        init_qs = f"init_sid={sid}&init_name={encoded_name}"
-        if compare_sids:
-            init_qs += (
-                f"&init_compare_sid={compare_sids[0]}"
-                f"&init_compare_sids={','.join(compare_sids)}"
-            )
-        url_shell = f"http://localhost:{args.port}/shell?{init_qs}"
+        url_shell = _shell_url(args.port, sid, name, compare_sids=compare_sids)
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)
-            url = f"http://localhost:{args.port}/{qs}"
             _print_viewer_location(url)
             _open_browser(
                 url,
@@ -3016,7 +3084,6 @@ def arrayview():
                 "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
                 flush=True,
             )
-        url = f"http://localhost:{args.port}/{qs}"
         _print_viewer_location(url)
         if is_remote and sys.stdin.isatty():
             # New server, tunnel mode: wait for user to set port Public before
