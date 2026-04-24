@@ -1,5 +1,6 @@
 """Layer 1: HTTP API tests (no browser required, runs in seconds)."""
 
+import base64
 import io
 import inspect
 import os
@@ -99,6 +100,58 @@ class TestLoad:
         np.save(tmp_path / "coolarray.npy", arr_2d)
         r = client.post("/load", json={"filepath": str(tmp_path / "coolarray.npy")})
         assert r.json()["name"] == "coolarray.npy"
+
+
+class TestFsList:
+    def test_fs_list_filters_supported_entries_and_overlay_shapes(
+        self, client, sid_2d, tmp_path, monkeypatch
+    ):
+        import arrayview._routes_loading as routes_loading
+
+        monkeypatch.setattr(routes_loading.os.path, "expanduser", lambda _p: str(tmp_path))
+
+        good = tmp_path / "good.npy"
+        bad = tmp_path / "bad.npy"
+        note = tmp_path / "note.txt"
+        child = tmp_path / "child"
+        child.mkdir()
+
+        np.save(good, np.zeros((100, 80), dtype=np.float32))
+        np.save(bad, np.zeros((100, 81), dtype=np.float32))
+        note.write_text("ignore me")
+
+        r = client.get(
+            "/fs/list",
+            params={"path": str(tmp_path), "base_sid": sid_2d, "mode": "overlay"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["cwd"] == str(tmp_path)
+        names = [entry["name"] for entry in body["entries"]]
+        assert "child" in names
+        assert "good.npy" in names
+        assert "bad.npy" not in names
+        assert "note.txt" not in names
+
+
+class TestLoadBytes:
+    def test_load_bytes_creates_session_and_uses_localhost_url(self, client, monkeypatch):
+        import arrayview._session as session_mod
+        import arrayview._vscode as vscode
+
+        opened = []
+        monkeypatch.setattr(vscode, "_open_via_signal_file", opened.append)
+        monkeypatch.setattr(session_mod, "SERVER_PORT", 8123)
+
+        buf = io.BytesIO()
+        np.save(buf, np.arange(12, dtype=np.float32).reshape(3, 4))
+        payload = base64.b64encode(buf.getvalue()).decode("ascii")
+
+        r = client.post("/load_bytes", json={"data_b64": payload, "name": "remote.npy"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["url"] == f"http://localhost:8123/?sid={body['sid']}"
+        assert opened == [body["url"]]
 
 
 # ---------------------------------------------------------------------------

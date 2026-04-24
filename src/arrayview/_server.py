@@ -17,11 +17,9 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
-    File,
     HTTPException,
     Request,
     Response,
-    UploadFile,
     WebSocket,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -79,9 +77,10 @@ from arrayview._diff import (
     _render_normalized,
     _render_normalized_mosaic,
 )
-from arrayview._io import load_data, _SUPPORTED_EXTS, _peek_file_shape
+from arrayview._io import load_data
 from arrayview._overlays import _composite_overlays
 from arrayview._routes_analysis import register_analysis_routes
+from arrayview._routes_loading import register_loading_routes
 from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
 from arrayview._vectorfield import (
     _MAX_VFIELD_ARROWS,
@@ -697,6 +696,7 @@ def get_session_or_404(sid: str) -> "Session":
 
 
 register_analysis_routes(app, get_session_or_404)
+register_loading_routes(app, notify_shells=_notify_shells, setup_rgb=_setup_rgb)
 
 # ── REST Routes: Cache, Metadata, and Session Management ─────────
 
@@ -2499,325 +2499,6 @@ async def get_exploded_slices(
         results.append({"index": slice_idx, "image": f"data:image/jpeg;base64,{b64}"})
 
     return JSONResponse({"slices": results})
-
-
-# ── REST Routes: File Loading and Session Listing ────────────────
-
-
-@app.post("/load")
-async def load_file(request: Request):
-    """Load a file into a new session. Optionally notify webview shells."""
-    body = await request.json()
-    filepath = str(body["filepath"])
-    name = str(body.get("name") or os.path.basename(filepath))
-    notify = bool(body.get("notify", False))
-    # Dedup: if the same file is already loaded, return the existing session.
-    abs_path = os.path.abspath(filepath)
-    for existing in SESSIONS.values():
-        if existing.filepath and os.path.abspath(existing.filepath) == abs_path:
-            return {"sid": existing.sid, "name": existing.name, "notified": False}
-    # RAM guard: block full-load formats that would exceed available memory.
-    if not os.environ.get("ARRAYVIEW_SKIP_RAM_GUARD"):
-        from ._io import FULL_LOAD_EXTS
-        ext = os.path.splitext(filepath)[1].lower()
-        # Handle double extensions like .nii.gz (not relevant here but consistent)
-        if filepath.lower().endswith(".nii.gz"):
-            ext = ".nii.gz"
-        if ext in FULL_LOAD_EXTS:
-            try:
-                import psutil
-                file_size = os.path.getsize(abs_path)
-                available = psutil.virtual_memory().available
-                if file_size > available:
-                    return JSONResponse(
-                        {
-                            "error": "insufficient_memory",
-                            "estimated_bytes": file_size,
-                            "available_bytes": available,
-                            "filename": os.path.basename(filepath),
-                        },
-                        status_code=507,
-                    )
-            except ImportError:
-                pass  # psutil not available — skip guard
-    try:
-        from ._io import load_data_with_meta
-        data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath)
-    except Exception as e:
-        return {"error": str(e)}
-    session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)
-    if spatial_meta is not None:
-        session.spatial_meta = spatial_meta
-        session.original_volume = data
-    if body.get("rgb"):
-        try:
-            await asyncio.to_thread(_setup_rgb, session)
-        except ValueError as e:
-            return {"error": str(e)}
-    SESSIONS[session.sid] = session
-    notified = False
-    if notify:
-        tab_url = None
-        if body.get("compare_sids"):
-            tab_url = (
-                f"/?sid={session.sid}"
-                f"&compare_sid={body['compare_sid']}"
-                f"&compare_sids={body['compare_sids']}"
-            )
-        # wait=False: the shell window should already be connected for inject-into-existing.
-        # If no shells are connected the native window is gone and the caller must open a new one.
-        notified = await _notify_shells(session.sid, name, url=tab_url, wait=False)
-    return {"sid": session.sid, "name": name, "notified": notified}
-
-
-def _peek_shape(path: str) -> tuple | None:
-    """Cheaply read the shape of an array file without loading its data.
-
-    Returns None if the format cannot be inspected cheaply (callers should
-    treat unknown-shape entries as "unfiltered" — show but don't claim
-    compatibility).
-    """
-    lower = path.lower()
-    try:
-        if lower.endswith(".npy"):
-            with open(path, "rb") as f:
-                try:
-                    version = np.lib.format.read_magic(f)
-                    if version == (1, 0):
-                        shape, _, _ = np.lib.format.read_array_header_1_0(f)
-                    elif version == (2, 0):
-                        shape, _, _ = np.lib.format.read_array_header_2_0(f)
-                    else:
-                        return None
-                    return tuple(int(s) for s in shape)
-                except Exception:
-                    return None
-        if lower.endswith(".nii") or lower.endswith(".nii.gz"):
-            try:
-                import nibabel as nib  # lazy
-                img = nib.load(path, mmap=True)
-                return tuple(int(s) for s in img.shape)
-            except Exception:
-                return None
-        if lower.endswith(".h5") or lower.endswith(".hdf5"):
-            try:
-                import h5py  # lazy
-                with h5py.File(path, "r") as f:
-                    keys = list(f.keys())
-                    if len(keys) == 1:
-                        return tuple(int(s) for s in f[keys[0]].shape)
-            except Exception:
-                return None
-        if lower.endswith(".zarr"):
-            try:
-                import json
-                zarr_meta = os.path.join(path, ".zarray")
-                if os.path.isfile(zarr_meta):
-                    with open(zarr_meta) as f:
-                        return tuple(int(s) for s in json.load(f).get("shape", []))
-            except Exception:
-                return None
-    except Exception:
-        return None
-    return None
-
-
-def _shape_compatible(base: tuple, cand: tuple, mode: str) -> bool:
-    """Check if cand is shape-compatible with base for the given mode.
-
-    overlay: shapes must be identical.
-    vectorfield: cand must equal base plus exactly one inserted axis of size 3.
-    """
-    if not base or not cand:
-        return True  # don't hide entries with unknown shape
-    if mode == "overlay":
-        return tuple(base) == tuple(cand)
-    if mode == "vectorfield":
-        if len(cand) != len(base) + 1:
-            return False
-        # cand must contain base's dims in order plus one size-3 axis somewhere.
-        for drop_idx in range(len(cand)):
-            if cand[drop_idx] == 3 and tuple(cand[:drop_idx] + cand[drop_idx + 1:]) == tuple(base):
-                return True
-        return False
-    return True
-
-
-@app.get("/fs/list")
-def fs_list(
-    path: str | None = None,
-    base_sid: str | None = None,
-    mode: str | None = None,
-):
-    """List directory entries for the filesystem picker.
-
-    Clamped to the user's home directory — attempts to escape are rewritten
-    back to $HOME. File entries are filtered to arrayview-supported extensions.
-
-    If base_sid + mode are provided, incompatible files (by header shape) are
-    hidden. Files whose shape can't be determined cheaply are kept.
-    """
-    from ._io import _SUPPORTED_EXTS
-
-    home = os.path.realpath(os.path.expanduser("~"))
-    target = os.path.realpath(path) if path else home
-    if not target.startswith(home):
-        target = home
-    if not os.path.isdir(target):
-        target = home
-
-    base_shape: tuple | None = None
-    if base_sid and mode in ("overlay", "vectorfield"):
-        s = SESSIONS.get(base_sid)
-        if s is not None:
-            base_shape = tuple(int(x) for x in s.shape)
-
-    entries: list[dict] = []
-    try:
-        with os.scandir(target) as it:
-            for e in it:
-                try:
-                    if e.name.startswith("."):
-                        continue
-                    is_dir = e.is_dir(follow_symlinks=False)
-                    if is_dir:
-                        entries.append({
-                            "name": e.name,
-                            "path": os.path.join(target, e.name),
-                            "is_dir": True,
-                            "size": None,
-                        })
-                    else:
-                        lower = e.name.lower()
-                        ext = (
-                            ".nii.gz" if lower.endswith(".nii.gz")
-                            else ".zarr.zip" if lower.endswith(".zarr.zip")
-                            else os.path.splitext(lower)[1]
-                        )
-                        if ext not in _SUPPORTED_EXTS:
-                            continue
-                        full = os.path.join(target, e.name)
-                        shape = None
-                        if base_shape is not None:
-                            shape = _peek_shape(full)
-                            if not _shape_compatible(base_shape, shape, mode or ""):
-                                continue
-                        st = e.stat(follow_symlinks=False)
-                        entries.append({
-                            "name": e.name,
-                            "path": full,
-                            "is_dir": False,
-                            "size": int(st.st_size),
-                            "shape": list(shape) if shape else None,
-                        })
-                except (OSError, PermissionError):
-                    continue
-    except (OSError, PermissionError) as e:
-        return {"error": str(e)}
-
-    entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-
-    parent = os.path.dirname(target) if target != home else None
-    if parent and not parent.startswith(home):
-        parent = None
-
-    return {"cwd": target, "parent": parent, "home": home, "entries": entries}
-
-
-@app.post("/load-upload")
-async def load_upload(file: UploadFile = File(...)):
-    """Accept a drag-and-dropped .npy or .mat file and create a new session.
-
-    The browser reads the file bytes locally via FileReader and POSTs them here
-    as multipart/form-data.  Works in all environments because no file path is
-    needed — the bytes travel over HTTP regardless of whether the server is
-    local or remote.
-    """
-    import tempfile
-
-    filename = file.filename or "array"
-    ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
-    if ext not in (".npy", ".mat"):
-        raise HTTPException(
-            status_code=400, detail=f"Unsupported file type: {ext or '(none)'}"
-        )
-
-    contents = await file.read()
-    # Save to a temp file so the existing load_data() path handles format detection
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-        tmp.write(contents)
-        tmp_path = tmp.name
-
-    try:
-        data = await asyncio.to_thread(load_data, tmp_path)
-    except Exception as e:
-        os.unlink(tmp_path)
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    name = filename
-    session = await asyncio.to_thread(Session, data, name=name)
-    SESSIONS[session.sid] = session
-    await _notify_shells(session.sid, name, wait=False)
-    resp_shape = [
-        int(s)
-        for s in (
-            session.spatial_shape
-            if session.rgb_axis is not None
-            else session.shape
-        )
-    ]
-    return {"sid": session.sid, "name": name, "shape": resp_shape}
-
-
-@app.post("/load_bytes")
-async def load_bytes_endpoint(request: Request):
-    """Relay endpoint: accept a base64-encoded .npy array from a remote machine.
-
-    Used when arrayview runs on a machine that reaches this server via a reverse
-    SSH tunnel (``ssh -R PORT:localhost:PORT remote``).  The remote arrayview
-    loads the file locally, serialises it as .npy bytes, and POSTs them here.
-    This server creates the session and writes the VS Code signal file so Simple
-    Browser opens automatically on the tunnel-remote side.
-    """
-    import base64
-
-    body = await request.json()
-    data_b64 = body.get("data_b64", "")
-    name = str(body.get("name") or "array")
-    rgb = bool(body.get("rgb", False))
-
-    try:
-        raw = base64.b64decode(data_b64)
-        arr = np.load(io.BytesIO(raw))
-    except Exception as e:
-        return {"error": f"Failed to decode array: {e}"}
-
-    session = await asyncio.to_thread(Session, arr, name=name)
-    if rgb:
-        try:
-            await asyncio.to_thread(_setup_rgb, session)
-        except ValueError as e:
-            return {"error": str(e)}
-    SESSIONS[session.sid] = session
-
-    # Use the actual server port (not the request URL port, which reflects the
-    # client's Host header and would be wrong if arriving via a reverse SSH tunnel).
-    import arrayview._session as _sm
-
-    port = _sm.SERVER_PORT or 8000
-    url = f"http://localhost:{port}/?sid={session.sid}"
-
-    # Write the signal file so the VS Code extension on this host opens a viewer tab.
-    from arrayview._vscode import _open_via_signal_file
-
-    _open_via_signal_file(url)
-
-    return {"sid": session.sid, "url": url}
 
 
 # ── Oblique Preset Routes ─────────────────────────────────────────
