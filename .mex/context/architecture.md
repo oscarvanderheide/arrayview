@@ -18,7 +18,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-04-15
+last_updated: 2026-04-24
 ---
 
 # Architecture
@@ -33,6 +33,8 @@ CLI / Python API (view() or uvx arrayview <file>)
 Server (either mode)
    ├─ _session.py   Session objects, global state, render thread, caches
    ├─ _render.py    extract_slice → apply_complex_mode → render_rgba → PNG pipeline
+   ├─ _diff.py / _overlays.py / _vectorfield.py
+   │                Shared helpers used by FastAPI and stdio transports
    └─ _io.py        load_data() — npy/npz/nii/zarr/h5/mat/tif/pt routing
 
 Browser (_viewer.html — single self-contained HTML+JS+CSS file)
@@ -52,11 +54,12 @@ pywebview, or system browser).
 - **`_server.py`** — FastAPI app with all REST and WebSocket routes (`/meta/{sid}`, `/load`, `/slice`, `/ws/{sid}`, `/seg/*`, `/reload`, etc.). Dispatches render work to the render thread via `_render()` from `_session.py`.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
+- **`_diff.py`, `_overlays.py`, `_vectorfield.py`** — Shared backend helpers for compare/diff rendering, overlay compositing, vector field validation, and arrow sampling. Imported by both `_server.py` and `_stdio_server.py`.
 - **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii` and `.nii.gz`, `.zarr`, `.zarr.zip`, `.pt` and `.pth`, `.h5` and `.hdf5`, `.tif` and `.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
 - **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, webview panel and direct webview opening.
 - **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
-- **`_viewer.html`** — The entire frontend (~15 600 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
+- **`_viewer.html`** — The entire frontend (~24 100 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 
 ## Display Routing
 

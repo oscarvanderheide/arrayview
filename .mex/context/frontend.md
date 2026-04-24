@@ -23,18 +23,18 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-04-17
+last_updated: 2026-04-24
 ---
 
 # Frontend (_viewer.html)
 
-~15 600 lines. Single file, no build step. All CSS and JS inline.
+~24 100 lines. Single file, no build step. All CSS and JS inline.
 
 ## Section Organization
 
 Section separators: `/* ── Section Name ── */` in CSS, `// ── Section Name ──` in JS.
 
-**CSS (lines ~7–1500)**
+**CSS (lines ~7–2059)**
 | Section | What it covers |
 |---------|----------------|
 | Theme Variables and Base Layout | CSS custom properties, dark theme palette, root layout grid |
@@ -44,7 +44,7 @@ Section separators: `/* ── Section Name ── */` in CSS, `// ── Sectio
 | Help and Info Overlays | Help shortcut overlay, array-info panel |
 | Immersive, Fullscreen, and Compact Mode | Zen mode hide rules, fullscreen layout, compact overrides |
 
-**JavaScript (lines ~1500–14750)**
+**JavaScript (lines ~2439–24103)**
 | Section | What it covers |
 |---------|----------------|
 | Constants and Transport Setup | WS URL construction, stdio/postMessage transport abstraction |
@@ -90,7 +90,7 @@ Section separators: `/* ── Section Name ── */` in CSS, `// ── Sectio
 
 ## Key Concepts
 
-### Reconcilers (~line 13666)
+### Reconcilers (~line 22075)
 Four functions enforcing consistent UI state across mode changes:
 1. **Unified UI reconciler** — master state enforcer
 2. **Layout container visibility reconciler** — show/hide mode-specific containers
@@ -104,7 +104,7 @@ Three tables: `commands` (id → `{title, when, run}`), `keybinds` (key+modifier
 
 **Rule:** When adding or changing a keybind, update both `commands`/`keybinds` tables AND `GUIDE_TABS` (the static data structure that renders the help overlay). Do not edit overlay HTML directly.
 
-### View Component System (Phases 1–15 complete)
+### View Component System (Phases 1–17 mostly complete)
 Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside the legacy render pipeline.
 
 | Primitive | What it owns |
@@ -120,7 +120,7 @@ Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside 
 
 **Dual-write pattern:** Where commands update legacy globals (`logScale`, `colormap_idx`, etc.), they also write to `view.displayState.xField` so both systems stay in sync.
 
-**Shim layer (Section 7):** `Object.defineProperty(window, 'manualVmin', …)` intercepts all bare writes to `manualVmin`/`manualVmax` (27 sites) and routes them to `modeManager.currentViews[0].displayState.vmin/vmax`.
+**Manual range state:** `manualVmin` / `manualVmax` are regular state variables. Write sites must explicitly dual-write to `displayState.vmin` / `displayState.vmax`; the old `Object.defineProperty(window, …)` shim was removed.
 
 ### Plugin Shelf (`/` menu)
 `SPECIAL_MODE_TILES` array defines five plugins: qMRI, Segmentation, ROI, Overlay, Vector field. The shelf supports multi-select (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays — ROI ↔ Segmentation, and Overlay/Vector field are reciprocally exclusive with all other plugins. `_applyShelfSelection()` diffs current state against selection, exits removed plugins, then enters new ones wrapped in `crossfade()`. Overlay and Vector field auto-seed the shelf at init when arrays are present (`_overlaySids.length > 0`, `hasVectorfield`); their per-tile state lives in `_shelfSelection.has(id)` since there is no separate mode flag.

@@ -12,6 +12,8 @@ CLI / Python API
 Server (either mode)
    ├─ _session.py    Session objects, caches, render thread
    ├─ _render.py     Slice extraction → RGBA → PNG pipeline
+   ├─ _diff.py / _overlays.py / _vectorfield.py
+   │                 Shared backend helpers used by FastAPI and stdio
    └─ _io.py         File loading (numpy, nifti, zarr, DICOM, …)
 
 Frontend (_viewer.html — single self-contained HTML file)
@@ -43,25 +45,28 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_app.py` | 179 | Backward-compat shim — re-exports everything from the split modules |
 | `_config.py` | 121 | `~/.arrayview/config.toml` read/write, valid window modes/env keys |
 | `_io.py` | 253 | Data loading: numpy, NIfTI (lazy nibabel), zarr, DICOM, raw files |
-| `_launcher.py` | 2817 | **Main entry.** CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay, demo arrays, file watching |
+| `_diff.py` | 218 | Shared compare/diff normalization, colorization, and histograms |
+| `_launcher.py` | 3052 | **Main entry.** CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay, demo arrays, file watching |
+| `_overlays.py` | 61 | Shared segmentation/label overlay compositing |
 | `_platform.py` | 396 | Environment detection: Jupyter, VS Code, SSH, tunnel, Julia, native-window capability |
 | `_render.py` | 834 | Rendering pipeline: colormap LUTs, slice extraction, RGBA/RGB/mosaic rendering, overlay compositing, preload |
 | `_segmentation.py` | 227 | nnInteractive segmentation client (pure HTTP, no nnInteractive dependency) |
-| `_server.py` | 3258 | FastAPI app, all REST + WebSocket routes, HTML template serving |
+| `_server.py` | 3863 | FastAPI app, all REST + WebSocket routes, HTML template serving |
 | `_session.py` | 344 | `Session` class, global state (sockets, loops), render thread, prefetch, cache budgets, constants |
-| `_stdio_server.py` | 791 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
+| `_stdio_server.py` | 900 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
 | `_torch.py` | 217 | PyTorch integration: `view_batch()`, `TrainingMonitor` (lazy torch import) |
+| `_vectorfield.py` | 231 | Shared vector field layout validation and arrow sampling |
 | `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, shared-memory IPC, browser opening |
-| `_viewer.html` | 15600 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
+| `_viewer.html` | 24103 | **The entire frontend** — CSS + JS in a single file, all viewing modes |
 | `_shell.html` | 174 | Tab-bar shell for native pywebview — wraps viewer iframes, manages multi-tab sessions |
 
 ## Frontend (_viewer.html)
 
-The frontend is a single self-contained HTML file (~15k lines). No build step, no external dependencies. Organized by section separators (`/* ── Section Name ── */` for CSS, `// ── Section Name ──` for JS).
+The frontend is a single self-contained HTML file (~24k lines). No build step, no external dependencies. Organized by section separators (`/* ── Section Name ── */` for CSS, `// ── Section Name ──` for JS).
 
 ### Major Sections
 
-**CSS (lines ~7–1500)**
+**CSS (lines ~7–2059)**
 | Section | What it covers |
 |---------|----------------|
 | Theme Variables and Base Layout | CSS custom properties, dark theme palette, root layout grid |
@@ -71,7 +76,7 @@ The frontend is a single self-contained HTML file (~15k lines). No build step, n
 | Help and Info Overlays | Help shortcut overlay, array-info panel |
 | Immersive, Fullscreen, and Compact Mode | Zen mode hide rules, fullscreen layout, compact overrides |
 
-**JavaScript (lines ~1500–14750)**
+**JavaScript (lines ~2439–24103)**
 | Section | What it covers |
 |---------|----------------|
 | Constants and Transport Setup | WS URL construction, stdio/postMessage transport abstraction |
@@ -122,7 +127,7 @@ Each viewing mode uses a specific scale function and reconciler set:
 ### CSS Architecture
 
 - **Dark theme only.** Background `#0c0c0c`, text `#d8d8d8`, accents in yellow (`#f5c842`).
-- **Monospace UI.** Font: system monospace for data, system sans-serif for labels.
+- **Monospace UI.** All text uses the system monospace stack.
 - **No CSS framework.** All custom properties defined in `:root`.
 - **Mode-specific overrides** use `.immersive-mode`, `.compact-mode`, `.multiview-mode` classes on `body`.
 - **`av-loading` class** on `body` during initial load — hides UI until data arrives. Removal triggers layout.
@@ -161,7 +166,7 @@ A refactoring in progress that introduces a View/Layer/Slicer/LayoutStrategy/Mod
 
 **Dual-write pattern:** Where commands update legacy globals (`logScale`, `colormap_idx`, `complexMode`, `projectionMode`), they also write to `view.displayState.xField` so both systems stay in sync.
 
-**Shim layer (Section 7):** `Object.defineProperty(window, 'manualVmin', …)` intercepts all bare writes to `manualVmin` / `manualVmax` (27 sites) and routes them to `modeManager.currentViews[0].displayState.vmin/vmax`. To be deleted in a future cleanup after all write sites have explicit dual-writes.
+**Manual range state:** `manualVmin` / `manualVmax` are regular state variables. Write sites must explicitly dual-write to `displayState.vmin` / `displayState.vmax`; the old `Object.defineProperty(window, …)` shim was removed.
 
 **Status:** Phases 1–15 complete. Phase 12 (keybind collapse) and Phase 17 (final cleanup) pending completion of render-pipeline migration from legacy globals to `displayState`.
 
