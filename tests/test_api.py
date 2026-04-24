@@ -968,6 +968,26 @@ class TestLauncherDecisionHelpers:
         assert _should_notify_webview(False, None) is False
 
 
+class TestLauncherDimsHelpers:
+    def test_parse_dims_spec_accepts_xy_markers(self):
+        from arrayview._launcher import _parse_dims_spec
+
+        assert _parse_dims_spec("x,y,:,:") == (0, 1)
+        assert _parse_dims_spec(":,:,y,x") == (3, 2)
+
+    def test_parse_dims_spec_accepts_integer_pair(self):
+        from arrayview._launcher import _parse_dims_spec
+
+        assert _parse_dims_spec("2,3") == (2, 3)
+
+    def test_parse_dims_spec_rejects_invalid_specs(self):
+        from arrayview._launcher import _parse_dims_spec
+
+        assert _parse_dims_spec("x,x,:,:") is None
+        assert _parse_dims_spec("2,2") is None
+        assert _parse_dims_spec("abc") is None
+
+
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
 # ---------------------------------------------------------------------------

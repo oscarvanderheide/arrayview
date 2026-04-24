@@ -561,6 +561,38 @@ def _should_notify_webview(use_webview: bool, overlay_sid: str | None) -> bool:
     return use_webview and overlay_sid is None
 
 
+def _load_compare_sids(port: int, compare_files: list[str]) -> list[str]:
+    compare_sids: list[str] = []
+    for compare_file in compare_files:
+        cmp_result = _load_session_from_filepath(
+            port, compare_file, os.path.basename(compare_file)
+        )
+        if "error" in cmp_result:
+            raise RuntimeError(
+                f"Error from server while loading compare array: {cmp_result['error']}"
+            )
+        compare_sid = cmp_result.get("sid")
+        if compare_sid:
+            compare_sids.append(compare_sid)
+    return compare_sids
+
+
+def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
+    parts = [p.strip().lower() for p in spec.split(",")]
+    x_idx = next((i for i, p in enumerate(parts) if p == "x"), None)
+    y_idx = next((i for i, p in enumerate(parts) if p == "y"), None)
+    if x_idx is not None and y_idx is not None and x_idx != y_idx:
+        return (x_idx, y_idx)
+    if len(parts) == 2:
+        try:
+            a, b = int(parts[0]), int(parts[1])
+            if a >= 0 and b >= 0 and a != b:
+                return (a, b)
+        except ValueError:
+            pass
+    return None
+
+
 def _port_in_use(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -2521,23 +2553,6 @@ def arrayview():
         print(_json.dumps(diag, indent=2))
         return
 
-    # Parse --dims spec into (dim_x, dim_y) integers or None
-    def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
-        parts = [p.strip().lower() for p in spec.split(",")]
-        x_idx = next((i for i, p in enumerate(parts) if p == "x"), None)
-        y_idx = next((i for i, p in enumerate(parts) if p == "y"), None)
-        if x_idx is not None and y_idx is not None and x_idx != y_idx:
-            return (x_idx, y_idx)
-        # Fallback: try two integer indices like "2,3"
-        if len(parts) == 2:
-            try:
-                a, b = int(parts[0]), int(parts[1])
-                if a >= 0 and b >= 0 and a != b:
-                    return (a, b)
-            except ValueError:
-                pass
-        return None
-
     dims_override: tuple[int, int] | None = None
     if args.dims:
         dims_override = _parse_dims_spec(args.dims)
@@ -2890,19 +2905,7 @@ def arrayview():
                     overlay_sids_list.append(ov_sid)
             overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
 
-            compare_sids = []
-            for compare_file in compare_files:
-                cmp_result = _load_session_from_filepath(
-                    args.port, compare_file, os.path.basename(compare_file)
-                )
-                if "error" in cmp_result:
-                    print(
-                        f"Error from server while loading compare array: {cmp_result['error']}"
-                    )
-                    sys.exit(1)
-                compare_sid = cmp_result.get("sid")
-                if compare_sid:
-                    compare_sids.append(compare_sid)
+            compare_sids = _load_compare_sids(args.port, compare_files)
 
             notify_webview = _should_notify_webview(use_webview, overlay_sid)
             result = _load_session_from_filepath(
@@ -3036,23 +3039,11 @@ def arrayview():
         )
         sys.exit(1)
 
-    compare_sids = []
-    for compare_file in compare_files:
-        try:
-            cmp_result = _load_session_from_filepath(
-                args.port, compare_file, os.path.basename(compare_file)
-            )
-            if "error" in cmp_result:
-                print(
-                    f"Error from server while loading compare array: {cmp_result['error']}"
-                )
-                sys.exit(1)
-            compare_sid = cmp_result.get("sid")
-            if compare_sid:
-                compare_sids.append(compare_sid)
-        except Exception as e:
-            print(f"Error while loading compare array {compare_file}: {e}")
-            sys.exit(1)
+    try:
+        compare_sids = _load_compare_sids(args.port, compare_files)
+    except Exception as e:
+        print(f"Error while loading compare array: {e}")
+        sys.exit(1)
 
     url = _viewer_url(
         args.port,
