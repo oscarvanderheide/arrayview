@@ -18,7 +18,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-04-24
+last_updated: 2026-04-25
 ---
 
 # Architecture
@@ -27,7 +27,7 @@ last_updated: 2026-04-24
 
 ```
 CLI / Python API (view() or uvx arrayview <file>)
-   └─ _launcher.py  →  FastAPI server (_server.py, uvicorn)   [network mode]
+  └─ _launcher.py  →  FastAPI server (_server.py + _routes_*.py, uvicorn)   [network mode]
                     →  _stdio_server.py                        [VS Code direct webview]
 
 Server (either mode)
@@ -38,8 +38,8 @@ Server (either mode)
    └─ _io.py        load_data() — npy/npz/nii/zarr/h5/mat/tif/pt routing
 
 Browser (_viewer.html — single self-contained HTML+JS+CSS file)
-   ├─ WebSocket /ws/{sid}   binary PNG slices from server
-   ├─ GET /meta/{sid}       session metadata on first load
+  ├─ WebSocket /ws/{sid}   binary RGBA frames + metadata from server
+  ├─ GET /metadata/{sid}   session metadata fallback on first load
    └─ Canvas + UI           colorbars, eggs, dynamic islands, mode transitions
 ```
 
@@ -51,7 +51,8 @@ pywebview, or system browser).
 ## Key Components
 
 - **`_launcher.py`** — CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay (`--relay`), file watching. Heavy imports (`_session`, `_render`, `_io`, uvicorn) are all lazy to keep the CLI fast path near-zero cost.
-- **`_server.py`** — FastAPI app with all REST and WebSocket routes (`/meta/{sid}`, `/load`, `/slice`, `/ws/{sid}`, `/seg/*`, `/reload`, etc.). Dispatches render work to the render thread via `_render()` from `_session.py`.
+- **`_server.py`** — FastAPI app initialization, route-registration orchestrator, and infrastructure routes. Feature domains are delegated to `_routes_*.py` modules via `register_*()` calls. Remaining inline routes are `/`, `/ping`, `/colormap/{name}`, `/shell`, and `/gsap.min.js`, plus shared helpers like `get_session_or_404()`.
+- **`_routes_*.py`** — Feature-route modules grouped by domain (analysis, loading, persistence, segmentation, state, query, export, preload, vectorfield, rendering, websocket transport). Each module exposes `register_*_routes(app, ...)` and keeps `_server.py` focused on assembly and shared dependencies.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
 - **`_analysis.py`, `_diff.py`, `_overlays.py`, `_vectorfield.py`** — Shared backend helpers for metadata, analysis endpoints, compare/diff rendering, overlay compositing, vector field validation, and arrow sampling. Imported by both `_server.py` and `_stdio_server.py`.

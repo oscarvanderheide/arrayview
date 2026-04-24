@@ -7,13 +7,7 @@ This module was extracted from _app.py during the modular refactor.
 
 import json
 import os
-from fastapi import (
-    Body,
-    FastAPI,
-    HTTPException,
-    Request,
-    Response,
-)
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from importlib.resources import files as _pkg_files
 
@@ -25,8 +19,6 @@ from arrayview._session import (
     Session,
     SESSIONS,
     COLORMAPS,
-
-    _estimate_array_bytes,
 )
 import arrayview._session as _session_mod  # for mutable VIEWER_SOCKETS
 
@@ -34,28 +26,13 @@ from arrayview._render import (
     COLORMAP_GRADIENT_STOPS,
     COMPLEX_MODES,
     REAL_MODES,
-    PROJECTION_OPS,
     _init_luts,
     _ensure_lut,
     _setup_rgb,
-    _run_preload,
 )
-
-from arrayview._analysis import (
-    _safe_float,
-)
-from arrayview._diff import (
-    _render_normalized,
-    _render_normalized_mosaic,
-)
-from arrayview._io import load_data
 from arrayview._routes_analysis import register_analysis_routes
 from arrayview._routes_loading import register_loading_routes
-from arrayview._routes_persistence import (
-    _CROP_LOCK,
-    _CROP_STATE,
-    register_persistence_routes,
-)
+from arrayview._routes_persistence import register_persistence_routes
 from arrayview._routes_export import register_export_routes
 from arrayview._routes_preload import register_preload_routes
 from arrayview._routes_query import register_query_routes
@@ -65,10 +42,6 @@ from arrayview._routes_state import register_state_routes
 from arrayview._routes_vectorfield import register_vectorfield_routes
 from arrayview._routes_websocket import _notify_shells, register_websocket_routes
 from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
-from arrayview._vectorfield import (
-    _configure_vectorfield,
-    _vfield_n_times,
-)
 
 
 # ── Lazy PIL Import ───────────────────────────────────────────────

@@ -133,6 +133,13 @@ from arrayview._vscode import (  # noqa: F401
     _print_viewer_location,
     _open_browser,
 )
+from arrayview._analysis import _safe_float  # noqa: F401
+from arrayview._diff import (  # noqa: F401
+    _render_normalized,
+    _render_normalized_mosaic,
+)
+from arrayview._routes_websocket import _notify_shells  # noqa: F401
+from arrayview._vectorfield import _vfield_n_times  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # _server.py — FastAPI app, routes, WebSocket endpoints, HTML templates
@@ -142,11 +149,6 @@ from arrayview._server import (  # noqa: F401
     _pil_image,
     _SHELL_HTML,
     _VIEWER_HTML_TEMPLATE,
-    _notify_shells,
-    _safe_float,
-    _vfield_n_times,
-    _render_normalized,
-    _render_normalized_mosaic,
 )
 
 # ---------------------------------------------------------------------------

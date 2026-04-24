@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-04-24
+last_updated: 2026-04-25
 ---
 
 # Project State
@@ -35,9 +35,13 @@ last_updated: 2026-04-24
 - Filesystem picker endpoint (`GET /fs/list`) clamped to `$HOME`. Accepts `base_sid` + `mode` (`overlay` | `vectorfield`) to filter entries by a cheap header-shape peek (`.npy`, `.nii`/`.nii.gz`, `.h5`, `.zarr`); overlay mode requires identical shape, vectorfield mode requires base shape plus one axis of size 3
 - Island collapse affordance: inline `~` at the island's top-right animates the panel into the bottom-left `~` hint circle; external `~` hint only visible while the island is actually collapsed. New `/` hint circle at bottom-right opens the plugin shelf
 
+## Recently Completed
+
+- Architecture followthrough: `_server.py` route extraction is complete. Feature domains now live in `_routes_analysis.py`, `_routes_loading.py`, `_routes_persistence.py`, `_routes_segmentation.py`, `_routes_state.py`, `_routes_query.py`, `_routes_export.py`, `_routes_preload.py`, `_routes_vectorfield.py`, `_routes_rendering.py`, and `_routes_websocket.py`. `_server.py` is now the intended assembly surface: FastAPI app setup, shared dependency injection, HTML/template helpers, and the small infrastructure routes for health/UI/assets/colormap metadata.
+- Focused API coverage now directly guards segmentation activate/scribble/click-accept/export paths, export/preload/vectorfield routes, slice/projection/diff/grid/gif rendering, large-array grid/gif guardrails, and websocket metadata plus shell-close cleanup.
+
 ## In Progress
 
-- Architecture followthrough: `_server.py` route extraction now covers analysis, loading, persistence, segmentation, state, query, export, preload, vectorfield, and rendering via `_routes_analysis.py`, `_routes_loading.py`, `_routes_persistence.py`, `_routes_segmentation.py`, `_routes_state.py`, `_routes_query.py`, `_routes_export.py`, `_routes_preload.py`, `_routes_vectorfield.py`, and `_routes_rendering.py`. `_server.py` now keeps only static asset, WebSocket, colormap, shell, health, and root-page routes plus shared server helpers. Focused API coverage now exists across the extracted segmentation, export, preload, vectorfield, slice/projection/diff/grid/gif, and large-array guardrail paths.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; ROI hover tooltip not yet wired for qMRI canvases; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 
