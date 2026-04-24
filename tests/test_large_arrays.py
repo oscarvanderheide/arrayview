@@ -144,18 +144,10 @@ class TestGuardrails:
     def oversized_sid(self, client, tmp_path):
         """Register an array whose byte size is guaranteed > HEAVY_OP_LIMIT_BYTES.
 
-        We use a shape whose total > limit but don't actually allocate that much
-        RAM — we trick the server by registering a tiny on-disk .npy but then
-        monkeypatching SESSIONS to hold a large shape.  Instead, use a shape
-        that's truly large but zero-filled so numpy allocates it lazily.
-
-        Simpler: use a shape where n_slices * slice_bytes > limit, tested via
-        the GIF/grid endpoints which compute the estimate from session.shape.
+        We avoid allocating the full array by registering a tiny .npy file and
+        then patching the server-side session shape to a volume whose estimated
+        byte size exceeds the currently configured heavy-op limit.
         """
-        # 512*512*300*4 = 314 MB — under the 500 MB limit.
-        # To exceed it: 1024*1024*130*4 = 549 MB > 500 MB.
-        # BUT we don't want to allocate 549 MB in the test process.
-        # Hack: save a (1, 1, 1) array, then monkey-patch the session shape.
         arr = np.zeros((1, 1, 1), dtype=np.float32)
         path = tmp_path / "fake_big.npy"
         np.save(path, arr)
@@ -165,8 +157,11 @@ class TestGuardrails:
 
         # Patch the session shape so the guardrail sees a large array
         from arrayview._app import SESSIONS
+
         session = SESSIONS[sid]
-        session.shape = (1024, 1024, 130)  # 549 MB > 500 MB
+        slice_bytes = 1024 * 1024 * np.dtype(np.float32).itemsize
+        z_slices = max(1, HEAVY_OP_LIMIT_BYTES // slice_bytes + 1)
+        session.shape = (1024, 1024, z_slices)
         return sid
 
     def test_fft_blocked_on_large_array(self, client, oversized_sid):
