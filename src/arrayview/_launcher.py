@@ -529,6 +529,38 @@ def _attach_vectorfield_to_session(
     )
 
 
+def _resolve_cli_window_mode(
+    *,
+    explicit_window: str | None,
+    browser_flag: bool,
+    config_window: str | None,
+    in_vscode_terminal: bool,
+    is_vscode_remote: bool,
+    can_native_window: bool,
+) -> dict[str, bool | str | None]:
+    window_mode = explicit_window
+    if browser_flag and window_mode is None:
+        window_mode = "browser"
+    if window_mode is None and config_window:
+        window_mode = config_window
+    if window_mode is None and in_vscode_terminal:
+        window_mode = "vscode"
+    if window_mode == "native" and is_vscode_remote:
+        window_mode = "vscode"
+    return {
+        "window_mode": window_mode,
+        "use_webview": (window_mode == "native")
+        or (window_mode is None and can_native_window),
+        "force_vscode": window_mode == "vscode",
+        "requires_vscode_terminal": window_mode == "vscode" and not in_vscode_terminal,
+        "warn_native_to_vscode": explicit_window == "native" and is_vscode_remote,
+    }
+
+
+def _should_notify_webview(use_webview: bool, overlay_sid: str | None) -> bool:
+    return use_webview and overlay_sid is None
+
+
 def _port_in_use(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -2800,22 +2832,21 @@ def arrayview():
                 print(f"[ArrayView] Relay failed: {e}", flush=True)
                 sys.exit(1)
             return  # Resolve --window / --browser into a single window_mode
-    if args.browser and not args.window:
-        args.window = "browser"
-    window_mode = args.window  # None = auto-detect (current behaviour)
-    # User config: apply persistent window preference if no explicit --window flag
-    if window_mode is None:
-        from arrayview._config import get_window_default
-        from arrayview._platform import detect_environment
+    from arrayview._config import get_window_default
+    from arrayview._platform import detect_environment
 
-        _cfg_mode = get_window_default(detect_environment())
-        if _cfg_mode:
-            window_mode = _cfg_mode
-    # Auto-detect: prefer VS Code tab in VS Code terminal
-    if window_mode is None and _in_vscode_terminal():
-        window_mode = "vscode"
-    # Explicit vscode requires VS Code terminal
-    if window_mode == "vscode":
+    window_plan = _resolve_cli_window_mode(
+        explicit_window=args.window,
+        browser_flag=args.browser,
+        config_window=get_window_default(detect_environment()),
+        in_vscode_terminal=_in_vscode_terminal(),
+        is_vscode_remote=_is_vscode_remote(),
+        can_native_window=_can_native_window(),
+    )
+    window_mode = window_plan["window_mode"]
+    use_webview = bool(window_plan["use_webview"])
+
+    if window_plan["requires_vscode_terminal"]:
         if not _in_vscode_terminal():
             print(
                 "[ArrayView] --window=vscode requires running from a VS Code integrated terminal.\n"
@@ -2832,15 +2863,10 @@ def arrayview():
                 "[ArrayView] No IPC hook; will broadcast to all VS Code windows",
                 flush=True,
             )
-    # Explicit native is not supported in remote/tunnel environments
-    if window_mode == "native" and _is_vscode_remote():
+    if window_plan["warn_native_to_vscode"]:
         _vprint(
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
-        window_mode = "vscode"
-    use_webview = (window_mode == "native") or (
-        window_mode is None and _can_native_window()
-    )
 
     if is_arrayview_server:
         # Server already running — register the new array.
@@ -2878,7 +2904,7 @@ def arrayview():
                 if compare_sid:
                     compare_sids.append(compare_sid)
 
-            notify_webview = use_webview and overlay_sid is None
+            notify_webview = _should_notify_webview(use_webview, overlay_sid)
             result = _load_session_from_filepath(
                 args.port,
                 base_file,
@@ -3036,7 +3062,7 @@ def arrayview():
         dims=dims_override,
     )
 
-    if use_webview and overlay_sid is None:
+    if _should_notify_webview(use_webview, overlay_sid):
         url_shell = _shell_url(args.port, sid, name, compare_sids=compare_sids)
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)

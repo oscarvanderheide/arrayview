@@ -899,6 +899,75 @@ class TestLauncherUrlHelpers:
         )
 
 
+class TestLauncherDecisionHelpers:
+    def test_resolve_cli_window_mode_prefers_browser_flag(self):
+        from arrayview._launcher import _resolve_cli_window_mode
+
+        plan = _resolve_cli_window_mode(
+            explicit_window=None,
+            browser_flag=True,
+            config_window="native",
+            in_vscode_terminal=True,
+            is_vscode_remote=False,
+            can_native_window=True,
+        )
+
+        assert plan == {
+            "window_mode": "browser",
+            "use_webview": False,
+            "force_vscode": False,
+            "requires_vscode_terminal": False,
+            "warn_native_to_vscode": False,
+        }
+
+    def test_resolve_cli_window_mode_promotes_native_to_vscode_on_remote(self):
+        from arrayview._launcher import _resolve_cli_window_mode
+
+        plan = _resolve_cli_window_mode(
+            explicit_window="native",
+            browser_flag=False,
+            config_window=None,
+            in_vscode_terminal=True,
+            is_vscode_remote=True,
+            can_native_window=True,
+        )
+
+        assert plan == {
+            "window_mode": "vscode",
+            "use_webview": False,
+            "force_vscode": True,
+            "requires_vscode_terminal": False,
+            "warn_native_to_vscode": True,
+        }
+
+    def test_resolve_cli_window_mode_uses_native_when_available(self):
+        from arrayview._launcher import _resolve_cli_window_mode
+
+        plan = _resolve_cli_window_mode(
+            explicit_window=None,
+            browser_flag=False,
+            config_window=None,
+            in_vscode_terminal=False,
+            is_vscode_remote=False,
+            can_native_window=True,
+        )
+
+        assert plan == {
+            "window_mode": None,
+            "use_webview": True,
+            "force_vscode": False,
+            "requires_vscode_terminal": False,
+            "warn_native_to_vscode": False,
+        }
+
+    def test_should_notify_webview_disables_overlay_path(self):
+        from arrayview._launcher import _should_notify_webview
+
+        assert _should_notify_webview(True, None) is True
+        assert _should_notify_webview(True, "sid_overlay") is False
+        assert _should_notify_webview(False, None) is False
+
+
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
 # ---------------------------------------------------------------------------
