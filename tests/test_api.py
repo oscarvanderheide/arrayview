@@ -1297,6 +1297,51 @@ class TestCliOpenHelpers:
             }
         ]
 
+    def test_register_cli_session_with_existing_server_returns_open_state(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        attach_calls = []
+
+        def fake_load(port, filepath, name, **kwargs):
+            if filepath.endswith("overlay.npy"):
+                return {"sid": "sid_overlay", "name": name}
+            if filepath.endswith("cmp.npy"):
+                return {"sid": "sid_cmp", "name": name}
+            return {"sid": "sid_base", "name": name, "notified": True}
+
+        monkeypatch.setattr(launcher, "_load_session_from_filepath", fake_load)
+        monkeypatch.setattr(
+            launcher,
+            "_attach_vectorfield_to_session",
+            lambda port, sid, filepath, components_dim=None: attach_calls.append(
+                (port, sid, filepath, components_dim)
+            )
+            or {"ok": True},
+        )
+
+        result = launcher._register_cli_session_with_existing_server(
+            port=8000,
+            overlay_paths=["/tmp/overlay.npy"],
+            compare_files=["/tmp/cmp.npy"],
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            rgb=True,
+            use_webview=True,
+            vectorfield="/tmp/vf.npy",
+            vfield_components_dim=2,
+        )
+
+        assert result == {
+            "sid": "sid_base",
+            "overlay_sid": "sid_overlay",
+            "compare_sids": ["sid_cmp"],
+            "notify_webview": False,
+            "notified": True,
+        }
+        assert attach_calls == [(8000, "sid_base", "/tmp/vf.npy", 2)]
+
 
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint

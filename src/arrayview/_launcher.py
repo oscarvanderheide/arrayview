@@ -699,6 +699,66 @@ def _open_cli_existing_server_view(
     )
 
 
+def _register_cli_session_with_existing_server(
+    *,
+    port: int,
+    overlay_paths: list[str],
+    compare_files: list[str],
+    base_file: str,
+    name: str,
+    rgb: bool,
+    use_webview: bool,
+    vectorfield: str | None,
+    vfield_components_dim: int | None,
+) -> dict[str, object]:
+    overlay_sids_list: list[str] = []
+    for ov_path in overlay_paths:
+        ov_result = _load_session_from_filepath(
+            port,
+            os.path.abspath(ov_path),
+            os.path.basename(ov_path) or "overlay",
+        )
+        if "error" in ov_result:
+            raise RuntimeError(
+                f"Error from server while loading overlay: {ov_result['error']}"
+            )
+        ov_sid = ov_result.get("sid")
+        if ov_sid:
+            overlay_sids_list.append(ov_sid)
+    overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
+
+    compare_sids = _load_compare_sids(port, compare_files)
+    notify_webview = _should_notify_webview(use_webview, overlay_sid)
+    result = _load_session_from_filepath(
+        port,
+        base_file,
+        name,
+        notify=notify_webview,
+        rgb=rgb,
+        compare_sids=compare_sids,
+    )
+    if "error" in result:
+        raise RuntimeError(f"Error from server: {result['error']}")
+    if vectorfield:
+        vf_result = _attach_vectorfield_to_session(
+            port,
+            result["sid"],
+            os.path.abspath(vectorfield),
+            components_dim=vfield_components_dim,
+        )
+        if "error" in vf_result:
+            raise RuntimeError(
+                f"Error: failed to attach vector field: {vf_result['error']}"
+            )
+    return {
+        "sid": result["sid"],
+        "overlay_sid": overlay_sid,
+        "compare_sids": compare_sids,
+        "notify_webview": notify_webview,
+        "notified": bool(result.get("notified", False)),
+    }
+
+
 def _open_cli_spawned_view(
     *,
     port: int,
@@ -3135,50 +3195,17 @@ def arrayview():
         # Server already running — register the new array.
         # If using webview, notify the existing shell to inject a new tab.
         try:
-            # Register overlay(s) first (no notification) to get their sids
-            overlay_sids_list: list[str] = []
-            for ov_path in (args.overlay or []):
-                ov_result = _load_session_from_filepath(
-                    args.port,
-                    os.path.abspath(ov_path),
-                    os.path.basename(ov_path) or "overlay",
-                )
-                if "error" in ov_result:
-                    print(
-                        f"Error from server while loading overlay: {ov_result['error']}"
-                    )
-                    sys.exit(1)
-                ov_sid = ov_result.get("sid")
-                if ov_sid:
-                    overlay_sids_list.append(ov_sid)
-            overlay_sid = ",".join(overlay_sids_list) if overlay_sids_list else None
-
-            compare_sids = _load_compare_sids(args.port, compare_files)
-
-            notify_webview = _should_notify_webview(use_webview, overlay_sid)
-            result = _load_session_from_filepath(
-                args.port,
-                base_file,
-                name,
-                notify=notify_webview,
+            session_info = _register_cli_session_with_existing_server(
+                port=args.port,
+                overlay_paths=list(args.overlay or []),
+                compare_files=compare_files,
+                base_file=base_file,
+                name=name,
                 rgb=args.rgb,
-                compare_sids=compare_sids,
+                use_webview=use_webview,
+                vectorfield=args.vectorfield,
+                vfield_components_dim=vfield_components_dim,
             )
-            if "error" in result:
-                print(f"Error from server: {result['error']}")
-                sys.exit(1)
-
-            # Attach vector field to the newly loaded session
-            if args.vectorfield:
-                vf_result = _attach_vectorfield_to_session(
-                    args.port,
-                    result["sid"],
-                    os.path.abspath(args.vectorfield),
-                    components_dim=vfield_components_dim,
-                )
-                if "error" in vf_result:
-                    print(f"Error: failed to attach vector field: {vf_result['error']}")
-                    sys.exit(1)
         except Exception as e:
             print(
                 f"Error: port {args.port} is in use by another process. "
@@ -3188,12 +3215,12 @@ def arrayview():
 
         _open_cli_existing_server_view(
             port=args.port,
-            sid=result["sid"],
-            compare_sids=compare_sids,
-            overlay_sid=overlay_sid,
+            sid=str(session_info["sid"]),
+            compare_sids=session_info["compare_sids"],
+            overlay_sid=session_info["overlay_sid"],
             dims_override=dims_override,
-            notify_webview=notify_webview,
-            notified=bool(result.get("notified")),
+            notify_webview=bool(session_info["notify_webview"]),
+            notified=bool(session_info["notified"]),
             name=name,
             base_file=base_file,
             watch=getattr(args, "watch", False),
