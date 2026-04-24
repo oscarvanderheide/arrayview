@@ -478,6 +478,57 @@ def _relay_array_to_server(
     )
 
 
+type _CSVValues = str | list[str] | tuple[str, ...]
+type _CompareSids = list[str] | tuple[str, ...]
+
+
+def _server_json_request(port: int, path: str, payload: dict) -> dict:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        return json.loads(resp.read())
+
+
+def _load_session_from_filepath(
+    port: int,
+    filepath: str,
+    name: str,
+    *,
+    notify: bool = False,
+    rgb: bool = False,
+    compare_sids: _CompareSids | None = None,
+) -> dict:
+    payload = {
+        "filepath": filepath,
+        "name": name,
+        "notify": notify,
+    }
+    if rgb:
+        payload["rgb"] = True
+    if notify and compare_sids:
+        payload["compare_sid"] = compare_sids[0]
+        payload["compare_sids"] = _join_query_values(compare_sids)
+    return _server_json_request(port, "/load", payload)
+
+
+def _attach_vectorfield_to_session(
+    port: int, sid: str, filepath: str, *, components_dim: int | None = None
+) -> dict:
+    return _server_json_request(
+        port,
+        "/attach_vectorfield",
+        {
+            "sid": sid,
+            "filepath": filepath,
+            "components_dim": components_dim,
+        },
+    )
+
+
 def _port_in_use(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -678,10 +729,6 @@ def _with_loading(url: str) -> str:
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
-
-
-type _CSVValues = str | list[str] | tuple[str, ...]
-type _CompareSids = list[str] | tuple[str, ...]
 
 
 def _join_query_values(values: _CSVValues) -> str:
@@ -1249,17 +1296,9 @@ def view(
             with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _tmp:
                 _tmp_path = _tmp.name
             np.save(_tmp_path, data)
-            body = json.dumps(
-                {"filepath": _tmp_path, "name": name, "rgb": rgb_primary}
-            ).encode()
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{port}/load",
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            result = _load_session_from_filepath(
+                port, _tmp_path, name, rgb=rgb_primary
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                result = json.loads(resp.read())
             try:
                 os.unlink(_tmp_path)
             except Exception:
@@ -1274,17 +1313,9 @@ def view(
                 with _tf.NamedTemporaryFile(suffix=".npy", delete=False) as _ctmp:
                     _ctmp_path = _ctmp.name
                 np.save(_ctmp_path, _carr)
-                _cbody = json.dumps(
-                    {"filepath": _ctmp_path, "name": names[_ci], "rgb": rgbs[_ci]}
-                ).encode()
-                _creq = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/load",
-                    data=_cbody,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
+                _cresult = _load_session_from_filepath(
+                    port, _ctmp_path, names[_ci], rgb=rgbs[_ci]
                 )
-                with urllib.request.urlopen(_creq, timeout=300) as _cresp:
-                    _cresult = json.loads(_cresp.read())
                 try:
                     os.unlink(_ctmp_path)
                 except Exception:
@@ -1710,17 +1741,9 @@ def _view_subprocess(
         # Pass notify=True so the server injects a new tab into any open shell
         # window rather than requiring the caller to open a new native window.
         try:
-            body = json.dumps(
-                {"filepath": tmp_path, "name": name, "rgb": rgb, "notify": True}
-            ).encode()
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{port}/load",
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            result = _load_session_from_filepath(
+                port, tmp_path, name, notify=True, rgb=rgb
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                result = json.loads(resp.read())
             if "error" in result:
                 raise RuntimeError(result["error"])
             # Data is now in server memory; temp file no longer needed.
@@ -2826,21 +2849,11 @@ def arrayview():
             # Register overlay(s) first (no notification) to get their sids
             overlay_sids_list: list[str] = []
             for ov_path in (args.overlay or []):
-                ov_body = json.dumps(
-                    {
-                        "filepath": os.path.abspath(ov_path),
-                        "name": os.path.basename(ov_path) or "overlay",
-                        "notify": False,
-                    }
-                ).encode()
-                ov_req = urllib.request.Request(
-                    f"http://127.0.0.1:{args.port}/load",
-                    data=ov_body,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
+                ov_result = _load_session_from_filepath(
+                    args.port,
+                    os.path.abspath(ov_path),
+                    os.path.basename(ov_path) or "overlay",
                 )
-                with urllib.request.urlopen(ov_req, timeout=300) as resp:
-                    ov_result = json.loads(resp.read())
                 if "error" in ov_result:
                     print(
                         f"Error from server while loading overlay: {ov_result['error']}"
@@ -2853,21 +2866,9 @@ def arrayview():
 
             compare_sids = []
             for compare_file in compare_files:
-                cmp_body = json.dumps(
-                    {
-                        "filepath": compare_file,
-                        "name": os.path.basename(compare_file),
-                        "notify": False,
-                    }
-                ).encode()
-                cmp_req = urllib.request.Request(
-                    f"http://127.0.0.1:{args.port}/load",
-                    data=cmp_body,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
+                cmp_result = _load_session_from_filepath(
+                    args.port, compare_file, os.path.basename(compare_file)
                 )
-                with urllib.request.urlopen(cmp_req, timeout=300) as resp:
-                    cmp_result = json.loads(resp.read())
                 if "error" in cmp_result:
                     print(
                         f"Error from server while loading compare array: {cmp_result['error']}"
@@ -2878,45 +2879,26 @@ def arrayview():
                     compare_sids.append(compare_sid)
 
             notify_webview = use_webview and overlay_sid is None
-            body_dict = {
-                "filepath": base_file,
-                "name": name,
-                "notify": notify_webview,
-                "rgb": args.rgb,
-            }
-            if notify_webview and compare_sids:
-                body_dict["compare_sid"] = compare_sids[0]
-                body_dict["compare_sids"] = ",".join(compare_sids)
-            body = json.dumps(body_dict).encode()
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{args.port}/load",
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            result = _load_session_from_filepath(
+                args.port,
+                base_file,
+                name,
+                notify=notify_webview,
+                rgb=args.rgb,
+                compare_sids=compare_sids,
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                result = json.loads(resp.read())
             if "error" in result:
                 print(f"Error from server: {result['error']}")
                 sys.exit(1)
 
             # Attach vector field to the newly loaded session
             if args.vectorfield:
-                vf_body = json.dumps(
-                    {
-                        "sid": result["sid"],
-                        "filepath": os.path.abspath(args.vectorfield),
-                        "components_dim": vfield_components_dim,
-                    }
-                ).encode()
-                vf_req = urllib.request.Request(
-                    f"http://127.0.0.1:{args.port}/attach_vectorfield",
-                    data=vf_body,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
+                vf_result = _attach_vectorfield_to_session(
+                    args.port,
+                    result["sid"],
+                    os.path.abspath(args.vectorfield),
+                    components_dim=vfield_components_dim,
                 )
-                with urllib.request.urlopen(vf_req, timeout=300) as resp:
-                    vf_result = json.loads(resp.read())
                 if "error" in vf_result:
                     print(f"Error: failed to attach vector field: {vf_result['error']}")
                     sys.exit(1)
@@ -3031,21 +3013,9 @@ def arrayview():
     compare_sids = []
     for compare_file in compare_files:
         try:
-            cmp_body = json.dumps(
-                {
-                    "filepath": compare_file,
-                    "name": os.path.basename(compare_file),
-                    "notify": False,
-                }
-            ).encode()
-            cmp_req = urllib.request.Request(
-                f"http://127.0.0.1:{args.port}/load",
-                data=cmp_body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            cmp_result = _load_session_from_filepath(
+                args.port, compare_file, os.path.basename(compare_file)
             )
-            with urllib.request.urlopen(cmp_req, timeout=300) as resp:
-                cmp_result = json.loads(resp.read())
             if "error" in cmp_result:
                 print(
                     f"Error from server while loading compare array: {cmp_result['error']}"
