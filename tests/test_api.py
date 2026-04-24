@@ -1025,6 +1025,28 @@ class TestLauncherDecisionHelpers:
             9000, is_vscode_remote=True, cli_default_port_alive=True
         ) == 9000
 
+    def test_select_arrayview_launch_path(self):
+        from arrayview._launcher import _select_arrayview_launch_path
+
+        assert (
+            _select_arrayview_launch_path(
+                is_arrayview_server=True, is_vscode_remote=True
+            )
+            == "existing_server"
+        )
+        assert (
+            _select_arrayview_launch_path(
+                is_arrayview_server=False, is_vscode_remote=True
+            )
+            == "remote_direct"
+        )
+        assert (
+            _select_arrayview_launch_path(
+                is_arrayview_server=False, is_vscode_remote=False
+            )
+            == "spawn_daemon"
+        )
+
 
 class TestLauncherDimsHelpers:
     def test_parse_dims_spec_accepts_xy_markers(self):

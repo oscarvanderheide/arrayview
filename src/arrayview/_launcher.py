@@ -585,6 +585,16 @@ def _resolve_view_port(
     return port
 
 
+def _select_arrayview_launch_path(
+    *, is_arrayview_server: bool, is_vscode_remote: bool
+) -> str:
+    if is_arrayview_server:
+        return "existing_server"
+    if is_vscode_remote:
+        return "remote_direct"
+    return "spawn_daemon"
+
+
 def _normalize_view_window_request(
     window: str | bool | None, inline: bool | None
 ) -> dict[str, bool | str | None]:
@@ -2974,6 +2984,10 @@ def arrayview():
     )
     window_mode = window_plan["window_mode"]
     use_webview = bool(window_plan["use_webview"])
+    launch_path = _select_arrayview_launch_path(
+        is_arrayview_server=is_arrayview_server,
+        is_vscode_remote=_is_vscode_remote(),
+    )
 
     if window_plan["requires_vscode_terminal"]:
         if not _in_vscode_terminal():
@@ -2997,7 +3011,7 @@ def arrayview():
             "[ArrayView] --window native is not supported on remote tunnel; using vscode instead."
         )
 
-    if is_arrayview_server:
+    if launch_path == "existing_server":
         # Server already running — register the new array.
         # If using webview, notify the existing shell to inject a new tab.
         try:
@@ -3087,7 +3101,7 @@ def arrayview():
     # WebSocket server entirely.  The extension spawns a Python subprocess
     # with --mode stdio and bridges via postMessage — no ports needed.
     is_remote = _is_vscode_remote()
-    if is_remote:
+    if launch_path == "remote_direct":
         _ensure_vscode_extension()
         # Build generic extra CLI args so new flags work without touching the
         # VS Code extension — they're forwarded verbatim to the subprocess.
