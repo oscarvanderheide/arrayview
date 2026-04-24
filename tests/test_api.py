@@ -516,6 +516,45 @@ class TestMetadata:
         assert attach2.json()["ok"] is True
         assert attach2.json()["components_dim"] == 4
 
+    def test_oblique_vectorfield_returns_projected_arrows(self, client, tmp_path):
+        arr = np.zeros((6, 8, 10), dtype=np.float32)
+        vf = np.zeros((4, 6, 8, 10, 3), dtype=np.float32)
+        vf[2, :, :, :, 1] = 0.25
+        vf[2, :, :, :, 2] = 0.5
+
+        arr_path = tmp_path / "base_oblique.npy"
+        vf_path = tmp_path / "vf_oblique.npy"
+        np.save(arr_path, arr)
+        np.save(vf_path, vf)
+
+        sid = client.post(
+            "/load", json={"filepath": str(arr_path), "name": "base"}
+        ).json()["sid"]
+        attach = client.post(
+            "/attach_vectorfield", json={"sid": sid, "filepath": str(vf_path)}
+        )
+        assert attach.status_code == 200
+        assert attach.json()["ok"] is True
+
+        r = client.get(
+            f"/oblique_vectorfield/{sid}",
+            params={
+                "center": "3,4,5",
+                "basis_h": "0,0,1",
+                "basis_v": "0,1,0",
+                "mv_dims": "0,1,2",
+                "size_w": 64,
+                "size_h": 64,
+                "t_index": 2,
+                "density_offset": 0,
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["stride"] >= 1
+        assert len(body["arrows"]) > 0
+        assert any(abs(a[2]) > 0 or abs(a[3]) > 0 for a in body["arrows"])
+
 
 # ---------------------------------------------------------------------------
 # /info
