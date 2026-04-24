@@ -1972,6 +1972,94 @@ class TestLoadUpload:
         assert r.status_code == 400
 
 
+class TestObliquePersistence:
+    def test_oblique_save_and_load_recent_roundtrip(self, client, sid_3d, tmp_path, monkeypatch):
+        import arrayview._routes_persistence as routes_persistence
+
+        monkeypatch.setattr(
+            routes_persistence,
+            "_OBLIQUE_RECENT_FILE",
+            str(tmp_path / "oblique_recent.json"),
+        )
+
+        preset = {
+            "version": 1,
+            "shape": [20, 64, 64],
+            "mv_dims": [0, 1, 2],
+            "indices": [10, 20, 30],
+            "oblique_vecs": [
+                {"bh": [1.0, 0.0, 0.0], "bv": [0.0, 1.0, 0.0], "n": [0.0, 0.0, 1.0]},
+                {"bh": [0.0, 1.0, 0.0], "bv": [0.0, 0.0, 1.0], "n": [1.0, 0.0, 0.0]},
+                {"bh": [1.0, 0.0, 0.0], "bv": [0.0, 0.0, 1.0], "n": [0.0, -1.0, 0.0]},
+            ],
+            "pane_labels": ["A", "B", "C"],
+            "oblique_ortho_lock": True,
+        }
+
+        save = client.post("/oblique/save", json={"sid": sid_3d, "preset": preset})
+        assert save.status_code == 200
+        assert save.json()["preset"]["indices"] == [10, 20, 30]
+
+        load = client.post("/oblique/load_recent", json={"sid": sid_3d})
+        assert load.status_code == 200
+        body = load.json()
+        assert body["ok"] is True
+        assert body["preset"]["mv_dims"] == [0, 1, 2]
+        assert body["preset"]["pane_labels"] == ["A", "B", "C"]
+        assert body["preset"]["oblique_ortho_lock"] is True
+
+
+class TestCropPersistence:
+    def test_crop_register_confirm_reload_and_clear(self, client, sid_3d, tmp_path):
+        recent_file = tmp_path / "crop_recent.json"
+
+        register = client.post(
+            "/crop/register",
+            json={"sid": sid_3d, "readout_dim": 2, "recent_file": str(recent_file)},
+        )
+        assert register.status_code == 200
+        body = register.json()
+        assert body["readout_dim"] == 2
+        assert body["recent_file"] == str(recent_file)
+
+        update = client.post(
+            "/crop/update",
+            json={"sid": sid_3d, "x_start": 3, "x_end": 11, "viz_z": 4, "viz_y": 5},
+        )
+        assert update.status_code == 200
+        updated = update.json()
+        assert updated["x_start"] == 3
+        assert updated["x_end"] == 11
+        assert updated["viz_z"] == 4
+        assert updated["viz_y"] == 5
+
+        confirm = client.post("/crop/confirm", json={"sid": sid_3d})
+        assert confirm.status_code == 200
+        confirmed = confirm.json()
+        assert confirmed["confirmed"] is True
+        assert confirmed["saved_recent"] is True
+        assert confirmed["saved_recent_path"] == str(recent_file)
+
+        clear = client.post("/crop/clear", json={"sid": sid_3d})
+        assert clear.status_code == 200
+        assert clear.json()["ok"] is True
+
+        missing = client.get(f"/crop/state/{sid_3d}")
+        assert missing.status_code == 404
+
+        register_again = client.post(
+            "/crop/register",
+            json={"sid": sid_3d, "readout_dim": 2, "recent_file": str(recent_file)},
+        )
+        assert register_again.status_code == 200
+        reloaded = register_again.json()
+        assert reloaded["loaded_recent"] is True
+        assert reloaded["x_start"] == 3
+        assert reloaded["x_end"] == 11
+        assert reloaded["viz_z"] == 4
+        assert reloaded["viz_y"] == 5
+
+
 # ---------------------------------------------------------------------------
 # Multiple overlays: /slice with overlay_sid and overlay_colors
 # ---------------------------------------------------------------------------
