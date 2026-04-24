@@ -810,6 +810,78 @@ def _handle_cli_existing_server(
     )
 
 
+def _handle_cli_spawned_daemon(
+    *,
+    port: int,
+    base_file: str,
+    name: str,
+    compare_files: list[str],
+    overlay_files: list[str],
+    dims_override: tuple[int, int] | None,
+    use_webview: bool,
+    watch: bool,
+    window_mode: str | None,
+    floating: bool,
+    is_remote: bool,
+    vectorfield: str | None,
+    vfield_components_dim: int | None,
+    rgb: bool,
+    demo_name: str | None,
+    demo_cleanup: bool,
+) -> None:
+    sid = uuid.uuid4().hex
+    overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
+    overlay_sid = ",".join(overlay_sids) if overlay_sids else None
+
+    if not use_webview:
+        _configure_vscode_port_preview(port)
+
+    vfield_abs = os.path.abspath(vectorfield) if vectorfield else None
+    script = (
+        f"from arrayview._launcher import _serve_daemon;"
+        f"_serve_daemon("
+        f"{repr(base_file)}, {port}, {repr(sid)},"
+        f" name={repr(demo_name)},"
+        f" cleanup={demo_cleanup},"
+        f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
+        f" overlay_sids={repr(overlay_sids)},"
+        f" vfield_filepath={repr(vfield_abs)},"
+        f" vfield_components_dim={repr(vfield_components_dim)},"
+        f" persist={is_remote},"
+        f" rgb={rgb},"
+        f")"
+    )
+    subprocess.Popen([sys.executable, "-c", script])
+
+    if not _wait_for_port(port, timeout=15.0, tcp_only=True):
+        print(
+            f"Error: ArrayView server failed to start on port {port}. "
+            "Use --port to pick another."
+        )
+        sys.exit(1)
+
+    try:
+        compare_sids = _load_compare_sids(port, compare_files)
+    except Exception as e:
+        print(f"Error while loading compare array: {e}")
+        sys.exit(1)
+
+    _open_cli_spawned_view(
+        port=port,
+        sid=sid,
+        compare_sids=compare_sids,
+        overlay_sid=overlay_sid,
+        dims_override=dims_override,
+        use_webview=use_webview,
+        name=name,
+        base_file=base_file,
+        watch=watch,
+        window_mode=window_mode,
+        floating=floating,
+        is_remote=is_remote,
+    )
+
+
 def _open_cli_spawned_view(
     *,
     port: int,
@@ -3288,65 +3360,24 @@ def arrayview():
         )
         return
 
-    sid = uuid.uuid4().hex
-    overlay_files = list(args.overlay or [])
-    overlay_sids = [uuid.uuid4().hex for _ in overlay_files]
-    overlay_sid = ",".join(overlay_sids) if overlay_sids else None
-
-    # Configure VS Code port settings before starting the server.
-    if not use_webview:
-        _configure_vscode_port_preview(args.port)
-
-    # Spawn background server.
-    # On remote tunnel: persist=True so the server survives tab closes and the
-    # port stays public across multiple arrayview invocations.
-    # Locally: persist=False so the port is freed when the last tab closes.
     is_remote = _is_vscode_remote()
-    vfield_abs = os.path.abspath(args.vectorfield) if args.vectorfield else None
     demo_name = getattr(args, "_demo_name", None)
     demo_cleanup = getattr(args, "_demo_cleanup", False)
-    script = (
-        f"from arrayview._launcher import _serve_daemon;"
-        f"_serve_daemon("
-        f"{repr(base_file)}, {args.port}, {repr(sid)},"
-        f" name={repr(demo_name)},"
-        f" cleanup={demo_cleanup},"
-        f" overlay_filepaths={repr([os.path.abspath(p) for p in overlay_files])},"
-        f" overlay_sids={repr(overlay_sids)},"
-        f" vfield_filepath={repr(vfield_abs)},"
-        f" vfield_components_dim={repr(vfield_components_dim)},"
-        f" persist={is_remote},"
-        f" rgb={args.rgb},"
-        f")"
-    )
-    subprocess.Popen(
-        [sys.executable, "-c", script],
-    )
-
-    if not _wait_for_port(args.port, timeout=15.0, tcp_only=True):
-        print(
-            f"Error: ArrayView server failed to start on port {args.port}. "
-            "Use --port to pick another."
-        )
-        sys.exit(1)
-
-    try:
-        compare_sids = _load_compare_sids(args.port, compare_files)
-    except Exception as e:
-        print(f"Error while loading compare array: {e}")
-        sys.exit(1)
-
-    _open_cli_spawned_view(
+    _handle_cli_spawned_daemon(
         port=args.port,
-        sid=sid,
-        compare_sids=compare_sids,
-        overlay_sid=overlay_sid,
+        base_file=base_file,
+        name=name,
+        compare_files=compare_files,
+        overlay_files=list(args.overlay or []),
         dims_override=dims_override,
         use_webview=use_webview,
-        name=name,
-        base_file=base_file,
         watch=getattr(args, "watch", False),
         window_mode=window_mode,
         floating=args.floating,
         is_remote=is_remote,
+        vectorfield=args.vectorfield,
+        vfield_components_dim=vfield_components_dim,
+        rgb=args.rgb,
+        demo_name=demo_name,
+        demo_cleanup=demo_cleanup,
     )

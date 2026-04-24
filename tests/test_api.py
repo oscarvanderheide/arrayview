@@ -1396,6 +1396,67 @@ class TestCliOpenHelpers:
             }
         ]
 
+    def test_handle_cli_spawned_daemon_opens_spawned_session(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        spawned = []
+        opened = []
+
+        monkeypatch.setattr(launcher, "_configure_vscode_port_preview", lambda port: None)
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd: spawned.append(cmd) or object(),
+        )
+        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: ["sid_cmp"])
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+
+        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=["/tmp/cmp.npy"],
+            overlay_files=["/tmp/overlay.npy"],
+            dims_override=(1, 2),
+            use_webview=False,
+            watch=True,
+            window_mode="browser",
+            floating=False,
+            is_remote=False,
+            vectorfield="/tmp/vf.npy",
+            vfield_components_dim=2,
+            rgb=True,
+            demo_name="demo",
+            demo_cleanup=True,
+        )
+
+        assert spawned
+        assert "_serve_daemon(" in spawned[0][2]
+        assert "persist=False" in spawned[0][2]
+        assert "rgb=True" in spawned[0][2]
+        assert opened == [
+            {
+                "port": 8000,
+                "sid": "sid_base",
+                "compare_sids": ["sid_cmp"],
+                "overlay_sid": "sid_base",
+                "dims_override": (1, 2),
+                "use_webview": False,
+                "name": "base.npy",
+                "base_file": "/tmp/base.npy",
+                "watch": True,
+                "window_mode": "browser",
+                "floating": False,
+                "is_remote": False,
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
