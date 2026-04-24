@@ -670,6 +670,65 @@ class TestExportRoutes:
             assert base64.b64decode(encoded).startswith(b"\xff\xd8")
 
 
+class TestPreloadRoutes:
+    def test_preload_starts_and_status_reports_progress(self, client, sid_3d, monkeypatch):
+        import arrayview._routes_preload as preload_routes
+        from arrayview._app import SESSIONS
+
+        def fake_run_preload(
+            session,
+            gen,
+            dim_x,
+            dim_y,
+            idx_list,
+            colormap,
+            dr,
+            slice_dim,
+            dim_z,
+            complex_mode,
+            log_scale,
+        ):
+            with session.preload_lock:
+                session.preload_done = 3
+                session.preload_total = 7
+                session.preload_skipped = False
+
+        class ImmediateThread:
+            def __init__(self, target, args, daemon):
+                self._target = target
+                self._args = args
+                self.daemon = daemon
+
+            def start(self):
+                self._target(*self._args)
+
+        monkeypatch.setattr(preload_routes, "_run_preload", fake_run_preload)
+        monkeypatch.setattr(preload_routes.threading, "Thread", ImmediateThread)
+
+        session = SESSIONS[sid_3d]
+        session.preload_done = 0
+        session.preload_total = 0
+        session.preload_skipped = False
+
+        started = client.post(
+            f"/preload/{sid_3d}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": [0, 0, 0],
+                "slice_dim": 0,
+                "dr": 0,
+            },
+        )
+        assert started.status_code == 200
+        assert started.json() == {"status": "started"}
+        assert session.preload_gen >= 1
+
+        status = client.get(f"/preload_status/{sid_3d}")
+        assert status.status_code == 200
+        assert status.json() == {"done": 3, "total": 7, "skipped": False}
+
+
 # ---------------------------------------------------------------------------
 # /slice
 # ---------------------------------------------------------------------------

@@ -86,6 +86,7 @@ from arrayview._routes_persistence import (
     register_persistence_routes,
 )
 from arrayview._routes_export import register_export_routes
+from arrayview._routes_preload import register_preload_routes
 from arrayview._routes_query import register_query_routes
 from arrayview._routes_segmentation import register_segmentation_routes
 from arrayview._routes_state import register_state_routes
@@ -472,6 +473,7 @@ register_persistence_routes(app)
 register_segmentation_routes(app, get_session_or_404)
 register_state_routes(app, get_session_or_404)
 register_export_routes(app, get_session_or_404=get_session_or_404, pil_image=_pil_image)
+register_preload_routes(app)
 register_query_routes(
     app,
     get_session_or_404=get_session_or_404,
@@ -488,58 +490,6 @@ def get_colormap(name: str):
     if not _ensure_lut(name):
         return Response(status_code=404)
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
-
-
-@app.post("/preload/{sid}")
-async def start_preload(sid: str, request: Request):
-    session = SESSIONS.get(sid)
-    if not session:
-        return {"error": "Invalid session"}
-
-    body = await request.json()
-    dim_x = int(body["dim_x"])
-    dim_y = int(body["dim_y"])
-    idx_list = [int(x) for x in body["indices"]]
-    colormap = str(body.get("colormap", "gray"))
-    dr = int(body.get("dr", 1))
-    slice_dim = int(body["slice_dim"])
-    dim_z = int(body.get("dim_z", -1))
-    complex_mode = int(body.get("complex_mode", 0))
-    log_scale = bool(body.get("log_scale", False))
-
-    session.preload_gen += 1
-    gen = session.preload_gen
-    threading.Thread(
-        target=_run_preload,
-        args=(
-            session,
-            gen,
-            dim_x,
-            dim_y,
-            idx_list,
-            colormap,
-            dr,
-            slice_dim,
-            dim_z,
-            complex_mode,
-            log_scale,
-        ),
-        daemon=True,
-    ).start()
-    return {"status": "started"}
-
-
-@app.get("/preload_status/{sid}")
-def get_preload_status(sid: str):
-    session = SESSIONS.get(sid)
-    if not session:
-        return {"error": "Invalid session"}
-    with session.preload_lock:
-        return {
-            "done": session.preload_done,
-            "total": session.preload_total,
-            "skipped": session.preload_skipped,
-        }
 
 
 @app.get("/vectorfield/{sid}")
