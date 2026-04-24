@@ -154,6 +154,211 @@ class TestLoadBytes:
         assert opened == [body["url"]]
 
 
+@pytest.fixture
+def fake_segmentation(monkeypatch):
+    import arrayview._segmentation as seg
+    import arrayview._routes_segmentation as seg_routes
+
+    state = {
+        "connected": False,
+        "uploaded": None,
+        "point_calls": [],
+        "scribble_calls": [],
+        "reset_calls": 0,
+        "disconnect_calls": 0,
+    }
+
+    def reset_server_state():
+        if seg_routes._seg_overlay_sid is not None:
+            seg_routes.SESSIONS.pop(seg_routes._seg_overlay_sid, None)
+        seg_routes._seg_overlay_sid = None
+        seg_routes._seg_label_mask = None
+        seg_routes._seg_current_label = 0
+        seg_routes._seg_vol_axes = None
+        seg_routes._seg_fixed_indices = None
+        seg_routes._seg_full_shape = None
+        seg_routes._seg_label_names.clear()
+
+    reset_server_state()
+
+    def is_connected():
+        return state["connected"]
+
+    def try_connect(host=seg.DEFAULT_HOST, port=seg.DEFAULT_PORT, *, url=None):
+        state["connected"] = True
+        state["connect_args"] = {"host": host, "port": port, "url": url}
+        return True
+
+    def try_launch(host=seg.DEFAULT_HOST, port=seg.DEFAULT_PORT):
+        state["connected"] = True
+        state["launch_args"] = {"host": host, "port": port}
+        return None
+
+    def upload_volume(data):
+        state["uploaded"] = np.array(data, copy=True)
+
+    def add_point(coord_zyx, positive=True):
+        state["point_calls"].append((tuple(coord_zyx), positive))
+        mask = np.zeros(state["uploaded"].shape, dtype=np.uint8)
+        mask[tuple(coord_zyx)] = 1
+        return mask
+
+    def add_scribble(mask_3d, positive=True):
+        state["scribble_calls"].append((np.array(mask_3d, copy=True), positive))
+        return np.array(mask_3d, copy=True)
+
+    def reset_interactions():
+        state["reset_calls"] += 1
+
+    def disconnect():
+        state["connected"] = False
+        state["disconnect_calls"] += 1
+
+    monkeypatch.setattr(seg, "is_connected", is_connected)
+    monkeypatch.setattr(seg, "try_connect", try_connect)
+    monkeypatch.setattr(seg, "try_launch", try_launch)
+    monkeypatch.setattr(seg, "upload_volume", upload_volume)
+    monkeypatch.setattr(seg, "add_point", add_point)
+    monkeypatch.setattr(seg, "add_scribble", add_scribble)
+    monkeypatch.setattr(seg, "reset_interactions", reset_interactions)
+    monkeypatch.setattr(seg, "disconnect", disconnect)
+
+    yield state
+
+    reset_server_state()
+
+
+class TestSegmentation:
+    def test_activate_uploads_selected_4d_subvolume(
+        self, client, sid_4d, arr_4d, fake_segmentation
+    ):
+        r = client.post(
+            f"/seg/activate/{sid_4d}",
+            params={
+                "dim_x": 1,
+                "dim_y": 2,
+                "scroll_dim": 3,
+                "indices": "2,0,0,0",
+            },
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "ok"
+        assert body["message"] == "connected"
+        assert body["ndim"] == 4
+        np.testing.assert_array_equal(fake_segmentation["uploaded"], arr_4d[2])
+
+    def test_scribble_rasterizes_current_slice_and_updates_overlay(
+        self, client, sid_3d, arr_3d, fake_segmentation
+    ):
+        activated = client.post(f"/seg/activate/{sid_3d}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        r = client.post(
+            f"/seg/scribble/{sid_3d}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "3,10,12",
+                "points": [[5, 6], [9, 6], [9, 10]],
+                "positive": False,
+            },
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "ok"
+
+        import arrayview._routes_segmentation as seg_routes
+
+        assert len(fake_segmentation["scribble_calls"]) == 1
+        rasterized, positive = fake_segmentation["scribble_calls"][0]
+        assert positive is False
+        assert rasterized.shape == arr_3d.shape
+        assert np.count_nonzero(rasterized) == np.count_nonzero(rasterized[3])
+        assert np.count_nonzero(rasterized[3]) > 0
+        overlay_sid = body["overlay_sid"]
+        assert overlay_sid in seg_routes.SESSIONS
+        np.testing.assert_array_equal(seg_routes.SESSIONS[overlay_sid].data, rasterized)
+
+    def test_click_accept_labels_export_delete_and_disconnect_roundtrip(
+        self, client, sid_3d, arr_3d, fake_segmentation
+    ):
+        activated = client.post(f"/seg/activate/{sid_3d}")
+        assert activated.status_code == 200
+        assert activated.json()["status"] == "ok"
+
+        clicked = client.post(
+            f"/seg/click/{sid_3d}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "4,7,9",
+                "px": 11,
+                "py": 12,
+                "positive": True,
+            },
+        )
+        assert clicked.status_code == 200
+        assert clicked.json()["status"] == "ok"
+        assert fake_segmentation["point_calls"] == [((4, 12, 11), True)]
+
+        accepted = client.post(f"/seg/accept/{sid_3d}")
+        assert accepted.status_code == 200
+        accepted_body = accepted.json()
+        assert accepted_body["status"] == "ok"
+        assert accepted_body["labels"] == [
+            {
+                "label": 1,
+                "name": "segment 1",
+                "color": "#ff5050",
+                "voxels": 1,
+            }
+        ]
+        assert fake_segmentation["reset_calls"] == 1
+
+        renamed = client.post(
+            f"/seg/rename/{sid_3d}", params={"label": 1, "name": "tumor"}
+        )
+        assert renamed.status_code == 200
+        assert renamed.json()["status"] == "ok"
+
+        labels = client.get(f"/seg/labels/{sid_3d}")
+        assert labels.status_code == 200
+        labels_body = labels.json()
+        assert labels_body["labels"] == [
+            {
+                "label": 1,
+                "name": "tumor",
+                "color": "#ff5050",
+                "voxels": 1,
+            }
+        ]
+
+        exported = client.get(f"/seg/export/{sid_3d}")
+        assert exported.status_code == 200
+        assert exported.headers["content-disposition"] == (
+            "attachment; filename=segmentation.npy"
+        )
+        exported_mask = np.load(io.BytesIO(exported.content))
+        assert exported_mask.shape == arr_3d.shape
+        assert int(exported_mask[4, 12, 11]) == 1
+        assert int(exported_mask.sum()) == 1
+
+        deleted = client.post(f"/seg/delete_label/{sid_3d}", params={"label": 1})
+        assert deleted.status_code == 200
+        deleted_body = deleted.json()
+        assert deleted_body["status"] == "ok"
+        assert deleted_body["labels"] == []
+
+        disconnected = client.post("/seg/disconnect")
+        assert disconnected.status_code == 200
+        assert disconnected.json() == {"status": "ok"}
+        assert fake_segmentation["disconnect_calls"] == 1
+
+
 # ---------------------------------------------------------------------------
 # /metadata
 # ---------------------------------------------------------------------------

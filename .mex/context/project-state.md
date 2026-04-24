@@ -37,6 +37,7 @@ last_updated: 2026-04-24
 
 ## In Progress
 
+- Architecture followthrough: `_server.py` route extraction now covers analysis, loading, persistence, and segmentation via `_routes_analysis.py`, `_routes_loading.py`, `_routes_persistence.py`, and `_routes_segmentation.py`. Focused API coverage now exists for segmentation activate, scribble, click/accept, labels/export, and disconnect; remaining `_server.py` domains are still inline.
 - Smooth immersive transition — stale scrub geometry handoff is fixed, immersive overlay fade-in is held until after the class switch, shared slim colorbar returns through `drawSlimColorbar()` on reverse, and active scrub suppresses minimap/overflow/drag side effects. Single-pane scrub now targets the actual centered immersive viewport rect instead of a hardcoded corner box, the dimbar stays above the pane during scrub, the shared colorbar sits behind the growing pane, and the phantom extra `av-view-wrap` footprint in normal mode was removed by rebinding `NormalLayout` to the real `#viewer` canvas. Cross-mode parity and deeper reverse-pinch validation still need manual verification.
 - ROI + qMRI integration refinements: floodfill not yet supported on qMRI panes; ROI hover tooltip not yet wired for qMRI canvases; per-pane stats are re-fetched on each ROI draw but not updated on slice scroll
 
