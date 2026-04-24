@@ -70,6 +70,14 @@ from arrayview._render import (
     _run_preload,
 )
 
+from arrayview._analysis import (
+    _build_metadata,
+    _lebesgue_slice,
+    _pixel_value,
+    _safe_float,
+    _slice_histogram,
+    _volume_histogram,
+)
 from arrayview._diff import (
     _compute_diff,
     _diff_histogram,
@@ -864,45 +872,6 @@ def get_preload_status(sid: str):
         }
 
 
-def _build_metadata(session) -> dict:
-    """Build metadata dict for a session (shared by HTTP and WebSocket paths)."""
-    meta = {
-        "shape": [
-            int(s)
-            for s in (
-                session.spatial_shape
-                if session.rgb_axis is not None
-                else session.shape
-            )
-        ],
-        "is_complex": bool(np.iscomplexobj(session.data)),
-        "name": session.name,
-        "has_vectorfield": session.vfield is not None,
-        "vfield_n_times": _vfield_n_times(session),
-        "is_rgb": session.rgb_axis is not None,
-        "has_source_file": bool(getattr(session, "filepath", None)),
-    }
-    target_shape = (
-        session.spatial_shape if session.rgb_axis is not None else session.shape
-    )
-    default_dims = _session_mod._startup_dims_for_data(
-        session.data, target_shape
-    )
-    if default_dims is not None:
-        meta["default_dims"] = [int(default_dims[0]), int(default_dims[1])]
-    if getattr(session, "spatial_meta", None) is not None:
-        sm = session.spatial_meta
-        meta["spatial_meta"] = {
-            "voxel_sizes": list(sm["voxel_sizes"]),
-            "axis_labels": list(sm["axis_labels"]),
-            "is_oblique": bool(sm["is_oblique"]),
-        }
-        meta["ras_resample_active"] = bool(
-            getattr(session, "ras_resample_active", False)
-        )
-    return meta
-
-
 @app.get("/metadata/{sid}")
 async def get_metadata(sid: str):
     session = SESSIONS.get(sid)
@@ -971,12 +940,6 @@ async def attach_vectorfield(request: Request):
         return {"error": str(e)}
 
 
-def _safe_float(v) -> float | None:
-    """Convert to float; return None for NaN/Inf (JSON-safe)."""
-    f = float(v)
-    return f if math.isfinite(f) else None
-
-
 # ── REST Routes: Pixel, ROI, and Analysis ────────────────────────
 
 
@@ -991,15 +954,11 @@ def get_pixel(
     complex_mode: int = 0,
     session: "Session" = Depends(get_session_or_404),
 ):
-    if session.rgb_axis is not None:
-        return {"value": None}
-
-    idx_tuple = tuple(int(x) for x in indices.split(","))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
-    h, w = data.shape
-    val = _safe_float(data[py, px]) if (0 <= py < h and 0 <= px < w) else None
-    return {"value": val}
+    return {
+        "value": _pixel_value(
+            session, dim_x, dim_y, indices, px, py, complex_mode
+        )
+    }
 
 
 @app.post("/roi_freehand/{sid}")
@@ -1821,30 +1780,7 @@ def get_histogram(
     where ``edges`` has length ``bins + 1``.  Finite values only.
     Used by the W-key histogram strip in the viewer.
     """
-    idx_tuple = tuple(int(v) for v in indices.split(","))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
-    flat = data.ravel()
-    finite = flat[np.isfinite(flat)]
-    if finite.size == 0:
-        return {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
-    vmin = float(finite.min())
-    vmax = float(finite.max())
-    if vmin == vmax:
-        return {
-            "counts": [int(finite.size)],
-            "edges": [vmin, vmax + 1e-9],
-            "vmin": vmin,
-            "vmax": vmax,
-        }
-    bins = max(8, min(bins, 512))
-    counts, edges = np.histogram(finite, bins=bins)
-    return {
-        "counts": counts.tolist(),
-        "edges": [float(e) for e in edges],
-        "vmin": vmin,
-        "vmax": vmax,
-    }
+    return _slice_histogram(session, dim_x, dim_y, indices, complex_mode, bins)
 
 
 @app.get("/volume-histogram/{sid}")
@@ -1872,107 +1808,16 @@ def get_volume_histogram(
     select the first parameter map in qMRI mode).
     """
 
-    # Parse fixed indices
-    fixed = {}
-    if fixed_indices:
-        for pair in fixed_indices.split(","):
-            if ":" in pair:
-                d, v = pair.split(":", 1)
-                fixed[int(d)] = int(v)
-
-    # Resolve aggregation dims: prefer scroll_dims, fall back to scroll_dim.
-    agg_dims: list[int] = []
-    if scroll_dims:
-        for tok in scroll_dims.split(","):
-            tok = tok.strip()
-            if not tok:
-                continue
-            try:
-                d = int(tok)
-            except ValueError:
-                continue
-            if 0 <= d < len(session.shape) and d != dim_x and d != dim_y and d not in agg_dims:
-                agg_dims.append(d)
-    if not agg_dims and scroll_dim >= 0 and scroll_dim != dim_x and scroll_dim != dim_y:
-        agg_dims = [scroll_dim]
-
-    # Check cache
-    cache_key = (dim_x, dim_y, tuple(agg_dims), tuple(sorted(fixed.items())), complex_mode)
-    if not hasattr(session, "_volume_hist_cache"):
-        session._volume_hist_cache = {}
-    cached = session._volume_hist_cache.get(cache_key)
-    if cached is not None and cached.get("_data_version") == session.data_version:
-        return cached["result"]
-
-    # Build sample index lists per aggregation dim, stride-subsampled so
-    # their Cartesian product stays around ~16 samples total.
-    max_samples = 16
-    if not agg_dims:
-        # No aggregation dims — use the current middle slice only.
-        sample_combos = [tuple()]
-    else:
-        per_dim_counts = [session.shape[d] for d in agg_dims]
-        # Target roughly equal sample count per dim so the product ≈ max_samples.
-        # Ceil to avoid zero; clamp to dim size.
-        k = len(agg_dims)
-        per_dim_target = max(1, int(round(max_samples ** (1.0 / k))))
-        sample_per_dim: list[list[int]] = []
-        for n in per_dim_counts:
-            m = min(n, per_dim_target)
-            if n <= m:
-                sample_per_dim.append(list(range(n)))
-            else:
-                step = n / m
-                sample_per_dim.append([int(i * step) for i in range(m)])
-        # Cartesian product with a hard cap.
-        import itertools as _it
-        sample_combos = list(_it.islice(_it.product(*sample_per_dim), max_samples))
-
-    pixels = []
-    for combo in sample_combos:
-        idx_list = [s // 2 for s in session.shape]
-        for d, si in zip(agg_dims, combo):
-            idx_list[d] = si
-        for d, v in fixed.items():
-            idx_list[d] = v
-        raw = extract_slice(session, dim_x, dim_y, idx_list)
-        data = apply_complex_mode(raw, complex_mode)
-        flat = data.ravel()
-        finite = flat[np.isfinite(flat)]
-        if finite.size > 0:
-            pixels.append(finite)
-
-    if not pixels:
-        result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
-        session._volume_hist_cache[cache_key] = {
-            "_data_version": session.data_version, "result": result,
-        }
-        return result
-
-    merged = np.concatenate(pixels)
-    vmin = float(merged.min())
-    vmax = float(merged.max())
-    if vmin == vmax:
-        result = {
-            "counts": [int(merged.size)],
-            "edges": [vmin, vmax + 1e-9],
-            "vmin": vmin,
-            "vmax": vmax,
-        }
-    else:
-        bins = max(8, min(bins, 512))
-        counts, edges = np.histogram(merged, bins=bins)
-        result = {
-            "counts": counts.tolist(),
-            "edges": [float(e) for e in edges],
-            "vmin": vmin,
-            "vmax": vmax,
-        }
-
-    session._volume_hist_cache[cache_key] = {
-        "_data_version": session.data_version, "result": result,
-    }
-    return result
+    return _volume_histogram(
+        session,
+        dim_x,
+        dim_y,
+        scroll_dim,
+        scroll_dims,
+        fixed_indices,
+        complex_mode,
+        bins,
+    )
 
 
 # ── Volume Data (3-D MIP) ────────────────────────────────────────
@@ -2074,11 +1919,7 @@ def get_lebesgue_slice(
     True the values are ``log10(|x| + 1)``.  The client uses this to do
     per-pixel bin lookups without a server round-trip on each hover.
     """
-    idx_tuple = tuple(int(v) for v in indices.split(","))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode).astype(np.float32)
-    if log_scale:
-        data = np.log10(np.abs(data) + 1).astype(np.float32)
+    data = _lebesgue_slice(session, dim_x, dim_y, indices, complex_mode, log_scale)
     return Response(
         content=data.tobytes(),
         media_type="application/octet-stream",

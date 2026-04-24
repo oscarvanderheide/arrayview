@@ -18,7 +18,7 @@ last_updated: 2026-04-24
 - Display environments: Jupyter inline, VS Code local, VS Code tunnel (stdio), Julia, native pywebview, SSH URL print (user forwards port with `ssh -L`)
 - File formats: `.npy`, `.npz`, `.nii`/`.nii.gz`, `.zarr`, `.h5`/`.hdf5`, `.mat`, `.tif`/`.tiff`, `.pt`/`.pth`
 - Rendering pipeline: colormaps, complex modes, mosaic, RGB/RGBA, projections, overlays
-- Backend transport parity: FastAPI and stdio now share compare/diff helpers, overlay compositing, and vector field layout/arrow sampling via `_diff.py`, `_overlays.py`, and `_vectorfield.py`
+- Backend transport parity: FastAPI and stdio now share metadata/analysis helpers, compare/diff helpers, overlay compositing, and vector field layout/arrow sampling via `_analysis.py`, `_diff.py`, `_overlays.py`, and `_vectorfield.py`
 - NIfTI spatial metadata, RAS resampling
 - VS Code extension v0.14.5 — stable window ID via `EnvironmentVariableCollection`; `arrayview.openInFloatingWindow` setting moves new tabs to a floating window; `view(arr, floating=True)` and `arrayview file.npy --floating` open in a floating window per-call regardless of global setting; `!vscode.env.remoteName` guard removed (remote VS Code supports floating windows); floating mode now uses a single persistent shell hub panel (`_shell.html`) so all arrays share one floating window as tabs instead of opening separate windows; fixed: second CLI call now injects tab via `new_tab` postMessage relay (extension -> hub wrapper -> shell iframe) instead of relying on WebSocket notify which wasn't sent in VS Code mode
 - Colorbar refactor: `ColorBar` JS class partially migrated (in progress)

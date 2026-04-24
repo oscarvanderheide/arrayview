@@ -12,7 +12,7 @@ CLI / Python API
 Server (either mode)
    ├─ _session.py    Session objects, caches, render thread
    ├─ _render.py     Slice extraction → RGBA → PNG pipeline
-   ├─ _diff.py / _overlays.py / _vectorfield.py
+   ├─ _analysis.py / _diff.py / _overlays.py / _vectorfield.py
    │                 Shared backend helpers used by FastAPI and stdio
    └─ _io.py         File loading (numpy, nifti, zarr, DICOM, …)
 
@@ -43,6 +43,7 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `__init__.py` | 5 | Public API re-exports: `view`, `arrayview`, `ViewHandle`, `TrainingMonitor`, `view_batch`, `zarr_chunk_preset` |
 | `__main__.py` | 4 | `python -m arrayview` entry point |
 | `_app.py` | 179 | Backward-compat shim — re-exports everything from the split modules |
+| `_analysis.py` | 260 | Shared metadata, histogram, Lebesgue, and pixel helpers |
 | `_config.py` | 121 | `~/.arrayview/config.toml` read/write, valid window modes/env keys |
 | `_io.py` | 253 | Data loading: numpy, NIfTI (lazy nibabel), zarr, DICOM, raw files |
 | `_diff.py` | 218 | Shared compare/diff normalization, colorization, and histograms |
@@ -51,9 +52,9 @@ Detection logic lives in `_platform.py`. Display opening logic lives in `_launch
 | `_platform.py` | 396 | Environment detection: Jupyter, VS Code, SSH, tunnel, Julia, native-window capability |
 | `_render.py` | 834 | Rendering pipeline: colormap LUTs, slice extraction, RGBA/RGB/mosaic rendering, overlay compositing, preload |
 | `_segmentation.py` | 227 | nnInteractive segmentation client (pure HTTP, no nnInteractive dependency) |
-| `_server.py` | 3863 | FastAPI app, all REST + WebSocket routes, HTML template serving |
+| `_server.py` | 3704 | FastAPI app, all REST + WebSocket routes, HTML template serving |
 | `_session.py` | 344 | `Session` class, global state (sockets, loops), render thread, prefetch, cache budgets, constants |
-| `_stdio_server.py` | 900 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
+| `_stdio_server.py` | 767 | Stdio transport for VS Code direct webview — JSON stdin, binary stdout |
 | `_torch.py` | 217 | PyTorch integration: `view_batch()`, `TrainingMonitor` (lazy torch import) |
 | `_vectorfield.py` | 231 | Shared vector field layout validation and arrow sampling |
 | `_vscode.py` | 1014 | VS Code extension install/management, signal-file IPC, shared-memory IPC, browser opening |

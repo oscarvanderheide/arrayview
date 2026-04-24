@@ -2,6 +2,13 @@
 
 import numpy as np
 
+from arrayview._analysis import (
+    _build_metadata,
+    _lebesgue_slice,
+    _pixel_value,
+    _slice_histogram,
+    _volume_histogram,
+)
 from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
 from arrayview._overlays import _composite_overlays
 from arrayview._session import SESSIONS, Session
@@ -101,3 +108,38 @@ def test_composite_overlays_uses_shared_session_lookup():
     assert out[2, 2, 1] > out[2, 2, 0]
     assert out[2, 2, 1] > out[2, 2, 2]
     assert np.array_equal(out[0, 0], rgba[0, 0])
+
+
+def test_analysis_helpers_cover_metadata_histograms_and_pixels():
+    session = Session(np.arange(3 * 4 * 5 * 6, dtype=np.float32).reshape(3, 4, 5, 6))
+
+    meta = _build_metadata(session)
+    assert meta["shape"] == [3, 4, 5, 6]
+    assert meta["is_complex"] is False
+
+    hist = _slice_histogram(
+        session, dim_x=3, dim_y=2, indices="0,0,0,0", bins=16
+    )
+    assert len(hist["counts"]) == 16
+    assert len(hist["edges"]) == 17
+
+    volume_hist = _volume_histogram(
+        session,
+        dim_x=3,
+        dim_y=2,
+        scroll_dims="0,1",
+        fixed_indices="",
+        bins=8,
+    )
+    assert len(volume_hist["counts"]) == 8
+    assert len(volume_hist["edges"]) == 9
+
+    lebesgue = _lebesgue_slice(
+        session, dim_x=3, dim_y=2, indices="0,0,0,0"
+    )
+    assert lebesgue.shape == (5, 6)
+    assert lebesgue.dtype == np.float32
+
+    two_d = Session(np.arange(20, dtype=np.float32).reshape(4, 5))
+    assert _pixel_value(two_d, 1, 0, "0,0", px=4, py=3) == 19.0
+    assert _pixel_value(two_d, 1, 0, "0,0", px=99, py=99) is None

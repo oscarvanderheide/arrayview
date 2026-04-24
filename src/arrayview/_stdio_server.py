@@ -14,7 +14,6 @@ slice requests, and is length-prefixed JSON for metadata/register/sessions.
 
 import concurrent.futures as _futures
 import json
-import arrayview._session as _session_mod
 import os
 import select
 import struct
@@ -24,6 +23,15 @@ import uuid
 
 import numpy as np
 
+from arrayview._analysis import (
+    _build_metadata,
+    _lebesgue_slice,
+    _pixel_value,
+    _session_summary,
+    _slice_histogram,
+    _visible_shape,
+    _volume_histogram,
+)
 from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
 from arrayview._io import load_data_with_meta
 from arrayview._overlays import _composite_overlays
@@ -31,7 +39,6 @@ from arrayview._render import (
     _ensure_lut,
     _init_luts,
     _prepare_display,
-    apply_complex_mode,
     extract_projection,
     extract_slice,
     render_mosaic,
@@ -41,7 +48,7 @@ from arrayview._render import (
     _setup_rgb,
 )
 from arrayview._session import SESSIONS, Session
-from arrayview._vectorfield import _compute_vfield_arrows, _vfield_n_times
+from arrayview._vectorfield import _compute_vfield_arrows
 
 
 # ---------------------------------------------------------------------------
@@ -111,17 +118,10 @@ def _handle_register(msg: dict) -> None:
 
     SESSIONS[session.sid] = session
 
-    shape = [
-        int(s)
-        for s in (
-            session.spatial_shape if session.rgb_axis is not None else session.shape
-        )
-    ]
-
     _write_json(
         {
             "sid": session.sid,
-            "shape": shape,
+            "shape": _visible_shape(session),
             "name": session.name,
             "is_complex": bool(np.iscomplexobj(session.data)),
             "has_vectorfield": session.vfield is not None,
@@ -138,52 +138,12 @@ def _handle_metadata(msg: dict) -> None:
         _write_error("session not found")
         return
 
-    shape = [
-        int(s)
-        for s in (
-            session.spatial_shape if session.rgb_axis is not None else session.shape
-        )
-    ]
-    _write_json(
-        {
-            "shape": shape,
-            "is_complex": bool(np.iscomplexobj(session.data)),
-            "name": session.name,
-            "has_vectorfield": session.vfield is not None,
-            "vfield_n_times": _vfield_n_times(session),
-            "is_rgb": session.rgb_axis is not None,
-            **(
-                {
-                    "default_dims": [int(d) for d in default_dims]
-                }
-                if (
-                    default_dims := _session_mod._startup_dims_for_data(
-                        session.data,
-                        session.spatial_shape if session.rgb_axis is not None else session.shape,
-                    )
-                ) is not None
-                else {}
-            ),
-        }
-    )
+    _write_json(_build_metadata(session))
 
 
 def _handle_sessions() -> None:
     """Return list of active sessions."""
-    result = []
-    for s in SESSIONS.values():
-        dtype_str = str(getattr(s.data, "dtype", "unknown"))
-        result.append(
-            {
-                "sid": s.sid,
-                "name": s.name,
-                "shape": [int(x) for x in s.shape],
-                "filepath": s.filepath,
-                "dtype": dtype_str,
-                "estimated_mem": s._estimated_mem,
-            }
-        )
-    _write_json(result)
+    _write_json([_session_summary(s) for s in SESSIONS.values()])
 
 
 def _handle_clearcache(msg: dict) -> None:
@@ -218,34 +178,10 @@ def _handle_histogram(sid: str, params: dict[str, str]) -> None:
     dim_x = int(params.get("dim_x", "0"))
     dim_y = int(params.get("dim_y", "1"))
     indices_str = params.get("indices", "")
-    idx_tuple = tuple(int(v) for v in indices_str.split(",") if v)
     complex_mode = int(params.get("complex_mode", "0"))
     bins = max(8, min(int(params.get("bins", "128")), 512))
 
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
-    flat = data.ravel()
-    finite = flat[np.isfinite(flat)]
-    if finite.size == 0:
-        _write_json({"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0})
-        return
-    vmin = float(finite.min())
-    vmax = float(finite.max())
-    if vmin == vmax:
-        _write_json({
-            "counts": [int(finite.size)],
-            "edges": [vmin, vmax + 1e-9],
-            "vmin": vmin,
-            "vmax": vmax,
-        })
-        return
-    counts, edges = np.histogram(finite, bins=bins)
-    _write_json({
-        "counts": counts.tolist(),
-        "edges": [float(e) for e in edges],
-        "vmin": vmin,
-        "vmax": vmax,
-    })
+    _write_json(_slice_histogram(session, dim_x, dim_y, indices_str, complex_mode, bins))
 
 
 def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
@@ -257,80 +193,23 @@ def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
     dim_x = int(params.get("dim_x", "0"))
     dim_y = int(params.get("dim_y", "1"))
     scroll_dim = int(params.get("scroll_dim", "0"))
+    scroll_dims = params.get("scroll_dims", "")
     fixed_indices_str = params.get("fixed_indices", "")
     complex_mode = int(params.get("complex_mode", "0"))
     bins = max(8, min(int(params.get("bins", "64")), 512))
 
-    # Parse fixed indices (dim:idx pairs)
-    fixed: dict[int, int] = {}
-    if fixed_indices_str:
-        for pair in fixed_indices_str.split(","):
-            if ":" in pair:
-                d, v = pair.split(":", 1)
-                fixed[int(d)] = int(v)
-
-    # Check cache
-    cache_key = (dim_x, dim_y, scroll_dim, tuple(sorted(fixed.items())), complex_mode)
-    if not hasattr(session, "_volume_hist_cache"):
-        session._volume_hist_cache = {}
-    cached = session._volume_hist_cache.get(cache_key)
-    if cached is not None and cached.get("_data_version") == session.data_version:
-        _write_json(cached["result"])
-        return
-
-    # Subsample up to 16 evenly-spaced slices along scroll_dim
-    n = session.shape[scroll_dim]
-    max_samples = 16
-    if n <= max_samples:
-        sample_indices = list(range(n))
-    else:
-        step = n / max_samples
-        sample_indices = [int(i * step) for i in range(max_samples)]
-
-    pixels = []
-    for si in sample_indices:
-        idx_list = [s // 2 for s in session.shape]
-        idx_list[scroll_dim] = si
-        for d, v in fixed.items():
-            idx_list[d] = v
-        raw = extract_slice(session, dim_x, dim_y, idx_list)
-        data = apply_complex_mode(raw, complex_mode)
-        flat = data.ravel()
-        finite = flat[np.isfinite(flat)]
-        if finite.size > 0:
-            pixels.append(finite)
-
-    if not pixels:
-        result = {"counts": [], "edges": [], "vmin": 0.0, "vmax": 1.0}
-        session._volume_hist_cache[cache_key] = {
-            "_data_version": session.data_version, "result": result,
-        }
-        _write_json(result)
-        return
-
-    merged = np.concatenate(pixels)
-    vmin = float(merged.min())
-    vmax = float(merged.max())
-    if vmin == vmax:
-        result = {
-            "counts": [int(merged.size)],
-            "edges": [vmin, vmax + 1e-9],
-            "vmin": vmin,
-            "vmax": vmax,
-        }
-    else:
-        counts, edges = np.histogram(merged, bins=bins)
-        result = {
-            "counts": counts.tolist(),
-            "edges": [float(e) for e in edges],
-            "vmin": vmin,
-            "vmax": vmax,
-        }
-
-    session._volume_hist_cache[cache_key] = {
-        "_data_version": session.data_version, "result": result,
-    }
-    _write_json(result)
+    _write_json(
+        _volume_histogram(
+            session,
+            dim_x,
+            dim_y,
+            scroll_dim,
+            scroll_dims,
+            fixed_indices_str,
+            complex_mode,
+            bins,
+        )
+    )
 
 
 def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
@@ -342,14 +221,10 @@ def _handle_lebesgue(sid: str, params: dict[str, str]) -> None:
     dim_x = int(params.get("dim_x", "0"))
     dim_y = int(params.get("dim_y", "1"))
     indices_str = params.get("indices", "")
-    idx_tuple = tuple(int(v) for v in indices_str.split(",") if v)
     complex_mode = int(params.get("complex_mode", "0"))
     log_scale = params.get("log_scale", "false").lower() == "true"
 
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode).astype(np.float32)
-    if log_scale:
-        data = np.log10(np.abs(data) + 1).astype(np.float32)
+    data = _lebesgue_slice(session, dim_x, dim_y, indices_str, complex_mode, log_scale)
     import base64
     _write_json({
         "_binary": True,
@@ -390,25 +265,17 @@ def _handle_pixel(sid: str, params: dict) -> None:
     if not session:
         _write_json({"error": "session not found"})
         return
-    if session.rgb_axis is not None:
-        _write_json({"value": None})
-        return
     dim_x = int(params.get("dim_x", 0))
     dim_y = int(params.get("dim_y", 0))
     indices = params.get("indices", "")
-    idx_tuple = tuple(int(x) for x in indices.split(",")) if indices else ()
     px = int(params.get("px", 0))
     py = int(params.get("py", 0))
     complex_mode = int(params.get("complex_mode", 0))
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-    data = apply_complex_mode(raw, complex_mode)
-    h, w = data.shape
-    if 0 <= py < h and 0 <= px < w:
-        v = data[py, px]
-        val = None if np.isnan(v) or np.isinf(v) else float(v)
-    else:
-        val = None
-    _write_json({"value": val})
+    _write_json({
+        "value": _pixel_value(
+            session, dim_x, dim_y, indices, px, py, complex_mode
+        )
+    })
 
 
 def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
