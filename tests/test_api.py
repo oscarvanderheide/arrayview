@@ -949,6 +949,64 @@ class TestProjection:
 
 
 class TestOverlayWebSocket:
+    def test_ws_pushes_metadata_before_binary_frames(self, tmp_path):
+        from arrayview._app import app
+
+        arr = np.arange(36, dtype=np.float32).reshape(6, 6)
+        np.save(tmp_path / "base_meta_ws.npy", arr)
+
+        with TestClient(app) as c:
+            sid = c.post(
+                "/load", json={"filepath": str(tmp_path / "base_meta_ws.npy")}
+            ).json()["sid"]
+
+            with c.websocket_connect(f"/ws/{sid}") as ws:
+                meta = ws.receive_json()
+
+                assert meta["type"] == "metadata"
+                assert meta["shape"] == [6, 6]
+                assert meta["is_complex"] is False
+                assert meta["is_rgb"] is False
+                assert meta["has_source_file"] is True
+
+                ws.send_json(
+                    {
+                        "seq": 7,
+                        "dim_x": 1,
+                        "dim_y": 0,
+                        "dim_z": -1,
+                        "indices": [0, 0],
+                        "colormap": "gray",
+                        "dr": 0,
+                        "complex_mode": 0,
+                        "log_scale": False,
+                        "slice_dim": 0,
+                        "direction": 1,
+                    }
+                )
+                payload = ws.receive_bytes()
+
+        seq, width, height = np.frombuffer(payload[:12], dtype=np.uint32)
+        assert (int(seq), int(width), int(height)) == (7, 6, 6)
+
+    def test_shell_close_drops_session(self, tmp_path):
+        from arrayview._app import app
+
+        arr = np.ones((4, 4), dtype=np.float32)
+        np.save(tmp_path / "shell_close.npy", arr)
+
+        with TestClient(app) as c:
+            sid = c.post(
+                "/load", json={"filepath": str(tmp_path / "shell_close.npy")}
+            ).json()["sid"]
+
+            assert c.get(f"/metadata/{sid}").status_code == 200
+
+            with c.websocket_connect("/ws/shell") as ws:
+                ws.send_json({"action": "close", "sid": sid})
+
+            assert c.get(f"/metadata/{sid}").status_code == 404
+
     def test_overlay_visible_over_transparent_base(self, tmp_path):
         from arrayview._app import app
 
@@ -967,6 +1025,9 @@ class TestOverlayWebSocket:
                 json={"filepath": str(tmp_path / "mask_ws.npy"), "name": "overlay"},
             ).json()["sid"]
             with c.websocket_connect(f"/ws/{sid}") as ws:
+                meta = ws.receive_json()
+                assert meta["type"] == "metadata"
+
                 ws.send_json(
                     {
                         "seq": 1,
@@ -980,14 +1041,33 @@ class TestOverlayWebSocket:
                         "log_scale": False,
                         "slice_dim": 0,
                         "direction": 1,
+                    }
+                )
+                plain_payload = ws.receive_bytes()
+
+                ws.send_json(
+                    {
+                        "seq": 2,
+                        "dim_x": 1,
+                        "dim_y": 0,
+                        "dim_z": -1,
+                        "indices": [0, 0],
+                        "colormap": "gray",
+                        "dr": 0,
+                        "complex_mode": 0,
+                        "log_scale": False,
+                        "slice_dim": 0,
+                        "direction": 1,
                         "overlay_sid": overlay_sid,
                     }
                 )
-                payload = ws.receive_bytes()
+                overlay_payload = ws.receive_bytes()
 
-        rgba = np.frombuffer(payload[20:], dtype=np.uint8).reshape(6, 6, 4)
-        assert rgba[2, 2, 3] > 0
-        assert rgba[0, 0, 3] == 0
+        plain_rgba = np.frombuffer(plain_payload[20:], dtype=np.uint8).reshape(6, 6, 4)
+        overlay_rgba = np.frombuffer(overlay_payload[20:], dtype=np.uint8).reshape(6, 6, 4)
+        assert np.array_equal(plain_rgba[0, 0], overlay_rgba[0, 0])
+        assert not np.array_equal(plain_rgba[2, 2], overlay_rgba[2, 2])
+        assert overlay_rgba[2, 2, 0] > overlay_rgba[2, 2, 1]
 
 
 # ---------------------------------------------------------------------------
