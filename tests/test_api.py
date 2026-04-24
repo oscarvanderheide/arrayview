@@ -615,6 +615,61 @@ class TestThumbnail:
         assert "gray" in body["recommended_colormap_reason"]
 
 
+class TestExportRoutes:
+    def test_export_array_returns_npy_attachment(self, client, sid_2d, arr_2d):
+        r = client.get(f"/export_array/{sid_2d}")
+        assert r.status_code == 200
+        assert r.headers["content-disposition"] == 'attachment; filename="arr2d.npy"'
+        exported = np.load(io.BytesIO(r.content))
+        np.testing.assert_array_equal(exported, arr_2d)
+
+    def test_save_file_writes_to_downloads_fallback(self, client, tmp_path, monkeypatch):
+        import pathlib
+
+        downloads = tmp_path / "Downloads"
+        downloads.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = base64.b64encode(b"hello export").decode("ascii")
+        r = client.post(
+            "/save_file",
+            json={
+                "filename": "note.txt",
+                "data": f"data:text/plain;base64,{payload}",
+            },
+        )
+
+        assert r.status_code == 200
+        saved_path = downloads / "note.txt"
+        assert r.json()["path"] == str(saved_path)
+        assert saved_path.read_bytes() == b"hello export"
+
+    def test_exploded_returns_requested_slice_previews(self, client, sid_3d):
+        r = client.post(
+            f"/exploded/{sid_3d}",
+            json={
+                "dim_x": 2,
+                "dim_y": 1,
+                "scroll_dim": 0,
+                "indices": [0, 5, 19],
+                "width": 64,
+                "colormap": "gray",
+                "dr": 0,
+                "complex_mode": 0,
+                "log_scale": False,
+            },
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        assert [entry["index"] for entry in body["slices"]] == [0, 5, 19]
+        assert len(body["slices"]) == 3
+        for entry in body["slices"]:
+            assert entry["image"].startswith("data:image/jpeg;base64,")
+            encoded = entry["image"].split(",", 1)[1]
+            assert base64.b64decode(encoded).startswith(b"\xff\xd8")
+
+
 # ---------------------------------------------------------------------------
 # /slice
 # ---------------------------------------------------------------------------

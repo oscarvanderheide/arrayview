@@ -85,6 +85,7 @@ from arrayview._routes_persistence import (
     _CROP_STATE,
     register_persistence_routes,
 )
+from arrayview._routes_export import register_export_routes
 from arrayview._routes_query import register_query_routes
 from arrayview._routes_segmentation import register_segmentation_routes
 from arrayview._routes_state import register_state_routes
@@ -470,6 +471,7 @@ register_loading_routes(app, notify_shells=_notify_shells, setup_rgb=_setup_rgb)
 register_persistence_routes(app)
 register_segmentation_routes(app, get_session_or_404)
 register_state_routes(app, get_session_or_404)
+register_export_routes(app, get_session_or_404=get_session_or_404, pil_image=_pil_image)
 register_query_routes(
     app,
     get_session_or_404=get_session_or_404,
@@ -584,54 +586,6 @@ async def attach_vectorfield(request: Request):
         return {"ok": True, "components_dim": layout["components_dim"]}
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/export_array/{sid}")
-def export_array(
-    sid: str,
-    save_to_downloads: int = 0,
-    session: "Session" = Depends(get_session_or_404),
-):
-    """Return the full N-D array as a downloadable .npy file (raw data, no transforms)."""
-    data = np.asarray(session.data)
-    buf = io.BytesIO()
-    np.save(buf, data)
-    buf.seek(0)
-    name_stem = (session.name or "array").replace(" ", "_").replace("/", "_")
-    filename = f"{name_stem}.npy"
-    if save_to_downloads:
-        import pathlib
-        downloads = pathlib.Path.home() / "Downloads"
-        dest = downloads / filename if downloads.is_dir() else pathlib.Path(filename)
-        dest.write_bytes(buf.read())
-        return JSONResponse({"path": str(dest)})
-    return Response(
-        content=buf.read(),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.post("/save_file")
-async def save_file(request: Request):
-    """Save a client-generated file (screenshot, CSV, GIF) to the Downloads folder.
-
-    Accepts JSON: { "filename": "name.png", "data": "<base64-encoded>" }
-    Used as fallback when <a download>.click() doesn't work (e.g. PyWebView).
-    """
-    body = await request.json()
-    filename = body.get("filename", "arrayview_export")
-    data_b64 = body.get("data", "")
-    # Strip data URL prefix if present
-    if "," in data_b64:
-        data_b64 = data_b64.split(",", 1)[1]
-    import base64, pathlib
-    raw = base64.b64decode(data_b64)
-    # Save to Downloads or current directory
-    downloads = pathlib.Path.home() / "Downloads"
-    dest = downloads / filename if downloads.is_dir() else pathlib.Path(filename)
-    dest.write_bytes(raw)
-    return JSONResponse({"path": str(dest)})
 
 
 # ── REST Routes: Slice Rendering, Diff, and Oblique ──────────────
@@ -1267,61 +1221,6 @@ def ping():
         "hostname": socket.gethostname(),
         "viewer_sockets": _session_mod.VIEWER_SOCKETS,
     }
-
-
-@app.post("/exploded/{sid}")
-async def get_exploded_slices(
-    sid: str,
-    dim_x: int = Body(...),
-    dim_y: int = Body(...),
-    scroll_dim: int = Body(...),
-    indices: list[int] = Body(...),
-    width: int = Body(256),
-    colormap: str = Body("gray"),
-    dr: int = Body(1),
-    complex_mode: int = Body(0),
-    log_scale: bool = Body(False),
-    vmin_override: float | None = Body(None),
-    vmax_override: float | None = Body(None),
-    session: "Session" = Depends(get_session_or_404),
-):
-    """Return JPEG thumbnails for multiple slices along scroll_dim."""
-    import base64
-
-
-    ndim = len(session.shape)
-    if ndim < 3:
-        return JSONResponse({"error": "need >= 3D array"}, status_code=400)
-
-    Image = _pil_image()
-    results = []
-
-    # Build base index tuple (middle of each dim)
-    base_indices = [s // 2 for s in session.shape]
-
-    for slice_idx in indices:
-        idx_list = list(base_indices)
-        idx_list[scroll_dim] = min(max(0, slice_idx), session.shape[scroll_dim] - 1)
-
-        rgba = await asyncio.to_thread(
-            render_rgba, session, dim_x, dim_y, tuple(idx_list),
-            colormap, dr, complex_mode, log_scale,
-            vmin_override, vmax_override,
-        )
-
-        img = Image.fromarray(rgba[:, :, :3])
-        # Maintain aspect ratio, fit within width
-        aspect = img.height / img.width
-        target_h = max(1, int(width * aspect))
-        resample = Image.NEAREST if img.width <= width else Image.LANCZOS
-        img = img.resize((width, target_h), resample)
-
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=70)
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        results.append({"index": slice_idx, "image": f"data:image/jpeg;base64,{b64}"})
-
-    return JSONResponse({"slices": results})
 
 
 # ── Root UI Route ─────────────────────────────────────────────────
