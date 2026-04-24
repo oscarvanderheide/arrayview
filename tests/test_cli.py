@@ -171,6 +171,73 @@ def test_cli_existing_server_overlay_and_dims_are_forwarded_to_browser(
     )
 
 
+def test_cli_existing_server_native_injection_skips_browser(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    opened = []
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", base, "--window", "native"])
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: True)
+    monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda *args, **kwargs: opened.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_vprint",
+        lambda *args, **kwargs: None,
+    )
+
+    def fake_urlopen(req, timeout=5):
+        body = json.loads((req.data or b"{}").decode())
+        return _DummyResponse({"sid": "sid_base", "name": body["name"], "notified": True})
+
+    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    assert opened == []
+
+
+def test_cli_spawn_daemon_opens_viewer_url(monkeypatch, tmp_path):
+    base = str(tmp_path / "base.npy")
+    np.save(base, np.zeros((8, 8), dtype=np.float32))
+    opened = []
+    spawned = []
+
+    class _DummyProc:
+        pid = 43210
+
+    monkeypatch.setattr(sys, "argv", ["arrayview", base, "--browser"])
+    monkeypatch.setattr(_launcher_mod, "_server_alive", lambda _: False)
+    monkeypatch.setattr(_launcher_mod, "_port_in_use", lambda _: False)
+    monkeypatch.setattr(_launcher_mod, "_wait_for_port", lambda *args, **kwargs: True)
+    monkeypatch.setattr(_launcher_mod, "_is_vscode_remote", lambda: False)
+    monkeypatch.setattr(
+        _launcher_mod.subprocess,
+        "Popen",
+        lambda cmd, *args, **kwargs: spawned.append(cmd) or _DummyProc(),
+    )
+    monkeypatch.setattr(
+        _launcher_mod,
+        "_open_browser",
+        lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    appmod.arrayview()
+
+    assert spawned
+    assert "_serve_daemon(" in spawned[0][2]
+    assert len(opened) == 1
+    assert opened[0]["url"].startswith("http://localhost:8000/?sid=")
+    assert opened[0]["blocking"] is True
+    assert opened[0]["force_vscode"] is False
+    assert opened[0]["title"] == "ArrayView: base.npy"
+    assert opened[0]["floating"] is False
+
+
 def test_cli_vectorfield_components_dim_is_sent_to_attach(monkeypatch, tmp_path):
     base = str(tmp_path / "base.npy")
     vf = str(tmp_path / "vf.npy")

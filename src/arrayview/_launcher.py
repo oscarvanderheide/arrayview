@@ -649,6 +649,126 @@ def _load_compare_sids(port: int, compare_files: list[str]) -> list[str]:
     return compare_sids
 
 
+def _open_cli_existing_server_view(
+    *,
+    port: int,
+    sid: str,
+    compare_sids: _CompareSids | None,
+    overlay_sid: str | None,
+    dims_override: tuple[int, int] | None,
+    notify_webview: bool,
+    notified: bool,
+    name: str,
+    base_file: str,
+    watch: bool,
+    window_mode: str | None,
+    floating: bool,
+) -> None:
+    url = _viewer_url(
+        port,
+        sid,
+        compare_sids=compare_sids,
+        overlay_sids=overlay_sid,
+        dims=dims_override,
+    )
+    if notify_webview and notified:
+        _vprint(f"Injected into existing window (port {port})")
+        return
+    if notify_webview and not notified:
+        url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
+        if not _open_webview_cli(url_shell, 1200, 800):
+            _vprint("[ArrayView] Falling back to browser", flush=True)
+            _print_viewer_location(url)
+            _open_browser(
+                url,
+                blocking=True,
+                title=f"ArrayView: {name}",
+                filepath=base_file,
+                floating=floating,
+            )
+        return
+    if watch:
+        _start_watch_thread(base_file, sid, port)
+    _open_browser(
+        url,
+        blocking=True,
+        force_vscode=(window_mode == "vscode"),
+        title=f"ArrayView: {name}",
+        filepath=base_file,
+        floating=floating,
+    )
+
+
+def _open_cli_spawned_view(
+    *,
+    port: int,
+    sid: str,
+    compare_sids: _CompareSids | None,
+    overlay_sid: str | None,
+    dims_override: tuple[int, int] | None,
+    use_webview: bool,
+    name: str,
+    base_file: str,
+    watch: bool,
+    window_mode: str | None,
+    floating: bool,
+    is_remote: bool,
+) -> None:
+    url = _viewer_url(
+        port,
+        sid,
+        compare_sids=compare_sids,
+        overlay_sids=overlay_sid,
+        dims=dims_override,
+    )
+    if _should_notify_webview(use_webview, overlay_sid):
+        url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
+        if not _open_webview_cli(url_shell, 1400, 900):
+            _vprint("[ArrayView] Falling back to browser", flush=True)
+            _print_viewer_location(url)
+            _open_browser(
+                url,
+                blocking=False,
+                force_vscode=(window_mode == "vscode"),
+                title=f"ArrayView: {name}",
+                floating=floating,
+            )
+        return
+    if use_webview and overlay_sid:
+        _vprint(
+            "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
+            flush=True,
+        )
+    _print_viewer_location(url)
+    if is_remote and sys.stdin.isatty():
+        print(
+            f"\n  VS Code Ports tab: right-click port {port} "
+            f"\u2192 Port Visibility \u2192 Public\n"
+            f"  Press Enter once done (or the viewer retries automatically)... ",
+            end="",
+            flush=True,
+        )
+        try:
+            input()
+        except KeyboardInterrupt:
+            print(flush=True)
+            sys.exit(0)
+        except EOFError:
+            print(flush=True)
+        import arrayview._vscode as _vscode_mod
+
+        _vscode_mod._remote_message_shown = True
+    if watch:
+        _start_watch_thread(base_file, sid, port)
+    _open_browser(
+        url,
+        blocking=True,
+        force_vscode=(window_mode == "vscode"),
+        title=f"ArrayView: {name}",
+        floating=floating,
+    )
+
+
 def _parse_dims_spec(spec: str) -> tuple[int, int] | None:
     parts = [p.strip().lower() for p in spec.split(",")]
     x_idx = next((i for i, p in enumerate(parts) if p == "x"), None)
@@ -3066,35 +3186,20 @@ def arrayview():
             )
             sys.exit(1)
 
-        sid = result["sid"]
-        url = _viewer_url(
-            args.port,
-            sid,
+        _open_cli_existing_server_view(
+            port=args.port,
+            sid=result["sid"],
             compare_sids=compare_sids,
-            overlay_sids=overlay_sid,
-            dims=dims_override,
+            overlay_sid=overlay_sid,
+            dims_override=dims_override,
+            notify_webview=notify_webview,
+            notified=bool(result.get("notified")),
+            name=name,
+            base_file=base_file,
+            watch=getattr(args, "watch", False),
+            window_mode=window_mode,
+            floating=args.floating,
         )
-        if notify_webview and result.get("notified"):
-            # Tab was injected into existing webview window (with or without compare)
-            _vprint(f"Injected into existing window (port {args.port})")
-        elif notify_webview and not result.get("notified"):
-            # Native window was requested but the shell is gone — open a new native window.
-            url_shell = _shell_url(args.port, sid, name, compare_sids=compare_sids)
-            if not _open_webview_cli(url_shell, 1200, 800):
-                _vprint("[ArrayView] Falling back to browser", flush=True)
-                _print_viewer_location(url)
-                _open_browser(url, blocking=True, title=f"ArrayView: {name}", filepath=base_file, floating=args.floating)
-        else:
-            if getattr(args, "watch", False):
-                _start_watch_thread(base_file, sid, args.port)
-            _open_browser(
-                url,
-                blocking=True,
-                force_vscode=(window_mode == "vscode"),
-                title=f"ArrayView: {name}",
-                filepath=base_file,
-                floating=args.floating,
-            )
         return
 
     # Direct webview mode for VS Code tunnel sessions: skip starting the
@@ -3173,62 +3278,17 @@ def arrayview():
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
 
-    url = _viewer_url(
-        args.port,
-        sid,
+    _open_cli_spawned_view(
+        port=args.port,
+        sid=sid,
         compare_sids=compare_sids,
-        overlay_sids=overlay_sid,
-        dims=dims_override,
+        overlay_sid=overlay_sid,
+        dims_override=dims_override,
+        use_webview=use_webview,
+        name=name,
+        base_file=base_file,
+        watch=getattr(args, "watch", False),
+        window_mode=window_mode,
+        floating=args.floating,
+        is_remote=is_remote,
     )
-
-    if _should_notify_webview(use_webview, overlay_sid):
-        url_shell = _shell_url(args.port, sid, name, compare_sids=compare_sids)
-        if not _open_webview_cli(url_shell, 1400, 900):
-            _vprint("[ArrayView] Falling back to browser", flush=True)
-            _print_viewer_location(url)
-            _open_browser(
-                url,
-                blocking=False,
-                force_vscode=(window_mode == "vscode"),
-                title=f"ArrayView: {name}",
-                floating=args.floating,
-            )
-    else:
-        if use_webview and overlay_sid:
-            _vprint(
-                "[ArrayView] Overlay mode: opening browser (webview injection not supported with overlay)",
-                flush=True,
-            )
-        _print_viewer_location(url)
-        if is_remote and sys.stdin.isatty():
-            # New server, tunnel mode: wait for user to set port Public before
-            # writing the signal file so the viewer tab opens on first try.
-            print(
-                f"\n  VS Code Ports tab: right-click port {args.port} "
-                f"\u2192 Port Visibility \u2192 Public\n"
-                f"  Press Enter once done (or the viewer retries automatically)... ",
-                end="",
-                flush=True,
-            )
-            try:
-                input()
-            except KeyboardInterrupt:
-                print(flush=True)
-                sys.exit(0)
-            except EOFError:
-                # stdin reached EOF (e.g. uvx / piped stdin) — don't abort,
-                # proceed to open browser immediately without waiting.
-                print(flush=True)
-            # Suppress duplicate "set to Public" reminder inside _open_browser.
-            import arrayview._vscode as _vscode_mod
-
-            _vscode_mod._remote_message_shown = True
-        if getattr(args, "watch", False):
-            _start_watch_thread(base_file, sid, args.port)
-        _open_browser(
-            url,
-            blocking=True,
-            force_vscode=(window_mode == "vscode"),
-            title=f"ArrayView: {name}",
-            floating=args.floating,
-        )

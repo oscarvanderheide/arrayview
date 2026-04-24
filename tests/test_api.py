@@ -1164,6 +1164,140 @@ class TestViewWindowHelpers:
         }
 
 
+class TestCliOpenHelpers:
+    def test_open_cli_existing_server_view_skips_open_when_already_notified(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        calls = []
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: calls.append(args))
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_cli",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
+        )
+
+        launcher._open_cli_existing_server_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=["sid_cmp"],
+            overlay_sid=None,
+            dims_override=None,
+            notify_webview=True,
+            notified=True,
+            name="base.npy",
+            base_file="/tmp/base.npy",
+            watch=False,
+            window_mode=None,
+            floating=False,
+        )
+
+        assert any("Injected into existing window" in args[0] for args in calls)
+
+    def test_open_cli_existing_server_view_falls_back_to_browser(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        opened = []
+        printed = []
+        monkeypatch.setattr(launcher, "_open_webview_cli", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            launcher, "_print_viewer_location", lambda url: printed.append(url)
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_existing_server_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=["sid_cmp"],
+            overlay_sid=None,
+            dims_override=(1, 2),
+            notify_webview=True,
+            notified=False,
+            name="base.npy",
+            base_file="/tmp/base.npy",
+            watch=False,
+            window_mode="native",
+            floating=False,
+        )
+
+        assert printed == [
+            "http://localhost:8000/?sid=sid_base&compare_sid=sid_cmp&compare_sids=sid_cmp&dim_x=1&dim_y=2"
+        ]
+        assert opened == [
+            {
+                "url": "http://localhost:8000/?sid=sid_base&compare_sid=sid_cmp&compare_sids=sid_cmp&dim_x=1&dim_y=2",
+                "blocking": True,
+                "title": "ArrayView: base.npy",
+                "filepath": "/tmp/base.npy",
+                "floating": False,
+            }
+        ]
+
+    def test_open_cli_spawned_view_overlay_browser_path_starts_watch(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        opened = []
+        printed = []
+        watched = []
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_cli",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
+        )
+        monkeypatch.setattr(
+            launcher, "_print_viewer_location", lambda url: printed.append(url)
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_start_watch_thread",
+            lambda filepath, sid, port: watched.append((filepath, sid, port)),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: opened.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(launcher, "_vprint", lambda *args, **kwargs: None)
+
+        launcher._open_cli_spawned_view(
+            port=8000,
+            sid="sid_base",
+            compare_sids=[],
+            overlay_sid="sid_overlay",
+            dims_override=None,
+            use_webview=True,
+            name="base.npy",
+            watch=True,
+            window_mode="browser",
+            floating=True,
+            is_remote=False,
+            base_file="/tmp/base.npy",
+        )
+
+        assert printed == ["http://localhost:8000/?sid=sid_base&overlay_sid=sid_overlay"]
+        assert watched == [("/tmp/base.npy", "sid_base", 8000)]
+        assert opened == [
+            {
+                "url": "http://localhost:8000/?sid=sid_base&overlay_sid=sid_overlay",
+                "blocking": True,
+                "force_vscode": False,
+                "title": "ArrayView: base.npy",
+                "floating": True,
+            }
+        ]
+
+
 # ---------------------------------------------------------------------------
 # /histogram — histogram strip endpoint
 # ---------------------------------------------------------------------------
