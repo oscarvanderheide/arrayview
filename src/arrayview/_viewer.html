@@ -194,12 +194,19 @@
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
+            --cb-extra-top: 0px;
+            --cb-base-pad-top: 5px;
+            --cb-base-pad-x: 10px;
+            --cb-base-pad-bottom: 5px;
+            --cb-base-margin-top: 0px;
+            position: relative;
             border-radius: 14px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 5px 10px;
-            transition: background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
+            padding: calc(var(--cb-base-pad-top) + var(--cb-extra-top)) var(--cb-base-pad-x) var(--cb-base-pad-bottom);
+            margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top));
+            transition: background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
         }
         :root.light .cb-island {
             background: rgba(240, 240, 240, 0.85);
@@ -1444,7 +1451,7 @@
         }
         #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -1529,7 +1536,7 @@
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-inner { position: relative; display: inline-block; }
-        .compare-pane-cb-island { margin-top: 10px; display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease; }
+        .compare-pane-cb-island { --cb-base-margin-top: 10px; margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top)); display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease, margin 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; width: 100%; position: absolute; bottom: 0; left: 0; background: transparent; }
         .compare-pane-cb-labels { display: none; }
         .compare-pane-cb-val { font-size: 11px; color: #fff; font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
@@ -1832,7 +1839,8 @@
            The grid is absolute-positioned inside #slim-cb-wrap, in the space
            opened up by animating the wrap's top padding (--cb-extra-top).
            Swatches fade in only after the island finishes extending. */
-        #slim-cb-preview {
+        #slim-cb-preview,
+        .cmap-hold-preview {
             position: absolute;
             top: 6px; left: 12px; right: 12px;
             display: flex; flex-wrap: wrap;
@@ -1842,8 +1850,10 @@
             z-index: 1;
             transition: opacity 0.14s ease;
         }
-        #slim-cb-preview.fade-in { opacity: 1; pointer-events: auto; }
-        #slim-cb-preview .cmh-cell {
+        #slim-cb-preview.fade-in,
+        .cmap-hold-preview.fade-in { opacity: 1; pointer-events: auto; }
+        #slim-cb-preview .cmh-cell,
+        .cmap-hold-preview .cmh-cell {
             display: flex; flex-direction: column; align-items: center; gap: 3px;
             padding: 4px 6px; border-radius: 6px;
             border: 1.5px solid transparent;
@@ -1851,28 +1861,34 @@
             cursor: pointer;
             width: 76px; flex: 0 0 auto; box-sizing: border-box;
         }
-        #slim-cb-preview .cmh-cell canvas {
+        #slim-cb-preview .cmh-cell canvas,
+        .cmap-hold-preview .cmh-cell canvas {
             display: block; width: 60px; height: 10px;
             flex: 0 0 auto;
             border-radius: 3px;
             border: 1px solid rgba(255,255,255,0.08);
         }
-        #slim-cb-preview .cmh-cell:hover:not(.active) {
+        #slim-cb-preview .cmh-cell:hover:not(.active),
+        .cmap-hold-preview .cmh-cell:hover:not(.active) {
             background: rgba(255,255,255,0.04);
         }
-        #slim-cb-preview .cmh-cell span {
+        #slim-cb-preview .cmh-cell span,
+        .cmap-hold-preview .cmh-cell span {
             font-size: 9px; color: var(--muted);
             font-family: monospace;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             text-align: center;
             width: 100%;
         }
-        #slim-cb-preview .cmh-cell.active {
+        #slim-cb-preview .cmh-cell.active,
+        .cmap-hold-preview .cmh-cell.active {
             border-color: var(--active-dim);
             background: rgba(245,200,66,0.10);
         }
-        #slim-cb-preview .cmh-cell.active span { color: var(--active-dim); }
-        #slim-cb-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
+        #slim-cb-preview .cmh-cell.active span,
+        .cmap-hold-preview .cmh-cell.active span { color: var(--active-dim); }
+        #slim-cb-preview .cmh-cell.active canvas,
+        .cmap-hold-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
 
         /* ── Hold-g grid layout picker ──────────────────────────── */
         .layout-picker {
@@ -2141,7 +2157,7 @@
             <div id="welcome-hint">{cmd,ctrl,shift}+o &nbsp;·&nbsp; drop to open array</div>
         </div>
         <div id="slim-cb-wrap" style="display:none">
-            <div id="slim-cb-preview" aria-hidden="true"></div>
+            <div id="slim-cb-preview" class="cmap-hold-preview" aria-hidden="true"></div>
             <div class="save-flip-inner" id="slim-cb-save-flip">
                 <div class="save-flip-front">
                     <span class="slim-cb-val" id="slim-cb-vmin"></span>
@@ -8472,8 +8488,28 @@
             };
         }
 
-        async function fetchSliceFrame(params, targetSid = sid) {
-            const res = await proxyFetch(`/slice/${targetSid}?${params.toString()}`);
+        function _withTimeout(options, timeoutMs) {
+            if (!timeoutMs || timeoutMs <= 0 || postMessageTransport) return options || {};
+            const ctrl = new AbortController();
+            const next = Object.assign({}, options || {}, { signal: ctrl.signal });
+            const timer = setTimeout(() => ctrl.abort(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
+            return { options: next, clear: () => clearTimeout(timer) };
+        }
+
+        async function fetchSliceFrame(params, targetSid = sid, opts = null) {
+            const timeoutMs = opts && Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 0;
+            const timed = _withTimeout(null, timeoutMs);
+            let res;
+            try {
+                res = await proxyFetch(`/slice/${targetSid}?${params.toString()}`, timed.options || timed);
+            } catch (e) {
+                if (e && e.name === 'AbortError' && timeoutMs > 0) {
+                    throw new Error(`Render timed out (${timeoutMs}ms)`);
+                }
+                throw e;
+            } finally {
+                if (timed && typeof timed.clear === 'function') timed.clear();
+            }
             if (!res.ok) {
                 throw new Error(`Render failed (${res.status})`);
             }
@@ -8603,6 +8639,7 @@
                     params.set('projection_dim', String(projectionDim));
                 }
                 const renderSids = registrationMode ? [sid, compareSid] : getCompareRenderSids();
+                const compareTimeoutMs = (!_reportedFirstFrame || isInlineEmbed) ? 5000 : 0;
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
                     // Shared global range for fair comparison (per-pane overrides respected for manual adjustments)
@@ -8617,7 +8654,7 @@
                         if (_visSid) { reqParams.set('overlay_sid', _visSid); if (overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) reqParams.set('overlay_colors', _visCol); } }
                         reqParams.set('overlay_alpha', String(overlayAlpha));
                     }
-                    return fetchSliceFrame(reqParams, sidVal);
+                    return fetchSliceFrame(reqParams, sidVal, { timeoutMs: compareTimeoutMs });
                 });
                 compareFrames = await Promise.all(requests);
                 // Auto-sync to shared range: if no manual range set and frames have
@@ -8647,7 +8684,13 @@
                 hideLoadingOverlay();
                 if (diffMode > 0) fetchAndDrawDiff();
             } catch (e) {
-                setStatus(`Compare render failed: ${e.message || e}`);
+                const compareError = `Compare render failed: ${e.message || e}`;
+                const hadCompareFrame = Array.isArray(compareFrames) && compareFrames.some(Boolean);
+                hideLoadingOverlay();
+                if (!hadCompareFrame) {
+                    exitCompareMode();
+                }
+                setStatus(compareError);
             } finally {
                 compareRendering = false;
                 if (comparePending) {
@@ -16467,18 +16510,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
                 compareActive = true;
-                applyCompareLayout();
-                // Persistent per-pane ColorBars exist across all sub-modes.
-                _createComparePaneColorBars();
-                // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
-                // (applyStateSnapshot doesn't call _setCompareCenterMode so this is needed).
-                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
-                _reconcileUI();
-                renderInfo();
-                updateView();
-                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
-                showStatus(`compare: ${compareName}`);
-                // Phase 4: sync modeManager
+                // Sync modeManager before updateView() so direct compare boot
+                // routes into compareRender() instead of the normal View path.
                 {
                     // Save the existing primary View on first enter so exitCompareMode can restore it.
                     if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
@@ -16503,6 +16536,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     modeManager.modeName = 'compare';
                     document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
                 }
+                applyCompareLayout();
+                // Persistent per-pane ColorBars exist across all sub-modes.
+                _createComparePaneColorBars();
+                // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
+                // (applyStateSnapshot doesn't call _setCompareCenterMode so this is needed).
+                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
+                _reconcileUI();
+                renderInfo();
+                updateView();
+                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
+                showStatus(`compare: ${compareName}`);
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -16539,17 +16583,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
                 compareActive = true;
-                applyCompareLayout();
-                _createComparePaneColorBars();
-                // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
-                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
-                _reconcileUI();
-                renderInfo();
-                updateView();
-                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
-                const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
-                showStatus(`compare: ${names.join(' · ')}`);
-                // Phase 4: sync modeManager
+                // Sync modeManager before updateView() so direct compare boot
+                // routes into compareRender() instead of the normal View path.
                 {
                     // Save the existing primary View on first enter so exitCompareMode can restore it.
                     if (!_comparePrevNormalView) _comparePrevNormalView = modeManager.currentViews[0] || null;
@@ -16572,6 +16607,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     modeManager.modeName = 'compare';
                     document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
                 }
+                applyCompareLayout();
+                _createComparePaneColorBars();
+                // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
+                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
+                _reconcileUI();
+                renderInfo();
+                updateView();
+                requestAnimationFrame(() => { compareScaleCanvases(); renderEggs(); });
+                const names = sids.map(s => compareNameBySid[s] || s.slice(0, 8));
+                showStatus(`compare: ${names.join(' · ')}`);
                 return true;
             } catch (e) {
                 showStatus(`compare failed: ${e.message || e}`);
@@ -22438,19 +22483,145 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         const _CMAP_FADE_MS = 140;     // matches CSS opacity transition
         const _cmapCbWrap = document.getElementById('slim-cb-wrap');
         const _cmapPreview = document.getElementById('slim-cb-preview');
+        let _cmapHoldSpec = null;
+        let _cmapHoldHost = null;
+        let _cmapHoldPreviewEl = null;
+        let _cmapHoldPool = COLORMAPS;
         let _cmapHoldActive = false;      // menu is shown (or pending-commit)
         let _cmapHoldAnim = false;        // island is mid-expand or mid-collapse (used by positionEggs to freeze)
         let _cmapHoldSelIdx = 0;          // selected linear index in COLORMAPS
         let _cmapHoldCols = 4;            // grid column count (recomputed after layout)
-        let _cmapHoldPrevIdx = 0;         // colormap_idx at open time (for cancel)
-        let _cmapHoldPrevCustom = null;   // customColormap at open time
-        let _cmapHoldPrevCustomStops = null;
+        let _cmapHoldPrevState = null;
         let _cmapFadeInTimer = null;      // pending fade-in after expand
         let _cmapCollapseTimer = null;    // pending collapse after fade-out
         let _cmapSettleTimer = null;      // re-settles chrome (eggs) after collapse
         let _cmapAutoDismissTimer = null; // auto-close timer for the open menu
         let _cmapAutoDismissPending = false;
         let _cmapMouseOverPreview = false;
+
+        function _isVisibleEl(el) {
+            if (!el) return false;
+            const st = getComputedStyle(el);
+            return st.display !== 'none' && st.visibility !== 'hidden';
+        }
+
+        function _ensureCmapPreviewEl(host) {
+            if (!host) return null;
+            let preview = Array.from(host.children || []).find(el => el.classList && el.classList.contains('cmap-hold-preview')) || null;
+            if (!preview) {
+                preview = document.createElement('div');
+                preview.className = 'cmap-hold-preview';
+                preview.setAttribute('aria-hidden', 'true');
+                host.insertBefore(preview, host.firstChild || null);
+            }
+            if (!preview.dataset.cmapHoverBound) {
+                preview.addEventListener('mouseenter', () => {
+                    _cmapMouseOverPreview = true;
+                });
+                preview.addEventListener('mouseleave', () => {
+                    _cmapMouseOverPreview = false;
+                    if (_cmapAutoDismissPending && _cmapHoldActive) {
+                        _cmapAutoDismissPending = false;
+                        _cmapHoldCommit();
+                    }
+                });
+                preview.dataset.cmapHoverBound = '1';
+            }
+            return preview;
+        }
+
+        function _applyMainColormapIdx(idx) {
+            if (idx < 0 || idx >= COLORMAPS.length) return;
+            colormap_idx = idx;
+            customColormap = null;
+            customGradientStops = null;
+            modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
+            proxyFetch(`/clearcache/${sid}`);
+            updateView();
+            refreshAxesColor();
+            _mipOnColormapChange();
+        }
+
+        function _restoreMainColormapState(prev) {
+            if (!prev) return;
+            if (prev.custom) {
+                customColormap = prev.custom;
+                customGradientStops = prev.stops;
+                colormap_idx = -1;
+                modeManager.forEachView(v => { v.displayState.cmapIdx = -1; });
+            } else {
+                colormap_idx = prev.idx;
+                customColormap = null;
+                customGradientStops = null;
+                modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
+            }
+            proxyFetch(`/clearcache/${sid}`);
+            updateView();
+            refreshAxesColor();
+            _mipOnColormapChange();
+        }
+
+        function _resolveCmapHoldSpec() {
+            if (!_cmapHoldEligible()) return null;
+            const isCenter = compareActive && (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+            if (_mouseOverCenterPane && compareActive && diffMode > 0) {
+                const pool = diffMode === 1 ? DIFF_COLORMAPS : ABS_DIFF_COLORMAPS;
+                const host = diffPaneCb ? diffPaneCb.closest('.cb-island') : null;
+                if (host && _isVisibleEl(host)) {
+                    return {
+                        host,
+                        preview: _ensureCmapPreviewEl(host),
+                        pool,
+                        currentIdx: () => {
+                            const idx = pool.indexOf(_diffCenterColormap);
+                            return idx >= 0 ? idx : 0;
+                        },
+                        captureState: () => ({
+                            colormap: _diffCenterColormap,
+                            stops: _diffCenterColormapStops,
+                        }),
+                        applyIdx: (idx) => {
+                            if (idx < 0 || idx >= pool.length) return;
+                            _diffCenterColormap = pool[idx];
+                            _diffCenterColormapStops = COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null;
+                            fetchAndDrawDiff();
+                        },
+                        restoreState: (prev) => {
+                            if (!prev) return;
+                            _diffCenterColormap = prev.colormap;
+                            _diffCenterColormapStops = prev.stops || (COLORMAP_GRADIENT_STOPS[_diffCenterColormap] || null);
+                            fetchAndDrawDiff();
+                        },
+                    };
+                }
+            }
+            let host = null;
+            if (multiViewActive && !compareMvActive) {
+                host = document.getElementById('mv-cb-wrap');
+            } else if (isCenter) {
+                const firstPaneCb = comparePaneCbs.find(cb => {
+                    const island = cb && cb.closest('.cb-island');
+                    return island && _isVisibleEl(island);
+                });
+                host = firstPaneCb ? firstPaneCb.closest('.cb-island') : null;
+            } else {
+                host = _cmapCbWrap;
+            }
+            if (!host || !_isVisibleEl(host)) return null;
+            return {
+                host,
+                preview: _ensureCmapPreviewEl(host),
+                pool: COLORMAPS,
+                currentIdx: () => (colormap_idx >= 0 && colormap_idx < COLORMAPS.length) ? colormap_idx : 0,
+                captureState: () => ({
+                    idx: colormap_idx,
+                    custom: customColormap,
+                    stops: customGradientStops,
+                }),
+                applyIdx: _applyMainColormapIdx,
+                restoreState: _restoreMainColormapState,
+            };
+        }
 
         function _cmapHoldEligible() {
             // Gate for the colormap dispatcher. Mirrors the guard used by
@@ -22465,18 +22636,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldMenuEligible() {
-            // Separate, stricter gate for actually opening the integrated
-            // preview menu. The menu lives inside #slim-cb-wrap, so fall back
-            // to plain tap-cycle when the shared colorbar wrap isn't visible
-            // (multiview uses #mv-cb-wrap; center/diff modes hide the wrap).
-            if (!_cmapHoldEligible()) return false;
-            if (!_cmapCbWrap || _cmapCbWrap.style.display === 'none') return false;
-            return true;
+            return !!_resolveCmapHoldSpec();
         }
 
         function _cmapHoldComputeCols() {
-            if (!_cmapPreview) return 1;
-            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
+            if (!_cmapHoldPreviewEl) return 1;
+            const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
             if (!cells.length) return 1;
             const firstTop = cells[0].offsetTop;
             let cols = 0;
@@ -22488,18 +22653,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldBuild() {
-            if (!_cmapPreview) return;
-            const n = COLORMAPS.length;
+            if (!_cmapHoldPreviewEl) return;
+            const pool = _cmapHoldPool || COLORMAPS;
+            const n = pool.length;
             let html = '';
             for (let i = 0; i < n; i++) {
-                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${COLORMAPS[i]}</span></div>`;
+                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${pool[i]}</span></div>`;
             }
-            _cmapPreview.innerHTML = html;
+            _cmapHoldPreviewEl.innerHTML = html;
             // Paint gradient swatches and wire hover/click.
-            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
+            const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => {
                 const cv = cell.querySelector('canvas');
-                const stops = COLORMAP_GRADIENT_STOPS[COLORMAPS[i]];
+                const stops = COLORMAP_GRADIENT_STOPS[pool[i]];
                 if (cv && stops) {
                     const g = cv.getContext('2d');
                     // whitelisted non-ColorBar use: colormap picker swatches
@@ -22526,22 +22692,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldHighlight() {
-            if (!_cmapPreview) return;
-            const cells = _cmapPreview.querySelectorAll('.cmh-cell');
+            if (!_cmapHoldPreviewEl) return;
+            const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => cell.classList.toggle('active', i === _cmapHoldSelIdx));
         }
 
         function _cmapHoldApply(idx) {
-            // Live-preview the colormap at idx — same plumbing as cycleNext.
-            if (idx < 0 || idx >= COLORMAPS.length) return;
-            colormap_idx = idx;
-            customColormap = null;
-            customGradientStops = null;
-            modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
-            proxyFetch(`/clearcache/${sid}`);
-            updateView();
-            refreshAxesColor();
-            _mipOnColormapChange();
+            if (!_cmapHoldSpec || typeof _cmapHoldSpec.applyIdx !== 'function') return;
+            _cmapHoldSpec.applyIdx(idx);
         }
 
         function _clearCmapAutoDismiss() {
@@ -22567,23 +22725,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _cmapHoldOpen(opts) {
-            if (!_cmapPreview || !_cmapCbWrap) return;
+            const spec = (opts && opts.spec) || _resolveCmapHoldSpec();
+            if (!spec || !spec.host || !spec.preview) return;
             if (_cmapHoldActive) {
                 _restartCmapAutoDismiss();
                 return;
             }
+            _cmapHoldSpec = spec;
+            _cmapHoldHost = spec.host;
+            _cmapHoldPreviewEl = spec.preview;
+            _cmapHoldPool = spec.pool || COLORMAPS;
             _cmapHoldBuild();
-            if (opts && typeof opts === 'object') {
-                _cmapHoldPrevIdx = ('prevIdx' in opts) ? opts.prevIdx : colormap_idx;
-                _cmapHoldPrevCustom = ('prevCustom' in opts) ? opts.prevCustom : customColormap;
-                _cmapHoldPrevCustomStops = ('prevStops' in opts) ? opts.prevStops : customGradientStops;
-            } else {
-                _cmapHoldPrevIdx = colormap_idx;
-                _cmapHoldPrevCustom = customColormap;
-                _cmapHoldPrevCustomStops = customGradientStops;
-            }
-            // Start from current colormap (fall back to 0 for custom).
-            _cmapHoldSelIdx = (colormap_idx >= 0 && colormap_idx < COLORMAPS.length) ? colormap_idx : 0;
+            _cmapHoldPrevState = (opts && typeof opts === 'object' && 'prevState' in opts)
+                ? opts.prevState
+                : (typeof spec.captureState === 'function' ? spec.captureState() : null);
+            _cmapHoldSelIdx = typeof spec.currentIdx === 'function' ? spec.currentIdx() : 0;
             _cmapHoldActive = true;
             _cmapHoldAnim = true;
             _cmapHoldHighlight();
@@ -22598,15 +22754,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // layout), then grow the wrap's top padding. CSS transitions the
             // padding smoothly; once settled we fade the swatches in.
             // Force a layout read so offsetHeight is current.
-            const gridH = _cmapPreview.offsetHeight;
+            const gridH = _cmapHoldPreviewEl.offsetHeight;
             // 6px top of preview + gap (4px) between swatches and colorbar row
             const extra = Math.max(0, gridH + 6 + 4);
-            _cmapCbWrap.style.setProperty('--cb-extra-top', extra + 'px');
+            _cmapHoldHost.style.setProperty('--cb-extra-top', extra + 'px');
             // Column count depends on actual wrap/grid layout.
             _cmapHoldCols = _cmapHoldComputeCols();
             _cmapFadeInTimer = setTimeout(() => {
                 _cmapFadeInTimer = null;
-                if (_cmapHoldActive && _cmapPreview) _cmapPreview.classList.add('fade-in');
+                if (_cmapHoldActive && _cmapHoldPreviewEl) _cmapHoldPreviewEl.classList.add('fade-in');
             }, _CMAP_EXPAND_MS);
             _restartCmapAutoDismiss();
         }
@@ -22619,8 +22775,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (_cmapFadeInTimer) { clearTimeout(_cmapFadeInTimer); _cmapFadeInTimer = null; }
             if (_cmapCollapseTimer) { clearTimeout(_cmapCollapseTimer); _cmapCollapseTimer = null; }
             _clearCmapAutoDismiss();
-            if (_cmapPreview) _cmapPreview.classList.remove('fade-in');
-            if (_cmapCbWrap) _cmapCbWrap.style.removeProperty('--cb-extra-top');
+            if (_cmapHoldPreviewEl) _cmapHoldPreviewEl.classList.remove('fade-in');
+            if (_cmapHoldHost) _cmapHoldHost.style.removeProperty('--cb-extra-top');
             // Keep _cmapHoldAnim true through the collapse so positionEggs
             // doesn't re-run on transient wrap geometry; settle eggs once
             // the padding/margin transition finishes.
@@ -22628,6 +22784,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _cmapSettleTimer = setTimeout(() => {
                 _cmapSettleTimer = null;
                 _cmapHoldAnim = false;
+                _cmapHoldSpec = null;
+                _cmapHoldHost = null;
+                _cmapHoldPreviewEl = null;
+                _cmapHoldPool = COLORMAPS;
+                _cmapHoldPrevState = null;
                 if (typeof positionEggs === 'function') positionEggs();
             }, _CMAP_EXPAND_MS + 20);
         }
@@ -22642,29 +22803,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _cmapHoldCancel() {
             if (!_cmapHoldActive) return;
-            // Revert to prior colormap state.
-            if (_cmapHoldPrevCustom) {
-                customColormap = _cmapHoldPrevCustom;
-                customGradientStops = _cmapHoldPrevCustomStops;
-                colormap_idx = -1;
-                modeManager.forEachView(v => { v.displayState.cmapIdx = -1; });
-            } else {
-                colormap_idx = _cmapHoldPrevIdx;
-                customColormap = null;
-                customGradientStops = null;
-                modeManager.forEachView(v => { v.displayState.cmapIdx = colormap_idx; });
+            if (_cmapHoldSpec && typeof _cmapHoldSpec.restoreState === 'function') {
+                _cmapHoldSpec.restoreState(_cmapHoldPrevState);
             }
-            proxyFetch(`/clearcache/${sid}`);
-            updateView();
-            refreshAxesColor();
-            _mipOnColormapChange();
             _cmapHoldActive = false;
             _cmapHoldClose();
         }
 
         function _cmapHoldNav(dx, dy) {
             if (!_cmapHoldActive) return;
-            const n = COLORMAPS.length;
+            const n = (_cmapHoldPool || COLORMAPS).length;
             const cols = _cmapHoldCols;
             const row = Math.floor(_cmapHoldSelIdx / cols);
             const col = _cmapHoldSelIdx % cols;
@@ -22683,7 +22831,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _cmapHoldCycle(delta) {
             if (!_cmapHoldActive) return;
-            const n = COLORMAPS.length;
+            const n = (_cmapHoldPool || COLORMAPS).length;
             _cmapHoldSelIdx = (_cmapHoldSelIdx + (delta || 1) + n) % n;
             _cmapHoldHighlight();
             _cmapHoldApply(_cmapHoldSelIdx);
@@ -22712,18 +22860,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             return false;
         }
 
-        if (_cmapPreview) {
-            _cmapPreview.addEventListener('mouseenter', () => {
-                _cmapMouseOverPreview = true;
-            });
-            _cmapPreview.addEventListener('mouseleave', () => {
-                _cmapMouseOverPreview = false;
-                if (_cmapAutoDismissPending && _cmapHoldActive) {
-                    _cmapAutoDismissPending = false;
-                    _cmapHoldCommit();
-                }
-            });
-        }
+        if (_cmapPreview) _ensureCmapPreviewEl(_cmapCbWrap);
 
         // ── 3b2. Hold-`g` grid layout picker ─────────────────────────
         // Holding `g` past _GRID_HOLD_MS in ortho stacks the three panes as
