@@ -17468,6 +17468,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             prevX: px, prevY: py,
                             cx: view.lastW / 2, cy: view.lastH / 2,
                         };
+                        _mvSetCrosshairTarget(1);
                         // Start oblique renders immediately so the transition from
                         // axis-aligned to oblique is correct before any rotation.
                         mvViews.forEach(v => mvRender(v));
@@ -17477,6 +17478,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             mvNavDragPrev.depthOff = _mvDepthOffsetForView(view);
                         }
                         mvDraggingView = view;
+                        _mvSetCrosshairTarget(1);
                         handleMvPointer(view, e);
                     }
                 });
@@ -17570,12 +17572,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const ipy = Math.floor((e.clientY - rect.top) * view.lastH / rect.height);
                     _copyPixelValue(sid, view.dimX, view.dimY, indices, ipx, ipy);
                 });
-                // Crosshair is shown when hovering the actual canvas, during
-                // any drag, or while Alt is held (previews the rotation gesture).
-                // Listen on the canvas (not the pane) so empty space around the
-                // image when stretch-to-square is off doesn't trigger it.
-                cv.addEventListener('mouseenter', _mvRecomputeCrosshairTarget);
-                cv.addEventListener('mouseleave', _mvRecomputeCrosshairTarget);
                 return view;
             });
             // Pre-size panes using known array shape so all panes are equal from the start.
@@ -19121,6 +19117,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             }
                         }
                         cmvDraggingView = view;
+                        _cmvSetCrosshairTarget(1, sidVal);
                         handleCmvPointer(view, e);
                     });
                     cv.addEventListener('mousemove', (e) => {
@@ -19215,12 +19212,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             () => { view.rendering = false; if (view.ws) view.ws.close(); }
                         );
                     }
-                    // Show crosshair lines only for the 3 panes of the hovered array.
-                    // Suppress fade-out during drag (same fix as multiview).
-                    pane.addEventListener('mouseenter', () => { _cmvSetCrosshairTarget(1, sidVal); });
-                    pane.addEventListener('mouseleave', () => {
-                        if (!cmvDraggingView) _cmvSetCrosshairTarget(0, null);
-                    });
                     compareMvViews.push(view);
                 }
                 wrap.appendChild(rowDiv);
@@ -20313,10 +20304,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
-            // Hover check on the canvas itself, not the pane — the pane can
-            // include empty space around the image when stretch-to-square is off.
-            const hovered = !!document.querySelector('.mv-canvas:hover');
-            const show = hovered || mvDraggingView || obliqueDrag || _obliqueAltHeld;
+            const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld);
             _mvSetCrosshairTarget(show ? 1 : 0);
         }
         function _cmvAnimateCrosshairs() {
@@ -20809,7 +20797,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // suppressed during drag, so restore the correct state now.
             if (multiViewActive) _mvRecomputeCrosshairTarget();
             if (compareMvActive) {
-                if (!document.querySelector('.qv-pane:hover')) _cmvSetCrosshairTarget(0, null);
+                _cmvSetCrosshairTarget(0, null);
             }
         });
 
