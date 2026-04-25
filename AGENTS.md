@@ -16,6 +16,7 @@ Load the relevant skill before touching the corresponding area.
 
 ## Non-Negotiables
 
+- Use uv run python instead of python
 - Use `localhost`, not `127.0.0.1`
 - Do not add logic to `_app.py` — compat shim only
 - Keep `_viewer.html` as a single file — no build step
