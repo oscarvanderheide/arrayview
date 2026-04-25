@@ -19,6 +19,14 @@ arrayview config reset    # delete config file
 
 Stored in `~/.arrayview/config.toml`.
 
+## Viewer defaults
+
+Rounded panes are on by default. Disable them with:
+
+```bash
+arrayview config set viewer.rounded_panes false
+```
+
 ## Environment variable
 
 ```bash

@@ -7,6 +7,7 @@ import pytest
 
 from arrayview._config import (
     get_viewer_colormaps,
+    get_viewer_rounded_panes,
     get_window_default,
     load_config,
     save_config,
@@ -126,6 +127,32 @@ class TestGetViewerColormaps:
             default = "browser"
         """))
         assert get_viewer_colormaps() is None
+
+
+class TestGetViewerRoundedPanes:
+    def test_no_config_returns_none(self, tmp_config):
+        assert get_viewer_rounded_panes() is None
+
+    def test_returns_bool_from_config(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [viewer]
+            rounded_panes = false
+        """))
+        assert get_viewer_rounded_panes() is False
+
+    def test_accepts_bool_like_string(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [viewer]
+            rounded_panes = "on"
+        """))
+        assert get_viewer_rounded_panes() is True
+
+    def test_invalid_value_returns_none(self, tmp_config):
+        tmp_config.write_text(textwrap.dedent("""\
+            [viewer]
+            rounded_panes = "sometimes"
+        """))
+        assert get_viewer_rounded_panes() is None
 
 
 class TestDetectEnvironment:

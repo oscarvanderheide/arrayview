@@ -197,7 +197,7 @@ def get_ui(sid: str = None):
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
     _cfg_rounded = get_viewer_rounded_panes()
-    _default_rounded_panes = "true" if _cfg_rounded else "false"
+    _default_rounded_panes = "false" if _cfg_rounded is False else "true"
     html = (
         _VIEWER_HTML_TEMPLATE.replace("__COLORMAPS__", str(_active_colormaps))
         .replace("__COLORMAP_GRADIENT_STOPS__", json.dumps(COLORMAP_GRADIENT_STOPS))

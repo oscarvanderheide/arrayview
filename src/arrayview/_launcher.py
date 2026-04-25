@@ -197,7 +197,11 @@ def _open_webview(
             "import sys, base64, webview",
             "u, w, h, icon, html_b64 = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]",
             "html = base64.b64decode(html_b64.encode()).decode()",
-            "win = webview.create_window('ArrayView', html=html, width=w, height=h, background_color='#0c0c0c')",
+            "class Api:",
+            "    def set_title(self, title):",
+            "        try: webview.windows[0].set_title(str(title)[:240])",
+            "        except Exception: pass",
+            "win = webview.create_window('ArrayView', html=html, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
             "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
             "def _start_func():",
             "    if icon:",
@@ -226,7 +230,11 @@ def _open_webview(
     script_lines = [
         "import sys, webview",
         "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
-        "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#0c0c0c')",
+        "class Api:",
+        "    def set_title(self, title):",
+        "        try: webview.windows[0].set_title(str(title)[:240])",
+        "        except Exception: pass",
+        "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
         "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
         "def _start_func():",
         "    if icon:",
@@ -2617,6 +2625,16 @@ def _handle_config_command(args: list[str]) -> None:
             if value not in _VALID_WINDOW_MODES:
                 print(f"Invalid window mode: {value}")
                 print(f"  Valid modes: {', '.join(sorted(_VALID_WINDOW_MODES))}")
+                sys.exit(1)
+        elif section == "viewer" and name == "rounded_panes":
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on"}:
+                value = True
+            elif lowered in {"false", "0", "no", "off"}:
+                value = False
+            else:
+                print(f"Invalid rounded_panes value: {value}")
+                print("  Use true/false, yes/no, on/off, or 1/0")
                 sys.exit(1)
         cfg = load_config()
         cfg.setdefault(section, {})[name] = value

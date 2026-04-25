@@ -590,7 +590,7 @@ def _handle_get_viewer_html(msg: dict) -> None:
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
     _cfg_rounded = get_viewer_rounded_panes()
-    _default_rounded_panes = "true" if _cfg_rounded else "false"
+    _default_rounded_panes = "false" if _cfg_rounded is False else "true"
 
     html = (
         template.replace("__COLORMAPS__", str(_active_colormaps))
