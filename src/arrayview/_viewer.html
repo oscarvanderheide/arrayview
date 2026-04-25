@@ -139,7 +139,7 @@
             background: var(--bg);
         }
         .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--canvas-border); }
-        /* Rounded panes — Shift+B toggles; default from config viewer.rounded_panes.
+        /* Rounded panes — Shift+B toggles; default on unless config viewer.rounded_panes=false.
            Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
         body.rounded-panes #canvas-viewport,
         body.rounded-panes .mv-pane,
@@ -1438,22 +1438,47 @@
         #mip-canvas:active { cursor: grabbing; }
 
         #multi-view-wrap { display: none; width: 100%; height: 100%; }
-        #multi-view-wrap.active { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; }
-        #mv-panes { display: flex; align-items: flex-start; justify-content: center; flex: 0 0 auto; gap: 16px; }
+        #multi-view-wrap.active {
+            display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px;
+            box-sizing: border-box; padding-bottom: var(--mv-colorbar-bottom-clearance, 42px);
+        }
+        #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
         #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 14px; transition: opacity 0.3s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
-        .mv-pane { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--mv-pane-fill, var(--bg)); overflow: hidden; transition: background-color 0.2s ease; }
+        .mv-pane { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--mv-pane-fill, var(--bg)); overflow: hidden; transition: background-color 0.2s ease, box-shadow 0.16s ease; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
         .mv-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
         .mv-canvas-box { position: relative; display: inline-flex; overflow: hidden; }
         /* In ortho the border should frame the full square pane, including the
            empty background area, so draw it on the pane itself. */
         .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        #mv-panes.mv-crosshair-active .mv-pane::after {
+            content: ''; position: absolute; inset: 0; z-index: 4;
+            box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1.5px) var(--mv-plane-border, var(--active-dim));
+            border-radius: inherit; box-sizing: border-box;
+            pointer-events: none;
+        }
         .mv-pane.canvas-bordered .mv-canvas { outline: none; }
+        .mv-promote-btn {
+            position: absolute; top: 8px; right: 8px; z-index: 5;
+            width: 24px; height: 24px; display: none; align-items: center; justify-content: center;
+            border: 1px solid var(--border); border-radius: 999px;
+            background: rgba(20, 20, 20, 0.72); color: var(--text);
+            font: 13px/1 monospace; cursor: pointer; opacity: 0;
+            backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+            transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+        .mv-promote-btn:hover {
+            color: var(--active-dim); border-color: var(--active-dim);
+        }
+        #mv-panes.mv-promote-enabled .mv-pane.mv-small-pane:hover .mv-promote-btn,
+        #mv-panes.mv-promote-enabled .mv-pane.mv-small-pane:focus-within .mv-promote-btn {
+            display: flex; opacity: 1;
+        }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
         .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
 
@@ -3030,7 +3055,7 @@
         let mvNavDragPrev = null; // {x, y} canvas coords for incremental oblique navigation
         let _mvNavRenderTimer = null; // throttle timer for oblique crosshair-nav renders
         let canvasBorders = true; // toggled by 'b' key
-        let roundedPanes = __DEFAULT_ROUNDED_PANES__; // toggled by Shift+B; default from config viewer.rounded_panes
+        let roundedPanes = __DEFAULT_ROUNDED_PANES__; // toggled by Shift+B; default on unless config viewer.rounded_panes=false
         let squareStretch = false; // toggled by 'a' — stretch each pane to a square box
         let compareActive = false;
         let compareSid = urlParams.get('compare_sid') || null;
@@ -3061,7 +3086,7 @@
         // Ortho-view grid layout. null/'horizontal' keep the legacy flex-row
         // path; other values switch #mv-panes to absolute positioning driven
         // by the matching ORTHO_PRESETS entry.
-        let orthoLayoutMode = null;
+        let orthoLayoutMode = 'big-left';
         let _orthoLayoutPicker = null;   // populated by _initOrthoLayoutPicker()
         let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
@@ -3627,7 +3652,7 @@
                 }
             }
             // During crossfade, interpolate from the floored reserve to 0 over the
-            // full p range. Using Math.max(130, h) ensures we start from the same
+            // full p range. Using Math.max(NORMAL_UI_RESERVE_FLOOR, h) ensures we start from the same
             // value the function returns outside crossfade, avoiding a jump at p→0+.
             // Using raw p (not collapseP which saturates at p=0.5) spreads the
             // reserve decrease over the entire crossfade range.
@@ -3636,10 +3661,10 @@
                 // of the fixed-positioned #info can't drift during the scrub.
                 const base = (_scrubDetached && _scrubState && _scrubState.frozenReserve > 0)
                     ? _scrubState.frozenReserve
-                    : Math.max(130, h);
+                    : Math.max(NORMAL_UI_RESERVE_FLOOR, h);
                 return base * (1 - _crossfadeP);
             }
-            return Math.max(130, h);
+            return Math.max(NORMAL_UI_RESERVE_FLOOR, h);
         }
 
         function fixWrapperAlignment() {
@@ -3697,7 +3722,7 @@
             // collapsing elements (#array-name, #info) are handled elsewhere.
             const bottomReserve = (_fullscreenActive && _crossfadeP <= 0)
                 ? 0
-                : Math.round(80 * Math.max(0, 1 - _crossfadeCollapseP));
+                : Math.round(NORMAL_BOTTOM_RESERVE * Math.max(0, 1 - _crossfadeCollapseP));
             const minPt = _fullscreenActive ? 0 : 14;
             const pt = Math.max(minPt, Math.floor((window.innerHeight - bottomReserve - childrenH) / 2));
             wrapper.style.justifyContent = 'flex-start';
@@ -3706,7 +3731,7 @@
 
         function getBaseScale(w, h) {
             // viewer-row wraps content; use window dimensions with a comfortable cap
-            const maxW = Math.max(100, window.innerWidth - 80);
+            const maxW = Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE);
             const rawH = Math.max(100, window.innerHeight - uiReserveV());
             const maxH = _isWelcomeScreen ? Math.min(rawH, Math.floor(window.innerHeight * 0.50)) : rawH;
             return Math.min(maxW / w, maxH / h) * 0.80;
@@ -3817,13 +3842,13 @@
         function _calcSinglePaneViewportRect(w, h, zoom, immersive) {
             if (!w || !h) return null;
             const immersivePad = 12;
-            const sidePad = immersive ? immersivePad * 2 : 80;
-            const bottomReserve = immersive ? 0 : 80;
+            const sidePad = immersive ? immersivePad * 2 : NORMAL_SIDE_RESERVE;
+            const bottomReserve = immersive ? 0 : NORMAL_BOTTOM_RESERVE;
             const uiReserve = immersive ? 0 : uiReserveV();
             const maxW = Math.max(100, window.innerWidth - sidePad);
             const maxH = Math.max(50, window.innerHeight - uiReserve - bottomReserve - (immersive ? immersivePad * 2 : 0));
             const baseScale = immersive
-                ? Math.min(Math.max(100, window.innerWidth - 80) / w,
+                ? Math.min(Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE) / w,
                            Math.max(100, window.innerHeight) / h) * 0.80
                 : getBaseScale(w, h);
             const finalScale = Math.max(0.0001, baseScale * Math.max(zoom, 0.0001));
@@ -3875,9 +3900,9 @@
         function scaleCanvas(w, h) {
             const immersivePad = 12;
             const cP = _crossfadeCollapseP;
-            const bottomReserve = _fullscreenActive ? 0 : 80 * (1 - cP);
+            const bottomReserve = _fullscreenActive ? 0 : NORMAL_BOTTOM_RESERVE * (1 - cP);
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
-            const sidePad = _fullscreenActive ? immersivePad * 2 : (80 * (1 - cP) + immersivePad * 2 * cP);
+            const sidePad = _fullscreenActive ? immersivePad * 2 : (NORMAL_SIDE_RESERVE * (1 - cP) + immersivePad * 2 * cP);
             const scrubVpRect = _currentScrubViewportRect();
             const maxW = scrubVpRect ? Math.max(50, scrubVpRect.width) : Math.max(100, window.innerWidth - sidePad);
             const maxH = scrubVpRect ? Math.max(50, scrubVpRect.height) : Math.max(50, window.innerHeight - uiReserveV() - bottomReserve - immPadV);
@@ -3988,7 +4013,7 @@
             const cP = _crossfadeCollapseP;
             const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
             const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
-            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (80 * (1 - cP) + immersivePad * 2 * cP)));
+            const totalW = Math.max(100, window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (NORMAL_SIDE_RESERVE * (1 - cP) + immersivePad * 2 * cP)));
             const totalH = Math.max(100, window.innerHeight - uiReserveH - immPadV);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
@@ -11334,6 +11359,7 @@
                 overlayAlpha,
                 viewMode: currentViewMode(),
                 mvDims: multiViewActive ? [...mvDims] : null,
+                orthoLayoutMode,
                 qmriDim: qmriActive ? qmriDim : (compareQmriActive ? compareQmriDim : null),
                 manualVmin,
                 manualVmax,
@@ -11408,6 +11434,9 @@
             }
             if (Number.isInteger(s.activeDim) && s.activeDim >= 0 && s.activeDim < shape.length) {
                 activeDim = s.activeDim;
+            }
+            if (typeof s.orthoLayoutMode === 'string' && _getOrthoPreset(s.orthoLayoutMode)) {
+                orthoLayoutMode = s.orthoLayoutMode;
             }
             if (typeof s.compareSid === 'string' && s.compareSid.trim()) compareSid = s.compareSid.trim();
             if (Array.isArray(s.compareSidList)) {
@@ -15311,7 +15340,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Layout',
                         entries: [
                             { key: 'g (hold)', action: 'Open grid layout picker', hint: 'panes stack as cards · hover or arrows/hjkl to choose · release g to commit · Esc cancels' },
-                            { key: 'g (tap)', action: 'Cycle to next preset', hint: 'horizontal → vertical → big-left → big-top' },
+                            { key: 'g (tap)', action: 'Cycle to next preset', hint: 'big-left → big-top → horizontal → vertical' },
                         ]
                     }
                 ]
@@ -20432,13 +20461,77 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             positionEggs();
         }
 
+        function _refreshMvLayoutChrome() {
+            if (typeof drawMvColorbar === 'function') drawMvColorbar();
+            if (typeof positionEggs === 'function') positionEggs();
+            if (typeof saveState === 'function') saveState();
+        }
+
+        function _mvSetOrthoLayoutMode(id, opts = {}) {
+            const next = _getOrthoPreset(id) ? id : 'big-left';
+            orthoLayoutMode = next;
+            if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+            requestAnimationFrame(_refreshMvLayoutChrome);
+            if (!opts.silent && typeof showStatus === 'function') {
+                const preset = _getOrthoPreset(next);
+                if (preset) showStatus('grid: ' + preset.label);
+            }
+        }
+
+        function _mvPromotePane(view) {
+            if (!multiViewActive || obliqueVecs || !view || (orthoLayoutMode !== 'big-left' && orthoLayoutMode !== 'big-top')) return;
+            const from = mvViews.indexOf(view);
+            if (from <= 0) return;
+            const panes = mvViews.map(v => v.pane).filter(Boolean);
+            const fromRects = panes.map(p => p.getBoundingClientRect());
+            [mvViews[0], mvViews[from]] = [mvViews[from], mvViews[0]];
+            const row = document.getElementById('mv-panes');
+            if (row) mvViews.forEach(v => { if (v.pane) row.appendChild(v.pane); });
+            if (modeManager && modeManager.modeName === 'multiview') {
+                modeManager.currentViews = mvViews
+                    .map(v => modeManager.currentViews.find(cv => cv._mvLegacyView === v))
+                    .filter(Boolean);
+            }
+            _mvSetOrthoLayoutMode(orthoLayoutMode, { silent: true });
+            if (typeof gsap === 'undefined') {
+                showStatus('promoted view');
+                return;
+            }
+            requestAnimationFrame(() => {
+                const nextPanes = mvViews.map(v => v.pane).filter(Boolean);
+                const toRects = nextPanes.map(p => p.getBoundingClientRect());
+                nextPanes.forEach((p, i) => {
+                    const oldIdx = i === 0 ? from : (i === from ? 0 : i);
+                    const f = fromRects[oldIdx], t = toRects[i];
+                    if (!f || !t || !t.width || !t.height) return;
+                    gsap.fromTo(p,
+                        {
+                            x: f.left - t.left,
+                            y: f.top - t.top,
+                            scaleX: f.width / t.width,
+                            scaleY: f.height / t.height,
+                            transformOrigin: '0 0',
+                        },
+                        {
+                            x: 0, y: 0, scaleX: 1, scaleY: 1,
+                            duration: _GRID_COMMIT_MS,
+                            ease: 'power2.inOut',
+                            overwrite: 'auto',
+                            onComplete: () => gsap.set(p, { clearProps: 'transform' }),
+                        }
+                    );
+                });
+            });
+            showStatus('promoted view');
+        }
+
         function mvScaleAllCanvases() {
             const ready = mvViews.filter(v => v.lastW && v.lastH);
             if (!ready.length) return;
             const cbWrap = document.getElementById('mv-cb-wrap');
             const labelH = Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8;
             const cbH = cbWrap ? cbWrap.offsetHeight : 30;
-            const uiReserveH = uiReserveV() + (cbH + labelH) * (1 - _crossfadeCollapseP);
+            const uiReserveH = uiReserveV() + (cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE) * (1 - _crossfadeCollapseP);
             const gap = 16;
             const absMaxT = Math.min(
                 Math.max(50, window.innerHeight - uiReserveH),
@@ -20479,11 +20572,20 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cH = Math.max(50, window.innerHeight - uiReserveH);
                 const rects = _activePreset.compute(paneCount, cW, cH, gap);
                 if (Array.isArray(rects) && rects.length >= paneCount) {
+                    const visibleRects = rects.slice(0, paneCount).filter(r => r && r.w > 0 && r.h > 0);
+                    if (!visibleRects.length) return null;
+                    const minX = Math.min(...visibleRects.map(r => r.x));
+                    const minY = Math.min(...visibleRects.map(r => r.y));
+                    const maxX = Math.max(...visibleRects.map(r => r.x + r.w));
+                    const maxY = Math.max(...visibleRects.map(r => r.y + r.h));
+                    const clusterW = Math.max(1, Math.round(maxX - minX));
+                    const clusterH = Math.max(1, Math.round(maxY - minY));
                     if (_mvPanesEl) {
                         _mvPanesEl.style.position = 'relative';
-                        _mvPanesEl.style.width = cW + 'px';
-                        _mvPanesEl.style.height = cH + 'px';
+                        _mvPanesEl.style.width = clusterW + 'px';
+                        _mvPanesEl.style.height = clusterH + 'px';
                         _mvPanesEl.style.display = 'block';
+                        _mvPanesEl.classList.toggle('mv-promote-enabled', _activePreset.id === 'big-left' || _activePreset.id === 'big-top');
                     }
                     const _presetPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
                     // Rects are square (see ORTHO_PRESETS). Pane frame = rect
@@ -20510,10 +20612,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         );
                         if (v.pane) {
                             v.pane.style.position = 'absolute';
-                            v.pane.style.left   = rt.x + 'px';
-                            v.pane.style.top    = rt.y + 'px';
+                            v.pane.style.left   = (rt.x - minX) + 'px';
+                            v.pane.style.top    = (rt.y - minY) + 'px';
                             v.pane.style.width  = rt.w + 'px';
                             v.pane.style.height = rt.h + 'px';
+                            v.pane.classList.toggle('mv-small-pane', i > 0 && (_activePreset.id === 'big-left' || _activePreset.id === 'big-top'));
                         }
                         if (v.wrap) {
                             v.wrap.style.width  = v.canvas.style.width;
@@ -20549,6 +20652,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const mvBaseScale = absMaxT / maxSide;
             const _mvPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
             for (const v of ready) {
+                if (v.pane) v.pane.classList.remove('mv-small-pane');
                 _scalePane(
                     { canvas: v.canvas, w: v.lastW, h: v.lastH, pan: _mvPanStub },
                     v.pane || null,
@@ -20583,6 +20687,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
 
             fixWrapperAlignment();
+            if (_mvPanesEl) _mvPanesEl.classList.remove('mv-promote-enabled', 'mv-crosshair-active');
             positionEggs();
             return _mvAtMax ? 'max' : null;
         }
@@ -21253,9 +21358,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return Math.max(1.0, capScale / baseScale);
             }
             const immersivePad = 12;
-            const bottomReserve = forImmersive ? 0 : 80;
+            const bottomReserve = forImmersive ? 0 : NORMAL_BOTTOM_RESERVE;
             const uiReserve = forImmersive ? 0 : uiReserveV();
-            const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : 80));
+            const maxW = Math.max(100, window.innerWidth  - (forImmersive ? immersivePad * 2 : NORMAL_SIDE_RESERVE));
             const maxH = Math.max(50,  window.innerHeight - uiReserve - bottomReserve
                                                           - (forImmersive ? immersivePad * 2 : 0));
             // For immersive, compute baseScale assuming uiReserve=0 to match what
@@ -21264,7 +21369,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // uiReserveV(), producing an immFit that overshoots after toggle.
             // NOTE: mirrors getBaseScale() logic — keep in sync if that changes.
             const baseScale = forImmersive
-                ? Math.min(Math.max(100, window.innerWidth - 80) / w,
+                ? Math.min(Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE) / w,
                            Math.max(100, window.innerHeight) / h) * 0.80
                 : getBaseScale(w, h);
             const capScale  = Math.min(maxW / w, maxH / h);
@@ -21276,7 +21381,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const immersivePad = 12;
             const maxW = Math.max(100, window.innerWidth - immersivePad * 2);
             const maxH = Math.max(50, window.innerHeight - immersivePad * 2);
-            const baseScale = Math.min(Math.max(100, window.innerWidth - 80) / w,
+            const baseScale = Math.min(Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE) / w,
                                        Math.max(100, window.innerHeight) / h) * 0.80;
             const safeCapScale = Math.min((maxW - 1) / w, (maxH - 1) / h);
             return Math.max(1.0, safeCapScale / baseScale);
@@ -21285,7 +21390,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _shouldEnterImmersive() {
             // Only enter immersive when height is the binding constraint —
             // i.e. the vertical space limits fit-zoom more than horizontal.
-            // Immersive reclaims the 80px bottom chrome reserve; if width was
+            // Immersive reclaims the bottom chrome reserve; if width was
             // already limiting, entering immersive gains nothing.
             let w, h;
             if (compareActive && compareFrames.length) {
@@ -21953,17 +22058,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
 
-            // Rule 10 — Eggs don't overlap colorbar
+            // Rule 10 — Non-immersive eggs stay inside the active pane.
             const _vEggs = document.getElementById('mode-eggs');
-            if (_vEggs && _vCbWrap &&
-                _vEggs.style.display !== 'none' && _vCbWrap.style.display !== 'none' &&
-                _vEggs.offsetWidth > 0 && _vCbWrap.offsetWidth > 0) {
+            if (_vEggs && !_fullscreenActive &&
+                _vEggs.style.display !== 'none' && _vEggs.offsetWidth > 0) {
                 const eR = _vEggs.getBoundingClientRect();
-                const cR = _vCbWrap.getBoundingClientRect();
-                const overlaps = !(eR.right < cR.left || eR.left > cR.right ||
-                                   eR.bottom < cR.top || eR.top > cR.bottom);
-                if (overlaps) {
-                    w.push('Rule 10: #mode-eggs overlaps #slim-cb-wrap');
+                const aR = ModeRegistry.getEggsAnchorRect();
+                if (aR) {
+                    const inside = eR.left >= aR.left - 1 && eR.right <= aR.right + 1 &&
+                                   eR.top >= aR.top - 1 && eR.bottom <= aR.bottom + 1;
+                    if (!inside) w.push('Rule 10: #mode-eggs outside active pane');
                 }
             }
 
@@ -23065,9 +23169,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cur = this.opts.getMode();
                 const idx = Math.max(0, presets.findIndex(p => p.id === cur));
                 const next = presets[(idx + 1) % presets.length];
-                this.opts.setMode(next.id);
-                if (typeof this.opts.onCycleNotice === 'function') {
-                    this.opts.onCycleNotice(next);
+                const apply = () => {
+                    if (typeof this.opts.setMode === 'function') this.opts.setMode(next.id);
+                    if (typeof this.opts.onCycleNotice === 'function') {
+                        this.opts.onCycleNotice(next);
+                    }
+                };
+                if (typeof this.opts.transitionMode === 'function') {
+                    this.opts.transitionMode(next.id, apply);
+                } else {
+                    apply();
                 }
             }
 
@@ -23110,11 +23221,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 panes: () => Array.from(document.querySelectorAll('#mv-panes > .mv-pane')),
                 getMode: () => orthoLayoutMode,
                 setMode: (id) => {
-                    orthoLayoutMode = id;
-                    if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+                    _mvSetOrthoLayoutMode(id, { silent: true });
                 },
                 refresh: () => {
                     if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
+                    requestAnimationFrame(_refreshMvLayoutChrome);
+                },
+                transitionMode: (_id, apply) => {
+                    crossfade(apply);
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',

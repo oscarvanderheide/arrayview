@@ -850,6 +850,37 @@ class TestKeyboard:
         assert state["paneClass"], f"multiview pane should start bordered, got: {state}"
         assert state["boxShadow"] != "none", f"multiview border should be visibly drawn, got: {state}"
 
+    def test_multiview_hover_border_and_colorbar_clearance(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+        page.hover(".mv-canvas")
+        page.wait_for_timeout(100)
+
+        state = page.evaluate(
+            """() => {
+                const row = document.querySelector('#mv-panes');
+                const pane = document.querySelector('.mv-pane');
+                const cb = document.querySelector('#mv-cb-wrap');
+                const cbRect = cb.getBoundingClientRect();
+                const frame = getComputedStyle(pane, '::after');
+                const rowRect = row.getBoundingClientRect();
+                return {
+                    active: row.classList.contains('mv-crosshair-active'),
+                    frameShadow: frame.boxShadow,
+                    colorbarBottomGap: Math.round(window.innerHeight - cbRect.bottom),
+                    centerDelta: Math.round(Math.abs((rowRect.left + rowRect.width / 2) - window.innerWidth / 2)),
+                };
+            }"""
+        )
+        assert state["active"], f"hovering a multiview canvas should activate pane frame, got: {state}"
+        assert "inset" in state["frameShadow"], f"pane frame should render above pane contents, got: {state}"
+        assert "1.5px" in state["frameShadow"], f"pane frame should match crosshair thickness, got: {state}"
+        assert state["colorbarBottomGap"] >= 36, f"multiview colorbar should clear the viewport bottom, got: {state}"
+        assert state["centerDelta"] <= 2, f"multiview pane cluster should be horizontally centered, got: {state}"
+
     def test_multiview_rounded_panes_round_visible_box(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
@@ -857,8 +888,6 @@ class TestKeyboard:
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(300)
 
-        page.keyboard.press("Shift+B")
-        page.wait_for_timeout(200)
         state = page.evaluate(
             """() => ({
                 status: document.querySelector('#status')?.innerText?.trim() || '',
@@ -871,8 +900,18 @@ class TestKeyboard:
         assert state["bodyRounded"], f"rounded panes body class should be enabled, got: {state}"
         assert state["radius"] != "0px", f"multiview visible box should get rounded corners, got: {state}"
         assert state["overflow"] == "hidden", f"multiview visible box should clip to rounded corners, got: {state}"
-        assert "rounded panes" in state["status"].lower() and "on" in state["status"].lower(), (
-            f"expected Shift+B to enable rounded panes, got: {state}"
+
+        page.keyboard.press("Shift+B")
+        page.wait_for_timeout(200)
+        toggled = page.evaluate(
+            """() => ({
+                status: document.querySelector('#status')?.innerText?.trim() || '',
+                bodyRounded: document.body.classList.contains('rounded-panes'),
+            })"""
+        )
+        assert not toggled["bodyRounded"], f"Shift+B should toggle default rounded panes off, got: {toggled}"
+        assert "rounded panes" in toggled["status"].lower() and "off" in toggled["status"].lower(), (
+            f"expected Shift+B to disable rounded panes, got: {toggled}"
         )
 
     def test_multiview_empty_square_uses_colormap_min_fill(self, loaded_viewer, sid_3d):
