@@ -129,8 +129,8 @@ STABILITY (keys must not cause UI element jumps)
   multiview uniform cells + zoom limit      ✓ 38 (3 panes same size, zoom caps)
     compare center pane cycle (X key)        ✓ 39 (A−B, |A−B|, relative, overlay, wipe)
     compare zoom overflow keeps one row      ✓ 71 (minimap visible; panes stay side-by-side)
-  LOG, complex, and alpha eggs              ✓ 40 (badges in #mode-eggs below canvas)
-  RGB egg spacing below canvas              ✓ 46 (eggs top > canvas bottom + 30px)
+  LOG, complex, and alpha eggs              ✓ 40 (badges in #mode-eggs inside pane)
+  RGB egg placement inside canvas           ✓ 46 (eggs fully inside canvas bounds)
   V custom multiview dims                   ✓ 41 (inline prompt)
   f FFT via inline prompt                   ✓ 42 (inline prompt)
 
@@ -810,7 +810,7 @@ def run_smoke(page, base, client, tmp):
     _goto(page, base, rgb_sid, wait=1200)
     _focus(page)
     _shot(page, "46_rgb_basic")
-    # Verify RGB egg badge is at least 30px below the canvas bottom (spacing fix)
+    # Verify RGB egg badge is inside the canvas bounds.
     eggs_rect = page.evaluate(
         "() => { const e = document.getElementById('mode-eggs'); return e ? e.getBoundingClientRect() : null; }"
     )
@@ -818,10 +818,15 @@ def run_smoke(page, base, client, tmp):
         "() => { const c = document.getElementById('viewer'); return c ? c.getBoundingClientRect() : null; }"
     )
     if eggs_rect and canvas_rect:
-        gap = eggs_rect["top"] - canvas_rect["bottom"]
-        if gap < 30:
+        inside = (
+            eggs_rect["left"] >= canvas_rect["left"] - 1
+            and eggs_rect["right"] <= canvas_rect["right"] + 1
+            and eggs_rect["top"] >= canvas_rect["top"] - 1
+            and eggs_rect["bottom"] <= canvas_rect["bottom"] + 1
+        )
+        if not inside:
             print(
-                f"  WARNING: RGB eggs gap too small ({gap:.0f}px < 30px) — eggs may overlap canvas"
+                "  WARNING: RGB eggs outside canvas bounds"
             )
 
     # ── 47: viewer startup overlay ───────────────────────────────────────────
@@ -890,25 +895,31 @@ def run_smoke(page, base, client, tmp):
     if not welcome_mode:
         print("  WARNING: body.welcome-mode class not set on welcome demo screen")
 
-    # ── 49: toast routing — showToast() messages appear in #status (bottom-left) ──
-    # Press X in normal mode (no compare) — triggers "diff view: only in 2-pane
-    # compare mode", previously shown in the top-center #toast div.
-    # After the fix, the message must appear in #status (bottom-left fading toast)
-    # and the #toast element must not exist in the DOM.
+    # ── 49: array identity moves to window title; toast uses bottom-left slot ─
     _goto(page, base, sid2d)
     _focus(page)
-    toast_present = page.evaluate("() => !!document.getElementById('toast')")
-    if toast_present:
-        print(
-            "  WARNING: #toast element still present in DOM — should have been removed"
-        )
-    _press(page, "X", wait=400)
-    status_text = page.locator("#status").inner_text()
-    _shot(page, "49_toast_in_status")
-    if not status_text.strip():
-        print(
-            "  WARNING: #status is empty after X in normal mode — toast may not route correctly"
-        )
+    page_title = page.evaluate("() => document.title")
+    name_hidden = page.evaluate(
+        "() => getComputedStyle(document.getElementById('array-name')).display === 'none'"
+    )
+    if not page_title.startswith("ArrayView:"):
+        print(f"  WARNING: document title does not include array identity ({page_title!r})")
+    if not name_hidden:
+        print("  WARNING: #array-name is still visible in the viewport")
+    page.evaluate("() => showToast('smoke toast')")
+    page.wait_for_timeout(300)
+    _shot(page, "49_toast_identity_slot")
+    toast_visible = page.evaluate(
+        "() => document.getElementById('toast')?.classList.contains('visible')"
+    )
+    if not toast_visible:
+        print("  WARNING: #toast did not become visible")
+    page.wait_for_timeout(3300)
+    toast_hidden = page.evaluate(
+        "() => !document.getElementById('toast')?.classList.contains('visible')"
+    )
+    if not toast_hidden:
+        print("  WARNING: #toast did not hide after timeout")
 
     # ── 50: axes indicator — edge labels flash on h/l, mosaic, multiview ─────
     # Verify that pressing h in a 3D array makes .axes-indicator opacity become 1.

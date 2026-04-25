@@ -73,7 +73,7 @@
     <script>
         const tabBar = document.getElementById('tab-bar');
         const content = document.getElementById('content');
-        let tabs = {}; // sid -> { button, iframe }
+        let tabs = {}; // sid -> { button, iframe, name }
         let activeSid = null;
 
         function updateTabBarVisibility() {
@@ -86,7 +86,7 @@
 
             const btn = document.createElement('div');
             btn.className = 'tab';
-            btn.innerHTML = `<span>${name}</span><span class="tab-close">&times;</span>`;
+            btn.innerHTML = `<span class="tab-label">${name}</span><span class="tab-close">&times;</span>`;
 
             const pane = document.createElement('div');
             pane.className = 'tab-pane';
@@ -96,7 +96,7 @@
 
             pane.appendChild(iframe);
 
-            tabs[sid] = { btn, pane, iframe };
+            tabs[sid] = { btn, pane, iframe, name };
 
             btn.onclick = () => activateTab(sid);
             btn.querySelector('.tab-close').onclick = (e) => {
@@ -121,6 +121,17 @@
                     tabs[k].btn.classList.remove('active');
                     tabs[k].pane.classList.remove('active');
                 }
+            }
+            setWindowTitle(tabs[sid]?.name);
+        }
+
+        function setWindowTitle(name) {
+            const clean = String(name || '').trim();
+            const title = clean ? `ArrayView: ${clean}` : 'ArrayView';
+            document.title = title;
+            try {
+                if (window.pywebview?.api?.set_title) window.pywebview.api.set_title(title);
+            } catch (_) {
             }
         }
 
@@ -165,6 +176,18 @@
             const phase = e.data.phase;
             if (phase === 'tab-cycle') {
                 cycleTab(e.data.detail?.dir ?? 1);
+                return;
+            }
+            if (phase === 'title') {
+                const detail = e.data.detail || {};
+                const sid = detail.sid;
+                const name = detail.name || '';
+                if (sid && tabs[sid]) {
+                    tabs[sid].name = name;
+                    const label = tabs[sid].btn.querySelector('.tab-label');
+                    if (label) label.textContent = name;
+                    if (activeSid === sid) setWindowTitle(name);
+                }
                 return;
             }
         });

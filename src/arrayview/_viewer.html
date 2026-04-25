@@ -371,10 +371,11 @@
             -webkit-text-fill-color: transparent !important;
         }
         #status { display: none !important; }
-        #toast  { position: fixed; bottom: 20px; left: 20px;
-                  font-size: 12px; color: var(--muted); background: rgba(0,0,0,0.65);
-                  padding: 6px 12px; border-radius: 6px; white-space: nowrap;
-                  pointer-events: none; z-index: 20; max-width: 80vw; overflow: hidden;
+        #toast  { position: fixed; bottom: 14px; left: 16px;
+                  min-height: 22px; line-height: 22px;
+                  font-size: 12px; color: var(--text);
+                  padding: 0; border-radius: 0; white-space: nowrap;
+                  pointer-events: none; z-index: 6; max-width: calc(100vw - 116px); overflow: hidden;
                   text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s ease; }
         #toast.visible { opacity: 1; }
         body.zen-mode #toast { display: none; }
@@ -389,13 +390,19 @@
         }
         #preload-status { display: none !important; } /* merged into #toast */
         #array-name {
+            position: fixed; left: 16px; bottom: 14px; z-index: 6;
             font-size: 13px; color: var(--muted); letter-spacing: 0.1em;
             text-transform: uppercase; flex-shrink: 0;
-            margin-bottom: 10px; min-height: 1em; text-align: center;
+            margin: 0; min-height: 22px; max-width: calc(100vw - 116px);
+            text-align: left; pointer-events: none;
             display: flex; align-items: center; justify-content: center; gap: 7px;
             --fly-y: 0px;
             transform: translateY(var(--fly-y, 0px));
+            overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
         }
+        body.titlebar-identity #array-name { display: none !important; }
+        body.toast-visible #array-name { opacity: 0; }
+        #array-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #array-name svg { flex-shrink: 0; }
         @keyframes av-logo-pulse {
             0%, 100% { opacity: 0.25; }
@@ -808,8 +815,13 @@
         :root.light .mode-badge-mip  { background: rgba(0,180,160,0.1); color: #108080; border-color: rgba(0,180,160,0.25); }
         :root.light .mode-badge-proj { background: rgba(120,80,200,0.1); color: #7040c0; border-color: rgba(120,80,200,0.25); }
         #mode-eggs { position: fixed; display: flex; flex-direction: row; align-items: center; gap: 4px; cursor: default; z-index: 2; pointer-events: none; transition: opacity 0.3s ease; }
-        body.fullscreen-mode .mode-badge { background-color: rgba(30, 30, 30, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-        body.fullscreen-mode :root.light .mode-badge { background-color: rgba(240, 240, 240, 0.75); }
+        #mode-eggs .mode-badge {
+            background-color: rgba(30, 30, 30, 0.75);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        }
+        :root.light #mode-eggs .mode-badge {
+            background-color: rgba(240, 240, 240, 0.75);
+        }
         .mode-badge-complex { transition: opacity 0.9s ease; }
         .mode-badge-complex.fading { opacity: 0; }
 
@@ -3106,6 +3118,23 @@
         // Maps hidden by default — auxiliary parameters that clutter the initial view
         const QMRI_DEFAULT_HIDDEN = new Set(['viridis', 'RdBu_r', 'twilight_shifted']);
 
+        function _unionVisibleRects(elements) {
+            let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+            Array.from(elements || []).forEach(el => {
+                if (!el) return;
+                const s = getComputedStyle(el);
+                if (s.display === 'none' || s.visibility === 'hidden') return;
+                const r = el.getBoundingClientRect();
+                if (r.width <= 2 || r.height <= 2) return;
+                left = Math.min(left, r.left);
+                top = Math.min(top, r.top);
+                right = Math.max(right, r.right);
+                bottom = Math.max(bottom, r.bottom);
+            });
+            if (!Number.isFinite(left) || right <= left || bottom <= top) return null;
+            return { left, top, right, bottom, width: right - left, height: bottom - top };
+        }
+
         // ── Mode Registry ────────────────────────────────────────────────
         const ModeRegistry = {
             getScaler() {
@@ -3145,56 +3174,19 @@
                 if (qmriActive)        return 'qmri';
                 return 'normal';
             },
-            getEggsAnchorBottom() {
+            getEggsAnchorRect() {
                 if (multiViewActive) {
-                    const mvCbWrap = document.getElementById('mv-cb-wrap');
-                    const cbRect = mvCbWrap ? mvCbWrap.getBoundingClientRect() : null;
-                    if (cbRect && cbRect.height > 2) {
-                        return cbRect.bottom + 12;
-                    }
-                    let maxBottom = 0;
-                    document.querySelectorAll('.mv-canvas').forEach(cv => {
-                        const r = cv.getBoundingClientRect();
-                        if (r.bottom > maxBottom) maxBottom = r.bottom;
-                    });
-                    if (maxBottom > 30) return maxBottom + 36;
-                    return null; // layout not ready
+                    return _unionVisibleRects(document.querySelectorAll('#mv-panes .mv-canvas'));
                 }
                 if (qmriActive || compareQmriActive || compareMvActive) {
                     const views = compareQmriActive ? compareQmriViews : (compareMvActive ? compareMvViews : qmriViews);
-                    let maxBottom = 0;
-                    views.forEach(v => {
-                        const r = v.canvas.getBoundingClientRect();
-                        if (r.bottom > maxBottom) maxBottom = r.bottom;
-                    });
-                    return maxBottom > 30 ? maxBottom + 36 : window.innerHeight - 60;
+                    return _unionVisibleRects(views.map(v => v.canvas));
                 }
                 if (compareActive) {
-                    const cbWrap = document.getElementById('slim-cb-wrap');
-                    if (cbWrap && cbWrap.style.display !== 'none') {
-                        return cbWrap.getBoundingClientRect().bottom + 12;
-                    }
-                    let maxBottom = 0;
-                    const paneCbIslands = diffMode > 0 ? document.querySelectorAll('.compare-pane-cb-island') : [];
-                    let usedCbBottom = false;
-                    paneCbIslands.forEach(island => {
-                        if (island.style.display === 'none' || !island.offsetParent) return;
-                        const r = island.getBoundingClientRect();
-                        if (r.height > 2 && r.bottom > maxBottom) { maxBottom = r.bottom; usedCbBottom = true; }
-                    });
-                    if (!usedCbBottom) {
-                        compareCanvases.forEach(cv => {
-                            if (!cv) return;
-                            const pane = cv.closest('.compare-pane');
-                            if (pane && pane.classList.contains('active')) {
-                                const r = cv.getBoundingClientRect();
-                                if (r.bottom > maxBottom) maxBottom = r.bottom;
-                            }
-                        });
-                    }
-                    return maxBottom > 30 ? maxBottom + 8 : window.innerHeight - 60;
+                    return _unionVisibleRects(document.querySelectorAll('.compare-pane.active .compare-canvas'));
                 }
-                return null; // normal mode — handled by positionEggs directly
+                if (mipActive) return _unionVisibleRects([document.getElementById('mip-canvas')]);
+                return _unionVisibleRects([document.getElementById('canvas-viewport')]);
             },
         };
 
@@ -3599,7 +3591,27 @@
             return 'single';
         }
 
+        function _setWindowIdentity(name) {
+            const clean = String(name || '').trim();
+            const title = clean && clean !== 'welcome' ? `ArrayView: ${clean}` : 'ArrayView';
+            document.title = title;
+            document.body.classList.toggle('titlebar-identity', clean && clean !== 'welcome');
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        source: 'arrayview-viewer',
+                        phase: 'title',
+                        detail: { sid, name: clean, title },
+                    }, '*');
+                }
+            } catch (_) {}
+        }
+
         // const MAX_CANVAS_FIT_PX = 600;
+        const NORMAL_SIDE_RESERVE = 80;
+        const NORMAL_BOTTOM_RESERVE = 54;
+        const NORMAL_UI_RESERVE_FLOOR = 76;
+        const MV_COLORBAR_BOTTOM_CLEARANCE = 42;
 
         function uiReserveV() {
             if (_fullscreenActive && _crossfadeP <= 0) {
@@ -3607,7 +3619,7 @@
                 return 0;
             }
             let h = 30; // wrapper padding
-            for (const id of ['array-name', 'info']) {
+            for (const id of ['info']) {
                 const el = document.getElementById(id);
                 if (el) {
                     const s = getComputedStyle(el);
@@ -17261,6 +17273,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             mvViews = defs.map((def, i) => {
                 const pane = document.createElement('div');
                 pane.className = 'mv-pane';
+                const planeIdx = Math.max(0, dims.indexOf(def.sliceDir));
+                pane.dataset.plane = String(planeIdx);
+                pane.style.setProperty('--mv-plane-border', MV_PLANE_STROKES[planeIdx] || 'var(--active-dim)');
                 const inner = document.createElement('div');
                 inner.className = 'mv-inner';
                 const wrap = document.createElement('div');
@@ -17291,6 +17306,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 wrap.appendChild(cvBox);
                 inner.appendChild(wrap);
                 pane.appendChild(inner);
+                const promoteBtn = document.createElement('button');
+                promoteBtn.type = 'button';
+                promoteBtn.className = 'mv-promote-btn';
+                promoteBtn.title = 'Promote this view';
+                promoteBtn.setAttribute('aria-label', 'Promote this ortho view');
+                promoteBtn.textContent = '↖';
+                promoteBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _mvPromotePane(view);
+                });
+                pane.appendChild(promoteBtn);
                 panesRow.appendChild(pane);
                 const view = { dimX: def.dimX, dimY: def.dimY, sliceDir: def.sliceDir,
                     canvas: cv, ctx: cv.getContext('2d'), pane, wrap, label: null,
@@ -20193,6 +20220,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         // Crosshair colors match the miniview plane colors (red, green, blue).
         const MV_PLANE_STROKES = ['rgba(255,90,90,0.9)', 'rgba(100,210,130,0.9)', 'rgba(80,170,255,0.9)'];
+        function _mvPlaneColorForDim(dim) {
+            const idx = Array.isArray(mvDims) ? mvDims.indexOf(dim) : -1;
+            return MV_PLANE_STROKES[idx] || 'rgba(255,255,255,0.75)';
+        }
 
         // ── Crosshair fade animation helpers ──
         // Smoothly animate crosshair opacity for multiview panes on hover.
@@ -20211,6 +20242,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
         function _mvSetCrosshairTarget(target) {
             _mvCrosshairTarget = target;
+            const row = document.getElementById('mv-panes');
+            if (row) row.classList.toggle('mv-crosshair-active', target > 0);
             if (!_mvCrosshairAnim) _mvCrosshairAnim = requestAnimationFrame(_mvAnimateCrosshairs);
         }
         function _mvRecomputeCrosshairTarget() {
@@ -20305,7 +20338,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         const ext = Math.max(_cssW, _cssH) * 2;
                         const ndh = dh / cssLen * ext, ndv = dv / cssLen * ext;
                         _chCtx.lineWidth = 1.5;
-                        _chCtx.strokeStyle = MV_PLANE_STROKES[j] || 'rgba(255,0,0,0.75)';
+                        _chCtx.strokeStyle = _mvPlaneColorForDim(mvViews[j]?.sliceDir);
                         _chCtx.beginPath();
                         _chCtx.moveTo(chx - ndh, chy - ndv);
                         _chCtx.lineTo(chx + ndh, chy + ndv);
@@ -20317,12 +20350,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                     // Convert to CSS coords
                     const cssCx = cx * scaleX, cssCy = cy * scaleY;
-                    const jx = mvViews.findIndex(vv => vv.sliceDir === v.dimX);
                     _chCtx.lineWidth = 1.5;
-                    _chCtx.strokeStyle = MV_PLANE_STROKES[jx] || 'rgba(255,0,0,0.75)';
+                    _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimX);
                     _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, _cssH); _chCtx.stroke();
-                    const jy = mvViews.findIndex(vv => vv.sliceDir === v.dimY);
-                    _chCtx.strokeStyle = MV_PLANE_STROKES[jy] || 'rgba(255,0,0,0.75)';
+                    _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimY);
                     _chCtx.beginPath(); _chCtx.moveTo(0, cssCy); _chCtx.lineTo(_cssW, cssCy); _chCtx.stroke();
                 }
                 } // end if (_chAlpha > 0.005)
