@@ -4807,12 +4807,14 @@
             if (!t) return;
             clearTimeout(_toastTimer);
             t.textContent = msg;
+            document.body.classList.add('toast-visible');
             t.classList.add('visible');
             _toastTimer = setTimeout(() => {
                 if (t.textContent !== msg) return;
                 // If preload is active, restore it instead of hiding
                 if (_preloadMsg) { t.textContent = _preloadMsg; return; }
                 t.classList.remove('visible');
+                document.body.classList.remove('toast-visible');
             }, 3000);
         }
         function _showPreloadToast(msg) {
@@ -8868,6 +8870,7 @@
             if (data.name) {
                 _sessionName = data.name;
                 document.getElementById('array-name-text').textContent = data.name;
+                _setWindowIdentity(data.name);
                 const loadNameEl = document.querySelector('#loading-overlay .av-load-name');
                 if (loadNameEl) { loadNameEl.textContent = data.name; loadNameEl.classList.add('visible'); }
             }
@@ -9017,36 +9020,24 @@
                 return;
             }
 
-            // Try mode-specific anchor
-            const anchorBottom = ModeRegistry.getEggsAnchorBottom();
-            if (anchorBottom !== null) {
-                el.style.position      = '';
-                el.style.bottom        = '';
-                el.style.flexDirection  = '';
-                el.style.alignItems    = '';
-                el.style.right         = '';
-                const eggsTop = Math.min(anchorBottom, window.innerHeight - 26);
-                el.style.top       = eggsTop + 'px';
-                el.style.left      = '50%';
-                el.style.transform = 'translateX(-50%)';
-                return;
-            }
-
-            // Normal (non-fullscreen) mode
+            // Non-fullscreen mode: keep eggs inside the active pane/container.
             el.style.flexDirection = '';
             el.style.alignItems    = '';
             el.style.right         = '';
-            let eggsTop;
-            const wrap = document.getElementById('slim-cb-wrap');
-            if (wrap && wrap.style.display !== 'none') {
-                eggsTop = wrap.getBoundingClientRect().bottom + 12;
-            } else {
-                eggsTop = canvas.getBoundingClientRect().bottom + 36;
-            }
-            eggsTop = Math.min(eggsTop, window.innerHeight - 26);
+            const anchorRect = ModeRegistry.getEggsAnchorRect();
+            if (!anchorRect) return;
+            const inset = 8;
+            const eggsW = el.offsetWidth || 0;
+            const eggsH = el.offsetHeight || 22;
+            const minLeft = eggsW / 2 + inset;
+            const maxLeft = Math.max(minLeft, window.innerWidth - eggsW / 2 - inset);
+            const eggsLeft = Math.max(minLeft, Math.min(maxLeft, anchorRect.left + anchorRect.width / 2));
+            const minTop = anchorRect.top + inset;
+            const maxTop = Math.max(minTop, Math.min(window.innerHeight - eggsH - inset, anchorRect.bottom - eggsH - inset));
+            const eggsTop = Math.max(minTop, maxTop);
             el.style.top       = eggsTop + 'px';
             el.style.bottom    = '';
-            el.style.left      = '50%';
+            el.style.left      = eggsLeft + 'px';
             el.style.transform = 'translateX(-50%)';
             _validateUIState();
         }
@@ -21310,8 +21301,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 h = lastImgH || canvas.height;
             }
             if (!w || !h) return false;
-            const maxW = Math.max(100, window.innerWidth - 80);
-            const maxH = Math.max(50, window.innerHeight - uiReserveV() - 80);
+            const maxW = Math.max(100, window.innerWidth - NORMAL_SIDE_RESERVE);
+            const maxH = Math.max(50, window.innerHeight - uiReserveV() - NORMAL_BOTTOM_RESERVE);
             if ((maxH / h) >= (maxW / w)) return false; // width binding: skip
             // Container must be wide/tall enough to fit overlaid chrome
             const vpEl = compareActive ? document.getElementById('compare-view-wrap')
