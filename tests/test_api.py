@@ -2762,6 +2762,8 @@ class TestViewDisplayRouting:
         assert result.__class__.__name__ == "HTML"
         assert "proxy/8123/" in result.data
         assert "document.body && document.body.dataset" in result.data
+        assert "frame.src = directSrc" in result.data
+        assert "phase !== 'script-loaded'" in result.data
 
     def test_remote_vscode_jupyter_auto_opens_vscode_tab(self, monkeypatch):
         """VS Code tunnel notebook can't reach localhost through the webview sandbox,

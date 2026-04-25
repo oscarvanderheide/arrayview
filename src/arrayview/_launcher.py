@@ -1402,6 +1402,7 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
   if (!host) return;
   const frame = host.querySelector('iframe');
   if (!frame) return;
+  const directSrc = {json.dumps(viewer_url)};
   const baseCandidates = [
     document.body && document.body.dataset ? document.body.dataset.baseUrl : '',
     window.Jupyter && window.Jupyter.notebook ? window.Jupyter.notebook.base_url : '',
@@ -1412,7 +1413,25 @@ def _make_jupyter_proxy_inline_html(viewer_url: str, port: int, height: int):
   let base = baseCandidates.find(value => typeof value === 'string' && value.length) || {json.dumps(_jupyter_base_url_prefix())};
   if (!base.startsWith('/')) base = '/' + base;
   if (!base.endsWith('/')) base += '/';
-  frame.src = new URL({json.dumps(proxied_target)}, window.location.origin + base).toString();
+  const proxiedSrc = new URL({json.dumps(proxied_target)}, window.location.origin + base).toString();
+  let loaded = false;
+  const cleanup = () => {{
+    window.removeEventListener('message', onMessage);
+    if (fallbackTimer) window.clearTimeout(fallbackTimer);
+  }};
+  const onMessage = (event) => {{
+    const msg = event && event.data;
+    if (!msg || msg.source !== 'arrayview-viewer' || msg.phase !== 'script-loaded') return;
+    if (event.source !== frame.contentWindow) return;
+    loaded = true;
+    cleanup();
+  }};
+  window.addEventListener('message', onMessage);
+  const fallbackTimer = window.setTimeout(() => {{
+    if (loaded) return;
+    frame.src = directSrc;
+  }}, 1500);
+  frame.src = proxiedSrc;
 }})();
 </script>
 """.strip()
