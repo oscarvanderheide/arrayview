@@ -1546,6 +1546,7 @@
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
+        .qv-row.cq-row { position: relative; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
         .qv-placeholder { visibility: hidden; pointer-events: none; }
         .qv-label { font-size: 16px; color: var(--fg); flex-shrink: 0; letter-spacing: 0.05em; }
@@ -1579,6 +1580,7 @@
         #qmri-view-wrap.mosaic-overflow #qmri-mosaic-inner { display: flex; flex-direction: column; align-items: center; gap: inherit; will-change: transform; }
         /* compare-qMRI: row label (array name) at left of each row */
         .cq-row-label { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); width: 24px; flex-shrink: 0; align-self: center; text-align: center; white-space: nowrap; }
+        .qv-row.cq-row > .cq-row-label { position: absolute; right: 100%; margin-right: 14px; top: 50%; transform: translateY(-50%) rotate(180deg); }
         /* compare-qMRI: column header row for map names */
         .cq-header-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: flex-end; padding-left: 0; }
         .cq-header-label { font-size: 16px; color: var(--fg); letter-spacing: 0.05em; text-align: center; }
@@ -18267,7 +18269,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             let _qmriLastRow = null;
             rowSizes.forEach(rowSize => {
                 const rowDiv = document.createElement('div');
-                rowDiv.className = 'qv-row';
+                rowDiv.className = 'qv-row cq-row';
                 _qmriLastRow = rowDiv;
                 for (let ri = 0; ri < rowSize; ri++) {
                     const viewIdx = cmapIdx++;
@@ -18613,7 +18615,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             for (let si = 0; si < compareQmriSids.length; si++) {
                 const sidVal = compareQmriSids[si];
                 const rowDiv = document.createElement('div');
-                rowDiv.className = 'qv-row';
+                rowDiv.className = 'qv-row cq-row';
                 // Row label: array name
                 const rowLabel = document.createElement('div');
                 rowLabel.className = 'cq-row-label';
@@ -18999,13 +19001,49 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = 'active';
+            if (!window._mvColorBar) {
+                window._mvColorBar = new ColorBar({
+                    container: wrap,
+                    id: 'mv',
+                    orientation: 'horizontal',
+                    getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
+                    getRange: () => {
+                        const v0 = compareMvViews.find(v => v.lastW);
+                        return v0 ? { vmin: v0.vmin, vmax: v0.vmax } : { vmin: 0, vmax: 1 };
+                    },
+                    getWindow: () => {
+                        const v0 = compareMvViews.find(v => v.lastW);
+                        if (v0) return { vmin: v0.lockedVmin ?? v0.vmin, vmax: v0.lockedVmax ?? v0.vmax };
+                        return { vmin: manualVmin ?? currentVmin, vmax: manualVmax ?? currentVmax };
+                    },
+                    setWindow: (lo, hi) => {
+                        manualVmin = lo; manualVmax = hi;
+                        compareMvViews.forEach((v, i) => {
+                            v.lockedVmin = lo; v.lockedVmax = hi;
+                            const cv = modeManager.currentViews[i];
+                            if (cv) { cv.displayState.vmin = lo; cv.displayState.vmax = hi; }
+                        });
+                    },
+                    fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
+                    onWindowChange: () => { for (const v of compareMvViews) compareMvRender(v); _mipOnWindowChange(); },
+                    onBinHover: (binIdx, frac) => {
+                        if (!lebesgueMode) return;
+                        if (binIdx < 0) { _clearLebesgueOverlay(); return; }
+                        _drawLebesgueHighlight(binIdx);
+                    },
+                });
+                window._mvColorBar.wrap.id = 'mv-cb-wrap';
+                window._mvColorBar.canvas.id = 'mv-cb';
+                if (window._mvColorBar.vminLabel) window._mvColorBar.vminLabel.id = 'mv-cb-vmin';
+                if (window._mvColorBar.vmaxLabel) window._mvColorBar.vmaxLabel.id = 'mv-cb-vmax';
+            }
 
             compareMvViews = [];
             // One row per compared array (SID)
             for (let si = 0; si < compareMvSids.length; si++) {
                 const sidVal = compareMvSids[si];
                 const rowDiv = document.createElement('div');
-                rowDiv.className = 'qv-row';
+                rowDiv.className = 'qv-row cq-row';
                 // Row label: array name (basename only)
                 const rowLabel = document.createElement('div');
                 rowLabel.className = 'cq-row-label';
@@ -19058,27 +19096,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
-                        _colorBar: null,
                     };
-                    // Create ColorBar instance for this compare-mv view (independent window/level)
-                    const _cmvCb = new ColorBar({
-                        container: cvWrap,
-                        id: 'cmv-' + si + '-' + pi,
-                        orientation: 'horizontal',
-                        interactive: true,
-                        getStops: () => colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]],
-                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
-                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
-                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
-                        fetchHistogram: () => _fetchHistogramCompare(),
-                        onWindowChange: () => { compareMvRender(view); },
-                        onAnimFrame: () => { compareMvScaleAllCanvases(); },
-                    });
-                    _cmvCb.wrap.classList.add('qv-cb-island');
-                    view._colorBar = _cmvCb;
-                    view.cbCanvas = _cmvCb.canvas;
-                    view.cbVmin = _cmvCb.vminLabel;
-                    view.cbVmax = _cmvCb.vmaxLabel;
                     cv.addEventListener('wheel', (e) => {
                         e.preventDefault();
                         const delta = e.deltaY > 0 ? -1 : 1;
@@ -19216,13 +19234,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
                 wrap.appendChild(rowDiv);
             }
-            // Hide per-pane colorbars on non-bottom rows (shared colorbars at bottom)
-            if (compareMvSids.length >= 2) {
-                const allRows = wrap.querySelectorAll('.qv-row');
-                allRows.forEach((row, ri) => {
-                    if (ri < allRows.length - 1) row.classList.add('cq-inner-row');
-                });
-            }
+            wrap.appendChild(window._mvColorBar.wrap);
             _kickInitialRenders(compareMvViews, compareMvRender);
             flashAxesIndicators();
             renderInfo();
@@ -19237,7 +19249,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         displayState: ds, slicer: new FreeSliceSlicer(), container: document.body });
                     mv.canvas = v.canvas || null;
                     mv.wrapper = v.canvas?.parentElement || null;
-                    if (v._colorBar) mv.colorBar = v._colorBar;
+                    mv.colorBar = window._mvColorBar || null;
                     mv._initialized = true;
                     v._initialized = true;
                     return mv;
@@ -19372,7 +19384,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastH = frame.height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
-                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             } finally {
                 v.rendering = false;
                 if (v.pending) { v.pending = false; compareMvRender(v); }
@@ -19433,14 +19444,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const rowGap = nRows >= 3 ? 6 : 14;
             const sidePad = nRows >= 3 ? 80 : 120; // tighter for multi-array
             const labelH = 0;  // no column headers in compare-multiview
-            const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
-            const cbH = anyExpanded ? 33 + (CB_DEFAULT_EXPANDED_H - CB_COLLAPSED_H) : 33;
-            // Only bottom row has colorbars (non-bottom rows hide them)
-            const cbRows = nRows >= 2 ? 1 : nRows;
+            const cbWrap = document.getElementById('mv-cb-wrap');
+            const cbH = cbWrap && colorbarVisible() ? (cbWrap.offsetHeight || 33) : 0;
             const bottomPad = 16;
             const totalH = window.innerHeight - uiReserveV()
                          - labelH * (1 - _crossfadeCollapseP)
-                         - cbRows * cbH * (1 - _crossfadeCollapseP)
+                         - cbH * (1 - _crossfadeCollapseP)
                          - (nRows - 1) * rowGap
                          - bottomPad * (1 - _crossfadeCollapseP);
             const absMaxScaleW = (window.innerWidth - sidePad - (nCols - 1) * colGap) / nCols;
@@ -19484,10 +19493,19 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const wrapEl = document.getElementById('qmri-view-wrap');
             if (wrapEl) wrapEl.style.gap = rowGap + 'px';
             wrapEl.querySelectorAll('.qv-row, .cq-header-row').forEach(r => r.style.gap = colGap + 'px');
+            if (cbWrap) {
+                const cmvCbTarget = cbTargetWidth(Math.round(ready[0].lastW * cappedScale));
+                if (cmvCbTarget == null) {
+                    cbWrap.style.display = 'none';
+                } else {
+                    cbWrap.style.display = '';
+                    cbWrap.style.width = cmvCbTarget + 'px';
+                }
+            }
             fixWrapperAlignment();
             requestAnimationFrame(() => {
                 if (compareMvActive) {
-                    compareMvViews.forEach(v2 => { if (v2._colorBar) { v2._colorBar.draw(); v2._colorBar.updateLabels(); } });
+                    drawMvColorbar();
                     positionEggs();
                 }
             });
@@ -19512,7 +19530,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 v.lastW = width; v.lastH = height;
                 compareMvScaleAllCanvases();
                 compareMvDrawFrame(v);
-                if (v._colorBar) { v._colorBar.draw(); v._colorBar.updateLabels(); }
             }
             v.rendering = false;
             if (v.pending) { v.pending = false; compareMvRender(v); }
@@ -22584,7 +22601,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             let host = null;
-            if (multiViewActive && !compareMvActive) {
+            if (multiViewActive || compareMvActive) {
                 host = document.getElementById('mv-cb-wrap');
             } else if (isCenter) {
                 const firstPaneCb = comparePaneCbs.find(cb => {

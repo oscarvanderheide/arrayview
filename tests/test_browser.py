@@ -57,6 +57,20 @@ _JS_COMPARE_LEFT_CENTER_PIXEL = """
 }
 """
 
+_JS_COMPARE_LEFT_CANVAS_INFO = """
+() => {
+    const c = document.querySelector('canvas#compare-left-canvas');
+    if (!c || !c.width || !c.height) return null;
+    const ctx = c.getContext('2d');
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let nonBg = 0;
+    for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 20 || d[i+1] > 20 || d[i+2] > 20) nonBg++;
+    }
+    return {width: c.width, height: c.height, nonBgPixels: nonBg};
+}
+"""
+
 _JS_COMPARE_LEFT_CSS_SIZE = """
 () => {
     const c = document.querySelector('canvas#compare-left-canvas');
@@ -300,6 +314,53 @@ class TestKeyboard:
             "Colormap menu should stay open while the mouse is inside it"
         )
 
+    def test_c_preview_uses_integrated_menu_in_multiview(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+        page.keyboard.press("c")
+        page.wait_for_selector("#mv-cb-wrap .cmap-hold-preview.fade-in", timeout=2_000)
+        state = page.evaluate(
+            """() => ({
+                hostVisible: !!document.querySelector('#mv-cb-wrap .cmap-hold-preview.fade-in'),
+                stripVisible: !!document.querySelector('#colormap-strip.visible'),
+            })"""
+        )
+        assert state["hostVisible"], f"multiview should open the integrated colormap menu, got: {state}"
+        assert not state["stripVisible"], f"multiview should not fall back to the old strip previewer, got: {state}"
+
+    def test_c_preview_uses_integrated_menu_in_diff_mode(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        path = tmp_path / "arr2d_compare_cmap.npy"
+        np.save(path, arr_2d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_cmap"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(400)
+        assert page.is_visible("#compare-diff-canvas"), "diff center canvas should be visible after pressing X"
+        page.hover("#compare-diff-canvas")
+        page.wait_for_timeout(150)
+        page.keyboard.press("c")
+        page.wait_for_selector("#compare-diff-pane .cmap-hold-preview.fade-in", timeout=2_000)
+        state = page.evaluate(
+            """() => ({
+                hostVisible: !!document.querySelector('#compare-diff-pane .cmap-hold-preview.fade-in'),
+                stripVisible: !!document.querySelector('#colormap-strip.visible'),
+            })"""
+        )
+        assert state["hostVisible"], f"diff mode should open the integrated colormap menu on the diff pane, got: {state}"
+        assert not state["stripVisible"], f"diff mode should not fall back to the old strip previewer, got: {state}"
+
     def test_help_overlay_opens_and_closes(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         assert not page.is_visible("#help-overlay.visible")
@@ -481,6 +542,42 @@ class TestKeyboard:
         _exit_compare(page)
         page.wait_for_timeout(350)
         assert not page.is_visible("#compare-view-wrap.active")
+
+    def test_invalid_compare_url_falls_back_to_base_view(
+        self, page, server_url, sid_2d
+    ):
+        page.goto(
+            f"{server_url}/?sid={sid_2d}"
+            "&compare_sid=invalid-compare-sid"
+            "&compare_sids=invalid-compare-sid"
+        )
+        page.wait_for_selector("#loading-overlay", state="hidden", timeout=15_000)
+        page.wait_for_selector("canvas#viewer", state="visible", timeout=5_000)
+        page.wait_for_function("() => !compareActive", timeout=5_000)
+        info = page.evaluate(_JS_CANVAS_INFO)
+        assert info is not None, "Canvas not found after compare fallback"
+        assert info["nonBgPixels"] > 0, "Canvas stayed blank after compare fallback"
+
+    def test_direct_compare_url_renders_compare_canvas(
+        self, page, server_url, sid_2d, arr_2d, client, tmp_path
+    ):
+        path = tmp_path / "arr2d_compare_direct.npy"
+        np.save(path, arr_2d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_direct"}
+        ).json()["sid"]
+
+        page.goto(
+            f"{server_url}/?sid={sid_2d}"
+            f"&compare_sid={sid_compare}"
+            f"&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("#loading-overlay", state="hidden", timeout=15_000)
+        page.wait_for_selector("canvas#compare-left-canvas:visible", timeout=5_000)
+        page.wait_for_selector("canvas#compare-right-canvas:visible", timeout=5_000)
+        info = page.evaluate(_JS_COMPARE_LEFT_CANVAS_INFO)
+        assert info is not None, "Compare canvas not found after direct compare boot"
+        assert info["nonBgPixels"] > 0, "Direct compare boot left compare canvas blank"
 
     def test_compare_space_keeps_playing(
         self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
@@ -880,6 +977,63 @@ class TestKeyboard:
         assert "1.5px" in state["frameShadow"], f"pane frame should match crosshair thickness, got: {state}"
         assert state["colorbarBottomGap"] >= 36, f"multiview colorbar should clear the viewport bottom, got: {state}"
         assert state["centerDelta"] <= 2, f"multiview pane cluster should be horizontally centered, got: {state}"
+
+    def test_compare_multiview_uses_single_shared_colorbar_and_aligned_columns(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_mv.npy"
+        np.save(path, arr_3d * 0.5)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_compare_mv"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        page.keyboard.press("v")
+        page.wait_for_selector("#qmri-view-wrap.active .qv-row", timeout=5_000)
+        page.wait_for_timeout(800)
+
+        state = page.evaluate(
+            """() => {
+                const rows = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-row')).map(row =>
+                    Array.from(row.querySelectorAll('.qv-canvas-wrap')).map(el => {
+                        const r = el.getBoundingClientRect();
+                        return {
+                            left: Math.round(r.left),
+                            width: Math.round(r.width),
+                            center: Math.round(r.left + r.width / 2),
+                        };
+                    })
+                );
+                const sharedCb = document.querySelector('#mv-cb-wrap');
+                const sharedRect = sharedCb ? sharedCb.getBoundingClientRect() : null;
+                const paneCbs = Array.from(document.querySelectorAll('#qmri-view-wrap .qv-cb-island'))
+                    .filter(el => getComputedStyle(el).display !== 'none');
+                return {
+                    rows,
+                    viewportCenter: Math.round(window.innerWidth / 2),
+                    sharedCbVisible: !!sharedCb && getComputedStyle(sharedCb).display !== 'none',
+                    sharedCbWidth: sharedRect ? Math.round(sharedRect.width) : 0,
+                    visiblePaneCbs: paneCbs.length,
+                };
+            }"""
+        )
+
+        assert len(state["rows"]) == 2, f"expected one compare-mv row per array, got: {state}"
+        assert all(len(row) == 3 for row in state["rows"]), f"expected 3 panes per row, got: {state}"
+        for col in range(3):
+            lefts = [row[col]["left"] for row in state["rows"]]
+            widths = [row[col]["width"] for row in state["rows"]]
+            assert max(lefts) - min(lefts) <= 2, f"column {col} should align across rows, got: {state}"
+            assert max(widths) - min(widths) <= 2, f"column {col} should keep the same pane width across rows, got: {state}"
+        middle_centers = [row[1]["center"] for row in state["rows"]]
+        assert max(abs(center - state["viewportCenter"]) for center in middle_centers) <= 2, (
+            f"middle compare-mv pane should stay centered in the viewport, got: {state}"
+        )
+        assert state["sharedCbVisible"], f"compare-mv should show the shared multiview colorbar, got: {state}"
+        assert state["sharedCbWidth"] > 0, f"shared multiview colorbar should have a real width, got: {state}"
+        assert state["visiblePaneCbs"] == 0, f"compare-mv should not show per-pane colorbars, got: {state}"
 
     def test_multiview_rounded_panes_round_visible_box(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
