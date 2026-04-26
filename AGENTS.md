@@ -24,7 +24,7 @@ Load the relevant skill before touching the corresponding area.
 - Keybind changes must update both the command registry and `GUIDE_TABS`
 - Do not regress working display paths when fixing another
 - Avoid orphan processes; shutdown must be automatic
-- For visual/animation features, propose 2–3 options before implementing
+- For animation changes, verify with frame captures before claiming completion (see `.mex/patterns/animation-verify.md`); propose 2–3 options before implementing
 
 ## Execution
 

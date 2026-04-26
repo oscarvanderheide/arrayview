@@ -69,6 +69,8 @@ Before submitting a PR:
 
 - [ ] `uv run pytest tests/test_api.py -x` passes
 - [ ] `uv run python tests/visual_smoke.py` passes
+- [ ] If animation code changed (GSAP, rAF, CSS transitions), run
+      `uv run python tests/capture_v_animation.py` and verify frame captures
 - [ ] If you added UI, update `tests/visual_smoke.py` to cover it
 - [ ] Manually verify in all affected modes (at minimum: Normal + one
       multi-pane mode)

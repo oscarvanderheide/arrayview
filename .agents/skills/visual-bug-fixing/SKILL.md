@@ -80,6 +80,7 @@ Read the relevant source files. The UI lives in:
 - Does the bug only appear in certain modes? Which scale function is involved?
 - Does zoom level matter? Check the zoom-related code paths.
 - Is this a race condition (element rendered before data arrives)?
+- Is this an animation bug (stutter, jump, drift, timing, race)? → See `../.mex/patterns/animation-verify.md` (the standard screenshot workflow is NOT sufficient for animation)
 
 **Check hard rules:** Before implementing a fix, check if the bug is a violation of a hard UI rule (R1-R35 in `ui-consistency-audit` Section 5b). If so, the fix should restore the invariant rather than work around it. Enable `?debug_ui=1` to see runtime invariant warnings in the browser console — they may pinpoint the exact rule being violated.
 

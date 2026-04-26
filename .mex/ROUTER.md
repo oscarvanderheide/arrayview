@@ -68,6 +68,7 @@ Load `context/project-state.md` only when you need active-workstream or recent-s
 | Adding a new file format | `patterns/add-file-format.md` |
 | Adding a server route / WebSocket endpoint | `patterns/add-server-endpoint.md` |
 | Visual bugs / render artifacts | `patterns/debug-render.md` |
+| Verifying animation changes | `patterns/animation-verify.md` |
 | Any specific task | Check `patterns/INDEX.md` for a matching pattern |
 
 ## Behavioural Contract
