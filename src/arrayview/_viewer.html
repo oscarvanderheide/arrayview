@@ -62,8 +62,8 @@
         body.av-loading #canvas-wrap,
         body.av-loading #slim-cb-wrap,
         body.av-loading #help-hint,
-        body.av-loading #shelf-hint { opacity: 0; }
-        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #shelf-hint {
+        body.av-loading #tool-hint { opacity: 0; }
+        #array-name, #info, #canvas-wrap, #slim-cb-wrap, #help-hint, #tool-hint {
             transition: opacity 0.3s ease;
         }
         #info {
@@ -1046,7 +1046,7 @@
         #info-box { padding: 22px 30px; font-size: 14px; line-height: 2; font-family: 'SF Mono', ui-monospace, monospace; }
         #info-box table { border-collapse: collapse; }
         #info-box td:first-child { color: var(--muted); padding-right: 24px; }
-        #help-hint, #island-hint, #shelf-hint {
+        #help-hint, #tool-hint {
             position: fixed; bottom: 14px; cursor: pointer;
             width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--border); color: var(--muted);
@@ -1056,14 +1056,12 @@
             z-index: 6;
         }
         #help-hint { right: 16px; }
-        #shelf-hint { right: 46px; }
-        #island-hint { right: 76px; display: none; }
-        #island-hint.visible { display: flex; }
-        #island-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
-        #help-hint:hover, #island-hint:not(.active):hover, #shelf-hint:hover { color: var(--text); border-color: var(--muted); }
+        #tool-hint { right: 46px; }
+        #tool-hint.active { color: var(--active-dim); border-color: var(--active-dim); }
+        #help-hint:hover, #tool-hint:hover { color: var(--text); border-color: var(--muted); }
         #dynamic-island {
             position: fixed; left: 8px; top: 8px;
-            background: rgba(24,24,24,0.95); border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(24,24,24,0.78); border: 1px solid rgba(255,255,255,0.07);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-radius: 14px; padding: 10px 12px;
             font-size: 11px; color: var(--text); font-family: var(--mono);
@@ -1083,34 +1081,65 @@
             padding: 2px 0 12px 0;
         }
         #dynamic-island .po-title {
-            color: #b991ff; font-weight: 600;
+            color: var(--active-dim); font-weight: 600;
             letter-spacing: 0.14em; font-size: 11px;
             flex: 1;
         }
-        #dynamic-island .po-section + .po-section {
-            margin-top: 8px; padding-top: 12px;
-            border-top: 1px solid rgba(255,255,255,0.05);
-        }
-        #dynamic-island .po-section-header {
-            display: flex; align-items: center; justify-content: space-between;
-            cursor: pointer; user-select: none; gap: 8px;
-            padding: 3px 0; margin-bottom: 6px;
-        }
-        #dynamic-island .po-section-title {
-            color: #f0c674; font-weight: 600; flex: 1;
-            font-size: 12px;
-        }
-        #dynamic-island .po-section-arrow {
-            color: #666; font-size: 13px; line-height: 1;
-            transition: transform 0.15s ease;
-            transform: rotate(0deg);
-        }
-        #dynamic-island .po-section.collapsed .po-section-arrow {
-            transform: rotate(-90deg);
-        }
-        #dynamic-island .po-section.collapsed .po-section-body { display: none; }
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
+        #dynamic-island .tool-section + .tool-section {
+            margin-top: 7px;
+        }
+        #dynamic-island .tool-section {
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.02);
+            overflow: hidden;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        #dynamic-island .tool-section.active {
+            border-color: rgba(245,200,66,0.16);
+            background: rgba(245,200,66,0.05);
+        }
+        #dynamic-island .tool-section.unavailable {
+            opacity: 0.36;
+        }
+        #dynamic-island .tool-row-head {
+            display: flex; align-items: center; gap: 6px;
+            min-height: 24px;
+            padding: 5px 10px;
+            cursor: pointer; user-select: none;
+        }
+        #dynamic-island .tool-row-title {
+            flex: 1; min-width: 0; font-size: 12px; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        #dynamic-island .tool-section.active .tool-row-title {
+            color: var(--active-dim);
+            text-decoration: underline;
+            text-decoration-color: rgba(245,200,66,0.85);
+            text-underline-offset: 0.18em;
+            animation: tool-title-pulse 1.25s ease-out;
+        }
+        #dynamic-island .tool-cue {
+            color: var(--text);
+            text-decoration: underline;
+            text-decoration-color: rgba(245,200,66,0.72);
+            text-underline-offset: 0.18em;
+            font-weight: 600;
+        }
+        #dynamic-island .tool-section.unavailable .tool-row-title {
+            color: rgba(216,216,216,0.34);
+        }
+        #dynamic-island .tool-body {
+            padding: 0 10px 10px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+        @keyframes tool-title-pulse {
+            0% { text-shadow: 0 0 0 rgba(245,200,66,0); }
+            20% { text-shadow: 0 0 14px rgba(245,200,66,0.28); }
+            100% { text-shadow: 0 0 0 rgba(245,200,66,0); }
+        }
         #dynamic-island .island-toolbar {
             display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
         }
@@ -1650,7 +1679,7 @@
         /* ── Zen / focus mode ────────────────────────────────────── */
         body.zen-mode #array-name, body.zen-mode #info,
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
-        body.zen-mode #help-hint, body.zen-mode #shelf-hint, body.zen-mode #status,
+        body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
         body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
@@ -2426,8 +2455,7 @@
         </div>
     </div>
     <div id="help-hint">?</div>
-    <div id="shelf-hint" title="Open plugins (/)">/</div>
-    <div id="island-hint">~</div>
+    <div id="tool-hint" title="Open tools (/)">/</div>
     <canvas id="mv-orientation"></canvas>
     <div id="dynamic-island"></div>
     <div id="info-overlay">
@@ -2466,12 +2494,6 @@
                 <button id="picker-cancel">Cancel</button>
             </div>
         </div>
-    </div>
-</div>
-<div id="special-modes-shelf">
-    <div id="special-modes-sheet" role="dialog" aria-modal="true" aria-label="Special modes">
-        <div id="special-modes-grabber">Plugins</div>
-        <div id="special-modes-grid"></div>
     </div>
 </div>
 <div id="cmd-palette">
@@ -2819,8 +2841,7 @@
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
-        let _islandUserHidden = false; // ~ toggle — hides island to hint circle while plugin stays active
-        const _pluginCollapsed = new Set(); // plugin ids whose section body is collapsed
+        let toolMenuOpen = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
@@ -8927,11 +8948,9 @@
             vfieldNTimes = data.vfield_n_times || 0;
             vfieldT = 0;
             if (!hasVectorfield) vfieldVisible = true;
-            if (hasVectorfield && vfieldVisible) _shelfSelection.add('vectorfield');
-            if (_overlaySids.length > 0 && _overlayVisibility !== 'none') _shelfSelection.add('overlay');
-            if (_shelfSelection.has('overlay') || _shelfSelection.has('vectorfield')) {
+            if ((hasVectorfield && vfieldVisible) || (_overlaySids.length > 0 && _overlayVisibility !== 'none')) {
                 // Ensure the island appears on first frame instead of after the next user action.
-                if (typeof renderIsland === 'function') renderIsland();
+                if (typeof renderToolMenu === 'function') renderToolMenu();
             }
             rgbMode = data.is_rgb || false;
             spatialMeta = data.spatial_meta || null;
@@ -9491,54 +9510,24 @@
         })();
 
         function _islandMorph() {
-            _islandUserHidden = false;
             const el = document.getElementById('dynamic-island');
             if (!el) return;
             el.style.opacity = '0';
             setTimeout(() => {
-                renderIsland();
+                renderToolMenu();
                 el.style.opacity = '1';
             }, 150);
         }
 
         function _collapseIslandToHint() {
-            const el = document.getElementById('dynamic-island');
-            const hint = document.getElementById('island-hint');
-            if (!el || !hint) return;
-            _islandUserHidden = true;
-            hint.classList.remove('active');
-            el.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
-            el.style.transform = 'translateY(-4px) scale(0.98)';
-            el.style.opacity = '0';
-            setTimeout(() => {
-                el.classList.remove('visible');
-                el.style.transition = '';
-                el.style.transform = '';
-                el.style.opacity = '';
-            }, 200);
+            closeToolMenu();
         }
 
         function _expandIslandFromHint() {
-            const el = document.getElementById('dynamic-island');
-            const hint = document.getElementById('island-hint');
-            if (!el || !hint) return;
-            _islandUserHidden = false;
-            renderIsland();
-            el.style.transform = 'translateY(-4px) scale(0.98)';
-            el.style.opacity = '0';
-            el.style.transition = 'none';
-            el.offsetHeight; // force reflow
-            el.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
-            el.style.transform = 'none';
-            el.style.opacity = '1';
-            setTimeout(() => {
-                el.style.transition = '';
-                el.style.transform = '';
-                el.style.opacity = '';
-            }, 200);
+            openToolMenu();
         }
 
-        let _islandLastActive = null; // tracks plugin transitions for auto-reset
+        let _islandLastActive = null; // legacy tracking, retained for transitions
         function _pluginSectionOpen(id, title, bodyHtml) {
             const collapsed = _pluginCollapsed.has(id) ? ' collapsed' : '';
             let h = `<div class="po-section${collapsed}" data-plugin="${id}">`;
@@ -10701,10 +10690,6 @@
             _overlayColors.splice(idx, 1);
             _overlayVisible.splice(idx, 1);
             _overlayLabels.splice(idx, 1);
-            if (_overlaySids.length === 0) {
-                _shelfSelection.delete('overlay');
-                if (typeof _refreshSpecialModesShelf === 'function') _refreshSpecialModesShelf();
-            }
             renderIsland();
             updateView();
             saveState();
@@ -10777,8 +10762,6 @@
                 _overlayVisible.push(true);
                 _overlayLabels.push(d.name || `overlay ${_overlaySids.length}`);
                 _overlayVisibility = 'all';
-                _shelfSelection.add('overlay');
-                if (typeof _refreshSpecialModesShelf === 'function') _refreshSpecialModesShelf();
                 renderIsland();
                 updateView();
                 saveState();
@@ -12107,17 +12090,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         let paletteOpen = false;
-        let specialModesOpen = false;
-        let _specialModesBuilt = false;
-        let _specialModesNavIdx = 0;
-        let _shelfSelection = new Set(); // multi-select: plugin IDs toggled in the shelf
-        let _shelfModified = false; // true once user has pressed space / a quick-key / clicked a tile
-        const SPECIAL_MODE_TILES = [
+        const TOOL_TILES = [
             {
                 id: 'qmri',
-                label: 'Quantitative MRI',
+                label: 'Quantitative MRI mode',
                 desc: 'fit and visualise parameter maps',
-                glyph: 'qM',
                 keyHint: 'q',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
@@ -12125,19 +12102,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             {
                 id: 'segmentation',
-                label: 'Segmentations',
+                label: 'Segmentation',
                 desc: 'interactive AI-assisted masking',
-                glyph: 'SG',
                 keyHint: 's',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive),
-                isActive: () => _segMode,
+                isActive: () => _segMode || _segActivating,
                 excludes: ['roi', 'overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'roi',
-                label: 'Region-of-Interest Analysis',
+                label: 'Region-of-interest analysis',
                 desc: 'draw regions and measure statistics',
-                glyph: '[]',
                 keyHint: 'r',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
@@ -12145,48 +12120,39 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
             {
                 id: 'overlay',
-                label: 'Overlays',
+                label: 'Overlay',
                 desc: 'seg masks and heatmaps composited on the canvas',
-                glyph: 'OV',
                 keyHint: 'o',
                 isEnabled: () => !compareActive && !multiViewActive,
-                isActive: () => _shelfSelection.has('overlay'),
+                isActive: () => _overlaySids.length > 0 && _overlayVisibility !== 'none',
                 excludes: ['qmri', 'segmentation', 'roi', 'vectorfield', 'crop'],
             },
             {
                 id: 'vectorfield',
                 label: 'Vector field',
                 desc: 'arrow overlay of a displacement field',
-                glyph: 'VF',
                 keyHint: 'v',
                 isEnabled: () => hasVectorfield,
-                isActive: () => _shelfSelection.has('vectorfield'),
+                isActive: () => hasVectorfield && vfieldVisible,
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'crop'],
             },
             {
                 id: 'crop',
                 label: 'Crop',
                 desc: 'pick an x-range on a spatial dim for downstream pipelines',
-                glyph: 'CR',
                 keyHint: 'c',
-                // Crop works in single view, ortho-multiview, compare, and
-                // compare-multiview. Crop state is per-sid on the server and
-                // the plugin is registered against the primary sid, so the
-                // overlay is drawn on primary-sid panes only in compare modes;
-                // other sids' panes render cleanly. compare-qmri repurposes
-                // the canvas and is incompatible.
-                isEnabled: () => !compareQmriActive,
+                isEnabled: () => !compareActive && !compareQmriActive && !compareMvActive,
                 isActive: () => _cropActive,
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
         ];
-        const PLUGIN_HELP = {
-            qmri:         'plugin-qmri',
-            segmentation: 'plugin-segmentation',
-            roi:          'plugin-roi',
-            overlay:      'plugin-overlay',
-            vectorfield:  'plugin-vectorfield',
-            crop:         'plugin-crop',
+        const TOOL_HELP = {
+            qmri:         'tool-qmri',
+            segmentation: 'tool-segmentation',
+            roi:          'tool-roi',
+            overlay:      'tool-overlay',
+            vectorfield:  'tool-vectorfield',
+            crop:         'tool-crop',
         };
         const helpOverlay = document.getElementById('help-overlay');
         let helpTabIdx = 0;
@@ -12211,7 +12177,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
             if (visible) {
                 closeCommandPalette();
-                closeSpecialModesShelf();
+                closeToolMenu();
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
@@ -13324,7 +13290,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, .po-section-header, .island-pill')) return;
+                if (e.target.closest('button, input, select, a, .tool-row-head, .tool-body, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, .island-pill')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
@@ -15115,44 +15081,29 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     return;
                 },
             },
-            'specialmodes.open': {
-                title: 'Open special modes shelf',
-                when: ['!specialModesOpen'],
-                run: (ctx, e) => { openSpecialModesShelf(); },
+            'toolmenu.open': {
+                title: 'Open tool menu',
+                when: ['!toolMenuOpen'],
+                run: (ctx, e) => { openToolMenu(); },
             },
-            'specialmodes.close': {
-                title: 'Close special modes shelf',
-                when: ['specialModesOpen'],
-                run: (ctx, e) => { closeSpecialModesShelf(); },
+            'toolmenu.close': {
+                title: 'Close tool menu',
+                when: ['toolMenuOpen'],
+                run: (ctx, e) => { closeToolMenu(); },
             },
-            'plugin.exit': {
-                title: 'Exit all plugins',
-                when: ['anyPluginActive'],
+            'tool.exit': {
+                title: 'Exit all tools',
+                when: ['anyToolActive'],
                 run: (ctx, e) => {
-                    _islandUserHidden = false;
+                    closeToolMenu();
                     crossfade(() => {
                         if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
                         if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
                         if (qmriActive || compareQmriActive) { commands['qmri.cycle'].run(ctx, e); }
                         if (typeof _cropActive !== 'undefined' && _cropActive) { commands['crop.cycle'].run(ctx, e); }
+                        if (_overlaySids.length > 0 && _overlayVisibility !== 'none') { commands['overlay.cycle'].run(ctx, e); }
+                        if (hasVectorfield && vfieldVisible) { commands['vfield.cycle'].run(ctx, e); }
                     });
-                },
-            },
-            'island.toggle': {
-                title: 'Toggle floating panel visibility',
-                when: [],
-                run: (ctx) => {
-                    if (ctx.anyPluginActive) {
-                        if (_islandUserHidden) {
-                            _expandIslandFromHint();
-                        } else {
-                            _collapseIslandToHint();
-                        }
-                    }
-                    if (ctx.multiViewActive) {
-                        _mvOrientationHidden = !_mvOrientationHidden;
-                        _reconcileUI();
-                    }
                 },
             },
             'palette.open': {
@@ -15162,10 +15113,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
         };
         const keybinds = [
-            { key: '/', command: 'specialmodes.close' },
-            { key: '/', command: 'specialmodes.open' },
+            { key: '/', command: 'toolmenu.close' },
+            { key: '/', command: 'toolmenu.open' },
             { key: 'q', command: 'qmri.cycle' },
-            { key: '~', command: 'island.toggle' },
             { key: 'c', command: 'colormap.openOrCycle' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
@@ -15234,8 +15184,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: '8', command: 'slice.bufferDigit' },
             { key: '9', command: 'slice.bufferDigit' },
             { key: 'Enter', command: 'slice.jumpCommit' },
-            // Order matters: plugin.exit (any plugin) > seg.exit (segMode) > slice.cancelJump
-            { key: 'Escape', command: 'plugin.exit' },
+            // Order matters: tool.exit (any tool) > seg.exit (segMode) > slice.cancelJump
+            { key: 'Escape', command: 'tool.exit' },
             { key: 'Escape', command: 'slice.cancelJump' },
             { key: 'u', command: 'ruler.toggle' },
         ];
@@ -15254,15 +15204,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 helpVisible: (typeof helpOverlay !== 'undefined' && helpOverlay) ? helpOverlay.classList.contains('visible') : false,
                 segMode: (typeof _segMode !== 'undefined') ? !!_segMode : false,
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
-                specialModesOpen: (typeof specialModesOpen !== 'undefined') ? !!specialModesOpen : false,
+                toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
                 saveMenuOpen: (typeof saveMenuOpen !== 'undefined') ? !!saveMenuOpen : false,
-                anyPluginActive: (
+                anyToolActive: (
                     qmriActive
                     || (typeof compareQmriActive !== 'undefined' && compareQmriActive)
                     || rectRoiMode
                     || (typeof _segMode !== 'undefined' && !!_segMode)
+                    || (typeof _segActivating !== 'undefined' && !!_segActivating)
                     || (typeof _cropActive !== 'undefined' && !!_cropActive)
-                    || (typeof _shelfSelection !== 'undefined' && (_shelfSelection.has('overlay') || _shelfSelection.has('vectorfield')))
+                    || (_overlaySids.length > 0 && _overlayVisibility !== 'none')
+                    || (hasVectorfield && vfieldVisible)
                 ),
                 multiViewActive: multiViewActive || (typeof compareMvActive !== 'undefined' && compareMvActive),
             };
@@ -15296,7 +15248,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Plugin modes', hint: 'open shelf to toggle plugins — Esc exits all' },
+                            { key: '/', action: 'Tool menu', hint: 'open tools — Esc closes the menu first, then exits tools' },
                         ]
                     },
                     {
@@ -15364,7 +15316,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: 'v', action: 'Enter or exit ortho view' },
-                            { key: '~', action: 'Toggle orientation cube' },
+                            { key: 'orientation cube', action: 'Always visible in ortho view' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
@@ -15419,8 +15371,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'ROI — Region of Interest',
                         subdesc: 'Draw a region to see live statistics (mean, std, min, max). The histogram updates to show only the selected area.',
                         entries: [
-                            { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open shelf, then r' },
-                            { key: '~', action: 'Toggle floating panel' },
+                            { key: '/ r', action: 'Enter ROI mode', hint: 'press / to open tool menu, then r' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Drag', action: 'Draw ROI region' },
                             { key: 'Right-click', action: 'Delete ROI under cursor' },
@@ -15438,8 +15389,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         subsection: 'Segmentation',
                         subdesc: 'Interactive segmentation with nnInteractive. Click to add or exclude regions from the label.',
                         entries: [
-                            { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open shelf, then s' },
-                            { key: '~', action: 'Toggle floating panel' },
+                            { key: '/ s', action: 'Enter segmentation mode', hint: 'press / to open tool menu, then s' },
                             { key: 'Click', action: 'Add region (positive prompt)' },
                             { key: 'Shift+Click', action: 'Exclude region (negative prompt)' },
                             { key: 'Esc', action: 'Exit segmentation' },
@@ -15477,22 +15427,21 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open shelf, then q' },
-                            { key: '~', action: 'Toggle floating panel' },
+                            { key: '/ q', action: 'Enter qMRI mode', hint: 'press / to open tool menu, then q' },
                             { key: 'z', action: 'Toggle qMRI mosaic', hint: 'see all parameter maps side by side in a grid' },
                         ]
                     }
                 ]
             },
             {
-                id: 'plugin-qmri', label: 'qMRI',
+                id: 'tool-qmri', label: 'qMRI',
                 desc: 'Quantitative MRI mode — display and compare relaxometry maps (T₁, T₂, PD, etc.) across one dimension of your array.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Navigation',
                         entries: [
-                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
+                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
                             { key: '← →', action: 'Step through slices' },
                             { key: 'z', action: 'Mosaic — tile all parameter maps' },
                         ]
@@ -15514,15 +15463,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 ]
             },
             {
-                id: 'plugin-segmentation', label: 'Segment',
+                id: 'tool-segmentation', label: 'Segment',
                 desc: 'Interactive segmentation mode — click to place foreground/background seeds and generate a segmentation mask using nnInteractive.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Controls',
                         entries: [
-                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
-                            { key: 'Esc', action: 'Exit all plugins' },
+                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
+                            { key: 'Esc', action: 'Exit all tools' },
                             { key: 'Click', action: 'Place seed point' },
                             { key: 'u', action: 'Undo last seed' },
                         ]
@@ -15536,14 +15485,14 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 ]
             },
             {
-                id: 'plugin-roi', label: 'ROI',
+                id: 'tool-roi', label: 'ROI',
                 desc: 'Region of interest mode — draw rectangles, ellipses, or freehand shapes to compute statistics over selected pixels.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Drawing',
                         entries: [
-                            { key: '/', action: 'Open plugin shelf', hint: 'toggle plugins on/off' },
+                            { key: '/', action: 'Open tool menu', hint: 'toggle tools on/off' },
                             { key: 'Drag', action: 'Draw ROI on canvas' },
                             { key: 'Shape icons', action: 'Switch shape', hint: 'rectangle · ellipse · freehand · flood fill — click in the floating panel' },
                             { key: 'Click ROI', action: 'Select an existing ROI' },
@@ -15560,15 +15509,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 ]
             },
             {
-                id: 'plugin-crop', label: 'Crop',
+                id: 'tool-crop', label: 'Crop',
                 desc: 'Crop mode — pick a start/end index along one dimension so downstream pipelines (e.g. reconstruction scripts) can trim the array. A yellow polygon highlights the kept region on every visible slice.',
                 columns: 1,
                 sections: [
                     {
                         title: 'Enter / exit',
                         entries: [
-                            { key: '/', action: 'Open plugin shelf', hint: 'press / then c — or click the Crop tile' },
-                            { key: 'Esc', action: 'Exit the plugin', hint: 'closes the shelf and deactivates crop' },
+                            { key: '/', action: 'Open tool menu', hint: 'press / then c — or click the Crop row' },
+                            { key: 'Esc', action: 'Exit the tool', hint: 'closes the menu first, then deactivates crop' },
                         ]
                     },
                     {
@@ -15586,7 +15535,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         entries: [
                             { key: 'confirm', action: 'Persist to ~/.arrayview/crop_recent.json and mark confirmed on the server' },
                             { key: 'load recent', action: 'Re-apply the last saved crop on this session' },
-                            { key: 'show / hide overlay', action: 'Toggle the yellow polygon without deactivating the plugin' },
+                            { key: 'show / hide overlay', action: 'Toggle the yellow polygon without deactivating the tool' },
                         ]
                     },
                     {
@@ -15596,7 +15545,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             { key: 'ortho multi-view', action: 'Overlay on each pane (axis-aligned or oblique)' },
                             { key: 'compare', action: 'Overlay only on the primary sid\u2019s pane; other panes render clean' },
                             { key: 'compare 3-plane', action: 'Overlay on the primary sid\u2019s 3 panes; other rows render clean' },
-                            { key: 'compare-qMRI', action: 'Crop is disabled — plugin shelf greys out the tile' },
+                            { key: 'compare-qMRI', action: 'Crop is disabled — tool menu dims the row' },
                         ]
                     },
                 ]
@@ -15708,314 +15657,223 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             }
         }
 
-        function _specialModesButtons() {
-            return Array.from(document.querySelectorAll('#special-modes-grid .smode-tile'));
-        }
-
-        function _specialModesTileEnabled(tile) {
+        function _toolTileEnabled(tile) {
             if (tile.isEnabled && !tile.isEnabled()) return false;
             return true;
         }
 
-        // Check if a tile is incompatible with the current shelf selection
-        function _shelfIsIncompatible(tile) {
-            if (!tile.excludes || !tile.excludes.length) return false;
-            for (const exc of tile.excludes) {
-                if (_shelfSelection.has(exc)) return true;
-            }
+        function _toolTileActive(tile) {
+            if (tile.isActive && tile.isActive()) return true;
             return false;
         }
 
-        function _specialModesSetNavIndex(index) {
-            const buttons = _specialModesButtons();
-            if (!buttons.length || index < 0 || index >= buttons.length) return;
-            _specialModesNavIdx = index;
-            buttons.forEach((button, i) => button.classList.toggle('nav', i === index));
-            const active = buttons[index];
-            if (active) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        function _toolLabelMarkup(tile, active, enabled) {
+            const label = tile.label || '';
+            if (!enabled) return label;
+            if (active) return label;
+            const key = (tile.keyHint || '').toLowerCase();
+            const matchIdx = key ? label.toLowerCase().indexOf(key) : -1;
+            if (matchIdx < 0) return label;
+            return label.slice(0, matchIdx)
+                + `<span class="tool-cue">${label[matchIdx]}</span>`
+                + label.slice(matchIdx + 1);
         }
 
-        function _specialModesFirstEnabled() {
-            const buttons = _specialModesButtons();
-            for (let i = 0; i < buttons.length; i++) {
-                if (!buttons[i].disabled) return i;
-            }
-            return -1;
+        function _toolSortRank(tile) {
+            return _toolTileEnabled(tile) ? 0 : 1;
         }
 
-        function _shelfToggle(index) {
-            const tile = SPECIAL_MODE_TILES[index];
-            if (!tile || !_specialModesTileEnabled(tile)) return;
-            _shelfModified = true;
-            const id = tile.id;
-            if (_shelfSelection.has(id)) {
-                _shelfSelection.delete(id);
-            } else {
-                // Enforce mutual exclusion: deselect conflicting plugins
-                if (tile.excludes) {
-                    for (const exc of tile.excludes) _shelfSelection.delete(exc);
-                }
-                // Also deselect anything that excludes this tile
-                for (const t of SPECIAL_MODE_TILES) {
-                    if (t.excludes && t.excludes.includes(id)) _shelfSelection.delete(t.id);
-                }
-                _shelfSelection.add(id);
-            }
-            _refreshSpecialModesShelf();
-        }
-
-        function _refreshSpecialModesShelf() {
-            if (!_specialModesBuilt) return;
-            const buttons = _specialModesButtons();
-            buttons.forEach((button, index) => {
-                const tile = SPECIAL_MODE_TILES[index];
-                const enabled = _specialModesTileEnabled(tile);
-                const selected = _shelfSelection.has(tile.id);
-                const incompatible = !selected && _shelfIsIncompatible(tile);
-                const meta = button.querySelector('.smode-meta');
-                button.disabled = !enabled;
-                button.classList.toggle('is-disabled', !enabled);
-                button.classList.toggle('is-selected', selected);
-                button.classList.toggle('is-incompatible', incompatible);
-                button.title = tile.label;
-                if (meta) {
-                    if (!enabled) meta.textContent = 'unavailable';
-                    else meta.textContent = '';
-                }
-            });
-            const nextIndex = (buttons[_specialModesNavIdx] && !buttons[_specialModesNavIdx].disabled)
-                ? _specialModesNavIdx
-                : _specialModesFirstEnabled();
-            if (nextIndex >= 0) _specialModesSetNavIndex(nextIndex);
-        }
-
-        function _buildSpecialModesShelf() {
-            const grid = document.getElementById('special-modes-grid');
-            if (!grid) return;
-            grid.innerHTML = '';
-            SPECIAL_MODE_TILES.forEach((tile, index) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'smode-tile';
-                button.dataset.smodeId = tile.id;
-                const label = tile.label || '';
-                const key = (tile.keyHint || '').toLowerCase();
-                let labelHtml = label;
-                if (key.length === 1) {
-                    const matchIdx = label.toLowerCase().indexOf(key);
-                    if (matchIdx >= 0) {
-                        labelHtml = label.slice(0, matchIdx)
-                            + `<span class="smode-letter">[${label[matchIdx].toUpperCase()}]</span>`
-                            + label.slice(matchIdx + 1);
-                    }
-                }
-                button.innerHTML = `
-                    <span class="smode-body">
-                        <span class="smode-label">${labelHtml}</span>
-                        ${tile.desc ? `<span class="smode-desc">${tile.desc}</span>` : ''}
-                    </span>
-                    <span class="smode-check"><svg viewBox="0 0 10 10" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,5.5 4.5,8 8,2.5"/></svg></span>`;
-                button.addEventListener('mousedown', (e) => e.preventDefault());
-                button.addEventListener('mouseenter', () => {
-                    if (!button.disabled) _specialModesSetNavIndex(index);
-                });
-                button.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (button.disabled) return;
-                    _shelfToggle(index);
-                });
-                grid.appendChild(button);
-            });
-            // Footer with keyboard hints
-            const footer = document.createElement('div');
-            footer.id = 'special-modes-footer';
-            footer.innerHTML = `<span><kbd>space</kbd> toggle</span><span><kbd>\u23ce</kbd> apply</span>`;
-            grid.parentNode.appendChild(footer);
-            _specialModesBuilt = true;
-            _refreshSpecialModesShelf();
-        }
-
-        // Apply the shelf selection: diff against current state, exit/enter as needed
-        function _applyShelfSelection() {
-            closeSpecialModesShelf();
-            const wantQmri = _shelfSelection.has('qmri');
-            const wantSeg = _shelfSelection.has('segmentation');
-            const wantRoi = _shelfSelection.has('roi');
-            const wantOverlay = _shelfSelection.has('overlay');
-            const wantVfield = _shelfSelection.has('vectorfield');
-            const wantCrop = _shelfSelection.has('crop');
-            const haveQmri = qmriActive || compareQmriActive;
-            const haveSeg = typeof _segMode !== 'undefined' && !!_segMode;
-            const haveRoi = !!rectRoiMode;
-            const haveOverlay = _overlaySids.length > 0 && _overlayVisibility !== 'none';
-            const haveVfield = hasVectorfield && vfieldVisible;
-            const haveCrop = !!_cropActive;
-
-            // Nothing changed
-            if (wantQmri === haveQmri && wantSeg === haveSeg && wantRoi === haveRoi
-                && wantOverlay === haveOverlay && wantVfield === haveVfield
-                && wantCrop === haveCrop) return;
-
+        function _toolToggle(id) {
+            const tile = TOOL_TILES.find(t => t.id === id);
+            if (!tile || !_toolTileEnabled(tile)) return;
             const ctx = makeContext(null);
-            crossfade(() => {
-                // Exit plugins that are no longer selected (order: overlays first, then base)
-                if (haveSeg && !wantSeg) commands['seg.exit'].run(ctx, null);
-                if (haveRoi && !wantRoi) commands['roi.cycleMode'].run(ctx, null);
-                if (haveQmri && !wantQmri) commands['qmri.cycle'].run(ctx, null);
-                if (haveOverlay && !wantOverlay) commands['overlay.cycle'].run(ctx, null);
-                if (haveVfield && !wantVfield) commands['vfield.cycle'].run(ctx, null);
-                if (haveCrop && !wantCrop) commands['crop.cycle'].run(ctx, null);
-                // Enter plugins that are newly selected (order: base first, then overlays)
-                if (!haveQmri && wantQmri) {
-                    _qmriVisibleMaps = null;
-                    if (compareActive) enterCompareQmri();
-                    else enterQmri();
-                }
-                if (!haveSeg && wantSeg && commands['segmentation.cycle']) {
-                    commands['segmentation.cycle'].run(makeContext(null), null);
-                }
-                if (!haveRoi && wantRoi && commands['roi.cycleMode']) {
-                    commands['roi.cycleMode'].run(makeContext(null), null);
-                }
-                if (!haveOverlay && wantOverlay && commands['overlay.cycle']) {
-                    commands['overlay.cycle'].run(ctx, null);
-                }
-                if (!haveVfield && wantVfield && commands['vfield.cycle']) {
-                    commands['vfield.cycle'].run(ctx, null);
-                }
-                if (!haveCrop && wantCrop && commands['crop.cycle']) {
-                    commands['crop.cycle'].run(ctx, null);
-                }
-            });
-        }
-
-        function _specialModesMove(step) {
-            const buttons = _specialModesButtons();
-            if (!buttons.length) return;
-            const len = buttons.length;
-            if (Math.abs(step) === 1) {
-                let idx = _specialModesNavIdx;
-                for (let tries = 0; tries < len; tries++) {
-                    idx = (idx + step + len) % len;
-                    if (!buttons[idx].disabled) {
-                        _specialModesSetNavIndex(idx);
-                        return;
-                    }
-                }
+            const active = _toolTileActive(tile);
+            if (id === 'overlay' && !_overlaySids.length && !active) {
+                _islandAddOverlay();
                 return;
             }
-            let idx = Math.max(0, Math.min(len - 1, _specialModesNavIdx + step));
-            const dir = step > 0 ? 1 : -1;
-            while (idx >= 0 && idx < len) {
-                if (!buttons[idx].disabled) {
-                    _specialModesSetNavIndex(idx);
-                    return;
-                }
-                idx += dir;
+            const toggleId = {
+                qmri: 'qmri.cycle',
+                segmentation: 'segmentation.cycle',
+                roi: 'roi.cycleMode',
+                overlay: 'overlay.cycle',
+                vectorfield: 'vfield.cycle',
+                crop: 'crop.cycle',
+            }[id];
+            if (!toggleId || !commands[toggleId]) return;
+
+            const runToggle = () => commands[toggleId].run(ctx, null);
+            if (active) {
+                runToggle();
+                return;
             }
-            _specialModesMove(dir);
+
+            for (const exc of tile.excludes || []) {
+                const other = TOOL_TILES.find(t => t.id === exc);
+                if (!other || !_toolTileActive(other)) continue;
+                const otherToggleId = {
+                    qmri: 'qmri.cycle',
+                    segmentation: 'segmentation.cycle',
+                    roi: 'roi.cycleMode',
+                    overlay: 'overlay.cycle',
+                    vectorfield: 'vfield.cycle',
+                    crop: 'crop.cycle',
+                }[other.id];
+                if (otherToggleId && commands[otherToggleId]) commands[otherToggleId].run(ctx, null);
+            }
+            runToggle();
+        }
+        window._toolToggle = _toolToggle;
+
+        function openToolMenu() {
+            if (toolMenuOpen) return;
+            closeCommandPalette();
+            toolMenuOpen = true;
+            renderToolMenu();
+            setTimeout(() => { try { sink.focus(); } catch (_) {} }, 0);
         }
 
-        function _specialModesFindQuickKey(key) {
-            const target = String(key || '').toLowerCase();
-            if (!target || target.length !== 1) return -1;
-            for (let i = 0; i < SPECIAL_MODE_TILES.length; i++) {
-                const quick = SPECIAL_MODE_TILES[i].keyHint || '';
-                if (quick.length === 1 && quick.toLowerCase() === target) return i;
-            }
-            return -1;
+        function closeToolMenu() {
+            if (!toolMenuOpen) return;
+            toolMenuOpen = false;
+            renderToolMenu();
+            try { sink.focus(); } catch (_) {}
         }
 
-        function _specialModesKey(e) {
+        function _handleToolMenuKey(e) {
             if (e.key === 'Escape' || e.key === '/') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeSpecialModesShelf();
+                closeToolMenu();
                 return true;
             }
             if (e.key === '?') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeSpecialModesShelf();
+                closeToolMenu();
                 setHelpVisible(true);
                 return true;
             }
-            if (e.key === 'ArrowDown' || e.key === 'j') {
+            const target = String(e.key || '').toLowerCase();
+            const tile = TOOL_TILES.find(t => (t.keyHint || '').toLowerCase() === target);
+            if (tile) {
                 e.preventDefault();
                 e.stopPropagation();
-                _specialModesMove(1);
+                _toolToggle(tile.id);
                 return true;
             }
-            if (e.key === 'ArrowUp' || e.key === 'k') {
-                e.preventDefault();
-                e.stopPropagation();
-                _specialModesMove(-1);
-                return true;
+            return false;
+        }
+
+        function renderToolMenu() {
+            const el = document.getElementById('dynamic-island');
+            if (!el) return;
+            if (_islandSliderDragging) return;
+            const hint = document.getElementById('tool-hint');
+            if (hint) hint.classList.toggle('active', toolMenuOpen);
+            if (!toolMenuOpen) {
+                el.classList.remove('visible');
+                if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
+                return;
             }
-            // Space toggles the focused item's selection
-            if (e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                _shelfToggle(_specialModesNavIdx);
-                return true;
-            }
-            // Enter applies the selection and closes the shelf.
-            // If the user hasn't toggled anything yet, treat Enter as "pick the hovered item"
-            // so navigating + Enter switches to a single plugin without needing Space first.
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!_shelfModified) {
-                    const hovered = SPECIAL_MODE_TILES[_specialModesNavIdx];
-                    if (hovered && _specialModesTileEnabled(hovered)) {
-                        _shelfSelection = new Set([hovered.id]);
+
+            const tiles = [...TOOL_TILES].sort((a, b) => {
+                const rankDiff = _toolSortRank(a) - _toolSortRank(b);
+                if (rankDiff !== 0) return rankDiff;
+                return a.label.localeCompare(b.label);
+            });
+            let html = `<div class="po-header"><span class="po-title">TOOLS</span></div>`;
+            for (const tile of tiles) {
+                const enabled = _toolTileEnabled(tile);
+                const active = _toolTileActive(tile);
+                const cls = active ? 'tool-section active' : enabled ? 'tool-section available' : 'tool-section unavailable';
+                let body = '';
+                if (active) {
+                    if (tile.id === 'qmri') {
+                        const qDim = compareQmriActive ? compareQmriDim : qmriDim;
+                        const n = shape[qDim];
+                        const allCmaps = QMRI_COLORMAPS[n];
+                        const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
+                        body += `<div class="island-pills">`;
+                        for (let i = 0; i < allCmaps.length; i++) {
+                            const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
+                            const isVisible = visibleSet.has(i);
+                            const isOnly = visibleSet.size === 1 && isVisible;
+                            const pillCls = isVisible ? (isOnly ? 'on only' : 'on') : 'off';
+                            body += `<div class="island-pill ${pillCls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
+                        }
+                        body += `</div>`;
+                    } else if (tile.id === 'roi' || tile.id === 'segmentation') {
+                        const isRoi = tile.id === 'roi';
+                        const isSegLoading = !isRoi && _segActivating && !_segMode;
+                        const accentColor = '#f0c674';
+                        if (isSegLoading) {
+                            body += `<div class="island-rows"><div class="island-row"><div class="island-swatch pulse" style="background:${accentColor}"></div><span class="island-name default-name">nnInteractive \u00B7 connecting</span></div></div>`;
+                        } else {
+                            const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
+                            const currentShape = isRoi ? _roiShape : _segMethod;
+                            body += `<div class="island-toolbar"><div class="island-shapes">`;
+                            for (const key of Object.keys(shapes)) {
+                                const isCurrent = key === currentShape;
+                                const color = isCurrent ? accentColor : '#555';
+                                const opacity = isCurrent ? '1' : '0.5';
+                                body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                            }
+                            body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="${isRoi ? 'Export table' : 'Export segments'}">${_MAGNIFIER_ICON}</span></div>`;
+                            body += `<div class="island-rows">${isRoi ? _renderRoiRows() : _renderSegRows()}</div>`;
+                        }
+                    } else if (tile.id === 'overlay') {
+                        if (_overlaySids.length) {
+                            body += `<div class="island-rows">${_renderOverlayRows()}</div>`;
+                            const alphaPct = Math.round(overlayAlpha * 100);
+                            body += `<div class="island-slider-row"><span class="island-slider-label">opacity</span><input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}"><span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span></div>`;
+                        }
+                        body += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
+                    } else if (tile.id === 'vectorfield') {
+                        body += `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}"><div class="island-swatch" style="background:#f0c674"></div><span class="island-name">displacement</span><span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span></div></div>`;
+                        body += `<div class="island-slider-row"><span class="island-slider-label">density</span><input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}"><span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span></div>`;
+                        body += `<div class="island-slider-row"><span class="island-slider-label">length</span><input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}"><span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span></div>`;
+                    } else if (tile.id === 'crop') {
+                        const ready = _crop.registered;
+                        const nx = Math.max(1, _crop.nx);
+                        const xs = _crop.xStart, xe = _crop.xEnd;
+                        const disabled = ready ? '' : ' disabled';
+                        const overlayOn = !!_crop.overlayVisible;
+                        const statusKind = _crop.statusKind ? ` crop-status-${_crop.statusKind}` : '';
+                        const statusMsg = _crop.statusMsg || (ready ? '' : 'initialising\u2026');
+                        if (ready && Array.isArray(shape) && shape.length > 1) {
+                            const dirs = _cropAvailableDirections();
+                            body += `<div class="crop-dim-picker"><span class="crop-dim-picker-label">direction</span><div class="crop-dim-picker-btns">`;
+                            for (const d of dirs) {
+                                const isCurrent = d === _crop.direction;
+                                const cls2 = isCurrent ? 'crop-dim-btn on' : 'crop-dim-btn';
+                                const rd = _cropReadoutDimFor(d);
+                                const sz = rd >= 0 ? shape[rd] : '?';
+                                body += `<button type="button" class="${cls2}" onclick="_cropOnDirPick('${d}')" title="crop along screen axis ${d} (dim ${rd}, size ${sz})">${d}</button>`;
+                            }
+                            body += `</div></div>`;
+                        }
+                        body += `<div class="crop-rows"><div class="crop-row"><label for="crop-start-range">start</label><input id="crop-start-range" type="range" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-start-num" type="number" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"></div>`;
+                        body += `<div class="crop-row"><label for="crop-end-range">end</label><input id="crop-end-range" type="range" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-end-num" type="number" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"></div></div>`;
+                        body += `<div id="crop-summary" class="crop-summary">${_cropSummaryText()}</div>`;
+                        body += `<div class="crop-actions"><button class="crop-btn primary" onclick="_cropConfirmBtn()"${disabled}>confirm</button><button class="crop-btn" onclick="_cropLoadRecentBtn()"${disabled}>load recent</button><button class="crop-btn${overlayOn ? ' on' : ''}" onclick="_cropOverlayToggle()"${disabled}>${overlayOn ? 'hide overlay' : 'show overlay'}</button></div>`;
+                        body += `<div id="crop-status" class="crop-status${statusKind}">${statusMsg}</div>`;
                     }
                 }
-                _applyShelfSelection();
-                return true;
+                html += `<div class="${cls}" data-tool="${tile.id}">`;
+                html += `<div class="tool-row-head" onclick="_toolToggle('${tile.id}')"><span class="tool-row-title">${_toolLabelMarkup(tile, active, enabled)}</span></div>`;
+                if (active && body) html += `<div class="tool-body">${body}</div>`;
+                html += `</div>`;
             }
-            // Quick keys: q, r, s toggle selection
-            const quickIndex = _specialModesFindQuickKey(e.key);
-            if (quickIndex >= 0) {
-                const buttons = _specialModesButtons();
-                if (buttons[quickIndex] && !buttons[quickIndex].disabled) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    _specialModesSetNavIndex(quickIndex);
-                    _shelfToggle(quickIndex);
-                    return true;
-                }
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            return true;
+            el.innerHTML = html;
+            el.classList.add('visible');
+            _positionIsland();
+            _hideRoiRowTooltip();
+            _attachRoiRowTooltipHandlers();
+            _attachIslandSliderHandlers();
         }
 
-        function openSpecialModesShelf() {
-            if (specialModesOpen) return;
-            closeCommandPalette();
-            if (!_specialModesBuilt) _buildSpecialModesShelf();
-            // Initialize selection from currently active plugins
-            _shelfSelection = new Set();
-            for (const tile of SPECIAL_MODE_TILES) {
-                if (tile.isActive && tile.isActive()) _shelfSelection.add(tile.id);
-            }
-            _shelfModified = false;
-            specialModesOpen = true;
-            document.getElementById('special-modes-shelf').classList.add('visible');
-            _refreshSpecialModesShelf();
-            const first = _specialModesFirstEnabled();
-            if (first >= 0) _specialModesSetNavIndex(first);
-            setTimeout(() => sink.focus(), 0);
-        }
-
-        function closeSpecialModesShelf() {
-            if (!specialModesOpen) return;
-            specialModesOpen = false;
-            document.getElementById('special-modes-shelf').classList.remove('visible');
-            _specialModesButtons().forEach(button => button.classList.remove('nav'));
-            try { sink.focus(); } catch (_) {}
-        }
+        function renderIsland() { renderToolMenu(); }
 
         // ── Save menu (colorbar flip) ────────────────────────────
         // Pressing `s` flips the main colorbar around (same rotateX animation
@@ -16163,7 +16021,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 return;
             }
             closeCommandPalette();
-            closeSpecialModesShelf();
+            closeToolMenu();
             if (!_saveMenuBuilt) _buildSaveMenu();
             _refreshSaveMenu();
             saveMenuOpen = true;
@@ -16283,7 +16141,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function openCommandPalette() {
             if (paletteOpen) return;
             if (!_paletteBuilt) { _paletteBuild(); _paletteBuilt = true; }
-            closeSpecialModesShelf();
+            closeToolMenu();
             const root = document.getElementById('cmd-palette');
             const input = document.getElementById('cmd-palette-input');
             paletteOpen = true;
@@ -16393,22 +16251,22 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             if (e.key === '?') {
-                const _activePlugin = (qmriActive || compareQmriActive) ? 'qmri'
+                const _activeTool = (qmriActive || compareQmriActive) ? 'qmri'
                     : (typeof _segMode !== 'undefined' && _segMode) ? 'segmentation'
                     : rectRoiMode ? 'roi'
+                    : (typeof _cropActive !== 'undefined' && _cropActive) ? 'crop'
                     : null;
-                if (_activePlugin && PLUGIN_HELP[_activePlugin]) {
-                    const _pluginTabIdx = GUIDE_TABS.findIndex(t => t.id === PLUGIN_HELP[_activePlugin]);
+                if (_activeTool && TOOL_HELP[_activeTool]) {
+                    const _toolTabIdx = GUIDE_TABS.findIndex(t => t.id === TOOL_HELP[_activeTool]);
                     setHelpVisible(true);
-                    if (_pluginTabIdx >= 0) setHelpTab(_pluginTabIdx);
+                    if (_toolTabIdx >= 0) setHelpTab(_toolTabIdx);
                 } else {
                     setHelpVisible(!helpOverlay.classList.contains('visible'));
                 }
                 return;
             }
-            if (specialModesOpen) {
-                if (_specialModesKey(e)) return;
-                return;
+            if (toolMenuOpen) {
+                if (_handleToolMenuKey(e)) return;
             }
             if (saveMenuOpen) {
                 if (_saveMenuKey(e)) return;
@@ -20821,9 +20679,13 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
         });
-        document.getElementById('special-modes-shelf').addEventListener('click', (e) => {
-            if (e.target === document.getElementById('special-modes-shelf')) closeSpecialModesShelf();
-        });
+        document.addEventListener('mousedown', (e) => {
+            if (!toolMenuOpen) return;
+            const menu = document.getElementById('dynamic-island');
+            const hint = document.getElementById('tool-hint');
+            if ((menu && menu.contains(e.target)) || (hint && hint.contains(e.target))) return;
+            closeToolMenu();
+        }, true);
         // Clicking outside the flipped colorbar closes the save menu.
         document.addEventListener('mousedown', (e) => {
             if (!saveMenuOpen) return;
@@ -20833,15 +20695,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         document.getElementById('help-hint').addEventListener('click', () => {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
-        document.getElementById('island-hint').addEventListener('click', () => {
-            if (_islandUserHidden) {
-                _expandIslandFromHint();
-            } else {
-                _collapseIslandToHint();
-            }
-        });
-        document.getElementById('shelf-hint').addEventListener('click', () => {
-            openSpecialModesShelf();
+        document.getElementById('tool-hint').addEventListener('click', () => {
+            if (toolMenuOpen) closeToolMenu();
+            else openToolMenu();
         });
 
         // Click on a dim label to make it the active dim (consistent with h/l navigation)
@@ -22252,7 +22108,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileLayout();
             _reconcileCompareState();
             _reconcileCbVisibility();
-            _refreshSpecialModesShelf();
+            renderToolMenu();
         }
 
         // ── Layout container visibility reconciler ───────────────────
@@ -22273,7 +22129,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // 4. Multiview orientation indicator
             const mvOrientation = document.getElementById('mv-orientation');
-            if (mvOrientation) mvOrientation.style.display = ((multiViewActive || compareMvActive) && !_mvOrientationHidden) ? 'block' : 'none';
+            if (mvOrientation) mvOrientation.style.display = (multiViewActive || compareMvActive) ? 'block' : 'none';
 
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
@@ -22634,7 +22490,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // anywhere a colormap is meaningful.
             if (rgbMode) return false;
             if (qmriActive || compareQmriActive) return false;
-            if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+            if (typeof toolMenuOpen !== 'undefined' && toolMenuOpen) return false;
             if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
             if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
             return true;
@@ -23027,7 +22883,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             eligible() {
                 if (typeof this.opts.eligible === 'function' && !this.opts.eligible()) return false;
-                if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+                if (typeof toolMenuOpen !== 'undefined' && toolMenuOpen) return false;
                 if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
                 if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
                 return true;
@@ -23374,7 +23230,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
                 chromeToFade: () => {
                     const sel = ['#mv-cb-wrap', '#array-name', '#mv-orientation',
-                        '#help-hint', '#shelf-hint', '#island-hint',
+                        '#help-hint', '#tool-hint',
                         '.cb-island', '.cv-pixel-info', '.axes-indicator', '.mv-label'];
                     const set = new Set();
                     sel.forEach(s => document.querySelectorAll(s).forEach(el => set.add(el)));
@@ -23401,7 +23257,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _histPickerEligible() {
             if (rgbMode) return false;
             if (!Array.isArray(shape) || shape.length < 2) return false;
-            if (typeof specialModesOpen !== 'undefined' && specialModesOpen) return false;
+            if (typeof toolMenuOpen !== 'undefined' && toolMenuOpen) return false;
             if (typeof paletteOpen !== 'undefined' && paletteOpen) return false;
             if (helpOverlay && helpOverlay.classList.contains('visible')) return false;
             return true;
