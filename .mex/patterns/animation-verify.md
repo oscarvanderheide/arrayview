@@ -16,12 +16,12 @@ triggers:
 edges:
   - target: patterns/frontend-change.md
     condition: always — animation changes are always frontend changes
-last_updated: 2026-04-26
+last_updated: 2026-04-29
 ---
 
 # Animation Verify
 
-**Why this exists:** The test suite (`test_browser.py`, `visual_smoke.py`, `ui_audit.py`)
+**Why this exists:** The test suite (`tests/test_browser.py`, `tests/visual_smoke.py`, `tests/ui_audit.py`)
 captures STEADY-STATE screenshots ONLY. "All tests pass" is meaningless for
 animation quality.
 
@@ -128,14 +128,14 @@ For pinch immersive crossfade: exercise `rawP` at 0 → 0.25 → 0.5 → 0.75 �
 
 ## Gotchas
 
-- **`visual_smoke.py` does NOT test animation** — it takes one screenshot per scenario after transitions settle. An animation can look terrible and still produce the correct final screenshot.
-- **`test_browser.py` snapshot tests compare steady-state only** — a 1% pixel threshold can pass even if the animation path was full of jumps.
-- **`ui_audit.py` takes static screenshots** — no temporal validation whatsoever.
-- **`capture_v_animation.py` is manual-review only** — it has no automated assertions. YOU must inspect the frames yourself and describe what you saw. Do not claim "tests pass" — that phrase has no meaning for animation.
+- **`tests/visual_smoke.py` does NOT test animation** — it takes one screenshot per scenario after transitions settle. An animation can look terrible and still produce the correct final screenshot.
+- **`tests/test_browser.py` snapshot tests compare steady-state only** — a 1% pixel threshold can pass even if the animation path was full of jumps.
+- **`tests/ui_audit.py` takes static screenshots** — no temporal validation whatsoever.
+- **`tests/capture_v_animation.py` is manual-review only** — it has no automated assertions. YOU must inspect the frames yourself and describe what you saw. Do not claim "tests pass" — that phrase has no meaning for animation.
 
 ## Verify
 
-- [ ] `capture_v_animation.py` frames inspected — no jumps, monotonic fades, symmetric entry/exit
+- [ ] `tests/capture_v_animation.py` frames inspected — no jumps, monotonic fades, symmetric entry/exit
 - [ ] Key progress points scrubbed — canvas monotonic, chrome frozen when expected
 - [ ] Reverse path verified — chrome rejoins flow cleanly
 - [ ] Frame inspection results described to the user (not "tests pass")
