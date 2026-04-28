@@ -947,6 +947,76 @@ class TestKeyboard:
         assert state["paneClass"], f"multiview pane should start bordered, got: {state}"
         assert state["boxShadow"] != "none", f"multiview border should be visibly drawn, got: {state}"
 
+    def test_compare_center_border_stays_on_clip_and_panes_align(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        partner_path = tmp_path / "arr2d_border_compare.npy"
+        np.save(partner_path, arr_2d * 0.5 + 0.25)
+        sid_2d_b = client.post(
+            "/load", json={"filepath": str(partner_path), "name": "arr2d_border_compare"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_2d_b)
+        page.evaluate(
+            """() => {
+                compareLayoutMode = 'horizontal';
+                _setCompareCenterMode(1);
+                compareScaleCanvases();
+            }"""
+        )
+        page.wait_for_timeout(350)
+
+        state = page.evaluate(
+            """() => {
+                const leftWrap = document.querySelector('.compare-primary .compare-canvas-wrap');
+                const leftClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                const centerClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                const rightClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                const slimVal = document.querySelector('#slim-cb-vmin');
+                const compareVal = document.querySelector('#compare-left-pane-cb-vmin');
+                const diffVal = document.querySelector('#compare-diff-pane-cb-vmin');
+                const compareIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
+                const leftRect = leftClip?.getBoundingClientRect() || null;
+                const centerRect = centerClip?.getBoundingClientRect() || null;
+                const rightRect = rightClip?.getBoundingClientRect() || null;
+                return {
+                    bodyRounded: document.body.classList.contains('rounded-panes'),
+                    wrapClass: leftWrap?.classList.contains('canvas-bordered') || false,
+                    clipClass: leftClip?.classList.contains('canvas-bordered') || false,
+                    wrapShadow: leftWrap ? getComputedStyle(leftWrap).boxShadow : '',
+                    clipShadow: leftClip ? getComputedStyle(leftClip).boxShadow : '',
+                    clipRadius: leftClip ? getComputedStyle(leftClip).borderRadius : '',
+                    slimValFont: slimVal ? getComputedStyle(slimVal).fontSize : '',
+                    compareValFont: compareVal ? getComputedStyle(compareVal).fontSize : '',
+                    diffValFont: diffVal ? getComputedStyle(diffVal).fontSize : '',
+                    slimValFamily: slimVal ? getComputedStyle(slimVal).fontFamily : '',
+                    compareValFamily: compareVal ? getComputedStyle(compareVal).fontFamily : '',
+                    compareIslandGap: compareIsland ? getComputedStyle(compareIsland).gap : '',
+                    leftRect,
+                    centerRect,
+                    rightRect,
+                };
+            }"""
+        )
+
+        assert state["bodyRounded"], f"compare mode should inherit rounded panes by default, got: {state}"
+        assert state["wrapClass"], f"compare wrapper should still receive the border state class, got: {state}"
+        assert state["clipClass"], f"compare viewport clip should receive the border state class, got: {state}"
+        assert state["wrapShadow"] == "none", f"compare wrapper should not draw the border around the colorbar island, got: {state}"
+        assert state["clipShadow"] != "none", f"compare viewport clip should draw the visible border, got: {state}"
+        assert state["clipRadius"] != "0px", f"rounded compare panes should style the clip box, got: {state}"
+        assert state["compareValFont"] == state["slimValFont"], f"compare source-pane labels should match normal colorbar font sizing, got: {state}"
+        assert state["diffValFont"] == state["slimValFont"], f"diff-pane labels should match normal colorbar font sizing, got: {state}"
+        assert state["compareValFamily"] == state["slimValFamily"], f"compare source-pane labels should match normal colorbar font family, got: {state}"
+        assert state["compareIslandGap"] == "8px", f"compare source-pane label spacing should match the normal colorbar gap, got: {state}"
+        assert state["leftRect"] and state["centerRect"] and state["rightRect"], f"compare clips should all exist in X mode, got: {state}"
+        assert abs(state["leftRect"]["top"] - state["centerRect"]["top"]) <= 1, f"left and center compare clips should align vertically, got: {state}"
+        assert abs(state["rightRect"]["top"] - state["centerRect"]["top"]) <= 1, f"right and center compare clips should align vertically, got: {state}"
+        assert abs(state["leftRect"]["height"] - state["centerRect"]["height"]) <= 1, f"left and center compare clips should match height, got: {state}"
+        assert abs(state["rightRect"]["height"] - state["centerRect"]["height"]) <= 1, f"right and center compare clips should match height, got: {state}"
+
     def test_multiview_hover_border_and_colorbar_clearance(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)

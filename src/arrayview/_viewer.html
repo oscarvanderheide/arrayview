@@ -147,7 +147,10 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        body.rounded-panes .compare-canvas { border-radius: 10px; }
+        body.rounded-panes .compare-canvas-clip {
+            border-radius: 10px;
+            overflow: hidden;
+        }
         .axes-indicator {
             position: absolute; bottom: 6px; left: 6px; width: 48px; height: 48px;
             pointer-events: none; overflow: visible; z-index: 2;
@@ -1612,13 +1615,13 @@
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-title.compare-center-title { cursor: default; max-width: 100%; overflow: visible; text-overflow: clip; }
-        .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; }
+        .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 14px; }
         .compare-title .compare-center-mode-btn {
             display: inline-flex; align-items: center; justify-content: center;
-            min-width: 28px; min-height: 22px; padding: 3px 6px;
-            border-radius: 6px; border: 1px solid transparent;
+            min-width: 38px; min-height: 22px; padding: 1px 11px; margin: -6px 0 -5px;
+            border-radius: 999px; border: 1px solid transparent;
             background: transparent; color: var(--muted);
-            font-family: inherit; cursor: pointer;
+            font-family: inherit; font-size: 10px; line-height: 1; cursor: pointer;
             transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
         }
         .compare-title .compare-center-mode-btn:hover {
@@ -1643,11 +1646,14 @@
         }
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
+        .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
+        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
         .compare-canvas-inner { position: relative; display: inline-block; }
-        .compare-pane-cb-island { --cb-base-margin-top: 10px; margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top)); display: inline-flex; flex-direction: row; align-items: center; gap: 4px; box-sizing: border-box; transition: opacity 0.25s ease, margin 0.25s ease; }
+        .compare-pane-cb-island { --cb-base-margin-top: 10px; margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top)); display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; transition: opacity 0.25s ease, margin 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; width: 100%; position: absolute; bottom: 0; left: 0; background: transparent; }
         .compare-pane-cb-labels { display: none; }
-        .compare-pane-cb-val { font-size: 11px; color: #fff; font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
+        .compare-pane-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 28px; text-align: center; line-height: 1; cursor: default; }
+        .compare-pane-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
         }
@@ -4094,6 +4100,7 @@
                 }
                 clip.style.width = vpW + 'px';
                 clip.style.height = vpH + 'px';
+                clip.classList.toggle('canvas-bordered', canvasBorders);
                 inner.dataset.vpW = vpW;
                 inner.dataset.vpH = vpH;
                 inner.style.width = '';
@@ -4120,7 +4127,8 @@
             // When diff/overlay/wipe mode is active with 2 data panes there are 3 visible columns
             const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             const cols = (hasCenterPane && paneCount === 2) ? 3 : baseCols;
-            const rows = Math.max(1, Math.ceil(paneCount / baseCols));
+            const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
+            const rows = Math.max(1, Math.ceil(visiblePaneCount / cols));
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
             const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
@@ -4242,38 +4250,19 @@
                     }
                 }
             }
-            // Shrink center pane (diff/wipe) using its own inner dimensions
+            // Keep the center pane geometry locked to the first source pane so
+            // compare-center modes stay vertically aligned with the source panes.
             if (hasCenterPane && paneCount === 2) {
                 const _useWipePane = _wipeActive || _flickerActive || _checkerActive;
                 const centerPaneId = _useWipePane ? 'compare-wipe-pane' : 'compare-diff-pane';
                 const centerPane = document.getElementById(centerPaneId);
-                const centerCvId = _useWipePane ? 'compare-wipe-canvas' : 'compare-diff-canvas';
-                const centerCv = document.getElementById(centerCvId);
-                const centerInner = centerCv && centerCv.closest('.compare-canvas-inner');
-                if (centerPane && centerInner && centerInner.dataset.vpW) {
-                    const vpW = parseInt(centerInner.dataset.vpW);
-                    const vpH = parseInt(centerInner.dataset.vpH);
-                    const neededW = vpW + panePadX;
-                    const neededH = titleReserve + vpH + panePadY;
-                    if (neededW < slotW) {
-                        centerPane.style.flex = `0 0 ${neededW}px`;
-                        centerPane.style.width = neededW + 'px';
-                        centerPane.style.maxWidth = neededW + 'px';
-                    }
-                    if (neededH < slotH) {
-                        centerPane.style.height = neededH + 'px';
-                        centerPane.style.maxHeight = neededH + 'px';
-                    }
-                } else if (centerPane) {
-                    // Fallback: copy from first data pane so layout doesn't collapse
-                    const firstPane = comparePaneEls[0];
-                    if (firstPane) {
-                        centerPane.style.flex = firstPane.style.flex;
-                        centerPane.style.width = firstPane.style.width;
-                        centerPane.style.maxWidth = firstPane.style.maxWidth;
-                        centerPane.style.height = firstPane.style.height;
-                        centerPane.style.maxHeight = firstPane.style.maxHeight;
-                    }
+                const firstPane = comparePaneEls[0];
+                if (centerPane && firstPane) {
+                    centerPane.style.flex = firstPane.style.flex;
+                    centerPane.style.width = firstPane.style.width;
+                    centerPane.style.maxWidth = firstPane.style.maxWidth;
+                    centerPane.style.height = firstPane.style.height;
+                    centerPane.style.maxHeight = firstPane.style.maxHeight;
                 }
             }
             // Pan overflow recenter + clamp/apply are handled inside
@@ -22348,6 +22337,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const vp = document.getElementById('canvas-viewport');
             if (vp) vp.classList.toggle('canvas-bordered', canvasBorders);
             document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-pane').forEach(el => {
+                el.classList.toggle('canvas-bordered', canvasBorders);
+            });
+            document.querySelectorAll('.compare-canvas-clip').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
 
