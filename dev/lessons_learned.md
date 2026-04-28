@@ -2,6 +2,11 @@
 
 Hard-won knowledge from past development sessions. Check this before starting work on related areas.
 
+## mex Scaffold Drift
+
+**Problem:** `mex check` can produce noisy `MISSING_PATH` errors when `.mex` docs put a whole shell command or raw URL in one inline code span.
+**Key insight:** Keep `.mex` command guidance parser-friendly: split the executable from the repo path, prefer repo-local wrappers like `.mex/sync.sh`, and install the hook with `.mex/setup.sh` / `mex watch` only after the scaffold is clean enough that post-commit drift output is mostly signal.
+
 ## VS Code Extension / Simple Browser
 
 **Problem:** Extension install and signal-file IPC breaks frequently when touched.

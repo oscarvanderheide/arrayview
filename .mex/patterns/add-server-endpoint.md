@@ -16,14 +16,14 @@ edges:
     condition: when the endpoint triggers a render (slice, mosaic, projection)
   - target: context/conventions.md
     condition: for lazy import rules and Verify Checklist
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Add Server Endpoint
 
 ## Context
 
-`_server.py` is the FastAPI app. All routes live here. Session lookup is the first thing every route does: `session = SESSIONS.get(sid)` with a 404 if missing.
+`_server.py` is the FastAPI assembly surface. Most feature routes now live in `_routes_*.py` modules, while tiny infrastructure routes stay inline. Session lookup is still the first thing every route does: `session = SESSIONS.get(sid)` with a 404 if missing.
 
 Heavy render work must go to the render thread via `_render()` from `_session.py` — never block the async event loop with CPU work.
 
@@ -31,7 +31,9 @@ If the feature involves the VS Code direct webview (stdio transport), `_stdio_se
 
 ## Steps
 
-1. **Add the route to `_server.py`:**
+1. **Pick the owning module first:** add the route to the matching `_routes_*.py` module if the domain already exists. Only add it inline to `_server.py` if it is tiny infrastructure or shared app plumbing.
+
+2. **Add the route in the owning module:**
    ```python
    @app.get("/my_route/{sid}")
    async def my_route(sid: str, request: Request):
@@ -42,28 +44,28 @@ If the feature involves the VS Code direct webview (stdio transport), `_stdio_se
        return JSONResponse({"result": ...})
    ```
 
-2. **For render work**, dispatch via the render thread:
+3. **For render work**, dispatch via the render thread:
    ```python
    loop = asyncio.get_event_loop()
    result = await _render(loop, lambda: my_render_func(session, params))
    ```
    Never call `extract_slice()` or `render_rgba()` directly on the async path.
 
-3. **For WebSocket routes**, follow the existing `/ws/{sid}` pattern:
+4. **For WebSocket routes**, follow the existing `/ws/{sid}` pattern:
    - Drain messages in a loop
    - Send binary frames for image data, JSON for metadata
    - Handle `WebSocketDisconnect` gracefully — decrement `_session_mod.VIEWER_SOCKETS`
    - The binary frame format (RGBA bytes) must match what `_viewer.html` expects
 
-4. **For file upload routes**, use `UploadFile` from FastAPI — already imported in `_server.py`.
+5. **For file upload routes**, use `UploadFile` from FastAPI — already imported in `_server.py`.
 
-5. **Wire the frontend:** If the route is called by JavaScript, add the fetch/WebSocket call in the correct section of `_viewer.html`. Follow the dual-write pattern if it updates display state.
+6. **Wire the frontend:** If the route is called by JavaScript, add the fetch/WebSocket call in the correct section of `_viewer.html`. Follow the dual-write pattern if it updates display state.
 
-6. **Update `_stdio_server.py`** if the feature is needed in VS Code direct webview mode. The stdio server handles messages as JSON objects on stdin — add a new `elif msg_type == "my_type":` branch in the message dispatch loop.
+7. **Update `_stdio_server.py`** if the feature is needed in VS Code direct webview mode. The stdio server handles messages as JSON objects on stdin — add a new `elif msg_type == "my_type":` branch in the message dispatch loop.
 
 ## Gotchas
 
-- **Do not add logic to `_app.py`** — `_app.py` is a backward-compat shim only. All new routes go in `_server.py`.
+- **Do not add logic to `_app.py`** — `_app.py` is a backward-compat shim only. New routes belong in `_routes_*.py` or `_server.py`.
 - **Session lookup first** — every route must validate `sid` before doing anything. A missing session that falls through silently causes `AttributeError` on `session.data`.
 - **WebSocket binary protocol is tightly coupled** — the byte layout (offset, header fields, RGBA payload) is shared between `_server.py` and the WS handler in `_viewer.html`. Change one → change both. Mismatch causes the canvas to render garbage or stay blank.
 - **Never block the event loop** — even a small `np.array()` call on a large array can block for hundreds of milliseconds. Use `await _render(loop, func)` for all numpy work.
@@ -77,8 +79,8 @@ If the feature involves the VS Code direct webview (stdio transport), `_stdio_se
 - [ ] WebSocket binary frame layout matches `_viewer.html` expectations (if applicable)
 - [ ] No new logic added to `_app.py`
 - [ ] `_stdio_server.py` updated if the feature is needed in VS Code direct webview
-- [ ] `uv run pytest tests/test_view_component_integration.py` passes
-- [ ] Manual test: `uv run arrayview dev/sample.npy` — new route reachable and returns expected response
+- [ ] `uv run pytest` on `tests/test_view_component_integration.py` passes
+- [ ] Manual test: run `uv run arrayview` on `debug/test_array.npy` and confirm the new route is reachable
 
 ## Update Scaffold
 - [ ] Update `.mex/ROUTER.md` "Current Project State" if what's working/not built has changed

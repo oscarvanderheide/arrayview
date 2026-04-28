@@ -15,7 +15,7 @@ edges:
     condition: for the lazy import pattern and Verify Checklist
   - target: context/render-pipeline.md
     condition: when the new format returns an unusual dtype that may affect the render pipeline
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Add File Format
@@ -88,7 +88,7 @@ The server (`_server.py`) and CLI (`_launcher.py`) never import format libraries
 - [ ] `load_data("myfile.myext")` returns a numpy array with correct shape and dtype
 - [ ] `view(load_data("myfile.myext"))` opens the viewer without errors
 - [ ] If full-load format, added to `FULL_LOAD_EXTS`
-- [ ] `uv run pytest tests/test_mode_consistency.py` still passes (no dtype regressions)
+- [ ] `uv run pytest` on `tests/test_mode_consistency.py` still passes (no dtype regressions)
 
 ## Update Scaffold
 - [ ] Update `.mex/ROUTER.md` "Current Project State" if what's working/not built has changed

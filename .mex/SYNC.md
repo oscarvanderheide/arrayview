@@ -12,12 +12,15 @@ The script runs drift detection first, shows you exactly what's wrong, then offe
 3. **Prompt export** — shows the prompts for manual paste
 4. **Exit** — fix it yourself
 
+In this repo, `.mex/sync.sh` is a wrapper around `mex sync --warnings`, so warning-only drift is included by default.
+
 ## Quick Check
 
 ```bash
 mex check              # full drift report
 mex check --quiet      # one-liner: "drift score 85/100 (1 error)"
 mex sync --dry-run     # preview targeted fix prompts
+./.mex/sync.sh         # wrapper that includes warning-only files
 ```
 
 ## Manual Resync

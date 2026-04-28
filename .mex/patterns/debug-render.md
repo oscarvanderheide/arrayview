@@ -22,7 +22,7 @@ edges:
     condition: only after Step 1 points to `_viewer.html` rather than the Python pipeline
   - target: context/conventions.md
     condition: for the Verify Checklist after fixing
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Debug Render
@@ -118,8 +118,8 @@ Run `_composite_overlay_mask(rgba, ov_raw, is_label=True)` on a test RGBA and ma
 - [ ] `render_rgba(session, 0, 1, (0,)*ndim, "gray", 0).shape == (H, W, 4)` for a test session
 - [ ] No `nan` or `inf` values after `extract_slice` (they are replaced by `nan_to_num`)
 - [ ] `LUTS` is non-empty after calling `_init_luts()`
-- [ ] `uv run pytest tests/visual_smoke.py` passes
-- [ ] `uv run pytest tests/test_mode_consistency.py` passes
+- [ ] `uv run python` on `tests/visual_smoke.py` passes
+- [ ] `uv run pytest` on `tests/test_mode_consistency.py` passes
 
 ## Update Scaffold
 - [ ] If a new failure mode was discovered, add it to the Gotchas section above

@@ -23,12 +23,12 @@ edges:
     condition: when writing new frontend code and need section separator conventions
   - target: patterns/frontend-change.md
     condition: when making a concrete change to _viewer.html
-last_updated: 2026-04-24
+last_updated: 2026-04-29
 ---
 
 # Frontend (_viewer.html)
 
-~24 100 lines. Single file, no build step. All CSS and JS inline.
+~24 700 lines. Single file, no build step. All CSS and JS inline.
 
 ## Section Organization
 
@@ -122,8 +122,11 @@ Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside 
 
 **Manual range state:** `manualVmin` / `manualVmax` are regular state variables. Write sites must explicitly dual-write to `displayState.vmin` / `displayState.vmax`; the old `Object.defineProperty(window, …)` shim was removed.
 
-### Plugin Shelf (`/` menu)
-`SPECIAL_MODE_TILES` array defines five plugins: qMRI, Segmentation, ROI, Overlay, Vector field. The shelf supports multi-select (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays — ROI ↔ Segmentation, and Overlay/Vector field are reciprocally exclusive with all other plugins. `_applyShelfSelection()` diffs current state against selection, exits removed plugins, then enters new ones wrapped in `crossfade()`. Overlay and Vector field auto-seed the shelf at init when arrays are present (`_overlaySids.length > 0`, `hasVectorfield`); their per-tile state lives in `_shelfSelection.has(id)` since there is no separate mode flag.
+### Tool Menu (`/` menu)
+`SPECIAL_MODE_TILES` array defines the tool menu contents: qMRI, Segmentation, ROI, Overlay, Vector field, plus the compare-center entry when compare mode is eligible. The menu supports multi-select where allowed (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays — ROI ↔ Segmentation, and Overlay/Vector field are reciprocally exclusive with all other plugins. `_applyShelfSelection()` diffs current state against selection, exits removed tools, then enters new ones wrapped in `crossfade()`. Overlay and Vector field auto-seed the menu at init when arrays are present (`_overlaySids.length > 0`, `hasVectorfield`); their per-tile state lives in `_shelfSelection.has(id)` since there is no separate mode flag.
+
+### Compare Center Tool
+Compare mode can expose a unified center pane that cycles between diff, overlay, and wipe. The `/` tool menu re-opens the last-used center mode, while the compare pane header buttons select a specific center mode directly. Eligible layouts can switch to `compare-center-layout-big-left`, which widens the center pane and stacks the source panes on the right. The diff center pane owns its own colorbar state via `_diffCenterColormap` / `_diffCenterColormapStops`.
 
 ### Eggs
 Pill badges below the canvas showing active transforms: `FFT` `LOG` `MAGNITUDE` `PHASE` `REAL` `IMAG` `RGB` `ALPHA` `PROJECTION`. **ROI** and **SEGMENT** are NOT eggs — they are interaction modes with their own dynamic island UI.

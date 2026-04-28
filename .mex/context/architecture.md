@@ -18,7 +18,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-04-25
+last_updated: 2026-04-29
 ---
 
 # Architecture
@@ -51,7 +51,7 @@ pywebview, or system browser).
 ## Key Components
 
 - **`_launcher.py`** — CLI parser, `view()` API, `ViewHandle`, server lifecycle, reverse-tunnel relay (`--relay`), file watching. Heavy imports (`_session`, `_render`, `_io`, uvicorn) are all lazy to keep the CLI fast path near-zero cost.
-- **`_server.py`** — FastAPI app initialization, route-registration orchestrator, and infrastructure routes. Feature domains are delegated to `_routes_*.py` modules via `register_*()` calls. Remaining inline routes are `/`, `/ping`, `/colormap/{name}`, `/shell`, and `/gsap.min.js`, plus shared helpers like `get_session_or_404()`.
+- **`_server.py`** — FastAPI app initialization, route-registration orchestrator, and infrastructure routes. Feature domains are delegated to `_routes_*.py` modules via `register_*()` calls. Remaining inline routes are `/`, `/ping`, `/colormap/{name}`, `/shell`, and the GSAP asset route that serves `src/arrayview/gsap.min.js`, plus shared helpers like `get_session_or_404()`.
 - **`_routes_*.py`** — Feature-route modules grouped by domain (analysis, loading, persistence, segmentation, state, query, export, preload, vectorfield, rendering, websocket transport). Each module exposes `register_*_routes(app, ...)` and keeps `_server.py` focused on assembly and shared dependencies.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
 - **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
@@ -81,7 +81,7 @@ Detection logic: `_platform.py`. Display opening: `_launcher.py` + `_vscode.py`.
 - **nibabel** — NIfTI file loading. Lazy-imported in `_io.py` via `_nib()`. Only loaded for `.nii` / `.nii.gz`.
 - **numpy** — Core array type throughout. The only non-lazy import in the render path.
 - **matplotlib** — Colormap LUT generation only. Lazy, initialized once by `_init_luts()` in `_render.py`.
-- **qmricolors** — Registers the `lipari` and `navia` colormaps. Git dependency (`https://github.com/oscarvanderheide/qmricolors.git`).
+- **qmricolors** — Registers the `lipari` and `navia` colormaps. Declared in `pyproject.toml` and pinned in `uv.lock`.
 - **zarr** — Lazy chunk access for `.zarr` / `.zarr.zip`. Chunk presets via `zarr_chunk_preset()` in `_session.py`.
 - **pywebview** — Native OS window. Lazy, only started when `_can_native_window()` is true.
 

@@ -14,7 +14,7 @@ edges:
     condition: when understanding how to use a technology in this codebase
   - target: context/architecture.md
     condition: when understanding how a library fits into the overall system
-last_updated: 2026-04-22
+last_updated: 2026-04-29
 ---
 
 # Stack
@@ -34,7 +34,7 @@ last_updated: 2026-04-22
 - **zarr 2.17+** — lazy chunk access for `.zarr` / `.zarr.zip` files; chunk preset utility in `_session.py`.
 - **pillow 12+** — PNG encoding for slice frames sent over WebSocket.
 - **pywebview 6.1+** — native OS window for CLI / script invocations; lazy, only started when `_can_native_window()` is true.
-- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; Git dependency (`https://github.com/oscarvanderheide/qmricolors.git`). Imported inside `_init_luts()`.
+- **qmricolors** — registers `lipari` and `navia` colormaps into matplotlib; declared in `pyproject.toml` and pinned in `uv.lock`. Imported inside `_init_luts()`.
 - **scipy** — `.mat` file loading via `scipy.io.loadmat`; lazy in `_io.py`.
 - **h5py** — `.h5` / `.hdf5` file loading; lazy in `_io.py`.
 - **tifffile** — `.tif` / `.tiff` file loading; lazy in `_io.py`.
@@ -50,7 +50,7 @@ last_updated: 2026-04-22
 - **No concurrent.futures for the render thread** — uses `threading.Thread` + `SimpleQueue` directly to avoid CPython's `_global_shutdown` executor cleanup racing with daemon threads during interpreter exit.
 - **No ORM / database** — sessions are in-memory Python dicts; no SQLAlchemy, no SQLite.
 - **No Redux or client-side state management library** — viewer state is plain JS variables in `_viewer.html`.
-- **No CSS framework** — all styles are custom properties in `:root`; dark theme only (`#0c0c0c` background).
+- **No CSS framework** — all styles are custom properties in `:root`; the shipped themes are dark, light, solarized, and nord.
 
 ## Version Constraints
 

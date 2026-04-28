@@ -1,35 +1,29 @@
 ---
 name: agents
 description: Always-loaded project anchor. Read this first. Contains project identity, non-negotiables, commands, and pointer to ROUTER.md for full context.
-last_updated: [YYYY-MM-DD]
+last_updated: 2026-04-29
 ---
 
-# [Project Name]
+# ArrayView
 
 ## What This Is
-<!-- One sentence. What does this project do?
-     Length: 1 sentence maximum.
-     Not a tagline — a factual description of what the software does.
-     Example: "A REST API for managing inventory across multiple warehouse locations." -->
+Interactive viewer for multi-dimensional arrays with a FastAPI backend, a single-file HTML frontend, and environment-aware display routing across Jupyter, VS Code, SSH, and native windows.
 
 ## Non-Negotiables
-<!-- Hard rules the agent must never violate. Not preferences — rules.
-     These are the things that, if broken, cause real damage to the codebase.
-     Length: 3-7 items maximum. More than 7 means the list has not been prioritised.
-     Example:
-     - Never write database queries outside of the repository layer
-     - Never commit secrets or API keys
-     - Always handle errors explicitly — no silent failures -->
+- Never split `src/arrayview/_viewer.html`; the frontend stays in one file with no build step.
+- Keep heavy imports lazy, especially in `_launcher.py`.
+- Do not add new logic to `src/arrayview/_app.py`; it is a compat shim only.
+- UI visibility changes must flow through the reconcilers, not ad hoc `style.display` or `classList` toggles.
+- Keybind changes must update both the command registry and `GUIDE_TABS`.
+- Use `localhost`, not `127.0.0.1`, in project changes and test helpers.
 
 ## Commands
-<!-- The exact commands needed to work on this project.
-     Include: run dev server, run tests, run linter, build.
-     Use the actual commands from this codebase — not placeholders.
-     Example:
-     - Dev: `npm run dev`
-     - Test: `npm test`
-     - Lint: `npm run lint`
-     - Build: `npm run build` -->
+- Dev: `uv run arrayview <file>`
+- Test: `uv run pytest tests/<target>`
+- Visual smoke: `uv run python tests/visual_smoke.py`
+- Build: `uv build`
+- Drift check: `mex check --quiet`
+- Resync: `.mex/sync.sh`
 
 ## After Every Task
 After completing any task: update `.mex/ROUTER.md` project state and any `.mex/` files that are now out of date. If no pattern existed for the task you just completed, create one in `.mex/patterns/`.

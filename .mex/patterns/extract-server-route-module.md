@@ -11,7 +11,7 @@ edges:
     condition: when deciding whether `_server.py` should keep or delegate a route cluster
   - target: context/project-state.md
     condition: when the extraction changes the active architecture workstream
-last_updated: 2026-04-25
+last_updated: 2026-04-29
 ---
 
 # Extract Server Route Module
@@ -32,7 +32,7 @@ last_updated: 2026-04-25
 
 - `_app.py` is a backward-compat shim. If it re-exports a helper that moved, either update `_app.py` to import from the real module or re-export the symbol from `_server.py` intentionally.
 - `register_loading_routes()` still depends on `_notify_shells`; extracting WebSocket code without preserving that callable at the server surface breaks launcher paths.
-- Do not over-extract the final infrastructure surface. `/`, `/ping`, `/shell`, `/gsap.min.js`, and `/colormap/{name}` are the natural inline end state.
+- Do not over-extract the final infrastructure surface. `/`, `/ping`, `/shell`, `/colormap/{name}`, and the GSAP asset route that serves `src/arrayview/gsap.min.js` are the natural inline end state.
 
 ## Verify
 

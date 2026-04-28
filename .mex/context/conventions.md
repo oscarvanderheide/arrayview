@@ -18,7 +18,7 @@ edges:
     condition: when applying frontend conventions (section separators, reconcilers, command registry)
   - target: context/render-pipeline.md
     condition: when applying render pipeline conventions (pipeline order, cache patterns, LUT usage)
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Conventions
@@ -39,6 +39,7 @@ last_updated: 2026-04-15
 - **One HTML file for the entire frontend** — all CSS and JS live in `_viewer.html`. Do not split into separate files.
 - **Tests live in `tests/`** — not next to source files. Visual/browser tests use playwright and are marked `@pytest.mark.browser`.
 - **All file-format loading goes through `_io.load_data(filepath)`** — no direct format imports in `_server.py` or `_launcher.py`.
+- **Server features usually live in `_routes_*.py`** — keep `_server.py` as the assembly layer unless the route is tiny infrastructure.
 
 ## Patterns
 

@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/frontend.md
     condition: when a decision relates to the frontend architecture or viewer modes
-last_updated: 2026-04-16
+last_updated: 2026-04-29
 ---
 
 # Decisions
@@ -76,3 +76,11 @@ last_updated: 2026-04-16
 **Reasoning:** Before reconcilers, mode-switch functions each managed their own ad hoc `style.display` toggles. This caused regressions where fixing one mode's layout broke another. Reconcilers enforce a single source of truth for UI state.
 **Alternatives considered:** Each mode function manages its own visibility (previous approach, rejected due to regression rate); CSS class toggling with no reconciler (rejected — same problem in a different form).
 **Consequences:** When adding a new UI element, wire it into the appropriate reconciler. Never set `style.display` or toggle classes in mode-entry/exit functions — that work belongs in the reconcilers.
+
+### _server.py is an assembly surface; feature routes belong in _routes_ modules
+**Date:** 2026-04-29
+**Status:** Active
+**Decision:** Keep `_server.py` focused on FastAPI app setup, shared dependency helpers, and tiny infrastructure routes. New feature domains should land in a dedicated `_routes_*.py` module once they own meaningful behavior.
+**Reasoning:** The route extraction work already established a stable end state: `_server.py` is easier to navigate when it reads like the server assembly story instead of a monolith with every endpoint inline. This keeps feature logic grouped by domain without hiding the core app bootstrap path.
+**Alternatives considered:** Leaving all routes inline in `_server.py` (rejected — too much coupling and scan cost); extracting every last tiny infrastructure route (rejected — obscures the server surface without reducing real complexity).
+**Consequences:** When adding an endpoint, first ask whether an existing domain module should own it. Leave tiny routes like `/`, `/ping`, `/shell`, asset serving, and shared dependency helpers inline unless there is real coupling pressure.

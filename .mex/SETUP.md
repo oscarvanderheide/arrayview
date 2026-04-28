@@ -16,6 +16,8 @@ The script handles everything automatically:
 3. Pre-scans your codebase with `mex init` to build a structured brief (~5-8k tokens vs ~50k from AI exploration)
 4. Builds and runs the population prompt — or prints it for manual paste
 
+In this repo, `.mex/setup.sh` also installs the post-commit drift hook with `mex watch`.
+
 If you want to populate manually instead, use the prompts below.
 
 ## Detecting Your State

@@ -20,7 +20,7 @@ edges:
     condition: when writing new render functions or extending the pipeline
   - target: patterns/debug-render.md
     condition: when a render produces wrong output or the wrong cache is hit
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Render Pipeline
@@ -108,3 +108,4 @@ Separate 1-thread `ThreadPoolExecutor` (`arrayview-prefetch`). Warms `raw_cache`
 - **Cache key collisions** — the `key_idx` tuple replaces slice-dim positions with `None`. A bug here causes stale tiles to display for wrong indices.
 - **LUT initialization race** — `_init_luts()` uses a double-checked lock. Do not call `LUTS[name]` directly before calling `_init_luts()`.
 - **Dtype handling** — `extract_slice()` must return `float32`. RGB uint8 arrays must NOT go through the float pipeline. Inserting a new format type that returns a different dtype will silently corrupt renders.
+- **Compare center color overrides** — the compare center pane can preview its own LUT override (`_diffCenterColormap`) without changing the source panes. If a render bug only appears in the center pane, check the compare-specific colorbar state before blaming the shared LUT cache.

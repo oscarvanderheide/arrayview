@@ -24,6 +24,8 @@ Default to generating a pattern. Only skip if:
 
 If in doubt, generate the pattern. A pattern that turns out to be obvious costs nothing. A missing pattern costs a broken codebase.
 
+When you mention shell commands, split the executable from the repo path when possible. Prefer "run `uv run pytest` on `tests/test_api.py`" over a single code span that mixes both; this keeps `mex check` from mistaking the whole command for a filesystem path.
+
 ## Format
 
 ### Single-task pattern (one file = one task)

@@ -20,7 +20,7 @@ edges:
     condition: when working on rendering, colormaps, LUTs, caching, or the render thread
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-17
+last_updated: 2026-04-29
 ---
 
 # arrayview — Router
@@ -36,10 +36,12 @@ Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI,
 - Render thread must remain a raw `threading.Thread` + `SimpleQueue`, not `concurrent.futures`
 
 ## Commands
-- Test: `uv run pytest tests/`
-- Visual smoke: `uv run python tests/visual_smoke.py`
+- Test: run `uv run pytest` against `tests/`
+- Visual smoke: run `uv run python` on `tests/visual_smoke.py`
 - CLI: `uvx arrayview <file>`
 - Build: `uv build`
+- Drift check: `mex check --quiet`
+- Auto drift hook: `mex watch`
 
 ## Context Budget
 

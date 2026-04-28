@@ -20,14 +20,14 @@ edges:
     condition: for shared conventions and the Verify Checklist
   - target: patterns/debug-render.md
     condition: when the change produces wrong visual output
-last_updated: 2026-04-15
+last_updated: 2026-04-29
 ---
 
 # Frontend Change
 
 ## Context
 
-The entire frontend lives in `src/arrayview/_viewer.html` (~15,600 lines). No build step. No separate files.
+The entire frontend lives in `src/arrayview/_viewer.html` (~24,700 lines). No build step. No separate files.
 
 Structure:
 - **CSS** (lines ~7–1500): sections separated by `/* ── Section Name ── */`
@@ -57,15 +57,15 @@ Skills to consider:
 6. If adding a keyboard shortcut: add it to the **help overlay** section too
 7. If adding a new mode: register it in the **Mode Registry**
 8. Run narrow verification for the touched behavior (manual check, focused test, or targeted scenario)
-9. If the user explicitly asked for a full visual check, or this is release validation, run the broader audit path (`ui-consistency-audit`, `uv run python tests/visual_smoke.py`, screenshots as relevant)
-10. If the change affects mode routing/layout behavior across modes, run `uv run pytest tests/test_mode_consistency.py`
+9. If the user explicitly asked for a full visual check, or this is release validation, run the broader audit path (`ui-consistency-audit`, then `uv run python` on `tests/visual_smoke.py`, plus screenshots as relevant)
+10. If the change affects mode routing/layout behavior across modes, run `uv run pytest` on `tests/test_mode_consistency.py`
 11. If the feature is documented in `docs/`: update the relevant page
 
 ## Gotchas
 
 - **Search by section separator** — the file is 15k lines. Never read the whole file. Always grep for the section separator first, then read 50–100 lines around it.
 - **Modes are exclusive** — entering one mode must exit conflicting modes. Check `Mode Registry` for existing exit hooks.
-- **ColorBar class migration** — some colorbars use the new `ColorBar` JS class; some use legacy inline code. Do not mix styles in the same colorbar. Check `project_colorbar_refactor.md` memory.
+- **ColorBar class migration** — some colorbars use the new `ColorBar` JS class; some use legacy inline code. Do not mix styles in the same colorbar. Check the `ColorBar class` section in `context/frontend.md` and the nearby `_viewer.html` section you are editing.
 - **help overlay is not auto-generated** — it's a static list. Forgetting to update it leaves users with invisible shortcuts.
 - **No hot reload** — changes require a browser refresh. The server does not push frontend updates.
 - **Stale daemon trap** — `uv run arrayview ...` can leave `_serve_daemon` orphaned on port 8000 after the launching terminal exits. If the browser still shows old frontend code after a refresh, check `lsof -nP -iTCP:8000 -sTCP:LISTEN`, kill the old daemon PID, then launch again before trusting browser verification.
@@ -82,8 +82,8 @@ Skills to consider:
 - [ ] No new external JS/CSS files created — everything stays in `_viewer.html`
 - [ ] Help overlay updated if a keyboard shortcut was added or changed
 - [ ] Narrow verification for the touched behavior completed
-- [ ] If full visual audit was requested, or this is release validation, `ui-consistency-audit` and `uv run python tests/visual_smoke.py` pass
-- [ ] If mode routing/layout behavior changed across modes, `uv run pytest tests/test_mode_consistency.py` passes
+- [ ] If full visual audit was requested, or this is release validation, `ui-consistency-audit` and `uv run python` on `tests/visual_smoke.py` pass
+- [ ] If mode routing/layout behavior changed across modes, `uv run pytest` on `tests/test_mode_consistency.py` passes
 - [ ] New colors use `--av-*` CSS custom properties from the theme section
 
 ## Debug
