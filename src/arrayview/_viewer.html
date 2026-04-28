@@ -10569,6 +10569,7 @@
             if (held !== _obliqueAltHeld) {
                 _obliqueAltHeld = held;
                 _reconcileObliqueFlip();
+                _reconcileMvOrientationVisibility();
                 if (typeof _mvRecomputeCrosshairTarget === 'function') {
                     _mvRecomputeCrosshairTarget();
                 }
@@ -10579,7 +10580,11 @@
         window.addEventListener('mousemove', _updateAltState, true);
         // Alt can get "stuck" on blur (user tabs away while holding) — clear.
         window.addEventListener('blur', () => {
-            if (_obliqueAltHeld) { _obliqueAltHeld = false; _reconcileObliqueFlip(); }
+            if (_obliqueAltHeld) {
+                _obliqueAltHeld = false;
+                _reconcileObliqueFlip();
+                _reconcileMvOrientationVisibility();
+            }
         });
 
         // Attach slider listeners after each renderIsland. We wire `input` to
@@ -15316,7 +15321,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Controls',
                         entries: [
                             { key: 'v', action: 'Enter or exit ortho view' },
-                            { key: 'orientation cube', action: 'Always visible in ortho view' },
+                            { key: 'orientation HUD', action: 'Shows while drag-scrubbing or holding Alt/Option' },
                             { key: 'Click / Drag', action: 'Set crosshair position', hint: 'click any panel to jump all views to that point, or drag to scrub' },
                             { key: 'Drag lines', action: 'Reposition slice planes', hint: 'each colored line corresponds to a slice in another panel' },
                             { key: 'p', action: 'Maximum intensity projection (MIP)', hint: '3D volume rendering — drag to rotate' },
@@ -17328,6 +17333,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             prevX: px, prevY: py,
                             cx: view.lastW / 2, cy: view.lastH / 2,
                         };
+                        _reconcileMvOrientationVisibility();
                         _mvSetCrosshairTarget(1);
                         // Start oblique renders immediately so the transition from
                         // axis-aligned to oblique is correct before any rotation.
@@ -17338,6 +17344,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             mvNavDragPrev.depthOff = _mvDepthOffsetForView(view);
                         }
                         mvDraggingView = view;
+                        _reconcileMvOrientationVisibility();
                         _mvSetCrosshairTarget(1);
                         handleMvPointer(view, e);
                     }
@@ -18993,6 +19000,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             }
                         }
                         cmvDraggingView = view;
+                        _reconcileMvOrientationVisibility();
                         _cmvSetCrosshairTarget(1, sidVal);
                         handleCmvPointer(view, e);
                     });
@@ -20177,10 +20185,18 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (row) row.classList.toggle('mv-crosshair-active', target > 0);
             if (!_mvCrosshairAnim) _mvCrosshairAnim = requestAnimationFrame(_mvAnimateCrosshairs);
         }
+        function _reconcileMvOrientationVisibility() {
+            const mvOrientation = document.getElementById('mv-orientation');
+            if (!mvOrientation) return;
+            const show = !!((multiViewActive || compareMvActive)
+                && (mvDraggingView || cmvDraggingView || obliqueDrag || _obliqueAltHeld));
+            mvOrientation.style.display = show ? 'block' : 'none';
+        }
         function _mvRecomputeCrosshairTarget() {
             if (!multiViewActive) return;
             const show = !!(mvDraggingView || obliqueDrag || _obliqueAltHeld);
             _mvSetCrosshairTarget(show ? 1 : 0);
+            _reconcileMvOrientationVisibility();
         }
         function _cmvAnimateCrosshairs() {
             const speed = 0.12;
@@ -20668,6 +20684,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             mvNavDragPrev = null;
             mvDraggingView = null;
             cmvDraggingView = null;
+            _reconcileMvOrientationVisibility();
             // Sync crosshair visibility after drag ends: the pane mouseleave was
             // suppressed during drag, so restore the correct state now.
             if (multiViewActive) _mvRecomputeCrosshairTarget();
@@ -22129,7 +22146,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
             // 4. Multiview orientation indicator
             const mvOrientation = document.getElementById('mv-orientation');
-            if (mvOrientation) mvOrientation.style.display = (multiViewActive || compareMvActive) ? 'block' : 'none';
+            if (mvOrientation) _reconcileMvOrientationVisibility();
 
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
