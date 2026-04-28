@@ -4954,12 +4954,16 @@
                 if (diffCanvas) {
                     const diffInner = diffCanvas.closest('.compare-canvas-inner');
                     const diffVpW = diffInner && diffInner.dataset.vpW ? parseInt(diffInner.dataset.vpW) : 0;
-                    const cssW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
-                    if (!colorbarVisible() || !cssW || cssW < 10) {
+                    const paneW = diffVpW > 0 ? Math.min(parseInt(diffCanvas.style.width), diffVpW) : parseInt(diffCanvas.style.width);
+                    if (!colorbarVisible() || !paneW || paneW < 10) {
                         if (diffCbIsland) diffCbIsland.style.display = 'none';
                         return;
                     }
-                    const diffIslandW = _fullscreenActive ? Math.min(Math.round(cssW * 0.6), 350) : cssW;
+                    const diffIslandW = _fullscreenActive ? Math.min(Math.round(paneW * 0.6), 350) : cbTargetWidth(paneW);
+                    if (diffIslandW == null) {
+                        if (diffCbIsland) diffCbIsland.style.display = 'none';
+                        return;
+                    }
                     if (diffCbIsland) { diffCbIsland.style.display = ''; diffCbIsland.style.width = diffIslandW + 'px'; }
                     if (diffPaneCb) diffPaneCb.style.display = '';
                 }

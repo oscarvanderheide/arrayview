@@ -978,6 +978,7 @@ class TestKeyboard:
                 const compareVal = document.querySelector('#compare-left-pane-cb-vmin');
                 const diffVal = document.querySelector('#compare-diff-pane-cb-vmin');
                 const compareIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
+                const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
                 const leftRect = leftClip?.getBoundingClientRect() || null;
                 const centerRect = centerClip?.getBoundingClientRect() || null;
                 const rightRect = rightClip?.getBoundingClientRect() || null;
@@ -994,6 +995,8 @@ class TestKeyboard:
                     slimValFamily: slimVal ? getComputedStyle(slimVal).fontFamily : '',
                     compareValFamily: compareVal ? getComputedStyle(compareVal).fontFamily : '',
                     compareIslandGap: compareIsland ? getComputedStyle(compareIsland).gap : '',
+                    compareIslandWidth: compareIsland ? getComputedStyle(compareIsland).width : '',
+                    diffIslandWidth: diffIsland ? getComputedStyle(diffIsland).width : '',
                     leftRect,
                     centerRect,
                     rightRect,
@@ -1011,6 +1014,7 @@ class TestKeyboard:
         assert state["diffValFont"] == state["slimValFont"], f"diff-pane labels should match normal colorbar font sizing, got: {state}"
         assert state["compareValFamily"] == state["slimValFamily"], f"compare source-pane labels should match normal colorbar font family, got: {state}"
         assert state["compareIslandGap"] == "8px", f"compare source-pane label spacing should match the normal colorbar gap, got: {state}"
+        assert state["diffIslandWidth"] == state["compareIslandWidth"], f"diff-pane colorbar island should match the source-pane width rule, got: {state}"
         assert state["leftRect"] and state["centerRect"] and state["rightRect"], f"compare clips should all exist in X mode, got: {state}"
         assert abs(state["leftRect"]["top"] - state["centerRect"]["top"]) <= 1, f"left and center compare clips should align vertically, got: {state}"
         assert abs(state["rightRect"]["top"] - state["centerRect"]["top"]) <= 1, f"right and center compare clips should align vertically, got: {state}"
