@@ -1135,6 +1135,59 @@
             padding: 0 10px 10px;
             border-top: 1px solid rgba(255,255,255,0.04);
         }
+        #dynamic-island .compare-center-mode-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+            padding-top: 8px;
+        }
+        #dynamic-island .compare-center-mode-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 28px; min-height: 22px; padding: 3px 6px;
+            border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.03); color: var(--text);
+            font-family: inherit; font-size: 10px; line-height: 1.15; text-align: center;
+            cursor: pointer; transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+            position: relative; overflow: hidden;
+        }
+        #dynamic-island .compare-center-mode-btn:hover {
+            border-color: rgba(245,200,66,0.3);
+            color: var(--highlight);
+            background: rgba(255,255,255,0.05);
+        }
+        #dynamic-island .compare-center-mode-btn.active {
+            border-color: rgba(245,200,66,0.5);
+            color: var(--active-dim);
+            background: rgba(245,200,66,0.08);
+        }
+        #dynamic-island .compare-center-mode-glyph {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-height: 12px;
+            transition: opacity 120ms ease;
+        }
+        #dynamic-island .compare-center-mode-text {
+            position: absolute;
+            inset: 0;
+            color: inherit;
+            display: inline-flex; align-items: center; justify-content: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 8px;
+            opacity: 0;
+            transition: opacity 120ms ease;
+            pointer-events: none;
+        }
+        #dynamic-island .compare-center-mode-btn:hover .compare-center-mode-glyph,
+        #dynamic-island .compare-center-mode-btn:focus-visible .compare-center-mode-glyph {
+            opacity: 0.12;
+        }
+        #dynamic-island .compare-center-mode-btn:hover .compare-center-mode-text,
+        #dynamic-island .compare-center-mode-btn:focus-visible .compare-center-mode-text {
+            opacity: 0.92;
+        }
         @keyframes tool-title-pulse {
             0% { text-shadow: 0 0 0 rgba(245,200,66,0); }
             20% { text-shadow: 0 0 14px rgba(245,200,66,0.28); }
@@ -1558,6 +1611,32 @@
         .compare-pane.compare-tertiary { order: 3; }
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
+        .compare-title.compare-center-title { cursor: default; max-width: 100%; overflow: visible; text-overflow: clip; }
+        .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; }
+        .compare-title .compare-center-mode-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 28px; min-height: 22px; padding: 3px 6px;
+            border-radius: 6px; border: 1px solid transparent;
+            background: transparent; color: var(--muted);
+            font-family: inherit; cursor: pointer;
+            transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+        }
+        .compare-title .compare-center-mode-btn:hover {
+            color: var(--text);
+            border-color: rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.03);
+        }
+        .compare-title .compare-center-mode-btn.active {
+            color: var(--active-dim);
+            border-color: rgba(245,200,66,0.35);
+            background: rgba(245,200,66,0.08);
+        }
+        .compare-title .compare-center-mode-glyph {
+            min-height: 12px;
+            text-transform: none;
+            letter-spacing: 0;
+            line-height: 1;
+        }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: flex-start; justify-content: center;
             padding: 4px 8px 8px; box-sizing: border-box; overflow: visible;
@@ -3472,8 +3551,8 @@
             registrationAlpha = Math.max(0.05, Math.min(0.95, registrationAlpha + step));
             { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
             applyCompareLayout(); drawCompareFramesFromCache(); saveState();
-            const _dt0 = document.getElementById('compare-diff-title');
-            if (_dt0) _dt0.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+            _syncCompareCenterIsland();
+            if (toolMenuOpen) renderToolMenu();
             showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
         }, { passive: false });
         regBlendBarWrap.addEventListener('mousedown', (e) => {
@@ -3489,8 +3568,8 @@
             registrationAlpha = Math.max(0.05, Math.min(0.95, (_regBlendDragAlpha0 || 0.5) + dx / rect.width));
             { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
             applyCompareLayout(); drawCompareFramesFromCache(); drawRegBlendCb();
-            const _dt1 = document.getElementById('compare-diff-title');
-            if (_dt1) _dt1.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+            _syncCompareCenterIsland();
+            if (toolMenuOpen) renderToolMenu();
             showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
         });
         window.addEventListener('mouseup', () => { if (_regBlendDragX !== null) { _regBlendDragX = null; saveState(); } });
@@ -4287,7 +4366,7 @@
                     return `<span ${s}="color:#44ff44;opacity:${aOp}">A</span><span ${s}="width:0.5em;display:inline-block"></span><span ${s}="color:#ff44ff;opacity:${bOp}">B</span>`;
                 }
                 case 5: return `<span ${s}="color:#6db3f2">A</span><span ${s}="color:#e8d050;margin:0 2px">│</span><span ${s}="color:#f2916d">B</span>`;
-                case 6: return extra || '<span>A</span>';
+                case 6: return extra || '<span style="color:#6db3f2">A</span><span style="opacity:0.55;margin:0 3px">⇄</span><span style="color:#f2916d">B</span>';
                 case 7: return `<svg width="12" height="12" viewBox="0 0 4 4" style="vertical-align:middle"><rect x="0" y="0" width="1" height="1" fill="#fff"/><rect x="1" y="0" width="1" height="1" fill="#000"/><rect x="2" y="0" width="1" height="1" fill="#fff"/><rect x="3" y="0" width="1" height="1" fill="#000"/><rect x="0" y="1" width="1" height="1" fill="#000"/><rect x="1" y="1" width="1" height="1" fill="#fff"/><rect x="2" y="1" width="1" height="1" fill="#000"/><rect x="3" y="1" width="1" height="1" fill="#fff"/><rect x="0" y="2" width="1" height="1" fill="#fff"/><rect x="1" y="2" width="1" height="1" fill="#000"/><rect x="2" y="2" width="1" height="1" fill="#fff"/><rect x="3" y="2" width="1" height="1" fill="#000"/><rect x="0" y="3" width="1" height="1" fill="#000"/><rect x="1" y="3" width="1" height="1" fill="#fff"/><rect x="2" y="3" width="1" height="1" fill="#000"/><rect x="3" y="3" width="1" height="1" fill="#fff"/></svg>`;
                 default: return '';
             }
@@ -4300,9 +4379,6 @@
             if (registrationMode && labels.length >= 2) {
                 labels[0] = compareBaseName || 'base';
                 labels[1] = compareName || 'other';
-                // Set the diff pane title for the overlay blend
-                const diffTitle = document.getElementById('compare-diff-title');
-                if (diffTitle) diffTitle.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
@@ -4316,11 +4392,116 @@
                     el.textContent = '';
                 }
             });
+            _renderCompareCenterTitleControls();
         }
 
         // ── Compare center-pane mode (unified: diff / overlay / wipe) ─────────
         // 0=off, 1=A−B, 2=|A−B|, 3=|A−B|/|A|, 4=overlay, 5=wipe
         const COMPARE_CENTER_LABELS = ['off', 'A−B', '|A−B|', '|A−B|/|A|', 'overlay', 'wipe', 'flicker', 'checker'];
+        const COMPARE_CENTER_BUTTON_TEXT = ['off', 'A−B', '|A−B|', 'relative', 'overlay', 'wipe', 'flicker', 'checker'];
+        const _COMPARE_CENTER_BUTTON_MODES = [1, 2, 3, 4, 5, 6, 7];
+        let _lastCompareCenterMode = 1;
+
+        function _compareCenterPaneCount() {
+            if (Array.isArray(_compareExplicitSids) && _compareExplicitSids.length) return _compareExplicitSids.length;
+            if (Array.isArray(compareDisplaySids) && compareDisplaySids.length) return compareDisplaySids.length;
+            if (compareActive && modeManager && Array.isArray(modeManager.currentViews)) {
+                return modeManager.currentViews.filter(v => v && v.role === 'compare').length;
+            }
+            return 0;
+        }
+
+        function _compareCenterSupported() {
+            return compareActive && _compareCenterPaneCount() === 2;
+        }
+
+        function _compareCenterIndicatorForState() {
+            switch (compareCenterMode) {
+                case 4: return _centerModeIndicatorHTML(4, registrationAlpha);
+                case 6: return _centerModeIndicatorHTML(6);
+                case 7: return _centerModeIndicatorHTML(7);
+                default: return _centerModeIndicatorHTML(compareCenterMode);
+            }
+        }
+
+        function _centerModeButtonGlyphHTML(mode) {
+            const s = 'style';
+            switch (mode) {
+                case 2:
+                    return `<span ${s}="color:#fff">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff">−</span><span ${s}="color:#f2916d">B</span><span ${s}="color:#fff">|</span>`;
+                case 3:
+                    return `<span ${s}="color:#fff">|</span><span ${s}="color:#6db3f2">A</span><span ${s}="color:#fff">−</span><span ${s}="color:#f2916d">B</span><span ${s}="color:#fff">|/</span><span ${s}="color:#6db3f2">A</span>`;
+                default:
+                    return _centerModeIndicatorHTML(mode);
+            }
+        }
+
+        function _nextCompareCenterModeValue() {
+            if (!_compareCenterSupported()) return 0;
+            return compareCenterMode === 0 ? 1
+                : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
+                : compareCenterMode + 1;
+        }
+
+        function _renderCompareCenterModeButtons(opts) {
+            const compact = !!(opts && opts.compact);
+            const showLabels = !!(opts && opts.showLabels);
+            const activeMode = Number.isInteger(opts?.activeMode) ? opts.activeMode : compareCenterMode;
+            const rowClass = compact ? 'compare-center-title-controls' : 'compare-center-mode-row';
+            return `<div class="${rowClass}">` + _COMPARE_CENTER_BUTTON_MODES.map(mode => {
+                const label = COMPARE_CENTER_LABELS[mode];
+                const buttonText = COMPARE_CENTER_BUTTON_TEXT[mode] || label;
+                const active = activeMode === mode;
+                const cls = `compare-center-mode-btn${active ? ' active' : ''}`;
+                const text = showLabels ? `<span class="compare-center-mode-text">${buttonText}</span>` : '';
+                return `<button type="button" class="${cls}" title="${label}" aria-label="${label}" onclick="_onCompareCenterModeButton(event, ${mode})"><span class="compare-center-mode-glyph">${_centerModeButtonGlyphHTML(mode)}</span>${text}</button>`;
+            }).join('') + `</div>`;
+        }
+
+        function _renderCompareCenterTitleControls() {
+            const supported = _compareCenterSupported();
+            const diffTitle = document.getElementById('compare-diff-title');
+            const wipeTitle = document.getElementById('compare-wipe-title');
+            const currentMode = compareCenterMode > 0 ? compareCenterMode : (_lastCompareCenterMode || 1);
+            const currentLabel = COMPARE_CENTER_LABELS[currentMode] || 'compare center';
+            const buttonHtml = supported
+                ? `<div class="compare-center-title-controls"><button type="button" class="compare-center-mode-btn active" title="${currentLabel} · click to advance" aria-label="${currentLabel}" onclick="_cycleCompareCenterMode(event)"><span class="compare-center-mode-glyph">${_centerModeButtonGlyphHTML(currentMode)}</span></button></div>`
+                : null;
+            if (diffTitle) {
+                diffTitle.classList.toggle('compare-center-title', supported);
+                diffTitle.innerHTML = supported ? buttonHtml : 'A − B';
+            }
+            if (wipeTitle) {
+                wipeTitle.classList.toggle('compare-center-title', supported);
+                wipeTitle.innerHTML = supported ? buttonHtml : 'A ◁▷ B';
+            }
+        }
+
+        function _syncCompareCenterIsland() {
+            if (!_fullscreenActive || compareCenterMode <= 0) return;
+            const centerIsland = document.getElementById('compare-center-island');
+            if (centerIsland) centerIsland.innerHTML = _compareCenterIndicatorForState();
+        }
+
+        function _onCompareCenterModeButton(event, mode) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            if (!_compareCenterSupported() || compareCenterMode === mode) return;
+            _setCompareCenterMode(mode);
+        }
+        window._onCompareCenterModeButton = _onCompareCenterModeButton;
+
+        function _cycleCompareCenterMode(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            if (!_compareCenterSupported()) return;
+            _setCompareCenterMode(_nextCompareCenterModeValue());
+        }
+        window._cycleCompareCenterMode = _cycleCompareCenterMode;
 
         // ── Compare/Diff mode ColorBar instances ─────────────────────────
         // `_comparePaneCbs` are the persistent per-pane left/right/etc. bars
@@ -4455,8 +4636,8 @@
         }
 
         function _setCompareCenterMode(newMode) {
-            const prev = compareCenterMode;
             compareCenterMode = newMode;
+            if (newMode > 0) _lastCompareCenterMode = newMode;
             // Derive legacy state variables from unified mode
             const prevDiffMode = diffMode;
             diffMode       = (newMode >= 1 && newMode <= 3) ? newMode : 0;
@@ -4493,8 +4674,6 @@
                 drawCompareFramesFromCache();
                 showStatus('compare center: off');
             } else if (diffMode > 0) {
-                const dt = document.getElementById('compare-diff-title');
-                if (dt) dt.innerHTML = _centerModeIndicatorHTML(diffMode);
                 compareScaleCanvases();
                 fetchAndDrawDiff();
                 showStatus(`diff: ${COMPARE_CENTER_LABELS[newMode]}`);
@@ -4502,34 +4681,26 @@
                 drawCompareFramesFromCache();
                 showStatus(`overlay: on · [ ] blend · X to cycle`);
             } else if (_wipeActive) {
-                const wt = document.getElementById('compare-wipe-title');
-                if (wt) wt.innerHTML = _centerModeIndicatorHTML(5);
                 compareScaleCanvases();
                 _drawWipe();
                 showStatus('wipe: move cursor to sweep · X to cycle');
             } else if (_flickerActive) {
-                const wt = document.getElementById('compare-wipe-title');
-                if (wt) wt.innerHTML = _centerModeIndicatorHTML(6, '<span style="color:#6db3f2">A</span><span style="opacity:0.3;margin:0 3px">⇄</span><span style="color:#f2916d;opacity:0.25">B</span>');
                 compareScaleCanvases();
                 _startFlicker();
                 showStatus('flicker: auto-toggling A/B · [ ] rate · X to cycle');
             } else if (_checkerActive) {
-                const wt = document.getElementById('compare-wipe-title');
-                if (wt) wt.innerHTML = _centerModeIndicatorHTML(7, `${_checkerSize}px`);
                 compareScaleCanvases();
                 _drawCheckerboard();
                 showStatus('checker: [ ] tile size · X to cycle');
             }
-            // Update center-mode island content (reconciler handles visibility)
-            if (newMode > 0 && _fullscreenActive) {
-                const centerIsland = document.getElementById('compare-center-island');
-                if (centerIsland) centerIsland.innerHTML = _centerModeIndicatorHTML(newMode);
-            }
+            _renderCompareCenterTitleControls();
+            if (newMode > 0) _syncCompareCenterIsland();
             _reconcileCompareState();
             _reconcileCbVisibility();
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
+            if (toolMenuOpen) renderToolMenu();
             // Phase 5: sync diff center pane into modeManager
             if (diffMode > 0 && compareActive) {
                 // Add or update a center diff View in modeManager.currentViews
@@ -8761,8 +8932,6 @@
                     diffCanvas.style.width = refCanvas.style.width;
                     diffCanvas.style.height = refCanvas.style.height;
                 }
-                const titleEl = document.getElementById('compare-diff-title');
-                if (titleEl) titleEl.innerHTML = _centerModeIndicatorHTML(diffMode);
                 _lastDiffVmin = isNaN(hdrVmin) ? 0 : hdrVmin;
                 _lastDiffVmax = isNaN(hdrVmax) ? 1 : hdrVmax;
                 // Cache gradient stops for the colormap used by the server
@@ -11484,6 +11653,7 @@
             } else {
                 compareCenterMode = s.registrationMode ? 4 : 0;
             }
+            if (compareCenterMode > 0) _lastCompareCenterMode = compareCenterMode;
             registrationMode = (compareCenterMode === 4);
             diffMode = (compareCenterMode >= 1 && compareCenterMode <= 3) ? compareCenterMode : 0;
             _wipeActive = (compareCenterMode === 5);
@@ -12097,6 +12267,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         let paletteOpen = false;
         const TOOL_TILES = [
             {
+                id: 'comparecenter',
+                label: 'Compare center',
+                desc: 'pick the exact 2-array center comparison mode',
+                keyHint: 'x',
+                isEnabled: () => _compareCenterSupported(),
+                isActive: () => compareCenterMode > 0,
+                excludes: [],
+            },
+            {
                 id: 'qmri',
                 label: 'Quantitative MRI mode',
                 desc: 'fit and visualise parameter maps',
@@ -12152,6 +12331,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             },
         ];
         const TOOL_HELP = {
+            comparecenter: 'compare',
             qmri:         'tool-qmri',
             segmentation: 'tool-segmentation',
             roi:          'tool-roi',
@@ -13788,9 +13968,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         { const _rv = modeManager.getViewById('compare-reg-center'); if (_rv) _rv.displayState._registrationAlpha = registrationAlpha; }
                         applyCompareLayout();
                         drawCompareFramesFromCache();
-                        // Update overlay title to reflect new blend
-                        const _dt = document.getElementById('compare-diff-title');
-                        if (_dt) _dt.innerHTML = _centerModeIndicatorHTML(4, registrationAlpha);
+                        _syncCompareCenterIsland();
+                        if (toolMenuOpen) renderToolMenu();
                         showStatus(`overlay blend: ${Math.round(registrationAlpha * 100)}%`);
                         saveState();
                     } else if (hasVectorfield && !overlay_sid && !compareActive) {
@@ -15073,16 +15252,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             'compare.cycleCenterMode': {
                 when: ['compareActive', 'arraysLength>=2'],
                 run: (ctx, e) => {
-                    const cmpCount = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
-                    if (!compareActive || cmpCount !== 2) {
+                    if (!_compareCenterSupported()) {
                         showToast('center-mode cycle: only available in 2-pane compare');
                         return;
                     }
-                    // Cycle 1→2→...→7→0 (off). From off, go to 1 (skip showing "off" as a stop).
-                    const nextMode = compareCenterMode === 0 ? 1
-                        : (compareCenterMode + 1) >= COMPARE_CENTER_LABELS.length ? 0
-                        : compareCenterMode + 1;
-                    _setCompareCenterMode(nextMode);
+                    _setCompareCenterMode(_nextCompareCenterModeValue());
                     return;
                 },
             },
@@ -15101,6 +15275,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 when: ['anyToolActive'],
                 run: (ctx, e) => {
                     closeToolMenu();
+                    const needsCrossfade = (
+                        (typeof _segMode !== 'undefined' && _segMode)
+                        || rectRoiMode
+                        || qmriActive || compareQmriActive
+                        || (typeof _cropActive !== 'undefined' && _cropActive)
+                        || (_overlaySids.length > 0 && _overlayVisibility !== 'none')
+                        || (hasVectorfield && vfieldVisible)
+                    );
+                    if (compareCenterMode > 0) _setCompareCenterMode(0);
+                    if (!needsCrossfade) return;
                     crossfade(() => {
                         if (typeof _segMode !== 'undefined' && _segMode) { commands['seg.exit'].run(ctx, e); }
                         if (rectRoiMode) { commands['roi.cycleMode'].run(ctx, e); }
@@ -15212,6 +15396,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
                 saveMenuOpen: (typeof saveMenuOpen !== 'undefined') ? !!saveMenuOpen : false,
                 anyToolActive: (
+                    compareCenterMode > 0
+                    || 
                     qmriActive
                     || (typeof compareQmriActive !== 'undefined' && compareQmriActive)
                     || rectRoiMode
@@ -15361,7 +15547,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
-                            { key: 'X', action: 'Cycle compare operation', hint: 'off → A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
+                            { key: '/ x', action: 'Toggle compare center', hint: 'opens the last-used center mode from the tool menu; click the mode buttons in the tool or center-pane header for direct selection' },
+                            { key: 'X', action: 'Cycle compare operation', hint: 'keyboard fallback: off → A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
                             { key: '[ ]', action: 'Adjust operation parameter', hint: 'blend amount, flicker speed, or checkerboard tile size' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when X activated a center operation; outside compare, Z toggles full zen mode' },
                         ]
@@ -15691,6 +15878,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _toolToggle(id) {
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile || !_toolTileEnabled(tile)) return;
+            if (id === 'comparecenter') {
+                if (compareCenterMode > 0) _setCompareCenterMode(0);
+                else _setCompareCenterMode(_lastCompareCenterMode || 1);
+                return;
+            }
             const ctx = makeContext(null);
             const active = _toolTileActive(tile);
             if (id === 'overlay' && !_overlaySids.length && !active) {
@@ -15794,7 +15986,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 const cls = active ? 'tool-section active' : enabled ? 'tool-section available' : 'tool-section unavailable';
                 let body = '';
                 if (active) {
-                    if (tile.id === 'qmri') {
+                    if (tile.id === 'comparecenter') {
+                        body += _renderCompareCenterModeButtons({ activeMode: compareCenterMode, showLabels: true });
+                    } else if (tile.id === 'qmri') {
                         const qDim = compareQmriActive ? compareQmriDim : qmriDim;
                         const n = shape[qDim];
                         const allCmaps = QMRI_COLORMAPS[n];
@@ -16256,7 +16450,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 }
             }
             if (e.key === '?') {
-                const _activeTool = (qmriActive || compareQmriActive) ? 'qmri'
+                const _activeTool = compareCenterMode > 0 ? 'comparecenter'
+                    : (qmriActive || compareQmriActive) ? 'qmri'
                     : (typeof _segMode !== 'undefined' && _segMode) ? 'segmentation'
                     : rectRoiMode ? 'roi'
                     : (typeof _cropActive !== 'undefined' && _cropActive) ? 'crop'
@@ -16406,7 +16601,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _createComparePaneColorBars();
                 // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
                 // (applyStateSnapshot doesn't call _setCompareCenterMode so this is needed).
-                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
+                if (diffMode > 0 && !_diffCenterCb && _compareCenterSupported()) _createDiffColorBars();
                 _reconcileUI();
                 renderInfo();
                 updateView();
@@ -16472,10 +16667,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     modeManager.modeName = 'compare';
                     document.dispatchEvent(new CustomEvent('modechange', { detail: { mode: 'compare' } }));
                 }
+                if (compareCenterMode > 0 && sids.length !== 2) _setCompareCenterMode(0);
                 applyCompareLayout();
                 _createComparePaneColorBars();
                 // Restore-path fix: if snapshot set diffMode > 0, recreate diff center bar
-                if (diffMode > 0 && !_diffCenterCb) _createDiffColorBars();
+                if (diffMode > 0 && !_diffCenterCb && _compareCenterSupported()) _createDiffColorBars();
                 _reconcileUI();
                 renderInfo();
                 updateView();
@@ -23543,9 +23739,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _wipeRange.value = Math.round(_wipeFrac * 100);
                 _wipeRange.style.setProperty('--wipe-pct', (_wipeFrac * 100).toFixed(1) + '%');
             }
-            // Update pane title with styled wipe indicator
-            const wipeTitle = document.getElementById('compare-wipe-title');
-            if (wipeTitle) wipeTitle.innerHTML = _centerModeIndicatorHTML(5);
         }
 
         // Wipe follows cursor over the canvas
@@ -23604,18 +23797,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const frame = _flickerShowA ? s.f0 : s.f1;
             const d = applyFlips(frame.imageData, frame.width, frame.height);
             _wipeCtx.putImageData(d, 0, 0);
-            // Update title to show which frame is visible with styled indicator
-            const wipeTitle = document.getElementById('compare-wipe-title');
-            if (wipeTitle) {
-                const aStyle = _flickerShowA ? 'color:#6db3f2;opacity:1' : 'color:#6db3f2;opacity:0.25';
-                const bStyle = _flickerShowA ? 'color:#f2916d;opacity:0.25' : 'color:#f2916d;opacity:1';
-                wipeTitle.innerHTML = `<span style="${aStyle}">A</span><span style="opacity:0.3;margin:0 3px">⇄</span><span style="${bStyle}">B</span>`;
-            }
-            // Update center island during flicker
-            if (_fullscreenActive) {
-                const _island = document.getElementById('compare-center-island');
-                if (_island) _island.innerHTML = wipeTitle ? wipeTitle.innerHTML : '';
-            }
+            _syncCompareCenterIsland();
         }
 
         // ── 4c. Checkerboard compare ─────────────────────────────────
@@ -23658,13 +23840,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _wipeCtx.beginPath(); _wipeCtx.moveTo(0, y); _wipeCtx.lineTo(W, y); _wipeCtx.stroke();
             }
             _wipeCtx.restore();
-            // Update title with styled checkerboard indicator
-            const wipeTitle = document.getElementById('compare-wipe-title');
-            if (wipeTitle) wipeTitle.innerHTML = _centerModeIndicatorHTML(7, `${sz}px`);
-            if (_fullscreenActive) {
-                const _island = document.getElementById('compare-center-island');
-                if (_island) _island.innerHTML = _centerModeIndicatorHTML(7, `${sz}px`);
-            }
+            _syncCompareCenterIsland();
         }
 
         // Re-draw center pane whenever compare frames update
