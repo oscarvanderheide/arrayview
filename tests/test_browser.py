@@ -8,6 +8,7 @@ Subsequent runs compare against them (1% pixel-change threshold).
 """
 
 import io
+import time
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from PIL import Image, ImageChops
 pytestmark = pytest.mark.browser
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
+DEBUG_DIR = Path(__file__).resolve().parents[1] / "debug"
 
 # ---------------------------------------------------------------------------
 # Canvas inspection helpers (evaluated in-browser via JS)
@@ -231,6 +233,89 @@ class TestBasicRender:
             timeout=15000,
         )
         assert page.locator(".tab-preview").count() == 0
+
+    def test_shell_init_compare_big_left_shows_shared_bar_and_stays_stable(
+        self, page, server_url, client
+    ):
+        base_path = DEBUG_DIR / "parameter_maps.nii"
+        compare_path = DEBUG_DIR / "parameter_maps_005.nii"
+        sid_base = client.post(
+            "/load", json={"filepath": str(base_path), "name": base_path.name}
+        ).json()["sid"]
+        sid_compare = client.post(
+            "/load", json={"filepath": str(compare_path), "name": compare_path.name}
+        ).json()["sid"]
+
+        page.goto(
+            f"{server_url}/shell?init_sid={sid_base}"
+            f"&init_name={base_path.name}"
+            f"&init_compare_sid={sid_compare}"
+            f"&init_compare_sids={sid_compare}"
+        )
+        page.wait_for_selector(".tab-pane.active iframe", timeout=5_000)
+        page.wait_for_function(
+            """() => {
+                const iframe = document.querySelector('.tab-pane.active iframe');
+                return !!iframe && !!iframe.contentWindow
+                    && !!iframe.contentDocument
+                    && !!iframe.contentDocument.querySelector('#compare-view-wrap.active');
+            }""",
+            timeout=15_000,
+        )
+
+        iframe = page.locator(".tab-pane.active iframe").element_handle()
+        frame = iframe.content_frame()
+        assert frame is not None
+        frame.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        frame.wait_for_timeout(900)
+        frame.focus("#keyboard-sink")
+        page.keyboard.press("X")
+        frame.wait_for_timeout(450)
+        page.keyboard.press("G")
+        frame.wait_for_timeout(450)
+
+        def _state():
+            return frame.evaluate(
+                """() => {
+                    const wrap = document.querySelector('#compare-view-wrap');
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    return {
+                        wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffClipRect: diffClip?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        initial = _state()
+        assert initial["wrapBigLeft"], f"shell compare init should enter big-left after X then G, got: {initial}"
+        assert initial["sharedCbDisplay"] != "none", f"shell compare init should show the shared source colorbar immediately after X then G, got: {initial}"
+        assert initial["sharedCbRect"], f"shell compare init should have a measurable shared source colorbar immediately after X then G, got: {initial}"
+        assert initial["diffClipRect"] and initial["sourceTopClipRect"] and initial["sourceBottomClipRect"], f"shell compare init should expose measurable clips after X then G, got: {initial}"
+        assert abs(initial["sharedCbRect"]["width"] - initial["sourceTopClipRect"]["width"]) <= 1, f"shell compare init should match the shared source colorbar width to the source pane width, got: {initial}"
+
+        source_box = frame.locator(".compare-primary .compare-canvas-clip").bounding_box()
+        assert source_box is not None
+        page.mouse.move(
+            source_box["x"] + source_box["width"] / 2,
+            source_box["y"] + source_box["height"] / 2,
+        )
+        page.mouse.wheel(0, -120)
+        frame.wait_for_timeout(1000)
+        after = _state()
+
+        assert after["sharedCbDisplay"] != "none", f"shell compare init should keep the shared source colorbar visible after wheel updates, got: {after}"
+        assert after["sharedCbRect"] and after["sourceTopClipRect"], f"shell compare init should keep the shared source colorbar and source pane measurable after wheel updates, got: {after}"
+        assert abs(after["sharedCbRect"]["width"] - after["sourceTopClipRect"]["width"]) <= 1, f"shell compare init should keep the shared source colorbar width matched after wheel updates, got: {after}"
+        assert after["diffClipRect"] and after["sourceTopClipRect"] and after["sourceBottomClipRect"], f"shell compare init should keep measurable clips after wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"shell compare init should keep top alignment after wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"shell compare init should keep bottom alignment after wheel updates, got: {after}"
 
 
 # ---------------------------------------------------------------------------
@@ -708,6 +793,269 @@ class TestKeyboard:
             f"Expected --compare-cols=3 for 6 panes, got '{compare_cols}'"
         )
 
+    def test_direct_multi_array_launch_big_left_shows_shared_bar_and_stays_stable(
+        self, page, server_url, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_direct_big_left.npy"
+        np.save(path, arr_3d * 0.8 + 0.1)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_compare_direct_big_left"}
+        ).json()["sid"]
+
+        page.goto(
+            f"{server_url}/?sid={sid_3d}"
+            f"&compare_sid={sid_compare}"
+            f"&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(700)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(350)
+        page.keyboard.press("G")
+        page.wait_for_timeout(350)
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const wrap = document.querySelector('#compare-view-wrap');
+                    const info = document.querySelector('#info');
+                    const diffTitle = document.querySelector('#compare-diff-title');
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    return {
+                        wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                        infoRect: info?.getBoundingClientRect() || null,
+                        diffTitleRect: diffTitle?.getBoundingClientRect() || null,
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffClipRect: diffClip?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        initial = _state()
+        assert initial["wrapBigLeft"], f"direct multi-array launch should enter big-left layout after X then G, got: {initial}"
+        assert initial["sharedCbDisplay"] != "none", f"shared source colorbar should be visible immediately on direct multi-array big-left launch, got: {initial}"
+        assert initial["sharedCbRect"], f"shared source colorbar should be measurable immediately on direct multi-array big-left launch, got: {initial}"
+        assert initial["diffClipRect"] and initial["sourceTopClipRect"] and initial["sourceBottomClipRect"], f"direct multi-array big-left clips should all be measurable, got: {initial}"
+        assert initial["diffClipRect"]["right"] <= initial["sourceTopClipRect"]["left"] + 1, f"left diff clip should not overlap the right source column on direct multi-array launch, got: {initial}"
+        assert abs(initial["sharedCbRect"]["width"] - initial["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should match the source clip width on direct multi-array launch, got: {initial}"
+        assert (
+            initial["diffTitleRect"]["bottom"] <= initial["infoRect"]["top"] + 1
+            or initial["diffTitleRect"]["top"] >= initial["infoRect"]["bottom"] - 1
+            or initial["diffTitleRect"]["right"] <= initial["infoRect"]["left"] + 1
+            or initial["diffTitleRect"]["left"] >= initial["infoRect"]["right"] - 1
+        ), f"big-left center title should not overlap the dimbar on direct multi-array launch, got: {initial}"
+
+        page.mouse.move(
+            initial["sourceTopClipRect"]["left"] + initial["sourceTopClipRect"]["width"] / 2,
+            initial["sourceTopClipRect"]["top"] + initial["sourceTopClipRect"]["height"] / 2,
+        )
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(1000)
+        after = _state()
+
+        assert after["sharedCbDisplay"] != "none", f"shared source colorbar should remain visible after direct multi-array wheel updates, got: {after}"
+        assert after["diffClipRect"] and after["sourceTopClipRect"] and after["sourceBottomClipRect"], f"direct multi-array big-left clips should remain measurable after wheel updates, got: {after}"
+        assert after["diffClipRect"]["right"] <= after["sourceTopClipRect"]["left"] + 1, f"left diff clip should stay out of the right source column after direct multi-array wheel updates, got: {after}"
+        assert abs(after["sharedCbRect"]["width"] - after["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should keep matching the source clip width after direct multi-array wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"left clip top should stay aligned with the top-right clip after direct multi-array wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should stay aligned with the lower-right clip after direct multi-array wheel updates, got: {after}"
+
+    def test_direct_debug_parameter_maps_big_left_shows_shared_bar_and_stays_stable(
+        self, page, server_url, client
+    ):
+        base_path = DEBUG_DIR / "parameter_maps.nii"
+        compare_path = DEBUG_DIR / "parameter_maps_005.nii"
+        sid_base = client.post(
+            "/load", json={"filepath": str(base_path), "name": base_path.name}
+        ).json()["sid"]
+        sid_compare = client.post(
+            "/load", json={"filepath": str(compare_path), "name": compare_path.name}
+        ).json()["sid"]
+
+        page.goto(
+            f"{server_url}/?sid={sid_base}"
+            f"&compare_sid={sid_compare}"
+            f"&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(900)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(450)
+        page.keyboard.press("G")
+        page.wait_for_timeout(450)
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const wrap = document.querySelector('#compare-view-wrap');
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    return {
+                        wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffClipRect: diffClip?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        initial = _state()
+        assert initial["wrapBigLeft"], f"debug parameter-maps launch should enter big-left after X then G, got: {initial}"
+        assert initial["sharedCbDisplay"] != "none", f"debug parameter-maps launch should show shared source colorbar immediately after X then G, got: {initial}"
+        assert initial["sharedCbRect"], f"debug parameter-maps launch should have a measurable shared source colorbar immediately after X then G, got: {initial}"
+        assert initial["diffClipRect"] and initial["sourceTopClipRect"] and initial["sourceBottomClipRect"], f"debug parameter-maps launch should expose measurable clips after X then G, got: {initial}"
+        assert abs(initial["sharedCbRect"]["width"] - initial["sourceTopClipRect"]["width"]) <= 1, f"debug parameter-maps launch should keep the shared source colorbar width matched to the source pane width, got: {initial}"
+
+        page.mouse.move(
+            initial["sourceTopClipRect"]["left"] + initial["sourceTopClipRect"]["width"] / 2,
+            initial["sourceTopClipRect"]["top"] + initial["sourceTopClipRect"]["height"] / 2,
+        )
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(1000)
+        after = _state()
+
+        assert after["sharedCbDisplay"] != "none", f"debug parameter-maps launch should keep the shared source colorbar visible after wheel updates, got: {after}"
+        assert after["sharedCbRect"] and after["sourceTopClipRect"], f"debug parameter-maps launch should keep measurable source colorbar and source pane after wheel updates, got: {after}"
+        assert abs(after["sharedCbRect"]["width"] - after["sourceTopClipRect"]["width"]) <= 1, f"debug parameter-maps launch should keep the shared source colorbar width matched after wheel updates, got: {after}"
+        assert after["diffClipRect"] and after["sourceTopClipRect"] and after["sourceBottomClipRect"], f"debug parameter-maps launch should keep measurable clips after wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"debug parameter-maps launch should keep top alignment after wheel updates, got: {after}"
+        assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"debug parameter-maps launch should keep bottom alignment after wheel updates, got: {after}"
+
+    def test_big_left_shared_source_bar_appears_before_delayed_diff_response(
+        self, page, server_url, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_compare_delayed_diff.npy"
+        np.save(path, arr_3d * 0.8 + 0.1)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_compare_delayed_diff"}
+        ).json()["sid"]
+
+        def _slow_diff(route):
+            time.sleep(0.9)
+            route.continue_()
+
+        page.route("**/diff/**", _slow_diff)
+        page.goto(
+            f"{server_url}/?sid={sid_3d}"
+            f"&compare_sid={sid_compare}"
+            f"&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(700)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(200)
+        page.keyboard.press("G")
+        page.wait_for_timeout(120)
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    return {
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffClipRect: diffClip?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        before_diff = _state()
+        assert before_diff["sharedCbDisplay"] != "none", f"shared source colorbar should appear immediately even while diff response is still pending, got: {before_diff}"
+        assert before_diff["sharedCbRect"], f"shared source colorbar should already be measurable before the diff response returns, got: {before_diff}"
+        assert before_diff["sourceTopClipRect"] and before_diff["sourceBottomClipRect"], f"source clips should already be measurable before the diff response returns, got: {before_diff}"
+        assert abs(before_diff["sharedCbRect"]["width"] - before_diff["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should match the source clip width before the diff response returns, got: {before_diff}"
+
+        page.wait_for_timeout(1200)
+        after_diff = _state()
+
+        assert after_diff["sharedCbDisplay"] != "none", f"shared source colorbar should remain visible after the delayed diff response completes, got: {after_diff}"
+        assert after_diff["sharedCbRect"] and after_diff["sourceTopClipRect"] and after_diff["sourceBottomClipRect"], f"shared source colorbar and source clips should stay measurable after the delayed diff response completes, got: {after_diff}"
+        assert abs(after_diff["sharedCbRect"]["width"] - after_diff["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should keep matching the source clip width after the delayed diff response completes, got: {after_diff}"
+        assert abs(after_diff["sourceTopClipRect"]["width"] - before_diff["sourceTopClipRect"]["width"]) <= 1, f"top-right source pane width should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
+        assert abs(after_diff["sourceTopClipRect"]["height"] - before_diff["sourceTopClipRect"]["height"]) <= 1, f"top-right source pane height should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
+        assert abs(after_diff["sourceBottomClipRect"]["width"] - before_diff["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
+        assert abs(after_diff["sourceBottomClipRect"]["height"] - before_diff["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
+
+    def test_direct_debug_parameter_maps_big_left_settles_without_scroll(
+        self, page, server_url, client
+    ):
+        base_path = DEBUG_DIR / "parameter_maps.nii"
+        compare_path = DEBUG_DIR / "parameter_maps_005.nii"
+        sid_base = client.post(
+            "/load", json={"filepath": str(base_path), "name": base_path.name}
+        ).json()["sid"]
+        sid_compare = client.post(
+            "/load", json={"filepath": str(compare_path), "name": compare_path.name}
+        ).json()["sid"]
+
+        page.goto(
+            f"{server_url}/?sid={sid_base}"
+            f"&compare_sid={sid_compare}"
+            f"&compare_sids={sid_compare}"
+        )
+        page.wait_for_selector("#compare-view-wrap.active", timeout=15_000)
+        page.wait_for_timeout(900)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(220)
+        page.keyboard.press("G")
+        page.wait_for_timeout(160)
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffIsland = document.querySelector('#compare-diff-pane-cb')?.closest('.cb-island');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    return {
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffIslandRect: diffIsland?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        early = _state()
+        assert early["sharedCbDisplay"] != "none", f"shared source colorbar should already be visible shortly after X then G, got: {early}"
+        assert early["sharedCbRect"], f"shared source colorbar should already be measurable shortly after X then G, got: {early}"
+        assert early["sourceTopClipRect"] and early["sourceBottomClipRect"], f"source clips should already be measurable shortly after X then G, got: {early}"
+        assert abs(early["sharedCbRect"]["width"] - early["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should already match the source clip width shortly after X then G, got: {early}"
+        assert early["diffIslandRect"], f"diff colorbar island should already be measurable shortly after X then G, got: {early}"
+        assert abs(early["sharedCbRect"]["height"] - early["diffIslandRect"]["height"]) <= 1, f"shared source and diff colorbar rows should already match heights shortly after X then G, got: {early}"
+
+        page.wait_for_timeout(800)
+        settled = _state()
+
+        assert settled["sharedCbDisplay"] != "none", f"shared source colorbar should stay visible after the big-left layout settles, got: {settled}"
+        assert settled["sharedCbRect"] and settled["sourceTopClipRect"] and settled["sourceBottomClipRect"], f"shared source colorbar and source clips should stay measurable after the big-left layout settles, got: {settled}"
+        assert abs(settled["sharedCbRect"]["width"] - settled["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should stay width-matched after the big-left layout settles, got: {settled}"
+        assert abs(settled["sharedCbRect"]["height"] - settled["diffIslandRect"]["height"]) <= 1, f"shared source and diff colorbar rows should stay height-matched after the big-left layout settles, got: {settled}"
+        assert abs(settled["sourceTopClipRect"]["width"] - early["sourceTopClipRect"]["width"]) <= 1, f"top-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
+        assert abs(settled["sourceTopClipRect"]["height"] - early["sourceTopClipRect"]["height"]) <= 1, f"top-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
+        assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
+        assert abs(settled["sourceBottomClipRect"]["height"] - early["sourceBottomClipRect"]["height"]) <= 1, f"bottom-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
+
     def test_d_first_opens_second_cycles_percentile(self, loaded_viewer, sid_2d):
         # First tap `d` opens the histogram only. Second tap cycles + toasts.
         page = loaded_viewer(sid_2d)
@@ -1020,6 +1368,168 @@ class TestKeyboard:
         assert abs(state["rightRect"]["top"] - state["centerRect"]["top"]) <= 1, f"right and center compare clips should align vertically, got: {state}"
         assert abs(state["leftRect"]["height"] - state["centerRect"]["height"]) <= 1, f"left and center compare clips should match height, got: {state}"
         assert abs(state["rightRect"]["height"] - state["centerRect"]["height"]) <= 1, f"right and center compare clips should match height, got: {state}"
+
+    def test_compare_center_big_left_uses_shared_source_bar_and_g_toggles(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        partner_path = tmp_path / "arr2d_big_left_compare.npy"
+        np.save(partner_path, arr_2d * 0.75 + 0.1)
+        sid_2d_b = client.post(
+            "/load", json={"filepath": str(partner_path), "name": "arr2d_big_left_compare"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_2d_b)
+        page.evaluate(
+            """() => {
+                compareLayoutMode = 'horizontal';
+                _setCompareCenterMode(1);
+                compareScaleCanvases();
+            }"""
+        )
+        page.wait_for_timeout(250)
+        page.keyboard.press("G")
+        page.wait_for_timeout(250)
+
+        state = page.evaluate(
+            """() => {
+                const wrap = document.querySelector('#compare-view-wrap');
+                const diffPane = document.querySelector('#compare-diff-pane');
+                const diffCanvas = document.querySelector('#compare-diff-canvas');
+                const sourceTop = document.querySelector('.compare-primary');
+                const sourceBottom = document.querySelector('.compare-secondary');
+                const sharedCb = document.querySelector('#slim-cb-wrap');
+                const sourceTopTitle = document.querySelector('.compare-primary .compare-title');
+                const sourceTopIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
+                const sourceBottomIsland = document.querySelector('.compare-secondary .compare-pane-cb-island');
+                const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
+                const diffRect = diffPane?.getBoundingClientRect() || null;
+                const sourceTopRect = sourceTop?.getBoundingClientRect() || null;
+                const sourceBottomRect = sourceBottom?.getBoundingClientRect() || null;
+                const sharedCbRect = sharedCb?.getBoundingClientRect() || null;
+                return {
+                    wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                    diffRect,
+                    sourceTopRect,
+                    sourceBottomRect,
+                    sharedCbRect,
+                    diffCanvasRect: diffCanvas?.getBoundingClientRect() || null,
+                    diffClipRect: diffClip?.getBoundingClientRect() || null,
+                    sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                    sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                    diffIslandRect: diffIsland?.getBoundingClientRect() || null,
+                    sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                    sourceTopIslandDisplay: sourceTopIsland ? getComputedStyle(sourceTopIsland).display : 'missing',
+                    sourceBottomIslandDisplay: sourceBottomIsland ? getComputedStyle(sourceBottomIsland).display : 'missing',
+                    sourceTitleWritingMode: sourceTopTitle ? getComputedStyle(sourceTopTitle).writingMode : '',
+                };
+            }"""
+        )
+
+        assert state["wrapBigLeft"], f"compare should enter big-left layout after G in 2-array center mode, got: {state}"
+        assert state["diffRect"] and state["sourceTopRect"] and state["sourceBottomRect"], f"big-left compare panes should all be measurable, got: {state}"
+        assert state["diffRect"]["left"] < state["sourceTopRect"]["left"], f"center pane should move to the left of the stacked source panes, got: {state}"
+        assert state["diffRect"]["width"] > state["sourceTopRect"]["width"], f"center pane should be wider than each source pane in big-left mode, got: {state}"
+        assert abs(state["sourceTopRect"]["left"] - state["sourceBottomRect"]["left"]) <= 1, f"source panes should stay vertically stacked in one right column, got: {state}"
+        assert state["sourceBottomRect"]["top"] > state["sourceTopRect"]["bottom"], f"source panes should stack vertically in big-left mode, got: {state}"
+        assert state["sharedCbDisplay"] != "none", f"shared source colorbar should be visible in big-left mode, got: {state}"
+        assert state["sharedCbRect"], f"shared source colorbar should have a layout box in big-left mode, got: {state}"
+        assert state["sharedCbRect"]["top"] >= state["sourceBottomRect"]["bottom"] - 1, f"shared source colorbar should sit beneath the stacked source panes, got: {state}"
+        assert state["sourceTopIslandDisplay"] == "none", f"top source pane should hide its per-pane colorbar in big-left mode, got: {state}"
+        assert state["sourceBottomIslandDisplay"] == "none", f"bottom source pane should hide its per-pane colorbar in big-left mode, got: {state}"
+        assert state["sourceTitleWritingMode"] == "vertical-rl", f"source titles should switch to vertical labels in big-left mode, got: {state}"
+        assert state["diffCanvasRect"] and state["diffClipRect"] and state["sourceTopClipRect"] and state["sourceBottomClipRect"], f"big-left layout should expose measurable clip rects, got: {state}"
+        assert abs(state["diffCanvasRect"]["width"] - state["diffClipRect"]["width"]) <= 1, f"center clip should shrink-wrap the rendered diff width in big-left mode, got: {state}"
+        assert abs(state["diffClipRect"]["top"] - state["sourceTopClipRect"]["top"]) <= 1, f"left clip top should align with top-right clip top, got: {state}"
+        assert abs(state["diffClipRect"]["bottom"] - state["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should align with bottom-right clip bottom, got: {state}"
+        assert state["diffIslandRect"], f"diff pane colorbar should remain measurable in big-left mode, got: {state}"
+        assert state["sharedCbRect"]["top"] >= state["diffIslandRect"]["top"] - 1, f"shared source colorbar should stay on or below the diff colorbar row in big-left mode, got: {state}"
+
+    def test_compare_center_big_left_keeps_shared_bar_and_alignment_after_wheel(
+        self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
+    ):
+        path = tmp_path / "arr3d_big_left_compare.npy"
+        np.save(path, arr_3d * 0.8 + 0.1)
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr3d_big_left_compare"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(350)
+        page.keyboard.press("G")
+        page.wait_for_timeout(350)
+
+        def _big_left_state():
+            return page.evaluate(
+                """() => {
+                    const info = document.querySelector('#info');
+                    const wrap = document.querySelector('#compare-view-wrap');
+                    const panes = document.querySelector('#compare-panes');
+                    const diffPane = document.querySelector('#compare-diff-pane');
+                    const diffTitle = document.querySelector('#compare-diff-title');
+                    const sharedCb = document.querySelector('#slim-cb-wrap');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
+                    return {
+                        infoRect: info?.getBoundingClientRect() || null,
+                        wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                        panesRect: panes?.getBoundingClientRect() || null,
+                        gridCols: panes ? getComputedStyle(panes).gridTemplateColumns : '',
+                        leftTrack: panes ? getComputedStyle(panes).getPropertyValue('--compare-big-left-left-w').trim() : '',
+                        rightTrack: panes ? getComputedStyle(panes).getPropertyValue('--compare-big-left-right-w').trim() : '',
+                        diffPaneDisplay: diffPane ? getComputedStyle(diffPane).display : 'missing',
+                        compareCenterMode,
+                        compareLayoutMode,
+                        diffTitleRect: diffTitle?.getBoundingClientRect() || null,
+                        sharedCbRect: sharedCb?.getBoundingClientRect() || null,
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        diffClipRect: diffClip?.getBoundingClientRect() || null,
+                        sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
+                        sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
+                        diffIslandRect: diffIsland?.getBoundingClientRect() || null,
+                    };
+                }"""
+            )
+
+        initial = _big_left_state()
+        assert initial["wrapBigLeft"], f"big-left compare layout should be active immediately after G, got: {initial}"
+        assert initial["sharedCbDisplay"] != "none", f"shared source colorbar should be visible immediately on big-left entry, got: {initial}"
+        assert initial["sharedCbRect"], f"shared source colorbar should be measurable immediately on big-left entry, got: {initial}"
+        assert initial["infoRect"] and initial["diffTitleRect"], f"big-left title and dimbar should both be measurable, got: {initial}"
+        assert (
+            initial["diffTitleRect"]["bottom"] <= initial["infoRect"]["top"] + 1
+            or initial["diffTitleRect"]["top"] >= initial["infoRect"]["bottom"] - 1
+            or initial["diffTitleRect"]["right"] <= initial["infoRect"]["left"] + 1
+            or initial["diffTitleRect"]["left"] >= initial["infoRect"]["right"] - 1
+        ), f"big-left center title should not overlap the dimbar, got: {initial}"
+        assert initial["diffClipRect"] and initial["sourceTopClipRect"] and initial["sourceBottomClipRect"], f"big-left clips should all be measurable immediately after G, got: {initial}"
+        assert initial["diffClipRect"]["right"] <= initial["sourceTopClipRect"]["left"] + 1, f"left diff clip should not overlap the right source column on big-left entry, got: {initial}"
+
+        page.mouse.move(
+            initial["sourceTopClipRect"]["left"] + initial["sourceTopClipRect"]["width"] / 2,
+            initial["sourceTopClipRect"]["top"] + initial["sourceTopClipRect"]["height"] / 2,
+        )
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(1000)
+        after = _big_left_state()
+
+        assert after["wrapBigLeft"], f"big-left compare layout should remain active after wheel-driven slice updates, got: {after}"
+        assert after["sharedCbDisplay"] != "none", f"shared source colorbar should remain visible after wheel-driven slice updates, got: {after}"
+        assert after["diffClipRect"] and after["sourceTopClipRect"] and after["sourceBottomClipRect"], f"big-left clips should remain measurable after wheel-driven slice updates, got: {after}"
+        assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"left clip top should stay aligned with the top-right clip after wheel-driven slice updates, got: {after}"
+        assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should stay aligned with the lower-right clip after wheel-driven slice updates, got: {after}"
+        assert after["diffIslandRect"] and after["sharedCbRect"], f"big-left colorbar rows should stay measurable after wheel-driven slice updates, got: {after}"
+        assert abs(after["diffIslandRect"]["top"] - after["sharedCbRect"]["top"]) <= 1, f"diff and shared source colorbar rows should stay aligned after wheel-driven slice updates, got: {after}"
 
     def test_multiview_hover_border_and_colorbar_clearance(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

@@ -1615,6 +1615,7 @@
         .compare-title { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; cursor: grab; user-select: none; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .compare-title.drag-over { outline: 1px dashed var(--accent, #888); border-radius: 2px; }
         .compare-title.compare-center-title { cursor: default; max-width: 100%; overflow: visible; text-overflow: clip; }
+        .compare-title.compare-side-title { gap: 0; }
         .compare-center-title-controls { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 14px; }
         .compare-title .compare-center-mode-btn {
             display: inline-flex; align-items: center; justify-content: center;
@@ -1656,6 +1657,66 @@
         .compare-pane-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         .compare-canvas {
             image-rendering: pixelated; cursor: crosshair; background: var(--bg);
+        }
+        #compare-view-wrap.compare-center-layout-big-left #compare-panes {
+            display: grid;
+            grid-template-columns: minmax(0, var(--compare-big-left-left-w, 1fr)) minmax(0, var(--compare-big-left-right-w, 320px));
+            grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+            justify-content: center;
+            align-content: center;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-pane {
+            justify-self: stretch;
+            align-self: stretch;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary,
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary,
+        #compare-view-wrap.compare-center-layout-big-left #compare-diff-pane,
+        #compare-view-wrap.compare-center-layout-big-left #compare-wipe-pane {
+            position: relative;
+            align-items: stretch;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary { grid-column: 2; grid-row: 1; }
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary { grid-column: 2; grid-row: 2; }
+        #compare-view-wrap.compare-center-layout-big-left #compare-diff-pane,
+        #compare-view-wrap.compare-center-layout-big-left #compare-wipe-pane {
+            grid-column: 1;
+            grid-row: 1 / span 2;
+        }
+        #compare-view-wrap.compare-center-layout-big-left #compare-diff-title,
+        #compare-view-wrap.compare-center-layout-big-left #compare-wipe-title {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            margin: 0;
+            max-width: none;
+            z-index: 2;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-title,
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-title {
+            position: absolute;
+            top: 50%;
+            right: -2px;
+            transform: translateY(-50%);
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            margin: 0;
+            max-width: none;
+            letter-spacing: 0.18em;
+            z-index: 2;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-title svg,
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-title svg {
+            display: none;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-canvas-area,
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-canvas-area {
+            padding-right: 18px;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-pane-cb-island,
+        #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-pane-cb-island {
+            display: none !important;
         }
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
@@ -3227,6 +3288,38 @@
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
         let pendingViewMode = null;
+
+        function _compareCenterLayoutEligible() {
+            return compareActive && _compareCenterSupported() && compareCenterMode > 0
+                && !compareMvActive && !compareQmriActive;
+        }
+
+        function _normalizeCompareLayoutMode() {
+            if (compareLayoutMode === 'big-left' && !_compareCenterLayoutEligible()) {
+                compareLayoutMode = 'horizontal';
+            }
+            if (!['horizontal', 'vertical', 'grid', 'big-left', null].includes(compareLayoutMode)) {
+                compareLayoutMode = null;
+            }
+        }
+
+        function _isCompareBigLeftLayout() {
+            return compareLayoutMode === 'big-left' && _compareCenterLayoutEligible();
+        }
+
+        function _showCompareSharedSourceCb() {
+            return _isCompareBigLeftLayout() && !_fullscreenActive && colorbarVisible();
+        }
+        let _compareBigLeftSettleRaf = 0;
+        function _queueCompareBigLeftSettle() {
+            if (_compareBigLeftSettleRaf || !compareActive || !_isCompareBigLeftLayout()) return;
+            _compareBigLeftSettleRaf = requestAnimationFrame(() => {
+                _compareBigLeftSettleRaf = 0;
+                if (!compareActive || !_isCompareBigLeftLayout()) return;
+                _reconcileCbVisibility();
+                compareScaleCanvases();
+            });
+        }
         let pendingMvDims = null;
         let pendingQmriDim = null;
 
@@ -4108,27 +4201,32 @@
             }
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
-            const titleReserve = _fullscreenActive ? 0 : 28 * (1 - _crossfadeCollapseP);
+            const bigLeftTitleReserve = _isCompareBigLeftLayout() ? 0 : 28 * (1 - _crossfadeCollapseP);
+            const titleReserve = _fullscreenActive ? 0 : bigLeftTitleReserve;
             const panePadX = _fullscreenActive ? 0 : 16 * (1 - _crossfadeCollapseP);
             // .compare-canvas-area vertical padding; reserve colorbar height whenever any
             // center pane mode is active, so switching between diff ↔ overlay doesn't jump.
             const _anyCenter = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             // In immersive, per-pane colorbars are overlaid (absolute), so no space reservation needed
-            const cbExtra = (_anyCenter && !_fullscreenActive) ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP) : 0;
+            const compareCenterCbReserve = (_anyCenter && !_fullscreenActive)
+                ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP)
+                : 0;
+            const cbExtra = compareCenterCbReserve;
             const panePadY = (_fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP)) + cbExtra;
             const fitSlack = 0.96 + 0.04 * (_fullscreenActive ? 1 : _crossfadeCollapseP);
             const activeFrames = compareFrames.filter(Boolean);
             const paneCount = activeFrames.length;
             if (!paneCount) return;
-            const baseCols = compareLayoutMode === 'horizontal' ? paneCount
+            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
+            const bigLeftCompare = _isCompareBigLeftLayout() && hasCenterPane && paneCount === 2;
+            const baseCols = bigLeftCompare ? 2
+                : compareLayoutMode === 'horizontal' ? paneCount
                 : compareLayoutMode === 'vertical'   ? 1
                 : compareLayoutMode === 'grid'       ? 2
                 : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
-            // When diff/overlay/wipe mode is active with 2 data panes there are 3 visible columns
-            const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
-            const cols = (hasCenterPane && paneCount === 2) ? 3 : baseCols;
+            const cols = bigLeftCompare ? 2 : (hasCenterPane && paneCount === 2) ? 3 : baseCols;
             const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
-            const rows = Math.max(1, Math.ceil(visiblePaneCount / cols));
+            const rows = bigLeftCompare ? 2 : Math.max(1, Math.ceil(visiblePaneCount / cols));
             const cs = getComputedStyle(panesEl);
             const colGap = parseFloat(cs.columnGap || cs.gap || '18') || 18;
             const rowGap = parseFloat(cs.rowGap || cs.gap || '18') || 18;
@@ -4143,137 +4241,265 @@
             const totalH = Math.max(100, window.innerHeight - uiReserveH - immPadV);
             const paneOuterW = Math.max(20, (totalW - (cols - 1) * colGap) / cols);
             const paneOuterH = Math.max(20, (totalH - (rows - 1) * rowGap) / rows);
-            // Maximum viewport size (how large the clipping container can be)
-            const capPaneW = Math.max(40, paneOuterW - panePadX);
-            const capPaneH = Math.max(40, paneOuterH - titleReserve - panePadY);
             const slotW = Math.round(paneOuterW);
             const slotH = Math.round(paneOuterH);
-            const applyPaneSlot = (pane) => {
+            const applyPaneSlot = (pane, w = slotW, h = slotH) => {
                 if (!pane) return;
-                pane.style.flex = `0 0 ${slotW}px`;
-                pane.style.width = slotW + 'px';
-                pane.style.maxWidth = slotW + 'px';
-                pane.style.height = slotH + 'px';
-                pane.style.maxHeight = slotH + 'px';
+                pane.style.flex = `0 0 ${Math.round(w)}px`;
+                pane.style.width = Math.round(w) + 'px';
+                pane.style.maxWidth = Math.round(w) + 'px';
+                pane.style.height = Math.round(h) + 'px';
+                pane.style.maxHeight = Math.round(h) + 'px';
             };
-            comparePaneEls.forEach((pane, idx) => {
-                if (idx < paneCount) applyPaneSlot(pane);
-            });
-            if (hasCenterPane && paneCount === 2) {
-                applyPaneSlot(document.getElementById((_wipeActive || _flickerActive || _checkerActive) ? 'compare-wipe-pane' : 'compare-diff-pane'));
-            }
-            // Per-pane geometry routed through the shared _scalePane primitive.
-            // Compare shares a single `comparePan` across all panes; _scalePane's
-            // overflow recenter only fires when pan.x===pan.y===0, so the FIRST
-            // pane processed (pane[0] / left) effectively acts as the auto-fit
-            // reference. comparePan.overflows also reads pane[0] dims, matching
-            // the prior post-loop recenter behavior. Compare doesn't use
-            // _autoFitPending / overflow recalc (no userZoom mutation here), so
-            // updateAutoFit/allowOverflowRecalc are both false. fitSlack is
-            // baked into baseScale. viewport:null — the clip wrapper (with its
-            // dataset.vpW/vpH tags used by comparePan) is still managed by
-            // _ensureClipWrapper below using the returned vpW/vpH.
-            const availW = Math.max(40, paneOuterW - panePadX);
-            const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
-            for (let i = 0; i < paneCount; i++) {
-                const frame = activeFrames[i];
-                const cv = compareCanvases[i];
-                if (!frame || !cv) continue;
-                const base = Math.min(availW / frame.width, availH / frame.height) * fitSlack;
-                const r = _scalePane(
-                    { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
-                    null,
-                    {
-                        maxW: Math.round(capPaneW),
-                        maxH: Math.round(capPaneH),
-                        baseScale: Math.max(0.0001, base),
-                        squareStretch: squareStretch,
-                        updateAutoFit: false,
-                        allowOverflowRecalc: false,
-                    }
+            if (bigLeftCompare) {
+                const sourceTitleReserve = 0;
+                const sourcePanePadY = _fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP);
+                const sourceSideLabelReserve = _fullscreenActive ? 0 : 18;
+                const bigLeftGap = Math.max(10, Math.round(colGap * 0.66));
+                const sharedCbReserve = _showCompareSharedSourceCb()
+                    ? compareCenterCbReserve
+                    : 0;
+                let rightOuterW = Math.round(Math.max(220, Math.min(totalW * 0.34, totalW - 280)));
+                rightOuterW = Math.min(rightOuterW, Math.max(220, totalW - bigLeftGap - 180));
+                const rightOuterH = Math.max(20, (totalH - sharedCbReserve - rowGap) / 2);
+
+                const scaleComparePane = (cv, frame, maxW, maxH, opts = {}) => {
+                    if (!cv || !frame) return null;
+                    const forceViewport = opts.forceViewport || null;
+                    const forceHeightFit = !!opts.forceHeightFit;
+                    const fitSlackFactor = Number.isFinite(opts.fitSlackFactor) ? opts.fitSlackFactor : fitSlack;
+                    const base = (forceHeightFit ? (maxH / frame.height) : Math.min(maxW / frame.width, maxH / frame.height)) * fitSlackFactor;
+                    const r = _scalePane(
+                        { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
+                        null,
+                        {
+                            maxW: Math.round(maxW),
+                            maxH: Math.round(maxH),
+                            baseScale: Math.max(0.0001, base),
+                            squareStretch: squareStretch,
+                            updateAutoFit: false,
+                            allowOverflowRecalc: false,
+                            forceViewport,
+                        }
+                    );
+                    const inner = cv.closest('.compare-canvas-inner');
+                    if (inner) _ensureClipWrapper(inner, r.vpW, r.vpH);
+                    return r;
+                };
+
+                const sourceAvailW = Math.max(40, rightOuterW - panePadX - sourceSideLabelReserve);
+                const sourceAvailH = Math.max(40, rightOuterH - sourceTitleReserve - sourcePanePadY);
+                const sourceRects = [];
+                for (let i = 0; i < 2; i++) {
+                    sourceRects.push(scaleComparePane(compareCanvases[i], activeFrames[i], sourceAvailW, sourceAvailH));
+                }
+
+                const sourceSlotW = Math.max(180, ...sourceRects.map(r => (r ? r.vpW : 0))) + panePadX + sourceSideLabelReserve;
+                const sourceSlotH = Math.max(40, ...sourceRects.map(r => (r ? r.vpH : 0))) + sourcePanePadY;
+                applyPaneSlot(comparePaneEls[0], sourceSlotW, sourceSlotH);
+                applyPaneSlot(comparePaneEls[1], sourceSlotW, sourceSlotH);
+                const topSourceClip = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip');
+                const bottomSourceClip = compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip');
+                const actualSourceClipSpanH = (topSourceClip && bottomSourceClip)
+                    ? (bottomSourceClip.getBoundingClientRect().bottom - topSourceClip.getBoundingClientRect().top)
+                    : null;
+                const sourceClipSpanH = Math.max(
+                    sourceRects.reduce((sum, r) => sum + (r ? r.vpH : 0), 0) + rowGap,
+                    actualSourceClipSpanH || 0
                 );
-                const inner = cv.closest('.compare-canvas-inner');
-                if (inner) {
-                    // Clip wrapper sits between .compare-canvas-inner and its
-                    // parent; it owns overflow:hidden so CSS translate on inner
-                    // produces the pan effect (mirrors #canvas-viewport /
-                    // #canvas-inner split in single-view mode).
-                    _ensureClipWrapper(inner, r.vpW, r.vpH);
+                const leftOuterW = Math.max(180, totalW - bigLeftGap - sourceSlotW);
+                const centerPaneId = (_wipeActive || _flickerActive || _checkerActive) ? 'compare-wipe-pane' : 'compare-diff-pane';
+                const centerCanvasEl = (_wipeActive || _flickerActive || _checkerActive)
+                    ? document.getElementById('compare-wipe-canvas')
+                    : document.getElementById('compare-diff-canvas');
+                const centerAvailW = Math.max(40, leftOuterW - panePadX);
+                const centerAvailH = Math.max(40, sourceClipSpanH);
+                let centerRect = null;
+                if (diffMode > 0 || registrationMode) {
+                    centerRect = scaleComparePane(document.getElementById('compare-diff-canvas'), activeFrames[0], centerAvailW, centerAvailH, {
+                        forceHeightFit: true,
+                        fitSlackFactor: 1,
+                    });
                 }
-            }
-            // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
-            // the center pane can be shrunk based on its actual inner dimensions.
-            // Keep diff canvas (also used for overlay) sized to match the first compare canvas
-            if ((diffMode > 0 || registrationMode) && compareCanvases[0] && compareCanvases[0].style.width) {
-                const diffCanvas = document.getElementById('compare-diff-canvas');
-                if (diffCanvas) {
-                    diffCanvas.style.width = compareCanvases[0].style.width;
-                    diffCanvas.style.height = compareCanvases[0].style.height;
+                if (_wipeActive || _flickerActive || _checkerActive) {
+                    centerRect = scaleComparePane(document.getElementById('compare-wipe-canvas'), activeFrames[0], centerAvailW, centerAvailH, {
+                        forceHeightFit: true,
+                        fitSlackFactor: 1,
+                    });
                 }
-                // Diff canvas inner also needs viewport sizing (via clip wrapper)
-                const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
-                const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
-                if (diffInner && firstInner) {
-                    _ensureClipWrapper(diffInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
+                const leftOuterH = Math.max(80, (centerRect ? centerRect.vpH : centerAvailH) + panePadY);
+                const leftSlotW = Math.max(200, (centerRect ? centerRect.vpW : 0) + panePadX);
+                panesEl.style.setProperty('--compare-big-left-left-w', `${Math.round(leftSlotW)}px`);
+                panesEl.style.setProperty('--compare-big-left-right-w', `${Math.round(sourceSlotW)}px`);
+                panesEl.style.width = `${Math.round(leftSlotW + sourceSlotW + bigLeftGap)}px`;
+                panesEl.style.maxWidth = `${Math.round(leftSlotW + sourceSlotW + bigLeftGap)}px`;
+                panesEl.style.marginLeft = 'auto';
+                panesEl.style.marginRight = 'auto';
+                const centerPaneEl = document.getElementById(centerPaneId);
+                applyPaneSlot(centerPaneEl, leftSlotW, leftOuterH);
+                const settledTopSourceClip = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip');
+                const settledBottomSourceClip = compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip');
+                const settledSourceClipSpanH = (settledTopSourceClip && settledBottomSourceClip)
+                    ? (settledBottomSourceClip.getBoundingClientRect().bottom - settledTopSourceClip.getBoundingClientRect().top)
+                    : centerAvailH;
+                if (Math.abs(settledSourceClipSpanH - centerAvailH) > 1) {
+                    const settledLeftOuterH = Math.max(80, settledSourceClipSpanH + panePadY);
+                    applyPaneSlot(centerPaneEl, leftSlotW, settledLeftOuterH);
+                    if (diffMode > 0 || registrationMode) {
+                        centerRect = scaleComparePane(document.getElementById('compare-diff-canvas'), activeFrames[0], centerAvailW, settledSourceClipSpanH, {
+                            forceHeightFit: true,
+                            fitSlackFactor: 1,
+                        });
+                    }
+                    if (_wipeActive || _flickerActive || _checkerActive) {
+                        centerRect = scaleComparePane(document.getElementById('compare-wipe-canvas'), activeFrames[0], centerAvailW, settledSourceClipSpanH, {
+                            forceHeightFit: true,
+                            fitSlackFactor: 1,
+                        });
+                    }
                 }
-            }
-            // Wipe canvas inner viewport sizing (also used by flicker and checkerboard)
-            if (_wipeActive || _flickerActive || _checkerActive) {
-                const wipeCv = document.getElementById('compare-wipe-canvas');
-                const wipeInner = wipeCv && wipeCv.closest('.compare-canvas-inner');
-                const firstInner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
-                if (wipeInner && firstInner && wipeCv) {
-                    wipeCv.style.width = compareCanvases[0].style.width;
-                    wipeCv.style.height = compareCanvases[0].style.height;
-                    _ensureClipWrapper(wipeInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
+                const finalTopSourceClip = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip');
+                const finalBottomSourceClip = compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip');
+                const finalCenterClip = centerCanvasEl && centerCanvasEl.closest('.compare-canvas-clip');
+                if (finalBottomSourceClip && finalCenterClip && activeFrames[0]) {
+                    const bottomDelta = finalBottomSourceClip.getBoundingClientRect().bottom - finalCenterClip.getBoundingClientRect().bottom;
+                    if (Math.abs(bottomDelta) > 0.5) {
+                        const nudgedCenterH = Math.max(40, (centerRect ? centerRect.vpH : centerAvailH) + bottomDelta);
+                        applyPaneSlot(centerPaneEl, leftSlotW, Math.max(80, nudgedCenterH + panePadY));
+                        centerRect = scaleComparePane(centerCanvasEl, activeFrames[0], centerAvailW, nudgedCenterH, {
+                            forceHeightFit: true,
+                            fitSlackFactor: 1,
+                        });
+                    }
                 }
-            }
-            // Shrink pane slots to wrap content so panes stay close together.
-            {
+                panesEl.style.flexWrap = '';
+            } else {
+                panesEl.style.removeProperty('width');
+                panesEl.style.removeProperty('max-width');
+                panesEl.style.removeProperty('margin-left');
+                panesEl.style.removeProperty('margin-right');
+                // Maximum viewport size (how large the clipping container can be)
+                const capPaneW = Math.max(40, paneOuterW - panePadX);
+                const capPaneH = Math.max(40, paneOuterH - titleReserve - panePadY);
+                comparePaneEls.forEach((pane, idx) => {
+                    if (idx < paneCount) applyPaneSlot(pane);
+                });
+                if (hasCenterPane && paneCount === 2) {
+                    applyPaneSlot(document.getElementById((_wipeActive || _flickerActive || _checkerActive) ? 'compare-wipe-pane' : 'compare-diff-pane'));
+                }
+                // Per-pane geometry routed through the shared _scalePane primitive.
+                // Compare shares a single `comparePan` across all panes; _scalePane's
+                // overflow recenter only fires when pan.x===pan.y===0, so the FIRST
+                // pane processed (pane[0] / left) effectively acts as the auto-fit
+                // reference. comparePan.overflows also reads pane[0] dims, matching
+                // the prior post-loop recenter behavior. Compare doesn't use
+                // _autoFitPending / overflow recalc (no userZoom mutation here), so
+                // updateAutoFit/allowOverflowRecalc are both false. fitSlack is
+                // baked into baseScale. viewport:null — the clip wrapper (with its
+                // dataset.vpW/vpH tags used by comparePan) is still managed by
+                // _ensureClipWrapper below using the returned vpW/vpH.
+                const availW = Math.max(40, paneOuterW - panePadX);
+                const availH = Math.max(40, paneOuterH - titleReserve - panePadY);
                 for (let i = 0; i < paneCount; i++) {
+                    const frame = activeFrames[i];
                     const cv = compareCanvases[i];
-                    const inner = cv && cv.closest('.compare-canvas-inner');
-                    const pane = comparePaneEls[i];
-                    if (!inner || !pane || !inner.dataset.vpW) continue;
-                    const vpW = parseInt(inner.dataset.vpW);
-                    const vpH = parseInt(inner.dataset.vpH);
-                    const neededW = vpW + panePadX;
-                    const neededH = titleReserve + vpH + panePadY;
-                    if (neededW < slotW) {
-                        pane.style.flex = `0 0 ${neededW}px`;
-                        pane.style.width = neededW + 'px';
-                        pane.style.maxWidth = neededW + 'px';
-                    }
-                    if (neededH < slotH) {
-                        pane.style.height = neededH + 'px';
-                        pane.style.maxHeight = neededH + 'px';
+                    if (!frame || !cv) continue;
+                    const base = Math.min(availW / frame.width, availH / frame.height) * fitSlack;
+                    const r = _scalePane(
+                        { canvas: cv, w: frame.width, h: frame.height, pan: comparePan },
+                        null,
+                        {
+                            maxW: Math.round(capPaneW),
+                            maxH: Math.round(capPaneH),
+                            baseScale: Math.max(0.0001, base),
+                            squareStretch: squareStretch,
+                            updateAutoFit: false,
+                            allowOverflowRecalc: false,
+                        }
+                    );
+                    const inner = cv.closest('.compare-canvas-inner');
+                    if (inner) {
+                        // Clip wrapper sits between .compare-canvas-inner and its
+                        // parent; it owns overflow:hidden so CSS translate on inner
+                        // produces the pan effect (mirrors #canvas-viewport /
+                        // #canvas-inner split in single-view mode).
+                        _ensureClipWrapper(inner, r.vpW, r.vpH);
                     }
                 }
-            }
-            // Keep the center pane geometry locked to the first source pane so
-            // compare-center modes stay vertically aligned with the source panes.
-            if (hasCenterPane && paneCount === 2) {
-                const _useWipePane = _wipeActive || _flickerActive || _checkerActive;
-                const centerPaneId = _useWipePane ? 'compare-wipe-pane' : 'compare-diff-pane';
-                const centerPane = document.getElementById(centerPaneId);
-                const firstPane = comparePaneEls[0];
-                if (centerPane && firstPane) {
-                    centerPane.style.flex = firstPane.style.flex;
-                    centerPane.style.width = firstPane.style.width;
-                    centerPane.style.maxWidth = firstPane.style.maxWidth;
-                    centerPane.style.height = firstPane.style.height;
-                    centerPane.style.maxHeight = firstPane.style.maxHeight;
+                // Size diff/wipe canvas and inner viewport BEFORE shrink-wrap so
+                // the center pane can be shrunk based on its actual inner dimensions.
+                // Keep diff canvas (also used for overlay) sized to match the first compare canvas
+                if ((diffMode > 0 || registrationMode) && compareCanvases[0] && compareCanvases[0].style.width) {
+                    const diffCanvas = document.getElementById('compare-diff-canvas');
+                    if (diffCanvas) {
+                        diffCanvas.style.width = compareCanvases[0].style.width;
+                        diffCanvas.style.height = compareCanvases[0].style.height;
+                    }
+                    // Diff canvas inner also needs viewport sizing (via clip wrapper)
+                    const diffInner = diffCanvas && diffCanvas.closest('.compare-canvas-inner');
+                    const firstInner = compareCanvases[0].closest('.compare-canvas-inner');
+                    if (diffInner && firstInner) {
+                        _ensureClipWrapper(diffInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
+                    }
+                }
+                // Wipe canvas inner viewport sizing (also used by flicker and checkerboard)
+                if (_wipeActive || _flickerActive || _checkerActive) {
+                    const wipeCv = document.getElementById('compare-wipe-canvas');
+                    const wipeInner = wipeCv && wipeCv.closest('.compare-canvas-inner');
+                    const firstInner = compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-inner');
+                    if (wipeInner && firstInner && wipeCv) {
+                        wipeCv.style.width = compareCanvases[0].style.width;
+                        wipeCv.style.height = compareCanvases[0].style.height;
+                        _ensureClipWrapper(wipeInner, firstInner.dataset.vpW || 0, firstInner.dataset.vpH || 0);
+                    }
+                }
+                // Shrink pane slots to wrap content so panes stay close together.
+                {
+                    for (let i = 0; i < paneCount; i++) {
+                        const cv = compareCanvases[i];
+                        const inner = cv && cv.closest('.compare-canvas-inner');
+                        const pane = comparePaneEls[i];
+                        if (!inner || !pane || !inner.dataset.vpW) continue;
+                        const vpW = parseInt(inner.dataset.vpW);
+                        const vpH = parseInt(inner.dataset.vpH);
+                        const neededW = vpW + panePadX;
+                        const neededH = titleReserve + vpH + panePadY;
+                        if (neededW < slotW) {
+                            pane.style.flex = `0 0 ${neededW}px`;
+                            pane.style.width = neededW + 'px';
+                            pane.style.maxWidth = neededW + 'px';
+                        }
+                        if (neededH < slotH) {
+                            pane.style.height = neededH + 'px';
+                            pane.style.maxHeight = neededH + 'px';
+                        }
+                    }
+                }
+                // Keep the center pane geometry locked to the first source pane so
+                // compare-center modes stay vertically aligned with the source panes.
+                if (hasCenterPane && paneCount === 2) {
+                    const _useWipePane = _wipeActive || _flickerActive || _checkerActive;
+                    const centerPaneId = _useWipePane ? 'compare-wipe-pane' : 'compare-diff-pane';
+                    const centerPane = document.getElementById(centerPaneId);
+                    const firstPane = comparePaneEls[0];
+                    if (centerPane && firstPane) {
+                        centerPane.style.flex = firstPane.style.flex;
+                        centerPane.style.width = firstPane.style.width;
+                        centerPane.style.maxWidth = firstPane.style.maxWidth;
+                        centerPane.style.height = firstPane.style.height;
+                        centerPane.style.maxHeight = firstPane.style.maxHeight;
+                    }
+                }
+                // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
+                // from pushing the third column to a new row.
+                if (hasCenterPane && paneCount === 2) {
+                    panesEl.style.flexWrap = 'nowrap';
+                } else {
+                    panesEl.style.flexWrap = '';
                 }
             }
             // Pan overflow recenter + clamp/apply are handled inside
             // _scalePane (pane[0] acts as the reference — see comment above).
-            // When a center pane (diff/overlay/wipe) is active, prevent flex-wrap
-            // from pushing the third column to a new row.
-            if (hasCenterPane && paneCount === 2) {
-                panesEl.style.flexWrap = 'nowrap';
-            } else {
-                panesEl.style.flexWrap = '';
-            }
             drawAllComparePaneCbs();
             if (registrationMode) drawRegBlendCb();
             drawSlimColorbar(cbMarkerFrac);
@@ -4286,6 +4512,28 @@
             compareCanvases.forEach(cv => {
                 if (cv) cv.style.cursor = overflowing ? 'grab' : 'crosshair';
             });
+            if (bigLeftCompare && _showCompareSharedSourceCb()) {
+                const _sharedSourceClip = (compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
+                    || (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip'));
+                const _sharedCbWrap = document.getElementById('slim-cb-wrap');
+                const _diffIsland = document.getElementById('compare-diff-pane-cb')?.closest('.cb-island');
+                if (_sharedSourceClip && _sharedCbWrap) {
+                    const _cbDisplay = getComputedStyle(_sharedCbWrap).display;
+                    const _cbRect = _sharedCbWrap.getBoundingClientRect();
+                    const _clipRect = _sharedSourceClip.getBoundingClientRect();
+                    const _diffRect = (_diffIsland && getComputedStyle(_diffIsland).display !== 'none')
+                        ? _diffIsland.getBoundingClientRect()
+                        : null;
+                    const _needsSettle = (
+                        _cbDisplay === 'none'
+                        || _cbRect.width < CB_MIN_W
+                        || Math.abs(_cbRect.width - _clipRect.width) > 1
+                        || (_diffRect && Math.abs(_cbRect.top - _diffRect.top) > 1)
+                        || (_diffRect && Math.abs(_cbRect.height - _diffRect.height) > 1)
+                    );
+                    if (_needsSettle) _queueCompareBigLeftSettle();
+                }
+            }
         }
 
         function compareLuma(imgData, i) {
@@ -4362,6 +4610,7 @@
         }
 
         function updateCompareTitles() {
+            _normalizeCompareLayoutMode();
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
             const labels = effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
@@ -4375,8 +4624,10 @@
             const _logoSvg = '<svg width="14" height="14" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><rect width="16" height="16" rx="2.5" fill="#0c0c0c"/><rect x="2" y="2" width="3" height="3" fill="#3a0ca3"/><rect x="6.5" y="2" width="3" height="3" fill="#560bad"/><rect x="11" y="2" width="3" height="3" fill="#c77dff"/><rect x="2" y="6.5" width="3" height="3" fill="#4361ee"/><rect x="6.5" y="6.5" width="3" height="3" fill="#4cc9f0"/><rect x="11" y="6.5" width="3" height="3" fill="#f5c842"/><rect x="2" y="11" width="3" height="3" fill="#4895ef"/><rect x="6.5" y="11" width="3" height="3" fill="#80ed99"/><rect x="11" y="11" width="3" height="3" fill="#f8961e"/></svg>';
             compareTitles.forEach((el, idx) => {
                 const text = labels[idx] || '';
+                const sideTitle = _isCompareBigLeftLayout() && idx < 2;
+                el.classList.toggle('compare-side-title', sideTitle);
                 if (text) {
-                    el.innerHTML = _logoSvg + '<span>' + text.replace(/</g, '&lt;') + '</span>';
+                    el.innerHTML = (sideTitle ? '' : _logoSvg) + '<span>' + text.replace(/</g, '&lt;') + '</span>';
                 } else {
                     el.textContent = '';
                 }
@@ -4655,6 +4906,8 @@
 
             // Update titles
             updateCompareTitles();
+            _normalizeCompareLayoutMode();
+            applyCompareLayout();
 
             if (newMode === 0) {
                 // Restore shared colorbar; hide per-pane colorbars and rescale to 2-column layout
@@ -4686,6 +4939,12 @@
             if (newMode > 0) _syncCompareCenterIsland();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            // Center-mode entry can flip the shared compare source bar from hidden
+            // to visible after compareScaleCanvases() already ran once. Redraw it
+            // immediately so X→G doesn't depend on a later scroll or async diff
+            // completion to paint the right-column bar.
+            drawSlimColorbar(cbMarkerFrac);
+            if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
             if (_fullscreenActive) _positionFullscreenChrome();
             renderEggs();
             saveState();
@@ -4808,14 +5067,24 @@
         }
 
         function applyCompareLayout() {
+            _normalizeCompareLayoutMode();
             const sidsLen = _compareExplicitSids ? _compareExplicitSids.length
                 : compareDisplaySids.length;
             const count = Math.max(1, sidsLen);
-            const cols = compareLayoutMode === 'horizontal' ? count
+            const cols = _isCompareBigLeftLayout() ? 2
+                : compareLayoutMode === 'horizontal' ? count
                 : compareLayoutMode === 'vertical'   ? 1
                 : compareLayoutMode === 'grid'        ? 2
                 : count <= 2 ? count : (count === 4 ? 2 : 3);
+            const panesEl = document.getElementById('compare-panes');
             document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
+            compareWrap.classList.toggle('compare-center-layout', _compareCenterLayoutEligible());
+            compareWrap.classList.toggle('compare-center-layout-big-left', _isCompareBigLeftLayout());
+            compareWrap.classList.toggle('compare-center-layout-horizontal', _compareCenterLayoutEligible() && !_isCompareBigLeftLayout());
+            if (panesEl && !_isCompareBigLeftLayout()) {
+                panesEl.style.removeProperty('--compare-big-left-left-w');
+                panesEl.style.removeProperty('--compare-big-left-right-w');
+            }
             comparePaneEls.forEach((pane, idx) => {
                 pane.classList.toggle('active', compareActive && idx < count);
                 // Explicitly set CSS order so panes always appear in index order
@@ -4889,6 +5158,10 @@
             const cv = compareCanvases[idx];
             if (!cbCanvas || !cv) return;
             const cbIsland = cbCanvas.closest('.cb-island');
+            if (_showCompareSharedSourceCb() && idx < 2) {
+                if (cbIsland) cbIsland.style.display = 'none';
+                return;
+            }
             // In non-center-pane (off) mode, hide per-pane colorbars (shared slim colorbar is used)
             const _hasCenterPaneCb = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
             if (!_hasCenterPaneCb) {
@@ -5114,15 +5387,29 @@
             const wrap = document.getElementById('slim-cb-wrap');
             // Match colorbar island height to dimbar island
             const _infoForH = document.getElementById('info');
-            if (wrap && _infoForH) {
-                const _iH = _infoForH.offsetHeight;
-                if (_iH > 0) wrap.style.minHeight = _iH + 'px';
+            const _sharedCompareCb = _showCompareSharedSourceCb();
+            const _sharedDiffIsland = _sharedCompareCb
+                ? document.getElementById('compare-diff-pane-cb')?.closest('.cb-island')
+                : null;
+            if (wrap) {
+                let _targetMinH = _infoForH ? _infoForH.offsetHeight : 0;
+                if (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none') {
+                    const _diffH = Math.round(_sharedDiffIsland.getBoundingClientRect().height);
+                    if (_diffH > 0) _targetMinH = _diffH;
+                }
+                if (_targetMinH > 0) wrap.style.minHeight = _targetMinH + 'px';
             }
             const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
             if (!stops) return;
             const vpEl = document.getElementById('canvas-viewport');
             // In compare mode, position relative to the panes grid; in multiview, use mv-panes
-            const _cbRefEl = compareActive ? (document.getElementById('compare-panes') || vpEl)
+            const _sharedSourceClip = _sharedCompareCb
+                ? ((compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
+                    || (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip')))
+                : null;
+            const _cbRefEl = _sharedCompareCb
+                ? (_sharedSourceClip || comparePaneEls[1] || comparePaneEls[0] || document.getElementById('compare-panes') || vpEl)
+                : compareActive ? (document.getElementById('compare-panes') || vpEl)
                 : multiViewActive ? (document.getElementById('mv-panes') || vpEl) : vpEl;
             const canvasRect = (_cbRefEl || canvas).getBoundingClientRect();
 
@@ -5180,15 +5467,19 @@
                 wrap.classList.remove('compact-vertical', 'compact-overlay');
                 // Compose translateX centering with any GSAP-driven fly-y.
                 // (The wrap is later repositioned via top/left below.)
-                wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
+                wrap.style.transform = _sharedCompareCb ? 'translateX(-50%)' : 'translateX(-50%) translateY(var(--fly-y, 0px))';
                 wrap.style.transformOrigin = '';
+                if (_sharedCompareCb) {
+                    try { gsap.killTweensOf(wrap); } catch (_) {}
+                    wrap.style.setProperty('--fly-y', '0px');
+                }
             }
             // Restore inline vmin/vmax spans (hidden in fullscreen overlay mode)
             const _nvmin = document.getElementById('slim-cb-vmin');
             const _nvmax = document.getElementById('slim-cb-vmax');
             if (_nvmin) _nvmin.style.display = '';
             if (_nvmax) _nvmax.style.display = '';
-            const cbW = cbTargetWidth(window.innerWidth);
+            const cbW = cbTargetWidth(_sharedCompareCb ? Math.round(canvasRect.width) : window.innerWidth);
             if (cbW == null) {
                 if (wrap) wrap.style.display = 'none';
                 return;
@@ -5206,7 +5497,14 @@
             // so canvasRect.bottom sits too high.  Use the actual bottom of the last
             // visible pane to anchor the colorbar below the content.
             let _cbAnchorBottom = canvasRect.bottom;
-            if (compareActive && compareLayoutMode === 'vertical') {
+            if (_sharedCompareCb) {
+                const _sourceClip = (compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
+                    || (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip'));
+                if (_sourceClip) {
+                    const _r = _sourceClip.getBoundingClientRect();
+                    _cbAnchorBottom = _r.bottom;
+                }
+            } else if (compareActive && compareLayoutMode === 'vertical') {
                 const _visPanes = document.querySelectorAll('.compare-pane.active');
                 if (_visPanes.length) {
                     let _maxBot = 0;
@@ -5218,7 +5516,12 @@
                 }
             }
             // Top is fixed at pane bottom + chromeGap. Never moves.
-            const cbTop = _cbAnchorBottom + chromeGap;
+            let cbTop = _cbAnchorBottom + (_sharedCompareCb ? 10 : chromeGap);
+            if (_sharedCompareCb) {
+                if (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none') {
+                    cbTop = _sharedDiffIsland.getBoundingClientRect().top;
+                }
+            }
             if (wrap) {
                 // During an active crossfade drive (fs=false, either
                 // forward pre-switch or reverse post-switch), leave
@@ -5228,8 +5531,8 @@
                     wrap.style.top  = cbTop + 'px';
                     wrap.style.width = cssW + 'px';
                 }
-                wrap.style.left = '50%';
-                wrap.style.transform = 'translateX(-50%) translateY(var(--fly-y, 0px))';
+                wrap.style.left = _sharedCompareCb ? (canvasRect.left + canvasRect.width / 2) + 'px' : '50%';
+                wrap.style.transform = _sharedCompareCb ? 'translateX(-50%)' : 'translateX(-50%) translateY(var(--fly-y, 0px))';
             }
             slimCbCanvas.style.width = '';
             slimCbCanvas.style.display = '';
@@ -8867,6 +9170,7 @@
                 currentVmin = compareFrames[0].vmin;
                 currentVmax = compareFrames[0].vmax;
                 applyCompareLayout();
+                _reconcileCbVisibility();
                 drawCompareFramesFromCache();
                 hideLoadingOverlay();
                 if (diffMode > 0) fetchAndDrawDiff();
@@ -8919,9 +9223,11 @@
                 diffCanvas.width = bmp.width;
                 diffCanvas.height = bmp.height;
                 diffCanvas.getContext('2d').drawImage(bmp, 0, 0);
-                // Size the diff canvas to match the first compare canvas
+                // In the default compare-center layouts the diff pane mirrors the
+                // first source pane footprint. The custom big-left layout owns its
+                // own scaling and must not be collapsed back to source-pane size.
                 const refCanvas = compareCanvases[0];
-                if (refCanvas && refCanvas.style.width) {
+                if (!_isCompareBigLeftLayout() && refCanvas && refCanvas.style.width) {
                     diffCanvas.style.width = refCanvas.style.width;
                     diffCanvas.style.height = refCanvas.style.height;
                 }
@@ -8942,6 +9248,7 @@
                     } catch (_) {}
                 }
                 drawDiffPaneCb(_lastDiffVmin, _lastDiffVmax);
+                if (_isCompareBigLeftLayout()) compareScaleCanvases();
             } catch (e) { /* silently ignore transient errors */ }
         }
 
@@ -9179,7 +9486,14 @@
             _startWatchPoller();  // no-op if server isn't in watch mode; cheap polling
             const restoredCompositeMode = restoreCompositeModeFromSnapshot();
             if (!restoredCompositeMode) triggerPreload();
-            if (compareSid && !multiViewActive && !qmriActive) enterCompareModeBySid(compareSid);
+            if (!multiViewActive && !qmriActive) {
+                if (compareSidList.length) {
+                    const bootCompareSids = [sid, ...compareSidList.filter(s => s && s !== sid)];
+                    if (bootCompareSids.length >= 2) enterCompareModeByMultipleSids(bootCompareSids);
+                } else if (compareSid) {
+                    enterCompareModeBySid(compareSid);
+                }
+            }
             _reconcileUI();
 
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
@@ -11550,6 +11864,7 @@
                 compareName,
                 registrationMode,
                 compareCenterMode,
+                compareLayoutMode,
                 registrationAlpha,
                 overlayAlpha,
                 viewMode: currentViewMode(),
@@ -11640,12 +11955,16 @@
                     .filter(v => v && v !== sid);
             }
             if (typeof s.compareName === 'string') compareName = s.compareName;
+            if (typeof s.compareLayoutMode === 'string' || s.compareLayoutMode === null) {
+                compareLayoutMode = s.compareLayoutMode;
+            }
             // Restore unified compare center mode (prefer new field, fall back to legacy)
             if (Number.isInteger(s.compareCenterMode) && s.compareCenterMode >= 0 && s.compareCenterMode < COMPARE_CENTER_LABELS.length) {
                 compareCenterMode = s.compareCenterMode;
             } else {
                 compareCenterMode = s.registrationMode ? 4 : 0;
             }
+            _normalizeCompareLayoutMode();
             if (compareCenterMode > 0) _lastCompareCenterMode = compareCenterMode;
             registrationMode = (compareCenterMode === 4);
             diffMode = (compareCenterMode >= 1 && compareCenterMode <= 3) ? compareCenterMode : 0;
@@ -14463,7 +14782,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 run: (ctx, e) => {
                     // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
                     // When not in compare mode, toggle snapshot gallery instead
-                    if (!compareActive || registrationMode || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
+                    if (!compareActive || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
+                    if (_compareCenterLayoutEligible()) {
+                        compareLayoutMode = _isCompareBigLeftLayout() ? 'horizontal' : 'big-left';
+                        applyCompareLayout();
+                        _reconcileCbVisibility();
+                        compareScaleCanvases();
+                        if (_isCompareBigLeftLayout()) _queueCompareBigLeftSettle();
+                        showStatus('compare layout: ' + compareLayoutMode);
+                        return;
+                    }
                     const sidsLen = _compareExplicitSids ? _compareExplicitSids.length : compareDisplaySids.length;
                     const paneCount = Math.max(1, sidsLen);
                     const canGrid = paneCount >= 3 && paneCount <= 4;
@@ -14481,6 +14809,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         compareLayoutMode = 'horizontal';
                     }
                     applyCompareLayout();
+                    _reconcileCbVisibility();
                     compareScaleCanvases();
                     showStatus('compare layout: ' + compareLayoutMode);
                 },
@@ -15533,7 +15862,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Layout',
                         entries: [
-                            { key: 'G', action: 'Cycle layout', hint: 'horizontal → vertical → grid' },
+                            { key: 'G', action: 'Cycle layout', hint: 'horizontal → vertical → grid; with exactly 2 arrays + center mode active, toggles horizontal ↔ big-left' },
                             { key: 'Drag title', action: 'Reorder panes by dragging their title bar' },
                         ]
                     },
@@ -17231,6 +17560,10 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareRendering = false;
             comparePending = false;
             compareOverflowNotified = false;
+            if (_compareBigLeftSettleRaf) {
+                cancelAnimationFrame(_compareBigLeftSettleRaf);
+                _compareBigLeftSettleRaf = 0;
+            }
             // Reset compare pan
             comparePan.x = 0; comparePan.y = 0; comparePan._drag = null;
             document.querySelectorAll('.compare-canvas-inner').forEach(el => {
@@ -22410,9 +22743,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const isCenter = diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive;
 
             // 1. Shared colorbar
-            _sharedCbVisible = colorbarVisible() && !isCenter
+            _sharedCbVisible = (_showCompareSharedSourceCb() || (colorbarVisible() && !isCenter
                 && (!multiViewActive || mipActive) && !compareMvActive
-                && !qmriActive && !compareQmriActive;
+                && !qmriActive && !compareQmriActive));
             const cbWrap = document.getElementById('slim-cb-wrap');
             if (cbWrap) cbWrap.style.display = _sharedCbVisible ? '' : 'none';
 
@@ -24023,7 +24356,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             const W = 80, H = 80;
             const activeCount = compareFrames.filter(Boolean).length;
             const layout = compareLayoutMode || 'horizontal';
-            const baseCols = layout === 'horizontal' ? activeCount
+            const baseCols = _isCompareBigLeftLayout() ? 2
+                : layout === 'horizontal' ? activeCount
                 : layout === 'vertical' ? 1
                 : layout === 'grid' ? 2
                 : activeCount <= 2 ? activeCount : (activeCount === 4 ? 2 : 3);
@@ -24041,18 +24375,26 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     continue;
                 }
                 // Determine corner placement based on pane position in grid
-                const col = i % baseCols;
-                const row = Math.floor(i / baseCols);
-                const rows = Math.ceil(activeCount / baseCols);
-                const isLeft = col === 0;
-                const isRight = col === baseCols - 1;
-                const isTop = row === 0;
-                const isBottom = row === rows - 1 && rows > 1;
-                // 3-pane horizontal: skip middle pane minimap
-                if (activeCount === 3 && layout === 'horizontal' && col === 1) {
-                    const old = clip.querySelector('.cmp-mini-map');
-                    if (old) old.classList.remove('visible');
-                    continue;
+                let isLeft, isRight, isTop, isBottom;
+                if (_isCompareBigLeftLayout() && activeCount === 2) {
+                    isLeft = false;
+                    isRight = true;
+                    isTop = i === 0;
+                    isBottom = i === 1;
+                } else {
+                    const col = i % baseCols;
+                    const row = Math.floor(i / baseCols);
+                    const rows = Math.ceil(activeCount / baseCols);
+                    isLeft = col === 0;
+                    isRight = col === baseCols - 1;
+                    isTop = row === 0;
+                    isBottom = row === rows - 1 && rows > 1;
+                    // 3-pane horizontal: skip middle pane minimap
+                    if (activeCount === 3 && layout === 'horizontal' && col === 1) {
+                        const old = clip.querySelector('.cmp-mini-map');
+                        if (old) old.classList.remove('visible');
+                        continue;
+                    }
                 }
                 // Find or create per-pane minimap
                 let mm = clip.querySelector('.cmp-mini-map');
