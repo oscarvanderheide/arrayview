@@ -916,6 +916,116 @@ class TestKeyboard:
         assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"left clip top should stay aligned with the top-right clip after direct multi-array wheel updates, got: {after}"
         assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should stay aligned with the lower-right clip after direct multi-array wheel updates, got: {after}"
 
+    def test_compare_center_auto_layout_picks_horizontal_on_wide_viewport_and_g_sticks(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        path = tmp_path / "arr2d_compare_auto_horizontal.npy"
+        np.save(path, np.flipud(arr_2d))
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_auto_horizontal"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        page.set_viewport_size({"width": 1700, "height": 760})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_function(
+            """() => {
+                const wrap = document.querySelector('#compare-view-wrap');
+                return !!wrap && (
+                    wrap.classList.contains('compare-center-layout-horizontal')
+                    || wrap.classList.contains('compare-center-layout-big-left')
+                    || _compareAutoLayoutMode !== null
+                );
+            }""",
+            timeout=5_000,
+        )
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const wrap = document.querySelector('#compare-view-wrap');
+                    return {
+                        wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                        wrapHorizontal: wrap?.classList.contains('compare-center-layout-horizontal') || false,
+                        compareLayoutMode,
+                        compareAutoLayoutMode: _compareAutoLayoutMode,
+                    };
+                }"""
+            )
+
+        initial = _state()
+        assert initial["wrapHorizontal"], f"wide viewport should auto-pick horizontal center layout, got: {initial}"
+        assert not initial["wrapBigLeft"], f"wide viewport should not auto-pick big-left center layout, got: {initial}"
+        assert initial["compareLayoutMode"] is None, f"auto-picked layout should keep compareLayoutMode unset until manual override, got: {initial}"
+        assert initial["compareAutoLayoutMode"] == "horizontal", f"wide viewport should cache a horizontal auto-layout choice, got: {initial}"
+
+        page.set_viewport_size({"width": 980, "height": 1240})
+        page.wait_for_timeout(500)
+        resized = _state()
+        assert resized["wrapHorizontal"], f"auto-picked horizontal layout should stay stable across resize until overridden, got: {resized}"
+        assert resized["compareLayoutMode"] is None, f"resize alone should not convert the cached auto-layout into a manual override, got: {resized}"
+
+        page.keyboard.press("G")
+        page.wait_for_timeout(350)
+        overridden = _state()
+        assert overridden["wrapBigLeft"], f"G should manually switch the wide auto-layout to big-left, got: {overridden}"
+        assert overridden["compareLayoutMode"] == "big-left", f"G should persist a manual big-left override, got: {overridden}"
+
+        page.set_viewport_size({"width": 1700, "height": 760})
+        page.wait_for_timeout(500)
+        final = _state()
+        assert final["wrapBigLeft"], f"manual G override should remain sticky after resizing back to a wide viewport, got: {final}"
+        assert final["compareLayoutMode"] == "big-left", f"manual big-left override should stay persisted after resize, got: {final}"
+
+    def test_compare_center_auto_layout_picks_big_left_on_tall_viewport(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        path = tmp_path / "arr2d_compare_auto_big_left.npy"
+        np.save(path, np.fliplr(arr_2d))
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_auto_big_left"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        page.set_viewport_size({"width": 980, "height": 1240})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_function(
+            """() => {
+                const wrap = document.querySelector('#compare-view-wrap');
+                return !!wrap && (
+                    wrap.classList.contains('compare-center-layout-horizontal')
+                    || wrap.classList.contains('compare-center-layout-big-left')
+                    || _compareAutoLayoutMode !== null
+                );
+            }""",
+            timeout=5_000,
+        )
+
+        state = page.evaluate(
+            """() => {
+                const wrap = document.querySelector('#compare-view-wrap');
+                return {
+                    wrapBigLeft: wrap?.classList.contains('compare-center-layout-big-left') || false,
+                    wrapHorizontal: wrap?.classList.contains('compare-center-layout-horizontal') || false,
+                    compareLayoutMode,
+                    compareAutoLayoutMode: _compareAutoLayoutMode,
+                };
+            }"""
+        )
+
+        assert state["wrapBigLeft"], f"tall viewport should auto-pick big-left center layout, got: {state}"
+        assert not state["wrapHorizontal"], f"tall viewport should not auto-pick horizontal center layout, got: {state}"
+        assert state["compareLayoutMode"] is None, f"auto-picked tall layout should keep compareLayoutMode unset until manual override, got: {state}"
+        assert state["compareAutoLayoutMode"] == "big-left", f"tall viewport should cache a big-left auto-layout choice, got: {state}"
+
     def test_direct_debug_parameter_maps_big_left_shows_shared_bar_and_stays_stable(
         self, page, server_url, client
     ):
@@ -1031,6 +1141,8 @@ class TestKeyboard:
         assert before_diff["sharedCbRect"], f"shared source colorbar should already be measurable before the diff response returns, got: {before_diff}"
         assert before_diff["sourceTopClipRect"] and before_diff["sourceBottomClipRect"], f"source clips should already be measurable before the diff response returns, got: {before_diff}"
         assert abs(before_diff["sharedCbRect"]["width"] - before_diff["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should match the source clip width before the diff response returns, got: {before_diff}"
+        assert before_diff["sharedCbRect"]["top"] >= before_diff["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should sit inside the gap below the top source pane before the diff response returns, got: {before_diff}"
+        assert before_diff["sharedCbRect"]["bottom"] <= before_diff["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should stay inside the gap above the bottom source pane before the diff response returns, got: {before_diff}"
 
         page.wait_for_timeout(1200)
         after_diff = _state()
@@ -1038,6 +1150,8 @@ class TestKeyboard:
         assert after_diff["sharedCbDisplay"] != "none", f"shared source colorbar should remain visible after the delayed diff response completes, got: {after_diff}"
         assert after_diff["sharedCbRect"] and after_diff["sourceTopClipRect"] and after_diff["sourceBottomClipRect"], f"shared source colorbar and source clips should stay measurable after the delayed diff response completes, got: {after_diff}"
         assert abs(after_diff["sharedCbRect"]["width"] - after_diff["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should keep matching the source clip width after the delayed diff response completes, got: {after_diff}"
+        assert after_diff["sharedCbRect"]["top"] >= after_diff["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should remain inside the gap below the top source pane after the delayed diff response completes, got: {after_diff}"
+        assert after_diff["sharedCbRect"]["bottom"] <= after_diff["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should remain inside the gap above the bottom source pane after the delayed diff response completes, got: {after_diff}"
         assert abs(after_diff["sourceTopClipRect"]["width"] - before_diff["sourceTopClipRect"]["width"]) <= 1, f"top-right source pane width should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
         assert abs(after_diff["sourceTopClipRect"]["height"] - before_diff["sourceTopClipRect"]["height"]) <= 1, f"top-right source pane height should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
         assert abs(after_diff["sourceBottomClipRect"]["width"] - before_diff["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should stay stable while the delayed diff response lands, got before={before_diff} after={after_diff}"
@@ -1092,6 +1206,8 @@ class TestKeyboard:
         assert abs(early["sharedCbRect"]["width"] - early["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should already match the source clip width shortly after X then G, got: {early}"
         assert early["diffIslandRect"], f"diff colorbar island should already be measurable shortly after X then G, got: {early}"
         assert abs(early["sharedCbRect"]["height"] - early["diffIslandRect"]["height"]) <= 1, f"shared source and diff colorbar rows should already match heights shortly after X then G, got: {early}"
+        assert early["sharedCbRect"]["top"] >= early["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should already sit below the top source pane shortly after X then G, got: {early}"
+        assert early["sharedCbRect"]["bottom"] <= early["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should already sit above the bottom source pane shortly after X then G, got: {early}"
 
         page.wait_for_timeout(800)
         settled = _state()
@@ -1100,6 +1216,8 @@ class TestKeyboard:
         assert settled["sharedCbRect"] and settled["sourceTopClipRect"] and settled["sourceBottomClipRect"], f"shared source colorbar and source clips should stay measurable after the big-left layout settles, got: {settled}"
         assert abs(settled["sharedCbRect"]["width"] - settled["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should stay width-matched after the big-left layout settles, got: {settled}"
         assert abs(settled["sharedCbRect"]["height"] - settled["diffIslandRect"]["height"]) <= 1, f"shared source and diff colorbar rows should stay height-matched after the big-left layout settles, got: {settled}"
+        assert settled["sharedCbRect"]["top"] >= settled["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should remain below the top source pane after the big-left layout settles, got: {settled}"
+        assert settled["sharedCbRect"]["bottom"] <= settled["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should remain above the bottom source pane after the big-left layout settles, got: {settled}"
         assert abs(settled["sourceTopClipRect"]["width"] - early["sourceTopClipRect"]["width"]) <= 1, f"top-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceTopClipRect"]["height"] - early["sourceTopClipRect"]["height"]) <= 1, f"top-right source pane height should not drift after X then G without any scroll, got early={early} settled={settled}"
         assert abs(settled["sourceBottomClipRect"]["width"] - early["sourceBottomClipRect"]["width"]) <= 1, f"bottom-right source pane width should not drift after X then G without any scroll, got early={early} settled={settled}"
@@ -1451,12 +1569,14 @@ class TestKeyboard:
                 const sharedCb = document.querySelector('#slim-cb-wrap');
                 const sourceTopTitle = document.querySelector('.compare-primary .compare-title');
                 const sourceTopIsland = document.querySelector('.compare-primary .compare-pane-cb-island');
-                const sourceBottomIsland = document.querySelector('.compare-secondary .compare-pane-cb-island');
-                const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
-                const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
-                const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
-                const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
-                const diffRect = diffPane?.getBoundingClientRect() || null;
+                    const sourceBottomIsland = document.querySelector('.compare-secondary .compare-pane-cb-island');
+                    const sourceTopBadge = document.querySelector('.compare-primary .compare-source-pane-badge');
+                    const sourceBottomBadge = document.querySelector('.compare-secondary .compare-source-pane-badge');
+                    const diffClip = document.querySelector('#compare-diff-pane .compare-canvas-clip');
+                    const sourceTopClip = document.querySelector('.compare-primary .compare-canvas-clip');
+                    const sourceBottomClip = document.querySelector('.compare-secondary .compare-canvas-clip');
+                    const diffIsland = document.querySelector('#compare-diff-pane .compare-pane-cb-island');
+                    const diffRect = diffPane?.getBoundingClientRect() || null;
                 const sourceTopRect = sourceTop?.getBoundingClientRect() || null;
                 const sourceBottomRect = sourceBottom?.getBoundingClientRect() || null;
                 const sharedCbRect = sharedCb?.getBoundingClientRect() || null;
@@ -1471,13 +1591,17 @@ class TestKeyboard:
                     sourceTopClipRect: sourceTopClip?.getBoundingClientRect() || null,
                     sourceBottomClipRect: sourceBottomClip?.getBoundingClientRect() || null,
                     diffIslandRect: diffIsland?.getBoundingClientRect() || null,
-                    sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
-                    sourceTopIslandDisplay: sourceTopIsland ? getComputedStyle(sourceTopIsland).display : 'missing',
-                    sourceBottomIslandDisplay: sourceBottomIsland ? getComputedStyle(sourceBottomIsland).display : 'missing',
-                    sourceTitleWritingMode: sourceTopTitle ? getComputedStyle(sourceTopTitle).writingMode : '',
-                };
-            }"""
-        )
+                        sharedCbDisplay: sharedCb ? getComputedStyle(sharedCb).display : 'missing',
+                        sourceTopIslandDisplay: sourceTopIsland ? getComputedStyle(sourceTopIsland).display : 'missing',
+                        sourceBottomIslandDisplay: sourceBottomIsland ? getComputedStyle(sourceBottomIsland).display : 'missing',
+                        sourceTopBadgeText: sourceTopBadge?.textContent || '',
+                        sourceBottomBadgeText: sourceBottomBadge?.textContent || '',
+                        sourceTopBadgeDisplay: sourceTopBadge ? getComputedStyle(sourceTopBadge).display : 'missing',
+                        sourceBottomBadgeDisplay: sourceBottomBadge ? getComputedStyle(sourceBottomBadge).display : 'missing',
+                        sourceTitleWritingMode: sourceTopTitle ? getComputedStyle(sourceTopTitle).writingMode : '',
+                    };
+                }"""
+            )
 
         assert state["wrapBigLeft"], f"compare should enter big-left layout after G in 2-array center mode, got: {state}"
         assert state["diffRect"] and state["sourceTopRect"] and state["sourceBottomRect"], f"big-left compare panes should all be measurable, got: {state}"
@@ -1487,16 +1611,20 @@ class TestKeyboard:
         assert state["sourceBottomRect"]["top"] > state["sourceTopRect"]["bottom"], f"source panes should stack vertically in big-left mode, got: {state}"
         assert state["sharedCbDisplay"] != "none", f"shared source colorbar should be visible in big-left mode, got: {state}"
         assert state["sharedCbRect"], f"shared source colorbar should have a layout box in big-left mode, got: {state}"
-        assert state["sharedCbRect"]["top"] >= state["sourceBottomRect"]["bottom"] - 1, f"shared source colorbar should sit beneath the stacked source panes, got: {state}"
+        assert state["sharedCbRect"]["top"] >= state["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should sit below the top source pane inside the stacked gap, got: {state}"
+        assert state["sharedCbRect"]["bottom"] <= state["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should sit above the bottom source pane inside the stacked gap, got: {state}"
         assert state["sourceTopIslandDisplay"] == "none", f"top source pane should hide its per-pane colorbar in big-left mode, got: {state}"
         assert state["sourceBottomIslandDisplay"] == "none", f"bottom source pane should hide its per-pane colorbar in big-left mode, got: {state}"
+        assert state["sourceTopBadgeText"].strip() == "A", f"top source pane should show an A badge in big-left mode, got: {state}"
+        assert state["sourceBottomBadgeText"].strip() == "B", f"bottom source pane should show a B badge in big-left mode, got: {state}"
+        assert state["sourceTopBadgeDisplay"] != "none", f"top source pane A badge should be visible in big-left mode, got: {state}"
+        assert state["sourceBottomBadgeDisplay"] != "none", f"bottom source pane B badge should be visible in big-left mode, got: {state}"
         assert state["sourceTitleWritingMode"] == "vertical-rl", f"source titles should switch to vertical labels in big-left mode, got: {state}"
         assert state["diffCanvasRect"] and state["diffClipRect"] and state["sourceTopClipRect"] and state["sourceBottomClipRect"], f"big-left layout should expose measurable clip rects, got: {state}"
         assert abs(state["diffCanvasRect"]["width"] - state["diffClipRect"]["width"]) <= 1, f"center clip should shrink-wrap the rendered diff width in big-left mode, got: {state}"
         assert abs(state["diffClipRect"]["top"] - state["sourceTopClipRect"]["top"]) <= 1, f"left clip top should align with top-right clip top, got: {state}"
         assert abs(state["diffClipRect"]["bottom"] - state["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should align with bottom-right clip bottom, got: {state}"
         assert state["diffIslandRect"], f"diff pane colorbar should remain measurable in big-left mode, got: {state}"
-        assert state["sharedCbRect"]["top"] >= state["diffIslandRect"]["top"] - 1, f"shared source colorbar should stay on or below the diff colorbar row in big-left mode, got: {state}"
 
     def test_compare_center_big_left_keeps_shared_bar_and_alignment_after_wheel(
         self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
@@ -1578,7 +1706,8 @@ class TestKeyboard:
         assert abs(after["diffClipRect"]["top"] - after["sourceTopClipRect"]["top"]) <= 1, f"left clip top should stay aligned with the top-right clip after wheel-driven slice updates, got: {after}"
         assert abs(after["diffClipRect"]["bottom"] - after["sourceBottomClipRect"]["bottom"]) <= 1, f"left clip bottom should stay aligned with the lower-right clip after wheel-driven slice updates, got: {after}"
         assert after["diffIslandRect"] and after["sharedCbRect"], f"big-left colorbar rows should stay measurable after wheel-driven slice updates, got: {after}"
-        assert abs(after["diffIslandRect"]["top"] - after["sharedCbRect"]["top"]) <= 1, f"diff and shared source colorbar rows should stay aligned after wheel-driven slice updates, got: {after}"
+        assert after["sharedCbRect"]["top"] >= after["sourceTopClipRect"]["bottom"] - 1, f"shared source colorbar should stay below the top source pane after wheel-driven slice updates, got: {after}"
+        assert after["sharedCbRect"]["bottom"] <= after["sourceBottomClipRect"]["top"] + 1, f"shared source colorbar should stay above the bottom source pane after wheel-driven slice updates, got: {after}"
 
     def test_multiview_hover_border_and_colorbar_clearance(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
@@ -1610,6 +1739,110 @@ class TestKeyboard:
         assert "1.5px" in state["frameShadow"], f"pane frame should match crosshair thickness, got: {state}"
         assert state["colorbarBottomGap"] >= 36, f"multiview colorbar should clear the viewport bottom, got: {state}"
         assert state["centerDelta"] <= 2, f"multiview pane cluster should be horizontally centered, got: {state}"
+
+    def test_multiview_auto_layout_picks_horizontal_on_jupyter_like_viewport_and_manual_override_sticks(
+        self, loaded_viewer, sid_3d
+    ):
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 1280, "height": 760})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        def _state():
+            return page.evaluate(
+                """() => {
+                    const row = document.querySelector('#mv-panes');
+                    const panes = Array.from(document.querySelectorAll('#mv-panes > .mv-pane')).map(p => {
+                        const r = p.getBoundingClientRect();
+                        return {
+                            left: Math.round(r.left),
+                            top: Math.round(r.top),
+                            width: Math.round(r.width),
+                            height: Math.round(r.height),
+                        };
+                    });
+                    return {
+                        orthoLayoutMode,
+                        orthoAutoLayoutMode: _orthoAutoLayoutMode,
+                        rowPosition: row ? getComputedStyle(row).position : 'missing',
+                        rowClass: row?.className || '',
+                        panes,
+                    };
+                }"""
+            )
+
+        initial = _state()
+        assert initial["orthoLayoutMode"] is None, f"jupyter-like viewport should remain in auto ortho layout mode until manual override, got: {initial}"
+        assert initial["orthoAutoLayoutMode"] == "horizontal", f"jupyter-like viewport should auto-pick horizontal ortho layout, got: {initial}"
+        assert initial["rowPosition"] != "relative", f"horizontal ortho auto-layout should keep the legacy row flow, got: {initial}"
+        assert len(initial["panes"]) == 3, f"multiview should expose exactly three ortho panes, got: {initial}"
+        assert max(abs(initial["panes"][i]["top"] - initial["panes"][0]["top"]) for i in range(1, 3)) <= 2, f"horizontal ortho auto-layout should keep panes on one row, got: {initial}"
+        assert max(abs(initial["panes"][i]["width"] - initial["panes"][0]["width"]) for i in range(1, 3)) <= 2, f"horizontal ortho auto-layout should keep pane widths uniform, got: {initial}"
+
+        page.set_viewport_size({"width": 1700, "height": 1100})
+        page.wait_for_timeout(500)
+        resized = _state()
+        assert resized["orthoAutoLayoutMode"] == "horizontal", f"ortho auto-layout choice should stay stable across resize until manually overridden, got: {resized}"
+        assert resized["rowPosition"] != "relative", f"resizing alone should not flip ortho layout out of horizontal flow, got: {resized}"
+
+        page.keyboard.press("g")
+        page.wait_for_timeout(180)
+        page.keyboard.press("g")
+        page.wait_for_timeout(500)
+        overridden = _state()
+        assert overridden["orthoLayoutMode"] == "big-left", f"manual g cycling should persist a concrete ortho preset override, got: {overridden}"
+        assert overridden["rowPosition"] == "relative", f"big-left ortho override should switch mv panes into preset positioning, got: {overridden}"
+        assert "mv-promote-enabled" in overridden["rowClass"], f"big-left ortho override should enable the promotable preset chrome, got: {overridden}"
+        assert overridden["panes"][0]["width"] > overridden["panes"][1]["width"], f"big-left ortho override should make the first pane larger than the stacked panes, got: {overridden}"
+        assert overridden["panes"][1]["top"] < overridden["panes"][2]["top"], f"big-left ortho override should stack the secondary panes vertically, got: {overridden}"
+
+        page.set_viewport_size({"width": 1280, "height": 760})
+        page.wait_for_timeout(500)
+        final = _state()
+        assert final["orthoLayoutMode"] == "big-left", f"manual ortho preset override should stay sticky after resizing back to a smaller viewport, got: {final}"
+        assert final["rowPosition"] == "relative", f"manual big-left ortho override should remain active after resize, got: {final}"
+
+    def test_multiview_auto_layout_picks_big_left_on_large_viewport(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 1700, "height": 1100})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        state = page.evaluate(
+            """() => {
+                const row = document.querySelector('#mv-panes');
+                const panes = Array.from(document.querySelectorAll('#mv-panes > .mv-pane')).map(p => {
+                    const r = p.getBoundingClientRect();
+                    return {
+                        left: Math.round(r.left),
+                        top: Math.round(r.top),
+                        width: Math.round(r.width),
+                        height: Math.round(r.height),
+                    };
+                });
+                return {
+                    orthoLayoutMode,
+                    orthoAutoLayoutMode: _orthoAutoLayoutMode,
+                    rowPosition: row ? getComputedStyle(row).position : 'missing',
+                    rowClass: row?.className || '',
+                    panes,
+                };
+            }"""
+        )
+
+        assert state["orthoLayoutMode"] is None, f"large viewport should still be in auto ortho layout mode until manually overridden, got: {state}"
+        assert state["orthoAutoLayoutMode"] == "big-left", f"large viewport should auto-pick big-left ortho layout, got: {state}"
+        assert state["rowPosition"] == "relative", f"big-left ortho auto-layout should use preset positioning, got: {state}"
+        assert "mv-promote-enabled" in state["rowClass"], f"big-left ortho auto-layout should enable the promotable preset chrome, got: {state}"
+        assert len(state["panes"]) == 3, f"multiview should expose exactly three ortho panes, got: {state}"
+        assert state["panes"][0]["width"] > state["panes"][1]["width"], f"big-left ortho auto-layout should make the first pane larger than the stacked panes, got: {state}"
+        assert state["panes"][1]["top"] < state["panes"][2]["top"], f"big-left ortho auto-layout should stack the secondary panes vertically, got: {state}"
 
     def test_compare_multiview_uses_single_shared_colorbar_and_aligned_columns(
         self, loaded_viewer, sid_3d, arr_3d, client, tmp_path
@@ -1701,28 +1934,30 @@ class TestKeyboard:
             f"expected Shift+B to disable rounded panes, got: {toggled}"
         )
 
-    def test_multiview_empty_square_uses_colormap_min_fill(self, loaded_viewer, sid_3d):
+    def test_multiview_empty_square_uses_theme_background(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("v")
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(300)
-        page.keyboard.press("c")
-        page.wait_for_timeout(250)
 
         state = page.evaluate(
             """() => {
                 const pane = document.querySelector('.mv-pane');
                 const bg = getComputedStyle(pane).backgroundColor;
-                const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-                const expected = stops && stops[0] ? `rgb(${stops[0][0]}, ${stops[0][1]}, ${stops[0][2]})` : null;
-                return { bg, expected, colormap: currentColormap() };
+                const probe = document.createElement('div');
+                probe.style.backgroundColor = 'var(--bg)';
+                probe.style.display = 'none';
+                document.body.appendChild(probe);
+                const expected = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return { bg, expected };
             }"""
         )
 
-        assert state["expected"] is not None, f"expected current colormap to expose gradient stops, got: {state}"
+        assert state["expected"], f"expected theme background to resolve to a color, got: {state}"
         assert state["bg"] == state["expected"], (
-            f"multiview square background should use the colormap minimum color, got: {state}"
+            f"multiview square background should use the shared theme background, got: {state}"
         )
 
     def test_multiview_rotate_updates_all_panes(self, loaded_viewer, sid_3d):

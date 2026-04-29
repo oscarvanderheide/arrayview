@@ -6,7 +6,7 @@
     <style>
         /* ── CSS: Theme Variables and Base Layout ────────────────────── */
         :root {
-            --bg: #0c0c0c; --surface: #141414; --surface-2: #1c1c1c;
+            --bg: #121212; --surface: #141414; --surface-2: #1c1c1c;
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(255,255,255,0.06);
@@ -1680,6 +1680,32 @@
         .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
         .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
         .compare-canvas-inner { position: relative; display: inline-block; }
+        .compare-source-pane-badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            min-height: 24px;
+            padding: 0 7px;
+            border-radius: 999px;
+            background: rgba(30, 30, 30, 0.76);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            font-size: 12px;
+            line-height: 1;
+            font-weight: 700;
+            letter-spacing: 0;
+            text-transform: none;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .compare-source-pane-badge.source-a { color: var(--playing-dim); }
+        .compare-source-pane-badge.source-b { color: var(--help-key); }
         .compare-pane-cb-island { --cb-base-margin-top: 10px; margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top)); display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; transition: opacity 0.25s ease, margin 0.25s ease; }
         .compare-pane-cb { display: block; height: 11px; border-radius: 3px; border: none; cursor: ew-resize; width: 100%; position: absolute; bottom: 0; left: 0; background: transparent; }
         .compare-pane-cb-labels { display: none; }
@@ -1755,6 +1781,9 @@
         #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-canvas-area,
         #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-canvas-area {
             padding-right: 18px;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-source-pane-badge {
+            display: inline-flex;
         }
         #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-pane-cb-island,
         #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-pane-cb-island {
@@ -2402,6 +2431,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-left-canvas" class="compare-canvas"></canvas>
+                                <div class="compare-source-pane-badge source-a">A</div>
                                 <div class="cv-pixel-info" id="compare-left-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
                                     <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
@@ -2466,6 +2496,7 @@
                         <div class="compare-canvas-wrap">
                             <div class="compare-canvas-inner">
                                 <canvas id="compare-right-canvas" class="compare-canvas"></canvas>
+                                <div class="compare-source-pane-badge source-b">B</div>
                                 <div class="cv-pixel-info" id="compare-right-pi"></div>
                                 <svg class="axes-indicator" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
                                     <line x1="6" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="1.5"/>
@@ -3310,10 +3341,12 @@
         let compareDisplaySids = [];
         let _compareExplicitSids = null; // when set, getCompareRenderSids() returns this directly
         let compareLayoutMode = null;    // null=auto, 'horizontal', 'vertical', 'grid'
+        let _compareAutoLayoutMode = null; // resolved once per compare session when compareLayoutMode === null
         // Ortho-view grid layout. null/'horizontal' keep the legacy flex-row
         // path; other values switch #mv-panes to absolute positioning driven
         // by the matching ORTHO_PRESETS entry.
-        let orthoLayoutMode = 'big-left';
+        let orthoLayoutMode = null; // null=auto, explicit values use ORTHO_PRESETS ids
+        let _orthoAutoLayoutMode = null; // resolved once per ortho entry when orthoLayoutMode === null
         let _orthoLayoutPicker = null;   // populated by _initOrthoLayoutPicker()
         let compareOverflowNotified = false;
         let compareRegistrationFrame = null;
@@ -3345,12 +3378,136 @@
             }
         }
 
+        function _layoutViewportProfile(opts = {}) {
+            const totalW = Math.max(100, Number.isFinite(opts.totalW) ? opts.totalW : window.innerWidth);
+            const totalH = Math.max(100, Number.isFinite(opts.totalH) ? opts.totalH : window.innerHeight);
+            const aspect = totalW / Math.max(1, totalH);
+            const shortSide = Math.min(totalW, totalH);
+            const longSide = Math.max(totalW, totalH);
+            const aspectClass = aspect >= 1.45 ? 'wide-short'
+                : aspect <= 1.05 ? 'tall-narrow'
+                : 'balanced';
+            const sizeClass = totalW >= 1450 && totalH >= 820 ? 'roomy'
+                : totalW >= 1150 && totalH >= 700 ? 'medium'
+                : 'compact';
+            return { totalW, totalH, aspect, shortSide, longSide, aspectClass, sizeClass };
+        }
+
+        function _supportsWidePrimaryLayout(profile, opts = {}) {
+            return (
+                profile.aspect >= (opts.minAspect ?? 1.45)
+                && profile.totalW >= (opts.minViewportW ?? 0)
+                && profile.totalH >= (opts.minViewportH ?? 0)
+                && (opts.secondaryWidth == null || opts.secondaryWidth >= (opts.minSecondaryWidth ?? 0))
+                && (opts.secondaryHeight == null || opts.secondaryHeight >= (opts.minSecondaryHeight ?? 0))
+                && (opts.primaryWidth == null || opts.primaryWidth >= (opts.minPrimaryWidth ?? 0))
+                && (opts.baselineWidth == null || opts.baselineWidth >= (opts.minBaselineWidth ?? 0))
+                && (opts.primaryWidth == null || opts.secondaryWidth == null || opts.primaryWidth >= opts.secondaryWidth * (opts.primaryVsSecondaryRatio ?? 1))
+                && (opts.primaryWidth == null || opts.baselineWidth == null || opts.primaryWidth >= opts.baselineWidth * (opts.primaryVsBaselineRatio ?? 1))
+            );
+        }
+
+        function _compareViewportMetrics() {
+            const panesEl = document.getElementById('compare-panes');
+            const cs = panesEl ? getComputedStyle(panesEl) : null;
+            const colGap = parseFloat((cs && (cs.columnGap || cs.gap)) || '18') || 18;
+            const rowGap = parseFloat((cs && (cs.rowGap || cs.gap)) || '18') || 18;
+            const immersivePad = 12;
+            const cP = _crossfadeCollapseP;
+            const uiReserveH = (_fullscreenActive && _crossfadeP <= 0) ? 0 : (uiReserveV() + 40 * (1 - cP));
+            const immPadV = (_fullscreenActive ? 1 : cP) * immersivePad * 2;
+            return {
+                ..._layoutViewportProfile({
+                    totalW: window.innerWidth - (_fullscreenActive ? immersivePad * 2 : (NORMAL_SIDE_RESERVE * (1 - cP) + immersivePad * 2 * cP)),
+                    totalH: window.innerHeight - uiReserveH - immPadV,
+                }),
+                colGap,
+                rowGap,
+            };
+        }
+
+        function _pickCompareCenterAutoLayoutMode() {
+            if (!_compareCenterLayoutEligible()) return null;
+            const { totalW, totalH, colGap } = _compareViewportMetrics();
+            const titleReserve = _fullscreenActive ? 0 : 28 * (1 - _crossfadeCollapseP);
+            const panePadX = _fullscreenActive ? 0 : 16 * (1 - _crossfadeCollapseP);
+            const compareCenterCbReserve = !_fullscreenActive
+                ? (10 + CB_COLLAPSED_H + 4) * (1 - _crossfadeCollapseP)
+                : 0;
+            const panePadY = (_fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP)) + compareCenterCbReserve;
+            const sourceWeight = 1;
+            const centerWeight = 1.36;
+            const totalUnits = sourceWeight * 2 + centerWeight;
+            const sourceOuterW = Math.max(20, ((totalW - 2 * colGap) * sourceWeight) / totalUnits);
+            const centerOuterW = Math.max(20, ((totalW - 2 * colGap) * centerWeight) / totalUnits);
+            const sourceUsableW = Math.max(0, sourceOuterW - panePadX);
+            const sourceUsableH = Math.max(0, totalH - titleReserve - panePadY);
+            const centerUsableW = Math.max(0, centerOuterW - panePadX);
+            const horizontalViable = _supportsWidePrimaryLayout(_compareViewportMetrics(), {
+                minAspect: 1.45,
+                minSecondaryWidth: 220,
+                minSecondaryHeight: 220,
+                secondaryWidth: sourceUsableW,
+                secondaryHeight: sourceUsableH,
+                primaryWidth: centerUsableW,
+                primaryVsSecondaryRatio: 1.15,
+            });
+            return horizontalViable ? 'horizontal' : 'big-left';
+        }
+
+        function _resolvedCompareLayoutMode() {
+            _normalizeCompareLayoutMode();
+            if (compareLayoutMode !== null) return compareLayoutMode;
+            if (!_compareCenterLayoutEligible()) return null;
+            if (!_compareAutoLayoutMode) _compareAutoLayoutMode = _pickCompareCenterAutoLayoutMode();
+            return _compareAutoLayoutMode || 'big-left';
+        }
+
         function _isCompareBigLeftLayout() {
-            return compareLayoutMode === 'big-left' && _compareCenterLayoutEligible();
+            return _resolvedCompareLayoutMode() === 'big-left' && _compareCenterLayoutEligible();
         }
 
         function _showCompareSharedSourceCb() {
             return _isCompareBigLeftLayout() && !_fullscreenActive && colorbarVisible();
+        }
+        function _pickOrthoAutoLayoutMode() {
+            const gap = 16;
+            const paneCount = Math.max(3, mvViews.length || 3);
+            const cbWrap = document.getElementById('mv-cb-wrap');
+            const ready = mvViews.filter(v => v && v.lastW && v.lastH);
+            const labelH = ready.length ? (Math.max(...ready.map(v => v.label ? v.label.offsetHeight : 0)) + 5 + 8) : 28;
+            const cbH = cbWrap ? cbWrap.offsetHeight : 30;
+            const uiReserveH = uiReserveV() + (cbH + labelH + MV_COLORBAR_BOTTOM_CLEARANCE) * (1 - _crossfadeCollapseP);
+            const profile = _layoutViewportProfile({
+                totalW: window.innerWidth - 80,
+                totalH: window.innerHeight - uiReserveH,
+            });
+            const cW = Math.max(50, profile.totalW);
+            const cH = Math.max(50, profile.totalH);
+            const horizontalRects = _getOrthoPreset('horizontal')?.compute(paneCount, cW, cH, gap) || [];
+            const bigLeftRects = _getOrthoPreset('big-left')?.compute(paneCount, cW, cH, gap) || [];
+            const horizSide = horizontalRects[0]?.w || 0;
+            const bigSide = bigLeftRects[0]?.w || 0;
+            const smallSide = bigLeftRects[1]?.w || 0;
+            const bigLeftViable = _supportsWidePrimaryLayout(profile, {
+                minAspect: 1.45,
+                minViewportW: 1450,
+                minViewportH: 820,
+                minPrimaryWidth: 520,
+                minSecondaryWidth: 220,
+                minBaselineWidth: 180,
+                primaryWidth: bigSide,
+                secondaryWidth: smallSide,
+                baselineWidth: horizSide,
+                primaryVsBaselineRatio: 1.22,
+            });
+            return bigLeftViable ? 'big-left' : 'horizontal';
+        }
+
+        function _resolvedOrthoLayoutMode() {
+            if (typeof orthoLayoutMode === 'string' && _getOrthoPreset(orthoLayoutMode)) return orthoLayoutMode;
+            if (!_orthoAutoLayoutMode) _orthoAutoLayoutMode = _pickOrthoAutoLayoutMode();
+            return _orthoAutoLayoutMode || 'horizontal';
         }
         let _compareBigLeftSettleRaf = 0;
         function _queueCompareBigLeftSettle() {
@@ -3960,7 +4117,7 @@
                 // In vertical compare layout, compare-panes overflows its container
                 // (flex:1; min-height:0; overflow:visible).  Measure the actual
                 // height from visible pane bounding rects so padding-top is correct.
-                if (compareActive && compareLayoutMode === 'vertical' && child.id === 'compare-view-wrap') {
+                if (compareActive && _resolvedCompareLayoutMode() === 'vertical' && child.id === 'compare-view-wrap') {
                     const _visPanes = child.querySelectorAll('.compare-pane.active');
                     if (_visPanes.length) {
                         let _minTop = Infinity, _maxBot = -Infinity;
@@ -4243,6 +4400,7 @@
             }
             const panesEl = document.getElementById('compare-panes');
             if (!panesEl) return;
+            const resolvedCompareLayout = _resolvedCompareLayoutMode();
             const bigLeftTitleReserve = _isCompareBigLeftLayout() ? 0 : 28 * (1 - _crossfadeCollapseP);
             const titleReserve = _fullscreenActive ? 0 : bigLeftTitleReserve;
             const panePadX = _fullscreenActive ? 0 : 16 * (1 - _crossfadeCollapseP);
@@ -4262,9 +4420,9 @@
             const hasCenterPane = (diffMode > 0 || registrationMode || _wipeActive || _flickerActive || _checkerActive);
             const bigLeftCompare = _isCompareBigLeftLayout() && hasCenterPane && paneCount === 2;
             const baseCols = bigLeftCompare ? 2
-                : compareLayoutMode === 'horizontal' ? paneCount
-                : compareLayoutMode === 'vertical'   ? 1
-                : compareLayoutMode === 'grid'       ? 2
+                : resolvedCompareLayout === 'horizontal' ? paneCount
+                : resolvedCompareLayout === 'vertical'   ? 1
+                : resolvedCompareLayout === 'grid'       ? 2
                 : paneCount <= 2 ? paneCount : (paneCount === 4 ? 2 : 3);
             const cols = bigLeftCompare ? 2 : (hasCenterPane && paneCount === 2) ? 3 : baseCols;
             const visiblePaneCount = paneCount + ((hasCenterPane && paneCount === 2) ? 1 : 0);
@@ -4298,9 +4456,7 @@
                 const sourcePanePadY = _fullscreenActive ? 0 : 12 * (1 - _crossfadeCollapseP);
                 const sourceSideLabelReserve = _fullscreenActive ? 0 : 18;
                 const bigLeftGap = Math.max(10, Math.round(colGap * 0.66));
-                const sharedCbReserve = _showCompareSharedSourceCb()
-                    ? compareCenterCbReserve
-                    : 0;
+                const sharedCbReserve = 0;
                 let rightOuterW = Math.round(Math.max(220, Math.min(totalW * 0.34, totalW - 280)));
                 rightOuterW = Math.min(rightOuterW, Math.max(220, totalW - bigLeftGap - 180));
                 const rightOuterH = Math.max(20, (totalH - sharedCbReserve - rowGap) / 2);
@@ -4687,6 +4843,7 @@
         function _compareCenterPaneCount() {
             if (Array.isArray(_compareExplicitSids) && _compareExplicitSids.length) return _compareExplicitSids.length;
             if (Array.isArray(compareDisplaySids) && compareDisplaySids.length) return compareDisplaySids.length;
+            if (compareActive && compareSid && compareSid !== sid) return 2;
             if (compareActive && modeManager && Array.isArray(modeManager.currentViews)) {
                 return modeManager.currentViews.filter(v => v && v.role === 'compare').length;
             }
@@ -4948,6 +5105,9 @@
 
             // Update titles
             updateCompareTitles();
+            if (newMode > 0 && compareLayoutMode === null && !_compareAutoLayoutMode && _compareCenterSupported()) {
+                _compareAutoLayoutMode = _pickCompareCenterAutoLayoutMode();
+            }
             _normalizeCompareLayoutMode();
             applyCompareLayout();
 
@@ -5109,20 +5269,20 @@
         }
 
         function applyCompareLayout() {
-            _normalizeCompareLayoutMode();
+            const resolvedCompareLayout = _resolvedCompareLayoutMode();
             const sidsLen = _compareExplicitSids ? _compareExplicitSids.length
                 : compareDisplaySids.length;
             const count = Math.max(1, sidsLen);
             const cols = _isCompareBigLeftLayout() ? 2
-                : compareLayoutMode === 'horizontal' ? count
-                : compareLayoutMode === 'vertical'   ? 1
-                : compareLayoutMode === 'grid'        ? 2
+                : resolvedCompareLayout === 'horizontal' ? count
+                : resolvedCompareLayout === 'vertical'   ? 1
+                : resolvedCompareLayout === 'grid'        ? 2
                 : count <= 2 ? count : (count === 4 ? 2 : 3);
             const panesEl = document.getElementById('compare-panes');
             document.getElementById('compare-panes').style.setProperty('--compare-cols', String(Math.max(1, cols)));
             compareWrap.classList.toggle('compare-center-layout', _compareCenterLayoutEligible());
             compareWrap.classList.toggle('compare-center-layout-big-left', _isCompareBigLeftLayout());
-            compareWrap.classList.toggle('compare-center-layout-horizontal', _compareCenterLayoutEligible() && !_isCompareBigLeftLayout());
+            compareWrap.classList.toggle('compare-center-layout-horizontal', _compareCenterLayoutEligible() && resolvedCompareLayout === 'horizontal');
             if (panesEl && !_isCompareBigLeftLayout()) {
                 panesEl.style.removeProperty('--compare-big-left-left-w');
                 panesEl.style.removeProperty('--compare-big-left-right-w');
@@ -5445,9 +5605,14 @@
             if (!stops) return;
             const vpEl = document.getElementById('canvas-viewport');
             // In compare mode, position relative to the panes grid; in multiview, use mv-panes
+            const _sharedTopSourceClip = _sharedCompareCb
+                ? (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip'))
+                : null;
+            const _sharedBottomSourceClip = _sharedCompareCb
+                ? (compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
+                : null;
             const _sharedSourceClip = _sharedCompareCb
-                ? ((compareCanvases[1] && compareCanvases[1].closest('.compare-canvas-clip'))
-                    || (compareCanvases[0] && compareCanvases[0].closest('.compare-canvas-clip')))
+                ? (_sharedTopSourceClip || _sharedBottomSourceClip)
                 : null;
             const _cbRefEl = _sharedCompareCb
                 ? (_sharedSourceClip || comparePaneEls[1] || comparePaneEls[0] || document.getElementById('compare-panes') || vpEl)
@@ -5546,7 +5711,7 @@
                     const _r = _sourceClip.getBoundingClientRect();
                     _cbAnchorBottom = _r.bottom;
                 }
-            } else if (compareActive && compareLayoutMode === 'vertical') {
+            } else if (compareActive && _resolvedCompareLayoutMode() === 'vertical') {
                 const _visPanes = document.querySelectorAll('.compare-pane.active');
                 if (_visPanes.length) {
                     let _maxBot = 0;
@@ -5560,7 +5725,23 @@
             // Top is fixed at pane bottom + chromeGap. Never moves.
             let cbTop = _cbAnchorBottom + (_sharedCompareCb ? 10 : chromeGap);
             if (_sharedCompareCb) {
-                if (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none') {
+                const _topRect = _sharedTopSourceClip ? _sharedTopSourceClip.getBoundingClientRect() : null;
+                const _bottomRect = _sharedBottomSourceClip ? _sharedBottomSourceClip.getBoundingClientRect() : null;
+                const _targetH = Math.max(
+                    wrap ? Math.round(wrap.getBoundingClientRect().height) : 0,
+                    wrap ? (parseFloat(wrap.style.minHeight || '0') || 0) : 0,
+                    (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none')
+                        ? Math.round(_sharedDiffIsland.getBoundingClientRect().height)
+                        : 0
+                );
+                if (_topRect && _bottomRect) {
+                    const _gapTop = _topRect.bottom;
+                    const _gapBottom = _bottomRect.top;
+                    const _gapH = _gapBottom - _gapTop;
+                    if (_gapH > 0) {
+                        cbTop = _gapTop + Math.max(0, (_gapH - _targetH) / 2);
+                    }
+                } else if (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none') {
                     cbTop = _sharedDiffIsland.getBoundingClientRect().top;
                 }
             }
@@ -11987,8 +12168,9 @@
             if (Number.isInteger(s.activeDim) && s.activeDim >= 0 && s.activeDim < shape.length) {
                 activeDim = s.activeDim;
             }
-            if (typeof s.orthoLayoutMode === 'string' && _getOrthoPreset(s.orthoLayoutMode)) {
+            if ((typeof s.orthoLayoutMode === 'string' && _getOrthoPreset(s.orthoLayoutMode)) || s.orthoLayoutMode === null) {
                 orthoLayoutMode = s.orthoLayoutMode;
+                _orthoAutoLayoutMode = null;
             }
             if (typeof s.compareSid === 'string' && s.compareSid.trim()) compareSid = s.compareSid.trim();
             if (Array.isArray(s.compareSidList)) {
@@ -11999,6 +12181,7 @@
             if (typeof s.compareName === 'string') compareName = s.compareName;
             if (typeof s.compareLayoutMode === 'string' || s.compareLayoutMode === null) {
                 compareLayoutMode = s.compareLayoutMode;
+                _compareAutoLayoutMode = null;
             }
             // Restore unified compare center mode (prefer new field, fall back to legacy)
             if (Number.isInteger(s.compareCenterMode) && s.compareCenterMode >= 0 && s.compareCenterMode < COMPARE_CENTER_LABELS.length) {
@@ -16931,6 +17114,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 comparePending = false;
                 if (!compareActive) _comparePrevZoom = userZoom;  // save on first enter only
                 userZoom = 1.0;
+                _compareAutoLayoutMode = null;
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
                 compareActive = true;
@@ -17004,6 +17188,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 comparePending = false;
                 if (!compareActive) _comparePrevZoom = userZoom;  // save on first enter only
                 userZoom = 1.0;
+                _compareAutoLayoutMode = null;
                 _zoomAdjustedByUser = false;
                 comparePan.reset();
                 compareActive = true;
@@ -17598,6 +17783,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             compareDisplaySids = [];
             _compareExplicitSids = null;
             compareLayoutMode = null;
+            _compareAutoLayoutMode = null;
             compareRegistrationFrame = null;
             compareRendering = false;
             comparePending = false;
@@ -17695,6 +17881,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
             multiViewActive = true;
+            _orthoAutoLayoutMode = null;
             _mvOrientationHidden = false;
             document.getElementById('mini-map').classList.remove('visible');
             _mvPrevZoom = userZoom;
@@ -18076,6 +18263,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function exitMultiView() {
             if (mipActive) exitMipMode();
             multiViewActive = false;
+            _orthoAutoLayoutMode = null;
             // Clean up multiview vector field state
             _mvVfieldCache.clear();
             _mvVfieldAborts.forEach(ac => ac.abort());
@@ -20956,8 +21144,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _mvSetOrthoLayoutMode(id, opts = {}) {
-            const next = _getOrthoPreset(id) ? id : 'big-left';
+            const next = _getOrthoPreset(id) ? id : 'horizontal';
             orthoLayoutMode = next;
+            _orthoAutoLayoutMode = null;
             if (typeof mvScaleAllCanvases === 'function') mvScaleAllCanvases();
             requestAnimationFrame(_refreshMvLayoutChrome);
             if (!opts.silent && typeof showStatus === 'function') {
@@ -20967,7 +21156,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         function _mvPromotePane(view) {
-            if (!multiViewActive || obliqueVecs || !view || (orthoLayoutMode !== 'big-left' && orthoLayoutMode !== 'big-top')) return;
+            const activeOrthoLayout = _resolvedOrthoLayoutMode();
+            if (!multiViewActive || obliqueVecs || !view || (activeOrthoLayout !== 'big-left' && activeOrthoLayout !== 'big-top')) return;
             const from = mvViews.indexOf(view);
             if (from <= 0) return;
             const panes = mvViews.map(v => v.pane).filter(Boolean);
@@ -20980,7 +21170,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     .map(v => modeManager.currentViews.find(cv => cv._mvLegacyView === v))
                     .filter(Boolean);
             }
-            _mvSetOrthoLayoutMode(orthoLayoutMode, { silent: true });
+            _mvSetOrthoLayoutMode(activeOrthoLayout, { silent: true });
             if (typeof gsap === 'undefined') {
                 showStatus('promoted view');
                 return;
@@ -21037,9 +21227,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             // each pane per preset.compute(). The default 'horizontal' / null
             // path keeps the legacy flex-row behaviour intact below.
             const _mvPanesEl = document.getElementById('mv-panes');
-            const _activePreset = (typeof orthoLayoutMode === 'string'
-                && orthoLayoutMode && orthoLayoutMode !== 'horizontal')
-                ? _getOrthoPreset(orthoLayoutMode) : null;
+            const _resolvedOrthoLayout = _resolvedOrthoLayoutMode();
+            const _activePreset = (_resolvedOrthoLayout && _resolvedOrthoLayout !== 'horizontal')
+                ? _getOrthoPreset(_resolvedOrthoLayout) : null;
             if (!_activePreset && _mvPanesEl) {
                 _mvPanesEl.style.removeProperty('position');
                 _mvPanesEl.style.removeProperty('width');
@@ -22730,17 +22920,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _updateMvPaneFill() {
             const panesRow = document.getElementById('mv-panes');
             if (!panesRow) return;
-            if (!multiViewActive) {
-                panesRow.style.removeProperty('--mv-pane-fill');
-                return;
-            }
-            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
-            if (!Array.isArray(stops) || !stops.length || !Array.isArray(stops[0]) || stops[0].length < 3) {
-                panesRow.style.removeProperty('--mv-pane-fill');
-                return;
-            }
-            const [r, g, b] = stops[0].map(v => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
-            panesRow.style.setProperty('--mv-pane-fill', `rgb(${r}, ${g}, ${b})`);
+            panesRow.style.removeProperty('--mv-pane-fill');
         }
 
         // ── Compare sub-mode state reconciler ────────────────────────
@@ -23801,7 +23981,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 eligible: () => !!multiViewActive,
                 container: () => document.getElementById('mv-panes'),
                 panes: () => Array.from(document.querySelectorAll('#mv-panes > .mv-pane')),
-                getMode: () => orthoLayoutMode,
+                getMode: () => _resolvedOrthoLayoutMode(),
                 setMode: (id) => {
                     _mvSetOrthoLayoutMode(id, { silent: true });
                 },
@@ -24397,7 +24577,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _updatePerPaneMinimaps() {
             const W = 80, H = 80;
             const activeCount = compareFrames.filter(Boolean).length;
-            const layout = compareLayoutMode || 'horizontal';
+            const layout = _resolvedCompareLayoutMode() || 'horizontal';
             const baseCols = _isCompareBigLeftLayout() ? 2
                 : layout === 'horizontal' ? activeCount
                 : layout === 'vertical' ? 1
