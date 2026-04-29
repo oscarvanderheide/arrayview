@@ -393,11 +393,102 @@
         .cv-pixel-info {
             position: absolute; z-index: 10;
             font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
-            color: var(--active-dim); background: none; border: none;
-            padding: 2px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none;
+            color: var(--text); background: none; border: none;
+            padding: 0; border-radius: 0; white-space: nowrap; pointer-events: none;
             display: none;
-            text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg);
         }
+        .cv-pixel-info .pixel-hover-card,
+        .main-pixel-pin .pixel-pin-card {
+            min-width: 82px;
+            padding: 6px 9px 5px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--surface) 92%, transparent);
+            color: var(--text);
+            font-size: 11px;
+            line-height: 1.35;
+            white-space: nowrap;
+            box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 82%, transparent);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        .cv-pixel-info .pixel-hover-value,
+        .main-pixel-pin .pixel-pin-value {
+            color: var(--active-dim);
+        }
+        .cv-pixel-info .pixel-hover-coords,
+        .main-pixel-pin .pixel-pin-coords {
+            color: var(--muted);
+            font-size: 10px;
+            margin-top: 1px;
+        }
+        #main-pixel-pins {
+            position: absolute;
+            inset: 0;
+            z-index: 11;
+            pointer-events: none;
+        }
+        .main-pixel-pin {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+        .main-pixel-pin .pixel-pin-glyph {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 24px;
+            height: 56px;
+            transform: translate(-50%, -88%);
+            overflow: visible;
+        }
+        .main-pixel-pin .pin-stroke {
+            fill: var(--bg);
+        }
+        .main-pixel-pin .pin-core {
+            fill: var(--text);
+        }
+        .main-pixel-pin .pin-sheen {
+            stroke: var(--highlight);
+            stroke-width: 1.1;
+            stroke-linecap: round;
+            opacity: 0.4;
+        }
+        .main-pixel-pin .pin-head-fill {
+            fill: var(--active-dim);
+            stroke: var(--bg);
+            stroke-width: 2;
+        }
+        .main-pixel-pin .pixel-pin-card {
+            position: absolute;
+            left: 14px;
+            top: -62px;
+        }
+        #main-loupe {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 166px;
+            height: 166px;
+            border: 2px solid var(--active-dim);
+            border-radius: 999px;
+            overflow: hidden;
+            display: none;
+            pointer-events: none;
+            z-index: 12;
+            background: var(--surface);
+            box-shadow: 0 0 0 1px var(--bg), 0 14px 34px var(--bg);
+        }
+        #main-loupe-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: var(--surface);
+        }
+        
+        
         #preload-status { display: none !important; } /* merged into #toast */
         #array-name {
             position: fixed; left: 16px; bottom: 14px; z-index: 6;
@@ -2383,6 +2474,12 @@
             <div id="canvas-inner">
                 <canvas id="viewer" tabindex="0"></canvas>
                 <div class="cv-pixel-info" id="main-pixel-info"></div>
+                <div id="main-pixel-pins"></div>
+                <div id="main-loupe">
+                    <canvas id="main-loupe-canvas"></canvas>
+                    
+                    
+                </div>
                 <canvas id="vfield-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="lebesgue-canvas" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
                 <canvas id="crop-overlay" style="position:absolute;top:0;left:0;pointer-events:none;display:none;background:transparent;"></canvas>
@@ -3037,6 +3134,10 @@
         let rgbMode = false;
         let compareFocusMode = false;
         let _pixelInfoVisible = false;
+        let _hoverPins = []; // [{id, rawX, rawY, valueText, version}]
+        let _hoverPinsRefreshToken = 0;
+        let _hoverPinNextId = 1;
+        let _mainLoupeDrag = null; // {startClientX,startClientY,active}
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
@@ -3055,6 +3156,7 @@
         let _segDrawing = false; // true while dragging for circle/scribble/lasso
         let _segDrawStart = null; // {x, y} for circle start
         let _segDrawPoints = []; // points for scribble/lasso
+        let _rulerMode = false;
         let _roiShape = 'rect'; // 'rect' | 'circle' | 'freehand'
         let _roiFreehandPts = []; // points for current freehand drawing
         let _rois = []; // array of {type,x0,y0,x1,y1,cx,cy,r,points,stats,qmriStats} for multi-ROI
@@ -3675,6 +3777,13 @@
 
         const canvas = document.getElementById('viewer');
         const ctx = canvas.getContext('2d');
+        const mainPixelPins = document.getElementById('main-pixel-pins');
+        const mainLoupe = document.getElementById('main-loupe');
+        const mainLoupeCanvas = document.getElementById('main-loupe-canvas');
+        const mainLoupeCtx = mainLoupeCanvas ? mainLoupeCanvas.getContext('2d') : null;
+        const _mainLoupeSourceCanvas = document.createElement('canvas');
+        const _mainLoupeSourceCtx = _mainLoupeSourceCanvas.getContext('2d');
+        let _mainLoupeSourceVersion = null;
         const compareWrap = document.getElementById('compare-view-wrap');
         const comparePaneEls = Array.from(compareWrap.querySelectorAll('.compare-pane:not(.compare-diff):not(.compare-wipe)'));
         const compareCanvases = [
@@ -3891,6 +4000,8 @@
         // and dblclick expand/collapse. onWindowChange callback handles updateView.
 
         window.addEventListener('mousemove', (e) => {
+            _maybeActivateMainLoupe(e);
+            _updateMainLoupe(e);
             // Right-click scrub drag
             if (_scrubDrag !== null && !compareActive && !multiViewActive && !qmriActive) {
                 const dy = e.clientY - _scrubDrag.y;
@@ -4358,6 +4469,8 @@
             updateMiniMap();
             if (_fullscreenActive) _positionFullscreenInfo();
             if (typeof _cropRenderMainOverlay === 'function') _cropRenderMainOverlay();
+            _renderHoverPins();
+            if (_hoverPins.length) _refreshHoverPins(false);
         }
 
         /** Scale all canvases with GSAP-driven zoom animation for smooth immersive transitions. */
@@ -11842,13 +11955,307 @@
 
         function hideAllPixelInfo() {
             document.querySelectorAll('.cv-pixel-info').forEach(el => {
-                el.textContent = '';
+                el.innerHTML = '';
+                delete el.dataset.pixelInfoKey;
                 el.style.display = 'none';
             });
         }
-        function showPixelInfo(el, text, cx, cy) {
+        function _mainInspectEligible() {
+            return !compareActive && !multiViewActive && !qmriActive && !compareMvActive
+                && !compareQmriActive && !mipActive && dim_z < 0 && !rgbMode;
+        }
+        function _mainLoupeEligible() {
+            return _mainInspectEligible()
+                && !mainPan.overflows
+                && !rectRoiMode
+                && !_segMode
+                && !_segActivating
+                && !_rulerMode
+                && !_cropActive;
+        }
+        function _mainHoverPinEligible() {
+            return _pixelInfoVisible
+                && _mainInspectEligible()
+                && !rectRoiMode
+                && !_segMode
+                && !_segActivating
+                && !_rulerMode
+                && !_cropActive;
+        }
+        function _mainCanvasPointFromClient(clientX, clientY) {
+            if (!canvas || !canvas.width || !canvas.height) return null;
+            const rect = canvas.getBoundingClientRect();
+            if (!rect.width || !rect.height) return null;
+            const displayX = Math.floor((clientX - rect.left) * canvas.width / rect.width);
+            const displayY = Math.floor((clientY - rect.top) * canvas.height / rect.height);
+            if (displayX < 0 || displayX >= canvas.width || displayY < 0 || displayY >= canvas.height) return null;
+            const rawX = flip_x ? (canvas.width - 1 - displayX) : displayX;
+            const rawY = flip_y ? (canvas.height - 1 - displayY) : displayY;
+            return {
+                rect,
+                displayX,
+                displayY,
+                rawX,
+                rawY,
+                cssX: clientX - rect.left,
+                cssY: clientY - rect.top,
+            };
+        }
+        function _mainDisplayPointFromRaw(rawX, rawY) {
+            if (!canvas || !canvas.width || !canvas.height) return null;
+            if (rawX < 0 || rawX >= canvas.width || rawY < 0 || rawY >= canvas.height) return null;
+            return {
+                displayX: flip_x ? (canvas.width - 1 - rawX) : rawX,
+                displayY: flip_y ? (canvas.height - 1 - rawY) : rawY,
+            };
+        }
+        function _mainCssPointFromRaw(rawX, rawY) {
+            const disp = _mainDisplayPointFromRaw(rawX, rawY);
+            if (!disp) return null;
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            return {
+                x: ((disp.displayX + 0.5) * cssW) / canvas.width,
+                y: ((disp.displayY + 0.5) * cssH) / canvas.height,
+            };
+        }
+        function _hoverPinVersionKey() {
+            return `${sid}:${indices.join(',')}:${dim_x}:${dim_y}:${complexMode}:${logScale}`;
+        }
+        function _clearHoverPins() {
+            _hoverPins = [];
+            _hoverPinsRefreshToken += 1;
+            if (mainPixelPins) mainPixelPins.innerHTML = '';
+        }
+        function _renderHoverPins() {
+            if (!mainPixelPins) return;
+            if (!_mainHoverPinEligible() || !_hoverPins.length) {
+                mainPixelPins.innerHTML = '';
+                return;
+            }
+            const cssW = parseInt(canvas.style.width) || canvas.width;
+            const cssH = parseInt(canvas.style.height) || canvas.height;
+            const fragments = [];
+            for (const pin of _hoverPins) {
+                const css = _mainCssPointFromRaw(pin.rawX, pin.rawY);
+                if (!css) continue;
+                const cardW = 94;
+                const cardH = 34;
+                let cardLeft = 14;
+                let cardTop = -62;
+                if (css.x + cardLeft + cardW > cssW - 8) {
+                    cardLeft = Math.max(10 - cardW, cssW - css.x - cardW - 8);
+                }
+                if (css.y + cardTop < 8) {
+                    cardTop = 14;
+                } else if (css.y + cardTop + cardH > cssH - 8) {
+                    cardTop = -(cardH + 18);
+                }
+                fragments.push(`
+                    <div class="main-pixel-pin" data-pin-id="${pin.id}" style="left:${css.x}px;top:${css.y}px">
+                        <svg class="pixel-pin-glyph" viewBox="0 0 24 56" aria-hidden="true">
+                            <path class="pin-stroke" d="M10.4 15.5 L13.6 15.5 L13.25 38.6 L12 45.4 L10.75 38.6 Z"></path>
+                            <path class="pin-core" d="M11.05 16.6 L12.95 16.6 L12.75 38 L12 42 L11.25 38 Z"></path>
+                            <line class="pin-sheen" x1="12.4" y1="17.8" x2="12.75" y2="36.4"></line>
+                            <circle class="pin-head-fill" cx="12" cy="10" r="5.5"></circle>
+                        </svg>
+                        <div class="pixel-pin-card" style="left:${cardLeft}px;top:${cardTop}px">
+                            <div class="pixel-pin-value">${pin.valueText || '...'}</div>
+                            <div class="pixel-pin-coords">x=${pin.rawX} y=${pin.rawY}</div>
+                        </div>
+                    </div>
+                `);
+            }
+            mainPixelPins.innerHTML = fragments.join('');
+        }
+        async function _refreshHoverPins(forceFetch) {
+            if (!_hoverPins.length || !_mainHoverPinEligible()) {
+                _clearHoverPins();
+                return;
+            }
+            const version = _hoverPinVersionKey();
+            const cachedVer = indices.join(',') + ':' + dim_x + ':' + dim_y + ':' + complexMode + ':' + logScale;
+            if (!forceFetch) {
+                const cached = _hoverSliceCache[`${sid}:${cachedVer}`];
+                if (cached) {
+                    for (const pin of _hoverPins) {
+                        if (pin.version === version && pin.valueText) continue;
+                        if (cached.w > pin.rawX && cached.h > pin.rawY) {
+                            const val = cached.slice[pin.rawY * cached.w + pin.rawX];
+                            if (Number.isFinite(val)) {
+                                pin.valueText = _pixelFmt(val);
+                                pin.version = version;
+                            }
+                        }
+                    }
+                    _renderHoverPins();
+                    if (_hoverPins.every(pin => pin.version === version && pin.valueText)) return;
+                }
+            }
+            const refreshToken = ++_hoverPinsRefreshToken;
+            for (const pin of _hoverPins) {
+                if (!forceFetch && pin.version === version && pin.valueText) continue;
+                const disp = _mainDisplayPointFromRaw(pin.rawX, pin.rawY);
+                if (!disp) continue;
+                try {
+                    const params = new URLSearchParams({
+                        dim_x: String(dim_x),
+                        dim_y: String(dim_y),
+                        indices: indices.join(','),
+                        px: String(disp.displayX),
+                        py: String(disp.displayY),
+                        complex_mode: complexMode,
+                    });
+                    if (logScale) params.set('log_scale', '1');
+                    const resp = await proxyFetch(`/pixel/${sid}?${params}`);
+                    const data = await resp.json();
+                    if (refreshToken !== _hoverPinsRefreshToken) return;
+                    if (data && Number.isFinite(data.value)) {
+                        pin.valueText = _pixelFmt(data.value);
+                        pin.version = version;
+                    }
+                } catch (_) {}
+            }
+            _renderHoverPins();
+        }
+        async function _placeHoverPinFromEvent(e) {
+            if (!_mainHoverPinEligible()) return;
+            const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
+            if (!pt) return;
+            const pin = {
+                id: _hoverPinNextId++,
+                rawX: pt.rawX,
+                rawY: pt.rawY,
+                valueText: '',
+                version: null,
+            };
+            _hoverPins.push(pin);
+            _renderHoverPins();
+            if (typeof gsap !== 'undefined' && mainPixelPins) {
+                const pinEl = mainPixelPins.querySelector(`[data-pin-id="${pin.id}"]`);
+                if (pinEl) {
+                    gsap.killTweensOf(pinEl);
+                    gsap.fromTo(pinEl,
+                        { opacity: 0, scale: 0.9, y: -6 },
+                        { opacity: 1, scale: 1, y: 0, duration: 0.18, ease: 'power2.out', overwrite: 'auto' }
+                    );
+                }
+            }
+            await _refreshHoverPins(false);
+        }
+        function _drawMainLoupe(sample) {
+            if (!mainLoupeCanvas || !mainLoupeCtx || !sample) return;
+            const loupeCssSize = Math.round(mainLoupe.getBoundingClientRect().width) || 166;
+            const dpr = window.devicePixelRatio || 1;
+            const size = Math.round(loupeCssSize * dpr);
+            if (mainLoupeCanvas.width !== size || mainLoupeCanvas.height !== size) {
+                mainLoupeCanvas.width = size;
+                mainLoupeCanvas.height = size;
+            }
+            const zoom = 6;
+            const srcW = Math.max(18, Math.min(canvas.width, Math.round(loupeCssSize / zoom)));
+            const srcH = Math.max(18, Math.min(canvas.height, Math.round(loupeCssSize / zoom)));
+            const sx = Math.max(0, Math.min(canvas.width - srcW, Math.round(sample.displayX - srcW / 2)));
+            const sy = Math.max(0, Math.min(canvas.height - srcH, Math.round(sample.displayY - srcH / 2)));
+            const sourceVersion = `${_hoverPinVersionKey()}:${lastImgW}:${lastImgH}:${flip_x}:${flip_y}`;
+            if (lastImageData && lastImgW && lastImgH && _mainLoupeSourceVersion !== sourceVersion) {
+                _mainLoupeSourceCanvas.width = lastImgW;
+                _mainLoupeSourceCanvas.height = lastImgH;
+                _mainLoupeSourceCtx.putImageData(applyFlips(lastImageData, lastImgW, lastImgH), 0, 0);
+                _mainLoupeSourceVersion = sourceVersion;
+            }
+            mainLoupeCtx.clearRect(0, 0, size, size);
+            mainLoupeCtx.imageSmoothingEnabled = true;
+            mainLoupeCtx.imageSmoothingQuality = 'high';
+            const src = (_mainLoupeSourceCanvas.width && _mainLoupeSourceCanvas.height) ? _mainLoupeSourceCanvas : canvas;
+            mainLoupeCtx.drawImage(src, sx, sy, srcW, srcH, 0, 0, size, size);
+            
+        }
+        function _updateMainLoupe(e) {
+            if (!_mainLoupeDrag || !_mainLoupeDrag.active || !mainLoupe) return;
+            const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
+            if (!pt) return;
+            _drawMainLoupe(pt);
+            const targetX = Math.max(8, Math.min(pt.cssX + 18, (parseInt(canvas.style.width) || canvas.width) - 174));
+            const targetY = Math.max(8, Math.min(pt.cssY - 92, (parseInt(canvas.style.height) || canvas.height) - 174));
+            if (typeof gsap !== 'undefined') {
+                gsap.to(mainLoupe, {
+                    x: targetX,
+                    y: targetY,
+                    duration: 0.15,
+                    ease: 'power2.out',
+                    overwrite: 'auto',
+                });
+            } else {
+                mainLoupe.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            }
+        }
+        function _maybeActivateMainLoupe(e) {
+            if (!_mainLoupeDrag || _mainLoupeDrag.active || !_mainLoupeEligible()) return;
+            const dx = e.clientX - _mainLoupeDrag.startClientX;
+            const dy = e.clientY - _mainLoupeDrag.startClientY;
+            if (Math.hypot(dx, dy) < 3) return;
+            _mainLoupeDrag.active = true;
+            const piEl = document.getElementById('main-pixel-info');
+            if (piEl) piEl.style.display = 'none';
+            if (mainLoupe) {
+                mainLoupe.style.display = 'block';
+                if (typeof gsap !== 'undefined') {
+                    gsap.killTweensOf(mainLoupe);
+                    gsap.set(mainLoupe, { x: 0, y: 0 });
+                    gsap.fromTo(mainLoupe,
+                        { opacity: 0, scale: 0.72 },
+                        { opacity: 1, scale: 1, duration: 0.2, ease: 'back.out(1.35)', overwrite: 'auto' }
+                    );
+                }
+            }
+            _updateMainLoupe(e);
+        }
+        function _endMainLoupe() {
+            _mainLoupeDrag = null;
+            if (!mainLoupe) return;
+            if (mainLoupe.style.display === 'none') return;
+            if (typeof gsap !== 'undefined') {
+                gsap.killTweensOf(mainLoupe);
+                gsap.to(mainLoupe, {
+                    opacity: 0,
+                    scale: 0.78,
+                    duration: 0.14,
+                    ease: 'power2.in',
+                    overwrite: 'auto',
+                    onComplete: () => {
+                        if (!mainLoupe) return;
+                        mainLoupe.style.display = 'none';
+                        gsap.set(mainLoupe, { clearProps: 'x,y,opacity,scale' });
+                    },
+                });
+            } else {
+                mainLoupe.style.display = 'none';
+                mainLoupe.style.transform = '';
+            }
+        }
+        function _pixelInfoMarkup(payload) {
+            const valueText = (payload && typeof payload === 'object')
+                ? String(payload.valueText ?? '')
+                : String(payload ?? '');
+            const hasCoords = payload && typeof payload === 'object'
+                && Number.isFinite(payload.rawX) && Number.isFinite(payload.rawY);
+            return `
+                <div class="pixel-hover-card">
+                    <div class="pixel-hover-value">${valueText}</div>
+                    ${hasCoords ? `<div class="pixel-hover-coords">x=${payload.rawX} y=${payload.rawY}</div>` : ''}
+                </div>
+            `;
+        }
+        function showPixelInfo(el, payload, cx, cy) {
             if (!el || !_pixelInfoVisible) return;
-            el.textContent = text;
+            const key = (payload && typeof payload === 'object')
+                ? `${payload.valueText ?? ''}|${payload.rawX ?? ''}|${payload.rawY ?? ''}`
+                : String(payload ?? '');
+            if (el.dataset.pixelInfoKey !== key) {
+                el.innerHTML = _pixelInfoMarkup(payload);
+                el.dataset.pixelInfoKey = key;
+            }
             el.style.display = 'block';
             if (cx !== undefined && cy !== undefined) {
                 const par = el.offsetParent;
@@ -11898,7 +12305,7 @@
                 if (rawX >= 0 && rawX < _fpW && rawY >= 0 && rawY < _fpH) {
                     const val = _fpSlice[rawY * _fpW + rawX];
                     if (Number.isFinite(val)) {
-                        showPixelInfo(opts.displayEl, _pixelFmt(val), opts.event.clientX, opts.event.clientY);
+                        showPixelInfo(opts.displayEl, { valueText: _pixelFmt(val), rawX, rawY }, opts.event.clientX, opts.event.clientY);
                         if (opts.onResult) opts.onResult({ value: val }, rawX, rawY);
                         return true;
                     }
@@ -11924,7 +12331,9 @@
                 .then(r => r.ok ? r.json() : null)
                 .then(d => {
                     if (!d) return;
-                    showPixelInfo(opts.displayEl, _pixelFmt(d.value), opts.event.clientX, opts.event.clientY);
+                    const rawX = flip_x ? (opts.imgW - 1 - px) : px;
+                    const rawY = flip_y ? (opts.imgH - 1 - py) : py;
+                    showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value), rawX, rawY }, opts.event.clientX, opts.event.clientY);
                     if (opts.onResult) opts.onResult(d, px, py);
                 })
                 .catch(() => {});
@@ -13137,6 +13546,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
+            if (e.button === 0 && _mainLoupeEligible()) {
+                _mainLoupeDrag = {
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                    active: false,
+                };
+            } else {
+                _mainLoupeDrag = null;
+            }
         });
         const _roiColors = [
             {fill:'rgba(255,255,100,0.10)', stroke:'rgba(255,255,100,0.85)'},
@@ -13499,6 +13917,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // Alt is held so we still update during an accidental Alt hover,
         // but Alt pre-empts mousedown (see above) so oblique rotation wins.
         canvas.addEventListener('mousemove', e => {
+            _maybeActivateMainLoupe(e);
+            _updateMainLoupe(e);
             if (_cropDrag && _cropDrag.pane === 'main') {
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
@@ -13602,6 +14022,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         window.addEventListener('mouseup', () => {
             if (_zoomSelectDrag) { _zoomSelectDrag = null; _removeZoomSelectRect(); }
             _bcEndDrag();
+            _endMainLoupe();
             // Crop drag: release outside of any pane as well.
             if (_cropDrag) {
                 const d = _cropDrag;
@@ -13802,7 +14223,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
                         const val = cached.slice[rawY * cached.w + rawX];
                         if (Number.isFinite(val)) {
-                            showPixelInfo(document.getElementById('main-pixel-info'), _pixelFmt(val), e.clientX, e.clientY);
+                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(val), rawX, rawY }, e.clientX, e.clientY);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -13820,7 +14241,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         .then(r => r.ok ? r.json() : null)
                         .then(d => {
                             if (!d) return;
-                            showPixelInfo(document.getElementById('main-pixel-info'), _pixelFmt(d.value), e.clientX, e.clientY);
+                            const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
+                            const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
+                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(d.value), rawX, rawY }, e.clientX, e.clientY);
                         }).catch(() => {});
                 }
                 _updateDimbarHover(localX, localY, null, null, zIdx);
@@ -14202,6 +14625,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _segClick(px, py, !e.shiftKey);
                 return;
             }
+            if (_mainHoverPinEligible()) {
+                _placeHoverPinFromEvent(e);
+                showStatus('hover info: pinned readout · esc clears all');
+                return;
+            }
             _copyPixelValue(sid, dim_x, dim_y, indices, px, py);
         });
 
@@ -14534,11 +14962,12 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 },
             },
             'hoverinfo.toggle': {
-                title: 'Toggle hover pixel info',
+                title: 'Toggle hover pixel info / pin readout',
                 when: [],
                 run: (ctx, e) => {
                     _pixelInfoVisible = !_pixelInfoVisible;
                     if (!_pixelInfoVisible) {
+                        _clearHoverPins();
                         hideAllPixelInfo();
                         _resetDimbarHover();
                         const axEl = document.getElementById('main-axes-svg');
@@ -14565,7 +14994,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _prefetchHoverSlices();
                         canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: _lastMouseX, clientY: _lastMouseY, bubbles: true }));
                     }
-                    showStatus(`hover info: ${_pixelInfoVisible ? 'on' : 'off'}`);
+                    showStatus(`hover info: ${_pixelInfoVisible ? 'on · click adds pins' : 'off'}`);
                     saveState();
                 },
             },
@@ -15984,7 +16413,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     {
                         title: 'Info & Modes',
                         entries: [
-                            { key: 'i', action: 'Toggle hover pixel info', hint: 'shows coordinates and value under cursor' },
+                            { key: 'i', action: 'Toggle hover pixel info', hint: 'shows value under cursor; click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
                             { key: '/', action: 'Tool menu', hint: 'open tools — Esc closes the menu first, then exits tools' },
                         ]
@@ -17033,6 +17462,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     setHelpTab(helpTabIdx - 1);
                     return;
                 }
+                return;
+            }
+            if (e.key === 'Escape' && _hoverPins.length) {
+                _clearHoverPins();
+                showStatus('hover info: cleared all pins');
                 return;
             }
             if (dispatchCommand(e)) return;
@@ -22880,6 +23314,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             _reconcileCompareState();
             _reconcileCbVisibility();
             renderToolMenu();
+            if (_mainHoverPinEligible()) _renderHoverPins();
+            else _clearHoverPins();
+            if (!_mainLoupeEligible()) _endMainLoupe();
         }
 
         // ── Layout container visibility reconciler ───────────────────
@@ -24412,7 +24849,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         // ── 5. Distance measurement ruler ────────────────────────────
-        let _rulerMode = false;
         let _rulerPtA = null, _rulerPtB = null;
         const _rulerSvg = document.getElementById('ruler-svg');
         const _lineProfileOverlay = document.getElementById('line-profile-overlay');

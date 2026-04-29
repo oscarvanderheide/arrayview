@@ -121,6 +121,11 @@ def _exit_compare(page):
     page.evaluate("() => exitCompareMode()")
 
 
+def _center_of(locator):
+    box = locator.bounding_box()
+    return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+
 def _compare_snapshot(page, name: str, threshold: float = 0.01):
     """
     Screenshot the page and compare against a saved baseline.
@@ -2119,6 +2124,91 @@ class TestMinimapCursor:
             "() => getComputedStyle(document.querySelector('#mini-map')).cursor"
         )
         assert cursor == "grab", f"expected grab cursor, got {cursor}"
+
+
+class TestNormalInspectInteractions:
+    def test_normal_drag_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 48, cy + 18, steps=8)
+        page.wait_for_timeout(120)
+
+        visible = page.evaluate(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
+        )
+        assert visible, "loupe should appear during a normal-mode drag"
+
+        page.mouse.up()
+        page.wait_for_timeout(220)
+
+        hidden = page.evaluate(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display === 'none'"
+        )
+        assert hidden, "loupe should collapse after the drag ends"
+
+    def test_hover_info_click_pins_multiple_and_compare_does_not(self, loaded_viewer, sid_2d, client, arr_2d, tmp_path):
+        partner_path = tmp_path / "arr2d_pin_partner.npy"
+        np.save(partner_path, np.flipud(arr_2d))
+        partner_sid = client.post(
+            "/load", json={"filepath": str(partner_path), "name": "arr2d_pin_partner"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("i")
+        page.wait_for_timeout(180)
+
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+        page.mouse.move(cx - 20, cy - 12)
+        page.wait_for_timeout(180)
+
+        hover_card_visible = page.evaluate(
+            "() => !!document.querySelector('#main-pixel-info .pixel-hover-card')"
+        )
+        hover_coords = page.evaluate(
+            "() => (document.querySelector('#main-pixel-info .pixel-hover-coords') || {}).textContent || ''"
+        )
+        assert hover_card_visible, "hover-info mode should show the pinned-style hover card"
+        assert "x=" in hover_coords and "y=" in hover_coords, "hover card should include coordinates"
+
+        page.mouse.click(cx, cy)
+        page.mouse.click(cx + 80, cy + 30)
+        page.wait_for_timeout(240)
+
+        pin_count = page.evaluate(
+            "() => document.querySelectorAll('#main-pixel-pins .main-pixel-pin').length"
+        )
+        pin_value = page.evaluate(
+            "() => (document.querySelector('#main-pixel-pins .main-pixel-pin .pixel-pin-value') || {}).textContent || ''"
+        )
+        assert pin_count == 2, "clicking twice in hover-info mode should create two pins"
+        assert pin_value.strip(), "pinned readout should show a numeric value"
+
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(180)
+        pin_hidden = page.evaluate(
+            "() => document.querySelectorAll('#main-pixel-pins .main-pixel-pin').length === 0"
+        )
+        assert pin_hidden, "Escape should clear all pinned readouts"
+
+        _enter_compare(page, partner_sid)
+        _focus_kb(page)
+        page.keyboard.press("i")
+        page.wait_for_timeout(180)
+        cmp_canvas = page.locator("#compare-left-canvas")
+        ccx, ccy = _center_of(cmp_canvas)
+        page.mouse.click(ccx, ccy)
+        page.wait_for_timeout(220)
+
+        compare_pin_hidden = page.evaluate(
+            "() => document.querySelectorAll('#main-pixel-pins .main-pixel-pin').length === 0"
+        )
+        assert compare_pin_hidden, "pinned readout should stay disabled in compare mode"
 
 
 class TestVisualRegression:
