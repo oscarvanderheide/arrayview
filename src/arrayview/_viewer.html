@@ -1572,7 +1572,7 @@
             display: flex; opacity: 1;
         }
         .mv-label { font-size: 13px; letter-spacing: 0.05em; pointer-events: none; white-space: nowrap; text-align: center; }
-        .mv-canvas { image-rendering: pixelated; cursor: crosshair; }
+        .mv-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--mv-pane-fill, var(--bg)); }
 
         #reg-blend-bar-wrap {
             display: none; flex-direction: column; align-items: stretch; width: 100%;
@@ -22920,7 +22920,17 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         function _updateMvPaneFill() {
             const panesRow = document.getElementById('mv-panes');
             if (!panesRow) return;
-            panesRow.style.removeProperty('--mv-pane-fill');
+            if (!multiViewActive) {
+                panesRow.style.removeProperty('--mv-pane-fill');
+                return;
+            }
+            const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+            if (!Array.isArray(stops) || !stops.length || !Array.isArray(stops[0]) || stops[0].length < 3) {
+                panesRow.style.removeProperty('--mv-pane-fill');
+                return;
+            }
+            const [r, g, b] = stops[0].map(v => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
+            panesRow.style.setProperty('--mv-pane-fill', `rgb(${r}, ${g}, ${b})`);
         }
 
         // ── Compare sub-mode state reconciler ────────────────────────

@@ -1934,30 +1934,33 @@ class TestKeyboard:
             f"expected Shift+B to disable rounded panes, got: {toggled}"
         )
 
-    def test_multiview_empty_square_uses_theme_background(self, loaded_viewer, sid_3d):
+    def test_multiview_empty_square_uses_colormap_min_fill(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
         page.keyboard.press("v")
         page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
         page.wait_for_timeout(300)
+        page.keyboard.press("c")
+        page.wait_for_timeout(250)
 
         state = page.evaluate(
             """() => {
                 const pane = document.querySelector('.mv-pane');
                 const bg = getComputedStyle(pane).backgroundColor;
-                const probe = document.createElement('div');
-                probe.style.backgroundColor = 'var(--bg)';
-                probe.style.display = 'none';
-                document.body.appendChild(probe);
-                const expected = getComputedStyle(probe).backgroundColor;
-                probe.remove();
-                return { bg, expected };
+                const canvas = document.querySelector('.mv-canvas');
+                const canvasBg = getComputedStyle(canvas).backgroundColor;
+                const stops = colormap_idx === -1 ? customGradientStops : COLORMAP_GRADIENT_STOPS[COLORMAPS[colormap_idx]];
+                const expected = stops && stops[0] ? `rgb(${stops[0][0]}, ${stops[0][1]}, ${stops[0][2]})` : null;
+                return { bg, canvasBg, expected, colormap: currentColormap() };
             }"""
         )
 
-        assert state["expected"], f"expected theme background to resolve to a color, got: {state}"
+        assert state["expected"] is not None, f"expected current colormap to expose gradient stops, got: {state}"
         assert state["bg"] == state["expected"], (
-            f"multiview square background should use the shared theme background, got: {state}"
+            f"multiview square background should use the colormap minimum color, got: {state}"
+        )
+        assert state["canvasBg"] == state["expected"], (
+            f"multiview canvas background should use the colormap minimum color, got: {state}"
         )
 
     def test_multiview_rotate_updates_all_panes(self, loaded_viewer, sid_3d):
