@@ -758,6 +758,53 @@ class TestKeyboard:
         assert "overlay-center" not in diff_classes
         assert page.is_visible("canvas#compare-right-canvas")
 
+    def test_compare_center_title_pill_uses_immersive_glass_style_outside_fullscreen(
+        self, loaded_viewer, sid_2d, arr_2d, client, tmp_path
+    ):
+        path = tmp_path / "arr2d_compare_glass_pill.npy"
+        np.save(path, np.fliplr(arr_2d))
+        sid_compare = client.post(
+            "/load", json={"filepath": str(path), "name": "arr2d_compare_glass_pill"}
+        ).json()["sid"]
+
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        _enter_compare(page, sid_compare)
+        _focus_kb(page)
+        page.keyboard.press("X")
+        page.wait_for_timeout(250)
+
+        state = page.evaluate(
+            """() => {
+                const btn = document.querySelector('#compare-diff-title .compare-center-mode-btn.active');
+                if (!btn) return null;
+                const style = getComputedStyle(btn);
+                const rect = btn.getBoundingClientRect();
+                return {
+                    text: (btn.textContent || '').replace(/\\s+/g, ' ').trim(),
+                    background: style.backgroundColor,
+                    borderColor: style.borderColor,
+                    borderRadius: style.borderRadius,
+                    backdropFilter: style.backdropFilter,
+                    webkitBackdropFilter: style.webkitBackdropFilter,
+                    boxShadow: style.boxShadow,
+                    minWidth: style.minWidth,
+                    minHeight: style.minHeight,
+                    fullscreen: document.body.classList.contains('fullscreen-mode'),
+                };
+            }"""
+        )
+
+        assert state, "diff title should render an active compare-center pill after pressing X"
+        assert not state["fullscreen"], f"test must stay in non-immersive mode, got: {state}"
+        assert "A" in state["text"] and "B" in state["text"], f"compare-center pill should render the compare glyph, got: {state}"
+        assert state["background"] != "rgba(0, 0, 0, 0)", f"compare-center pill should use a filled glass background outside fullscreen, got: {state}"
+        assert state["borderColor"] != "rgba(0, 0, 0, 0)", f"compare-center pill should keep a visible glass border outside fullscreen, got: {state}"
+        assert state["backdropFilter"] != "none" or state["webkitBackdropFilter"] != "none", f"compare-center pill should use the immersive blur treatment outside fullscreen, got: {state}"
+        assert state["boxShadow"] != "none", f"compare-center pill should keep the immersive island shadow outside fullscreen, got: {state}"
+        assert state["minHeight"] == "26px", f"compare-center pill should stay compact outside fullscreen, got: {state}"
+        assert state["minWidth"] == "52px", f"compare-center pill should keep a compact pill width outside fullscreen, got: {state}"
+
     # test_B_is_locked_for_multi_array_launch removed: the B keybind has
     # been retired entirely, so "B is locked" is meaningless. The
     # multi-array URL launch path is still covered by
@@ -845,6 +892,8 @@ class TestKeyboard:
         assert initial["diffClipRect"] and initial["sourceTopClipRect"] and initial["sourceBottomClipRect"], f"direct multi-array big-left clips should all be measurable, got: {initial}"
         assert initial["diffClipRect"]["right"] <= initial["sourceTopClipRect"]["left"] + 1, f"left diff clip should not overlap the right source column on direct multi-array launch, got: {initial}"
         assert abs(initial["sharedCbRect"]["width"] - initial["sourceTopClipRect"]["width"]) <= 1, f"shared source colorbar should match the source clip width on direct multi-array launch, got: {initial}"
+        assert initial["diffTitleRect"]["top"] >= initial["diffClipRect"]["top"] - 1, f"big-left center title should sit inside the diff pane instead of above it, got: {initial}"
+        assert initial["diffTitleRect"]["bottom"] <= initial["diffClipRect"]["bottom"] + 1, f"big-left center title should remain within the diff pane bounds, got: {initial}"
         assert (
             initial["diffTitleRect"]["bottom"] <= initial["infoRect"]["top"] + 1
             or initial["diffTitleRect"]["top"] >= initial["infoRect"]["bottom"] - 1

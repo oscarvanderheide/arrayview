@@ -1641,6 +1641,36 @@
             letter-spacing: 0;
             line-height: 1;
         }
+        body:not(.fullscreen-mode) .compare-title.compare-center-title .compare-center-title-controls {
+            min-height: 26px;
+        }
+        body:not(.fullscreen-mode) .compare-title.compare-center-title .compare-center-mode-btn {
+            min-width: 52px;
+            min-height: 26px;
+            padding: 4px 14px;
+            margin: 0;
+            border-radius: 15px;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+        body:not(.fullscreen-mode) .compare-title.compare-center-title .compare-center-mode-btn.active {
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-color: rgba(255, 255, 255, 0.06);
+            color: #ccc;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+        }
+        body:not(.fullscreen-mode) .compare-title.compare-center-title .compare-center-mode-btn.active:hover {
+            color: #ccc;
+            border-color: rgba(255, 255, 255, 0.06);
+            background: rgba(30, 30, 30, 0.8);
+        }
+        body:not(.fullscreen-mode) .compare-title.compare-center-title .compare-center-mode-glyph {
+            min-height: 12px;
+            font-size: 12px;
+            letter-spacing: 0;
+        }
         .compare-canvas-area {
             flex: 1; min-height: 0; width: 100%; display: flex; align-items: flex-start; justify-content: center;
             padding: 4px 8px 8px; box-sizing: border-box; overflow: visible;
@@ -1686,12 +1716,24 @@
         #compare-view-wrap.compare-center-layout-big-left #compare-diff-title,
         #compare-view-wrap.compare-center-layout-big-left #compare-wipe-title {
             position: absolute;
-            top: -20px;
+            top: 10px;
             left: 50%;
             transform: translateX(-50%);
             margin: 0;
             max-width: none;
-            z-index: 2;
+            z-index: 3;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-title.compare-center-title .compare-center-title-controls {
+            min-height: 0;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-title.compare-center-title .compare-center-mode-btn {
+            min-width: 50px;
+            min-height: 24px;
+            padding: 4px 12px;
+            border-radius: 14px;
+        }
+        #compare-view-wrap.compare-center-layout-big-left .compare-title.compare-center-title .compare-center-mode-glyph {
+            font-size: 12px;
         }
         #compare-view-wrap.compare-center-layout-big-left .compare-primary .compare-title,
         #compare-view-wrap.compare-center-layout-big-left .compare-secondary .compare-title {
