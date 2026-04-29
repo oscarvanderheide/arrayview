@@ -13,6 +13,7 @@ import sys
 _jupyter_server_port: int | None = None
 
 _JUPYTER_CACHE: bool | None = None  # None = not yet computed
+_MATLAB_CACHE: bool | None = None
 
 
 def _in_jupyter() -> bool:
@@ -28,6 +29,86 @@ def _in_jupyter() -> bool:
         result = False
     _JUPYTER_CACHE = result
     return result
+
+
+def _in_matlab() -> bool:
+    """True when Python is running inside or directly under MATLAB.
+
+    MATLAB desktop launches can inherit VS Code terminal environment variables
+    when MATLAB itself was started from an integrated terminal. For local
+    desktop MATLAB sessions we still want ArrayView to prefer the native
+    PyWebView window, so we treat MATLAB as its own local desktop host.
+    Remote/tunnel routing is still governed separately by _is_vscode_remote()
+    and SSH detection.
+    """
+    global _MATLAB_CACHE
+    if _MATLAB_CACHE is not None:
+        return _MATLAB_CACHE
+
+    if any(key.startswith("MATLAB") for key in os.environ):
+        _MATLAB_CACHE = True
+        return True
+
+    exe = sys.executable.lower()
+    if "matlab" in exe:
+        _MATLAB_CACHE = True
+        return True
+
+    if any(modname.lower().startswith("matlab") for modname in sys.modules):
+        _MATLAB_CACHE = True
+        return True
+
+    def _ppid(pid: int) -> int:
+        try:
+            with open(f"/proc/{pid}/status") as fh:
+                for line in fh:
+                    if line.startswith("PPid:"):
+                        return int(line.split()[1])
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "ppid="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return int(r.stdout.strip())
+        except Exception:
+            pass
+        return -1
+
+    def _command_from_pid(pid: int) -> str:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                raw = fh.read().replace(b"\0", b" ").decode(errors="ignore")
+            if raw:
+                return raw.lower()
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            return r.stdout.strip().lower()
+        except Exception:
+            return ""
+
+    pid = os.getpid()
+    for _ in range(8):
+        cmd = _command_from_pid(pid)
+        if "matlab" in cmd:
+            _MATLAB_CACHE = True
+            return True
+        pid = _ppid(pid)
+        if pid <= 1:
+            break
+
+    _MATLAB_CACHE = False
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +329,8 @@ def _find_code_cli() -> str | None:
 
 def _in_vscode_terminal() -> bool:
     """True when running inside any VS Code integrated terminal (local or remote)."""
+    if _in_matlab() and not _is_vscode_remote():
+        return False
     if os.environ.get("TERM_PROGRAM") == "vscode":
         return True
     if os.environ.get("VSCODE_IPC_HOOK_CLI"):
@@ -326,12 +409,7 @@ def _can_native_window() -> bool:
     we always prefer the VS Code tab route over a native window, because on
     a tunnel-server machine the user isn't looking at that screen.
     """
-    # TERM_PROGRAM=vscode is the most reliable VS Code terminal indicator and
-    # is preserved across uv-run / tmux where the IPC hook may be stripped.
-    if os.environ.get("TERM_PROGRAM") == "vscode":
-        return False
-    # If a VS Code IPC hook is findable we are inside a VS Code terminal.
-    if _find_vscode_ipc_hook():
+    if _in_vscode_terminal():
         return False
     if _is_vscode_remote():
         return False

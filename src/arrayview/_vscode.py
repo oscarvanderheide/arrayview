@@ -1213,7 +1213,7 @@ def _open_browser(
     """
 
     def _do() -> None:
-        ipc = _find_vscode_ipc_hook()
+        in_vscode = _in_vscode_terminal()
         is_remote = _is_vscode_remote()
         opened = False
 
@@ -1257,7 +1257,7 @@ def _open_browser(
                 )
             return
 
-        if force_vscode or ipc or _in_vscode_terminal():
+        if force_vscode or in_vscode:
             # Local VS Code terminal (or --window vscode forced): install extension + signal file.
             _configure_vscode_port_preview(parsed_port)
             ext_ok = _ensure_vscode_extension()
@@ -1273,8 +1273,7 @@ def _open_browser(
 
         is_plain_ssh = (
             not is_remote
-            and not ipc
-            and not _in_vscode_terminal()
+            and not in_vscode
             and bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_CONNECTION"))
         )
         if is_plain_ssh:

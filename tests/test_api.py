@@ -2320,6 +2320,54 @@ class TestPortAndTunnelHelpers:
         monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 12345 22")
         assert _can_native_window() is False
 
+    def test_in_vscode_terminal_false_for_local_matlab(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform, "_MATLAB_CACHE", None)
+        monkeypatch.setattr(platform, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(platform, "_in_matlab", lambda: True)
+        monkeypatch.setenv("TERM_PROGRAM", "vscode")
+        monkeypatch.setattr(platform, "_find_vscode_ipc_hook", lambda: "/tmp/vscode-ipc")
+
+        assert platform._in_vscode_terminal() is False
+
+    def test_can_native_window_allows_local_matlab_despite_vscode_hook(self, monkeypatch):
+        import arrayview._platform as platform
+
+        monkeypatch.setattr(platform, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(platform, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(platform, "_find_vscode_ipc_hook", lambda: "/tmp/vscode-ipc")
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr(platform.sys, "platform", "darwin")
+
+        assert platform._can_native_window() is True
+
+    def test_open_browser_skips_vscode_signal_when_terminal_check_is_false(self, monkeypatch):
+        import arrayview._vscode as vscode
+
+        signal_calls = []
+        open_calls = []
+
+        monkeypatch.setattr(vscode, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(vscode, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(vscode, "_find_vscode_ipc_hook", lambda: "/tmp/vscode-ipc")
+        monkeypatch.setattr(vscode, "_open_via_signal_file", lambda *args, **kwargs: signal_calls.append(args))
+        monkeypatch.setattr(vscode.sys, "platform", "darwin")
+        monkeypatch.delenv("SSH_CLIENT", raising=False)
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+
+        def _fake_run(cmd, capture_output=True, timeout=5):
+            open_calls.append(cmd)
+            return type("Completed", (), {"returncode": 0})()
+
+        monkeypatch.setattr(vscode.subprocess, "run", _fake_run)
+
+        vscode._open_browser("http://localhost:8123/?sid=sid_matlab", blocking=True)
+
+        assert signal_calls == []
+        assert open_calls == [["open", "http://localhost:8123/?sid=sid_matlab"]]
+
 
 # ---------------------------------------------------------------------------
 # Overlay heatmap: _overlay_is_label_map
@@ -2741,6 +2789,63 @@ class TestViewValidation:
 
 
 class TestViewDisplayRouting:
+    def test_local_matlab_view_prefers_native_window(self, monkeypatch):
+        import arrayview._launcher as launcher
+        import arrayview._session as session_mod
+
+        native_calls = []
+        browser_calls = []
+
+        class _DummyEvent:
+            def clear(self):
+                return None
+
+            def wait(self, timeout=None):
+                return True
+
+        class _DummyThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                self.target = target
+
+            def start(self):
+                return None
+
+        class _DummyProc:
+            def poll(self):
+                return None
+
+        monkeypatch.setattr(launcher, "_in_jupyter", lambda: False)
+        monkeypatch.setattr(launcher, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(launcher, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(launcher, "_is_julia_env", lambda: False)
+        monkeypatch.setattr(launcher, "_can_native_window", lambda: True)
+        monkeypatch.setattr(launcher, "_server_alive", lambda port: False)
+        monkeypatch.setattr(launcher, "_server_pid", lambda port: None)
+        monkeypatch.setattr(launcher, "_port_in_use", lambda port: False)
+        monkeypatch.setattr("arrayview._config.get_window_default", lambda _env: None)
+        monkeypatch.setattr("arrayview._platform.detect_environment", lambda: "terminal")
+        monkeypatch.setattr(launcher, "_server_ready_event", _DummyEvent())
+        monkeypatch.setattr(launcher.threading, "Thread", _DummyThread)
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_with_fallback",
+            lambda url, *args, **kwargs: native_calls.append({"url": url, **kwargs}) or _DummyProc(),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_browser",
+            lambda url, **kwargs: browser_calls.append({"url": url, **kwargs}),
+        )
+        monkeypatch.setattr(session_mod, "_window_process", None)
+        monkeypatch.setattr(session_mod, "SERVER_LOOP", None)
+
+        handle = launcher.view(np.zeros((4, 4), dtype=np.float32), name="matlab-local")
+
+        assert isinstance(handle, launcher.ViewHandle)
+        assert native_calls
+        assert native_calls[0]["url"].startswith("http://localhost:8123/shell?")
+        assert browser_calls == []
+
     def test_jupyter_proxy_inline_uses_notebook_server_proxy(self, monkeypatch):
         pytest.importorskip("IPython.display")
         import arrayview._launcher as launcher
