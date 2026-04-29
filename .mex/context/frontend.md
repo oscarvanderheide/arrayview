@@ -126,7 +126,15 @@ Introduces `View`, `Slicer`, `Layer`, `LayoutStrategy`, `modeManager` alongside 
 `SPECIAL_MODE_TILES` array defines the tool menu contents: qMRI, Segmentation, ROI, Overlay, Vector field, plus the compare-center entry when compare mode is eligible. The menu supports multi-select where allowed (spacebar toggles, Enter applies). Mutual exclusion is enforced via `tile.excludes` arrays — ROI ↔ Segmentation, and Overlay/Vector field are reciprocally exclusive with all other plugins. `_applyShelfSelection()` diffs current state against selection, exits removed tools, then enters new ones wrapped in `crossfade()`. Overlay and Vector field auto-seed the menu at init when arrays are present (`_overlaySids.length > 0`, `hasVectorfield`); their per-tile state lives in `_shelfSelection.has(id)` since there is no separate mode flag.
 
 ### Compare Center Tool
-Compare mode can expose a unified center pane that cycles between diff, overlay, and wipe. The `/` tool menu re-opens the last-used center mode, while the compare pane header buttons select a specific center mode directly. Eligible layouts can switch to `compare-center-layout-big-left`, which widens the center pane and stacks the source panes on the right. The diff center pane owns its own colorbar state via `_diffCenterColormap` / `_diffCenterColormapStops`.
+Compare mode can expose a unified center pane that cycles between diff, overlay, and wipe. The `/` tool menu re-opens the last-used center mode, while the compare pane header buttons select a specific center mode directly. Eligible layouts can switch to `compare-center-layout-big-left`, which widens the center pane and stacks the source panes on the right. The diff center pane owns its own colorbar state via `_diffCenterColormap` / `_diffCenterColormapStops`. Big-left compare now also renders in-pane source badges and places the shared source colorbar in the vertical gap between the stacked source panes.
+
+### Shared Auto-Layout Selection
+Auto-picked layouts for compare-center and ortho/multiview now flow through shared helpers near the viewer state block:
+
+- `_layoutViewportProfile(opts)` computes normalized usable viewport metrics (`totalW`, `totalH`, `aspect`, `aspectClass`, `sizeClass`).
+- `_supportsWidePrimaryLayout(profile, opts)` answers the generic "is a wide-primary layout viable?" question from that shared profile plus mode-specific thresholds.
+
+Mode-specific auto-pickers such as `_pickCompareCenterAutoLayoutMode()` and `_pickOrthoAutoLayoutMode()` should reuse those helpers rather than introducing new ad hoc aspect-ratio checks. Auto-picks are cached once per mode entry (`_compareAutoLayoutMode`, `_orthoAutoLayoutMode`), stay stable across resize, and are replaced only by explicit manual overrides (`G` / `g`).
 
 ### Eggs
 Pill badges below the canvas showing active transforms: `FFT` `LOG` `MAGNITUDE` `PHASE` `REAL` `IMAG` `RGB` `ALPHA` `PROJECTION`. **ROI** and **SEGMENT** are NOT eggs — they are interaction modes with their own dynamic island UI.

@@ -66,6 +66,7 @@ Skills to consider:
 - **Search by section separator** — the file is 15k lines. Never read the whole file. Always grep for the section separator first, then read 50–100 lines around it.
 - **Modes are exclusive** — entering one mode must exit conflicting modes. Check `Mode Registry` for existing exit hooks.
 - **ColorBar class migration** — some colorbars use the new `ColorBar` JS class; some use legacy inline code. Do not mix styles in the same colorbar. Check the `ColorBar class` section in `context/frontend.md` and the nearby `_viewer.html` section you are editing.
+- **Layout auto-pickers must share viewport profiling** — if you touch compare-center, multiview/ortho, or any other mode with multiple layout presets, reuse `_layoutViewportProfile()` and `_supportsWidePrimaryLayout()` instead of adding a new per-mode viewport heuristic from scratch.
 - **help overlay is not auto-generated** — it's a static list. Forgetting to update it leaves users with invisible shortcuts.
 - **No hot reload** — changes require a browser refresh. The server does not push frontend updates.
 - **Stale daemon trap** — `uv run arrayview ...` can leave `_serve_daemon` orphaned on port 8000 after the launching terminal exits. If the browser still shows old frontend code after a refresh, check `lsof -nP -iTCP:8000 -sTCP:LISTEN`, kill the old daemon PID, then launch again before trusting browser verification.

@@ -35,6 +35,7 @@ last_updated: 2026-04-29
 - Filesystem picker endpoint (`GET /fs/list`) clamped to `$HOME`. Accepts `base_sid` + `mode` (`overlay` | `vectorfield`) to filter entries by a cheap header-shape peek (`.npy`, `.nii`/`.nii.gz`, `.h5`, `.zarr`); overlay mode requires identical shape, vectorfield mode requires base shape plus one axis of size 3
 - Island collapse affordance: inline `~` at the island's top-right animates the panel into the bottom-left `~` hint circle; external `~` hint only visible while the island is actually collapsed. New `/` hint circle at bottom-right opens the tool menu
 - Compare center tool menu: `/` now re-opens the last-used compare center mode from the tool menu, while compare pane header buttons select diff / overlay / wipe directly. Eligible two-array compare layouts can switch into a big-left arrangement with a wider center pane, and the diff colorbar now matches that center-pane width.
+- Compare center + ortho auto-layout: layout choice is now auto-picked once on entry from a shared viewport-profile helper, stays stable across resize, and becomes sticky only after manual `G` / `g` override. Compare big-left also now supports in-pane A/B source badges and a shared source colorbar parked in the gap between the stacked source panes.
 
 ## Recently Completed
 
