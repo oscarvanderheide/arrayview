@@ -2,8 +2,10 @@
 <html>
 <head>
     <title>ArrayView</title>
+    <meta name="color-scheme" content="dark">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2.5' fill='%230c0c0c'/%3E%3Crect x='2' y='2' width='3' height='3' fill='%233a0ca3'/%3E%3Crect x='6.5' y='2' width='3' height='3' fill='%23560bad'/%3E%3Crect x='11' y='2' width='3' height='3' fill='%23c77dff'/%3E%3Crect x='2' y='6.5' width='3' height='3' fill='%234361ee'/%3E%3Crect x='6.5' y='6.5' width='3' height='3' fill='%234cc9f0'/%3E%3Crect x='11' y='6.5' width='3' height='3' fill='%23f5c842'/%3E%3Crect x='2' y='11' width='3' height='3' fill='%234895ef'/%3E%3Crect x='6.5' y='11' width='3' height='3' fill='%2380ed99'/%3E%3Crect x='11' y='11' width='3' height='3' fill='%23f8961e'/%3E%3C/svg%3E">
     <style>
+        html { background: #0c0c0c; }
         body {
             margin: 0; padding: 0; background: #0c0c0c; color: #d8d8d8;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -81,6 +83,13 @@
             tabBar.classList.toggle('visible', count > 1);
         }
 
+        function hideShellLoadingOverlay() {
+            const ov = document.getElementById('loading-overlay');
+            if (!ov) return;
+            ov.classList.add('av-hidden');
+            setTimeout(() => ov.remove(), 300);
+        }
+
         function addTab(sid, name, url) {
             if (tabs[sid]) { activateTab(sid); return; }
 
@@ -92,6 +101,7 @@
             pane.className = 'tab-pane';
 
             const iframe = document.createElement('iframe');
+            iframe.addEventListener('load', hideShellLoadingOverlay, { once: true });
             iframe.src = url || `/?sid=${sid}`;
 
             pane.appendChild(iframe);
@@ -178,6 +188,9 @@
                 cycleTab(e.data.detail?.dir ?? 1);
                 return;
             }
+            if (phase === 'script-loaded' || phase === 'frame-rendered') {
+                hideShellLoadingOverlay();
+            }
             if (phase === 'title') {
                 const detail = e.data.detail || {};
                 const sid = detail.sid;
@@ -215,12 +228,6 @@
                 heartbeatId = setInterval(() => {
                     if (ws.readyState === WebSocket.OPEN) ws.send('{"action":"ping"}');
                 }, 15000);
-                // Dismiss the loading overlay once the server is reachable.
-                const ov = document.getElementById('loading-overlay');
-                if (ov) {
-                    ov.classList.add('av-hidden');
-                    setTimeout(() => ov.remove(), 300);
-                }
             };
             ws.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
@@ -235,12 +242,6 @@
             };
         }
         connectShellWS();
-        // When served over HTTP with ?init_sid the server is already running —
-        // skip the overlay entirely (WebSocket will connect in ms anyway).
-        if (new URLSearchParams(location.search).get('init_sid')) {
-            const ov = document.getElementById('loading-overlay');
-            if (ov) ov.remove();
-        }
 
         if (!window.__av_inline) {
             const params = new URLSearchParams(window.location.search);

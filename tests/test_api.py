@@ -56,6 +56,10 @@ class TestHealth:
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
         assert "document.createElement('iframe')" in r.text
+        assert '<meta name="color-scheme" content="dark">' in r.text
+        assert "function hideShellLoadingOverlay()" in r.text
+        assert "phase === 'script-loaded' || phase === 'frame-rendered'" in r.text
+        assert "skip the overlay entirely" not in r.text
 
     def test_launcher_cold_start_loading_infrastructure(self):
         import arrayview._launcher as launcher
