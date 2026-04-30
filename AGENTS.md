@@ -32,6 +32,11 @@ Use **subagent-driven development**. Work in **feature branches**.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 
+For follow-up work in `src/arrayview/_viewer.html`, avoid broad searches.
+Prefer exact `rg` for known ids, function names, or section markers, then read
+one narrow `sed` range around the match. Do not reload `.mex` docs or skills
+on small follow-up UI fixes unless the task clearly needs fresh context.
+
 ## Testing
 
 Verify narrowly — do not run the full suite unless asked.
