@@ -1658,6 +1658,47 @@ class TestViewWindowHelpers:
 
 
 class TestCliOpenHelpers:
+    def test_open_webview_cli_returns_after_ready_marker(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        calls = []
+
+        class _DummyProc:
+            pid = 12345
+            returncode = None
+            stderr = io.BytesIO()
+
+            def poll(self):
+                return None
+
+        def _fake_open_webview(*args, ready_file=None, **kwargs):
+            calls.append({"args": args, "ready_file": ready_file, **kwargs})
+            with open(ready_file, "w") as f:
+                f.write("ready")
+            return _DummyProc()
+
+        monkeypatch.setattr(launcher, "_open_webview", _fake_open_webview)
+
+        assert launcher._open_webview_cli("http://localhost:8000/shell", 1200, 800)
+        assert calls
+        assert calls[0]["ready_file"]
+        assert calls[0]["capture_stderr"] is True
+
+    def test_open_webview_cli_returns_false_on_child_crash(self, monkeypatch):
+        import arrayview._launcher as launcher
+
+        class _DummyProc:
+            pid = 12345
+            returncode = 1
+            stderr = io.BytesIO(b"boom")
+
+            def poll(self):
+                return self.returncode
+
+        monkeypatch.setattr(launcher, "_open_webview", lambda *args, **kwargs: _DummyProc())
+
+        assert not launcher._open_webview_cli("http://localhost:8000/shell", 1200, 800)
+
     def test_open_cli_existing_server_view_skips_open_when_already_notified(
         self, monkeypatch
     ):

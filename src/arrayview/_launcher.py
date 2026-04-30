@@ -157,6 +157,7 @@ def _open_webview(
     win_h: int,
     capture_stderr: bool = False,
     shell_port: int | None = None,
+    ready_file: str | None = None,
 ) -> subprocess.Popen:
     """Launch pywebview in a fresh subprocess. Uses subprocess.Popen to avoid
     multiprocessing bootstrap errors when called from a Jupyter kernel.
@@ -195,13 +196,17 @@ def _open_webview(
     if inline_html_b64:
         script_lines = [
             "import sys, base64, webview",
-            "u, w, h, icon, html_b64 = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]",
+            "u, w, h, icon, html_b64, ready_file = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]",
             "html = base64.b64decode(html_b64.encode()).decode()",
             "class Api:",
             "    def set_title(self, title):",
             "        try: webview.windows[0].set_title(str(title)[:240])",
             "        except Exception: pass",
             "win = webview.create_window('ArrayView', html=html, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
+            "if ready_file:",
+            "    try:",
+            "        with open(ready_file, 'w') as f: f.write('ready')",
+            "    except Exception: pass",
             "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
             "def _start_func():",
             "    if icon:",
@@ -221,7 +226,17 @@ def _open_webview(
         ]
         script = "\n".join(script_lines)
         return subprocess.Popen(
-            [sys.executable, "-c", script, url, str(win_w), str(win_h), icon_path, inline_html_b64],
+            [
+                sys.executable,
+                "-c",
+                script,
+                url,
+                str(win_w),
+                str(win_h),
+                icon_path,
+                inline_html_b64,
+                ready_file or "",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
         )
@@ -229,12 +244,16 @@ def _open_webview(
     # URL mode — direct load (used when shell_port not provided)
     script_lines = [
         "import sys, webview",
-        "u, w, h, icon = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]",
+        "u, w, h, icon, ready_file = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]",
         "class Api:",
         "    def set_title(self, title):",
         "        try: webview.windows[0].set_title(str(title)[:240])",
         "        except Exception: pass",
         "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
+        "if ready_file:",
+        "    try:",
+        "        with open(ready_file, 'w') as f: f.write('ready')",
+        "    except Exception: pass",
         "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
         "def _start_func():",
         "    if icon:",
@@ -262,6 +281,7 @@ def _open_webview(
             str(win_w),
             str(win_h),
             icon_path,
+            ready_file or "",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
@@ -363,20 +383,37 @@ def _open_webview_cli(
 ) -> bool:
     """Launch pywebview from the CLI and synchronously wait to detect an immediate crash.
 
-    Returns True if the window appears to have started (still alive after 2 s).
+    Returns True once the child has imported pywebview and created the window.
     Returns False if it crashed; in that case the caller should fall back to browser.
-    The CLI process must not exit while the daemon-thread watchdog is still pending,
-    so the wait is done synchronously here.
     """
+    import tempfile
+
     _vprint("[ArrayView] Launching native window (PyWebView)...", flush=True)
-    proc = _open_webview(url, win_w, win_h, capture_stderr=True, shell_port=shell_port)
-    for _ in range(20):
-        time.sleep(0.1)
+    fd, ready_file = tempfile.mkstemp(prefix="arrayview-webview-ready-", suffix=".flag")
+    os.close(fd)
+    try:
+        os.unlink(ready_file)
+    except OSError:
+        pass
+    proc = _open_webview(
+        url,
+        win_w,
+        win_h,
+        capture_stderr=True,
+        shell_port=shell_port,
+        ready_file=ready_file,
+    )
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
         if proc.poll() is not None:
             stderr_out = ""
             try:
                 stderr_out = proc.stderr.read().decode(errors="replace").strip()
             except Exception:
+                pass
+            try:
+                os.unlink(ready_file)
+            except OSError:
                 pass
             _vprint(
                 f"[ArrayView] Native window exited immediately (code {proc.returncode})",
@@ -385,6 +422,18 @@ def _open_webview_cli(
             if stderr_out:
                 _vprint(f"[ArrayView] webview stderr: {stderr_out}", flush=True)
             return False
+        if os.path.exists(ready_file):
+            try:
+                os.unlink(ready_file)
+            except OSError:
+                pass
+            _vprint("[ArrayView] Native window started successfully", flush=True)
+            return True
+        time.sleep(0.02)
+    try:
+        os.unlink(ready_file)
+    except OSError:
+        pass
     _vprint("[ArrayView] Native window started successfully", flush=True)
     return True
 
