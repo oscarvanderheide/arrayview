@@ -139,6 +139,24 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             notified = await notify_shells(session.sid, name, url=tab_url, wait=False)
         return {"sid": session.sid, "name": name, "notified": notified}
 
+    @app.post("/notify/{sid}")
+    async def notify_existing_session(sid: str, request: Request):
+        """Notify native shell windows about a session that already exists."""
+        session = SESSIONS.get(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        body = await request.json()
+        name = str(body.get("name") or session.name)
+        url = body.get("url")
+        wait = bool(body.get("wait", False))
+        notified = await notify_shells(
+            session.sid,
+            name,
+            url=str(url) if url else None,
+            wait=wait,
+        )
+        return {"sid": session.sid, "name": name, "notified": notified}
+
     @app.get("/fs/list")
     def fs_list(
         path: str | None = None,

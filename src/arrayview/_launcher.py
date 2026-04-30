@@ -203,12 +203,12 @@ def _open_webview(
             "        try: webview.windows[0].set_title(str(title)[:240])",
             "        except Exception: pass",
             "win = webview.create_window('ArrayView', html=html, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
-            "if ready_file:",
-            "    try:",
-            "        with open(ready_file, 'w') as f: f.write('ready')",
-            "    except Exception: pass",
             "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
             "def _start_func():",
+            "    if ready_file:",
+            "        try:",
+            "            with open(ready_file, 'w') as f: f.write('ready')",
+            "        except Exception: pass",
             "    if icon:",
             "        if sys.platform == 'darwin':",
             "            try:",
@@ -250,12 +250,12 @@ def _open_webview(
         "        try: webview.windows[0].set_title(str(title)[:240])",
         "        except Exception: pass",
         "win = webview.create_window('ArrayView', u, width=w, height=h, background_color='#0c0c0c', js_api=Api())",
-        "if ready_file:",
-        "    try:",
-        "        with open(ready_file, 'w') as f: f.write('ready')",
-        "    except Exception: pass",
         "kw = {'gui': 'qt'} if sys.platform.startswith('linux') else {}",
         "def _start_func():",
+        "    if ready_file:",
+        "        try:",
+        "            with open(ready_file, 'w') as f: f.write('ready')",
+        "        except Exception: pass",
         "    if icon:",
         "        if sys.platform == 'darwin':",
         "            try:",
@@ -570,6 +570,20 @@ def _load_session_from_filepath(
         payload["compare_sid"] = compare_sids[0]
         payload["compare_sids"] = _join_query_values(compare_sids)
     return _server_json_request(port, "/load", payload)
+
+
+def _notify_existing_session(
+    port: int,
+    sid: str,
+    name: str,
+    *,
+    url: str | None = None,
+    wait: bool = False,
+) -> dict:
+    payload = {"name": name, "wait": wait}
+    if url:
+        payload["url"] = url
+    return _server_json_request(port, f"/notify/{sid}", payload)
 
 
 def _attach_vectorfield_to_session(
@@ -910,6 +924,19 @@ def _handle_cli_spawned_daemon(
     )
     subprocess.Popen([sys.executable, "-c", script])
 
+    early_webview_opened = False
+    early_webview_notified = False
+    if (
+        use_webview
+        and not is_remote
+        and not overlay_files
+        and not compare_files
+    ):
+        url_shell_early = _shell_url(port, sid, name)
+        early_webview_opened = _open_webview_cli(
+            url_shell_early, 1400, 900, shell_port=port
+        )
+
     if not _wait_for_port(port, timeout=15.0, tcp_only=True):
         print(
             f"Error: ArrayView server failed to start on port {port}. "
@@ -922,6 +949,19 @@ def _handle_cli_spawned_daemon(
     except Exception as e:
         print(f"Error while loading compare array: {e}")
         sys.exit(1)
+
+    if early_webview_opened:
+        try:
+            notify_result = _notify_existing_session(
+                port,
+                sid,
+                name,
+                url=_viewer_path(sid),
+                wait=True,
+            )
+            early_webview_notified = bool(notify_result.get("notified"))
+        except Exception:
+            early_webview_notified = False
 
     _open_cli_spawned_view(
         port=port,
@@ -936,6 +976,7 @@ def _handle_cli_spawned_daemon(
         window_mode=window_mode,
         floating=floating,
         is_remote=is_remote,
+        webview_already_opened=early_webview_notified,
     )
 
 
@@ -953,6 +994,7 @@ def _open_cli_spawned_view(
     window_mode: str | None,
     floating: bool,
     is_remote: bool,
+    webview_already_opened: bool = False,
 ) -> None:
     url = _viewer_url(
         port,
@@ -962,6 +1004,8 @@ def _open_cli_spawned_view(
         dims=dims_override,
     )
     if _should_notify_webview(use_webview, overlay_sid):
+        if webview_already_opened:
+            return
         url_shell = _shell_url(port, sid, name, compare_sids=compare_sids)
         if not _open_webview_cli(url_shell, 1400, 900):
             _vprint("[ArrayView] Falling back to browser", flush=True)

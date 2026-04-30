@@ -101,6 +101,25 @@ class TestLoad:
         r = client.post("/load", json={"filepath": str(tmp_path / "coolarray.npy")})
         assert r.json()["name"] == "coolarray.npy"
 
+    def test_notify_existing_session_returns_open_state(self, client, sid_2d):
+        r = client.post(
+            f"/notify/{sid_2d}",
+            json={"name": "already-loaded", "url": "/?sid=abc", "wait": False},
+        )
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body == {
+            "sid": sid_2d,
+            "name": "already-loaded",
+            "notified": False,
+        }
+
+    def test_notify_missing_session_is_404(self, client):
+        r = client.post("/notify/missing", json={})
+
+        assert r.status_code == 404
+
 
 class TestFsList:
     def test_fs_list_filters_supported_entries_and_overlay_shapes(
@@ -1988,8 +2007,120 @@ class TestCliOpenHelpers:
                 "window_mode": "browser",
                 "floating": False,
                 "is_remote": False,
+                "webview_already_opened": False,
             }
         ]
+
+    def test_handle_cli_spawned_daemon_opens_native_shell_before_port_wait(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        events = []
+        opened = []
+
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd: events.append(("spawn", cmd)) or object(),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_cli",
+            lambda *args, **kwargs: events.append(("webview", args, kwargs)) or True,
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_wait_for_port",
+            lambda *args, **kwargs: events.append(("wait", args, kwargs)) or True,
+        )
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher,
+            "_notify_existing_session",
+            lambda *args, **kwargs: events.append(("notify", args, kwargs))
+            or {"notified": True},
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: opened.append(kwargs),
+        )
+        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_webview=True,
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=False,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
+        event_names = [event[0] for event in events]
+        assert event_names[:3] == ["spawn", "webview", "wait"]
+        assert "notify" in event_names
+        assert events[1][2]["shell_port"] == 8000
+        assert opened[0]["webview_already_opened"] is True
+
+    def test_handle_cli_spawned_daemon_does_not_early_open_remote_webview(
+        self, monkeypatch
+    ):
+        import arrayview._launcher as launcher
+
+        events = []
+
+        monkeypatch.setattr(
+            launcher.subprocess,
+            "Popen",
+            lambda cmd: events.append(("spawn", cmd)) or object(),
+        )
+        monkeypatch.setattr(
+            launcher,
+            "_open_webview_cli",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
+        )
+        monkeypatch.setattr(launcher, "_wait_for_port", lambda *args, **kwargs: True)
+        monkeypatch.setattr(launcher, "_load_compare_sids", lambda port, files: [])
+        monkeypatch.setattr(
+            launcher,
+            "_open_cli_spawned_view",
+            lambda **kwargs: events.append(("open", kwargs)),
+        )
+        monkeypatch.setattr(launcher.uuid, "uuid4", lambda: type("U", (), {"hex": "sid_base"})())
+
+        launcher._handle_cli_spawned_daemon(
+            port=8000,
+            base_file="/tmp/base.npy",
+            name="base.npy",
+            compare_files=[],
+            overlay_files=[],
+            dims_override=None,
+            use_webview=True,
+            watch=False,
+            window_mode="native",
+            floating=False,
+            is_remote=True,
+            vectorfield=None,
+            vfield_components_dim=None,
+            rgb=False,
+            demo_name=None,
+            demo_cleanup=False,
+        )
+
+        assert events[0][0] == "spawn"
+        assert events[1][0] == "open"
+        assert events[1][1]["webview_already_opened"] is False
 
 
 # ---------------------------------------------------------------------------
