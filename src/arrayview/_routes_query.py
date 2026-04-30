@@ -1,4 +1,3 @@
-import asyncio
 import io
 
 import numpy as np
@@ -6,20 +5,14 @@ from fastapi import Depends, Response
 
 from arrayview._analysis import _build_metadata
 from arrayview._render import render_rgb_rgba, render_rgba
-from arrayview._session import PENDING_SESSIONS, SESSIONS
+from arrayview._session import SESSIONS, wait_for_session_ready
 import arrayview._session as _session_mod
 
 
 def register_query_routes(app, *, get_session_or_404, pil_image, pil_imageops) -> None:
     @app.get("/metadata/{sid}")
     async def get_metadata(sid: str):
-        session = SESSIONS.get(sid)
-        if not session and sid in PENDING_SESSIONS:
-            for _ in range(1200):
-                await asyncio.sleep(0.1)
-                session = SESSIONS.get(sid)
-                if session:
-                    break
+        session = await wait_for_session_ready(sid)
         if not session:
             return Response(status_code=404)
         try:

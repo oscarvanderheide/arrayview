@@ -31,6 +31,30 @@ VIEWER_SIDS: set = set()  # session IDs with at least one active viewer WS
 SHELL_SOCKETS = []  # webview shell WS connections (for tab injection)
 _window_process = None
 PENDING_SESSIONS: set = set()  # sids whose data is still loading in a background thread
+PENDING_SESSION_EVENTS: dict[str, threading.Event] = {}
+
+
+async def wait_for_session_ready(sid: str, timeout: float = 120.0):
+    """Return a session after pending background load completes, or None."""
+    session = SESSIONS.get(sid)
+    if session is not None:
+        return session
+
+    event = PENDING_SESSION_EVENTS.get(sid)
+    if event is not None:
+        await asyncio.to_thread(event.wait, timeout)
+        return SESSIONS.get(sid)
+
+    if sid in PENDING_SESSIONS:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.02)
+            session = SESSIONS.get(sid)
+            if session is not None:
+                return session
+            if sid not in PENDING_SESSIONS:
+                break
+    return SESSIONS.get(sid)
 
 # ---------------------------------------------------------------------------
 # Render thread pool — bypasses concurrent.futures so it is unaffected by
@@ -425,6 +449,8 @@ __all__ = [
     "SHELL_SOCKETS",
     "_window_process",
     "PENDING_SESSIONS",
+    "PENDING_SESSION_EVENTS",
+    "wait_for_session_ready",
     # Render thread pool
     "_RENDER_QUEUE",
     "_RENDER_THREADS",

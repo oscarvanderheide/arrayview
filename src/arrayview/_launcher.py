@@ -2526,6 +2526,8 @@ def _serve_daemon(
     """
     # Register sid as pending so /metadata can poll while data loads.
     _session_mod.PENDING_SESSIONS.add(sid)
+    _pending_event = threading.Event()
+    _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
 
     # Start uvicorn immediately — the window can open before data is ready.
@@ -2615,6 +2617,8 @@ def _serve_daemon(
                     )
         finally:
             _session_mod.PENDING_SESSIONS.discard(sid)
+            _pending_event.set()
+            _session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
 
     threading.Thread(target=_load, daemon=True).start()
 

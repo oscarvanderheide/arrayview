@@ -6,6 +6,8 @@ import inspect
 import os
 import subprocess
 import sys
+import threading
+import time
 
 import httpx
 import numpy as np
@@ -142,6 +144,35 @@ class TestLoad:
         r = client.post("/notify/missing", json={})
 
         assert r.status_code == 404
+
+    def test_wait_for_session_ready_uses_pending_event(self):
+        import asyncio
+
+        import arrayview._session as session_mod
+
+        sid = "pending-event-test"
+        marker = object()
+        event = threading.Event()
+        session_mod.PENDING_SESSIONS.add(sid)
+        session_mod.PENDING_SESSION_EVENTS[sid] = event
+
+        def publish():
+            time.sleep(0.01)
+            session_mod.SESSIONS[sid] = marker
+            event.set()
+
+        try:
+            threading.Thread(target=publish, daemon=True).start()
+            t0 = time.perf_counter()
+            result = asyncio.run(session_mod.wait_for_session_ready(sid, timeout=1.0))
+            elapsed = time.perf_counter() - t0
+        finally:
+            session_mod.SESSIONS.pop(sid, None)
+            session_mod.PENDING_SESSIONS.discard(sid)
+            session_mod.PENDING_SESSION_EVENTS.pop(sid, None)
+
+        assert result is marker
+        assert elapsed < 0.08
 
 
 class TestFsList:

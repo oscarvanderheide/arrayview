@@ -17,12 +17,12 @@ from arrayview._render import (
     render_rgba,
 )
 from arrayview._session import (
-    PENDING_SESSIONS,
     SESSIONS,
     SHELL_SOCKETS,
     _render,
     _schedule_prefetch,
     _vprint,
+    wait_for_session_ready,
 )
 from arrayview._vectorfield import _compute_vfield_arrows
 
@@ -85,13 +85,7 @@ def register_websocket_routes(app) -> None:
 
     @app.websocket("/ws/{sid}")
     async def websocket_endpoint(ws: WebSocket, sid: str):
-        session = SESSIONS.get(sid)
-        if not session and sid in PENDING_SESSIONS:
-            for _ in range(1200):
-                await asyncio.sleep(0.1)
-                session = SESSIONS.get(sid)
-                if session:
-                    break
+        session = await wait_for_session_ready(sid)
         if not session:
             await ws.close()
             return
