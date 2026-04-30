@@ -2530,15 +2530,26 @@ def _serve_daemon(
     _session_mod.PENDING_SESSION_EVENTS[sid] = _pending_event
     _session_mod.SERVER_PORT = port
 
-    # Start uvicorn immediately — the window can open before data is ready.
-    threading.Thread(
-        target=lambda: _uvicorn().run(
+    import socket as _socket
+
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", port))
+    sock.listen(128)
+    sock.set_inheritable(True)
+
+    def _run_uvicorn_on_socket():
+        config = _uvicorn().Config(
             _server_mod().app,
-            host="127.0.0.1",
-            port=port,
             log_level="error",
             timeout_keep_alive=30,
-        ),
+        )
+        server = _uvicorn().Server(config)
+        asyncio.run(server.serve(sockets=[sock]))
+
+    # Start uvicorn immediately — the window can open before data is ready.
+    threading.Thread(
+        target=_run_uvicorn_on_socket,
         daemon=True,
     ).start()
 
