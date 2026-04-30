@@ -1368,6 +1368,7 @@ def _with_loading(url: str) -> str:
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
+_CLI_DAEMON_IDLE_SECONDS = 10.0
 
 
 def _join_query_values(values: _CSVValues) -> str:
@@ -2641,9 +2642,9 @@ def _serve_daemon(
             pass
     else:
         # Keep the server alive briefly after the last viewer closes (grace period
-        # for page refreshes). No extended idle timeout — shut down immediately
-        # when the last window closes for cleaner debugging and resource management.
-        _wait_for_viewer_close(idle_seconds=0)
+        # for page refreshes), then a short idle window so quick repeated CLI
+        # launches reuse the warm server without leaving a durable orphan.
+        _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
     os._exit(0)
 
 
