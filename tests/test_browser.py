@@ -2072,16 +2072,45 @@ class TestColorbarWindowLevel:
 
 
 class TestCustomColormap:
+    def test_shift_c_picker_is_centered_and_shortlisted(self, loaded_viewer, sid_2d):
+        page = loaded_viewer(sid_2d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+C")
+        page.wait_for_selector("#cmap-picker.visible", timeout=2_000)
+        picker = page.locator("#cmap-picker-box")
+        box = picker.bounding_box()
+        viewport = page.viewport_size
+        assert box is not None, "Colormap picker modal did not render"
+        assert viewport is not None, "Viewport size unavailable"
+        modal_cx = box["x"] + box["width"] / 2
+        modal_cy = box["y"] + box["height"] / 2
+        assert abs(modal_cx - viewport["width"] / 2) < viewport["width"] * 0.12
+        assert abs(modal_cy - viewport["height"] / 2) < viewport["height"] * 0.14
+        page.wait_for_function(
+            "() => document.querySelector('#cmap-picker-summary')?.textContent?.includes('suggested colormaps')"
+        )
+        visible_count = page.locator("#cmap-picker-list .cmap-p-cell:not(.hidden)").count()
+        assert visible_count <= 16, f"Expected a shortlist, saw {visible_count} visible colormaps"
+        summary = page.inner_text("#cmap-picker-summary")
+        assert "suggested colormaps" in summary.lower()
+        page.keyboard.type("inferno", delay=20)
+        page.wait_for_timeout(250)
+        filtered_box = picker.bounding_box()
+        assert filtered_box is not None
+        assert abs(filtered_box["y"] - box["y"]) < 2, "Picker box shifted vertically while filtering"
+
     def test_C_key_with_valid_colormap_changes_canvas(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         before = page.evaluate(_JS_CENTER_PIXEL)
-        # Use page.keyboard to trigger C; dialog will appear, fill and confirm
-        page.on("dialog", lambda d: d.accept("inferno"))
-        page.keyboard.press("C")
+        page.keyboard.press("Shift+C")
+        page.wait_for_selector("#cmap-picker.visible", timeout=2_000)
+        page.keyboard.type("inferno", delay=30)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Enter")
         page.wait_for_timeout(1200)
         after = page.evaluate(_JS_CENTER_PIXEL)
-        assert before != after, "Center pixel unchanged after C + inferno colormap"
+        assert before != after, "Center pixel unchanged after Shift+C + inferno colormap"
 
 
 class TestSessionStorage:

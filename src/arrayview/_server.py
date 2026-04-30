@@ -28,6 +28,7 @@ from arrayview._render import (
     REAL_MODES,
     _init_luts,
     _ensure_lut,
+    _mpl_colormaps,
     _setup_rgb,
 )
 from arrayview._routes_analysis import register_analysis_routes
@@ -143,6 +144,15 @@ def get_colormap(name: str):
     if not _ensure_lut(name):
         return Response(status_code=404)
     return {"ok": True, "gradient_stops": COLORMAP_GRADIENT_STOPS[name]}
+
+
+@app.get("/colormaps")
+def list_colormaps():
+    """Return all available matplotlib colormap names and cached gradient stops."""
+    _init_luts()
+    from arrayview._render import _mpl_colormaps as mpl_cm
+    names = sorted(mpl_cm) if mpl_cm else []
+    return {"colormaps": names, "gradient_stops": dict(COLORMAP_GRADIENT_STOPS)}
 
 
 # ── REST Routes: Slice Rendering, Diff, and Oblique ──────────────

@@ -1818,6 +1818,22 @@ class TestColorbarInteractions:
         cb_box = canvas.bounding_box()
         assert cb_box and cb_box["width"] > 10, "Colorbar should have non-trivial width"
 
+    def test_colorbar_hover_shows_value_when_collapsed(self, loaded_viewer, sid_2d):
+        """Hovering the collapsed slim colorbar should show the hover value."""
+        page = loaded_viewer(sid_2d)
+        canvas = page.locator("canvas#slim-cb")
+        if not canvas.is_visible():
+            pytest.skip("Colorbar not visible")
+        cb_box = canvas.bounding_box()
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] * 0.65,
+            cb_box["y"] + cb_box["height"] / 2,
+        )
+        page.wait_for_function(
+            "() => { const el = document.getElementById('slim-cb-tooltip'); return !!el && getComputedStyle(el).display !== 'none' && !!el.textContent.trim(); }",
+            timeout=2000,
+        )
+
     def test_colorbar_scroll_with_manual_range_changes_labels(
         self, loaded_viewer, sid_2d
     ):
@@ -1884,6 +1900,27 @@ class TestColorbarInteractions:
         )
         # Just verify page is still functional
         assert page.is_visible("canvas#viewer")
+
+    def test_multiview_colorbar_hover_shows_value_when_collapsed(
+        self, loaded_viewer, sid_3d
+    ):
+        """The shared multiview colorbar should show a hover value while collapsed."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#mv-cb-wrap", timeout=5000)
+        canvas = page.locator("canvas#mv-cb")
+        if not canvas.is_visible():
+            pytest.skip("Multiview colorbar not visible")
+        cb_box = canvas.bounding_box()
+        page.mouse.move(
+            cb_box["x"] + cb_box["width"] * 0.35,
+            cb_box["y"] + cb_box["height"] / 2,
+        )
+        page.wait_for_function(
+            "() => { const el = document.querySelector('#mv-cb-wrap .cb-tooltip'); return !!el && getComputedStyle(el).display !== 'none' && !!el.textContent.trim(); }",
+            timeout=2000,
+        )
 
 
 # ---------------------------------------------------------------------------

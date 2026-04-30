@@ -835,6 +835,7 @@ __all__ = [
     "_lut_to_gradient_stops",
     "COLORMAP_GRADIENT_STOPS",
     "_ensure_lut",
+    "_mpl_colormaps",
     "apply_colormap_rgba",
     # Constants
     "COMPLEX_MODES",
