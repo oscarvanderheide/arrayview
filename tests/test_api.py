@@ -4,6 +4,8 @@ import base64
 import io
 import inspect
 import os
+import subprocess
+import sys
 
 import httpx
 import numpy as np
@@ -62,6 +64,22 @@ class TestHealth:
         assert "window.location.replace" in html  # JS navigates when server ready
         assert callable(launcher._run_loading_server)
         assert callable(launcher._with_loading)
+
+    def test_package_import_keeps_startup_modules_lazy(self):
+        code = (
+            "import sys, arrayview; "
+            "print('arrayview._session' in sys.modules, "
+            "'arrayview._vscode' in sys.modules, "
+            "'numpy' in sys.modules)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert result.stdout.strip() == "False False False"
 
     def test_metadata_default_dims_match_viewer_startup_for_4d_data(self, client, tmp_path):
         arr = (np.random.randn(22, 24, 21, 5) + 1j * np.random.randn(22, 24, 21, 5)).astype(np.complex64)

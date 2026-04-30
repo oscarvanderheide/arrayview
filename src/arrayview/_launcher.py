@@ -39,14 +39,40 @@ from arrayview._platform import (
 )
 import arrayview._platform as _platform_mod  # for mutable globals
 
-from arrayview._vscode import (
-    _configure_vscode_port_preview,
-    _ensure_vscode_extension,
-    _open_direct_via_signal_file,
-    _open_direct_via_shm,
-    _print_viewer_location,
-    _open_browser,
-)
+_vscode_mod_cache = None
+
+
+def _vscode_mod():
+    global _vscode_mod_cache
+    if _vscode_mod_cache is None:
+        import arrayview._vscode as _vs  # noqa: PLC0415 — intentional lazy import
+
+        _vscode_mod_cache = _vs
+    return _vscode_mod_cache
+
+
+def _configure_vscode_port_preview(*args, **kwargs):
+    return _vscode_mod()._configure_vscode_port_preview(*args, **kwargs)
+
+
+def _ensure_vscode_extension(*args, **kwargs):
+    return _vscode_mod()._ensure_vscode_extension(*args, **kwargs)
+
+
+def _open_direct_via_signal_file(*args, **kwargs):
+    return _vscode_mod()._open_direct_via_signal_file(*args, **kwargs)
+
+
+def _open_direct_via_shm(*args, **kwargs):
+    return _vscode_mod()._open_direct_via_shm(*args, **kwargs)
+
+
+def _print_viewer_location(*args, **kwargs):
+    return _vscode_mod()._print_viewer_location(*args, **kwargs)
+
+
+def _open_browser(*args, **kwargs):
+    return _vscode_mod()._open_browser(*args, **kwargs)
 
 # _server.py (FastAPI) is imported lazily via _server_mod() to keep the
 # import-time cost of ``import arrayview`` low (~175 ms saved).
