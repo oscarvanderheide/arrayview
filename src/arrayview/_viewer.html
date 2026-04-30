@@ -12165,8 +12165,7 @@
                 _mainLoupeSourceVersion = sourceVersion;
             }
             mainLoupeCtx.clearRect(0, 0, size, size);
-            mainLoupeCtx.imageSmoothingEnabled = true;
-            mainLoupeCtx.imageSmoothingQuality = 'high';
+            mainLoupeCtx.imageSmoothingEnabled = false;
             const src = (_mainLoupeSourceCanvas.width && _mainLoupeSourceCanvas.height) ? _mainLoupeSourceCanvas : canvas;
             mainLoupeCtx.drawImage(src, sx, sy, srcW, srcH, 0, 0, size, size);
             
@@ -12178,23 +12177,14 @@
             _drawMainLoupe(pt);
             const targetX = Math.max(8, Math.min(pt.cssX + 18, (parseInt(canvas.style.width) || canvas.width) - 174));
             const targetY = Math.max(8, Math.min(pt.cssY - 92, (parseInt(canvas.style.height) || canvas.height) - 174));
-            if (typeof gsap !== 'undefined') {
-                gsap.to(mainLoupe, {
-                    x: targetX,
-                    y: targetY,
-                    duration: 0.15,
-                    ease: 'power2.out',
-                    overwrite: 'auto',
-                });
-            } else {
-                mainLoupe.style.transform = `translate(${targetX}px, ${targetY}px)`;
-            }
+            gsap.set(mainLoupe, { x: targetX, y: targetY });
         }
         function _maybeActivateMainLoupe(e) {
             if (!_mainLoupeDrag || _mainLoupeDrag.active || !_mainLoupeEligible()) return;
             const dx = e.clientX - _mainLoupeDrag.startClientX;
             const dy = e.clientY - _mainLoupeDrag.startClientY;
             if (Math.hypot(dx, dy) < 3) return;
+            if (_mainLoupeDrag.holdTimer) { clearTimeout(_mainLoupeDrag.holdTimer); _mainLoupeDrag.holdTimer = null; }
             _mainLoupeDrag.active = true;
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
@@ -12202,16 +12192,16 @@
                 mainLoupe.style.display = 'block';
                 if (typeof gsap !== 'undefined') {
                     gsap.killTweensOf(mainLoupe);
-                    gsap.set(mainLoupe, { x: 0, y: 0 });
                     gsap.fromTo(mainLoupe,
-                        { opacity: 0, scale: 0.72 },
-                        { opacity: 1, scale: 1, duration: 0.2, ease: 'back.out(1.35)', overwrite: 'auto' }
+                        { opacity: 0 },
+                        { opacity: 1, duration: 0.12, overwrite: 'auto' }
                     );
                 }
             }
             _updateMainLoupe(e);
         }
         function _endMainLoupe() {
+            if (_mainLoupeDrag && _mainLoupeDrag.holdTimer) { clearTimeout(_mainLoupeDrag.holdTimer); _mainLoupeDrag.holdTimer = null; }
             _mainLoupeDrag = null;
             if (!mainLoupe) return;
             if (mainLoupe.style.display === 'none') return;
@@ -12219,14 +12209,12 @@
                 gsap.killTweensOf(mainLoupe);
                 gsap.to(mainLoupe, {
                     opacity: 0,
-                    scale: 0.78,
-                    duration: 0.14,
-                    ease: 'power2.in',
+                    duration: 0.12,
                     overwrite: 'auto',
                     onComplete: () => {
                         if (!mainLoupe) return;
                         mainLoupe.style.display = 'none';
-                        gsap.set(mainLoupe, { clearProps: 'x,y,opacity,scale' });
+                        gsap.set(mainLoupe, { clearProps: 'opacity' });
                     },
                 });
             } else {
@@ -13551,6 +13539,25 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     startClientX: e.clientX,
                     startClientY: e.clientY,
                     active: false,
+                    holdTimer: setTimeout(() => {
+                        if (_mainLoupeDrag && !_mainLoupeDrag.active) {
+                            const fakeE = { clientX: e.clientX, clientY: e.clientY };
+                            _mainLoupeDrag.active = true;
+                            const piEl = document.getElementById('main-pixel-info');
+                            if (piEl) piEl.style.display = 'none';
+                            if (mainLoupe) {
+                                mainLoupe.style.display = 'block';
+if (typeof gsap !== 'undefined') {
+                                        gsap.killTweensOf(mainLoupe);
+                                        gsap.fromTo(mainLoupe,
+                                            { opacity: 0 },
+                                            { opacity: 1, duration: 0.12, overwrite: 'auto' }
+                                        );
+                                    }
+                            }
+                            _updateMainLoupe(fakeE);
+                        }
+                    }, 150),
                 };
             } else {
                 _mainLoupeDrag = null;
