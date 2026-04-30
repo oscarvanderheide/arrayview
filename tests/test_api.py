@@ -42,6 +42,11 @@ class TestHealth:
         assert "window.location.pathname.match(/^(.*\\/proxy\\/\\d+)(?:\\/|$)/)" in r.text
         assert '<script src="gsap.min.js"></script>' in r.text
 
+    def test_startup_overlay_has_no_artificial_dwell(self, client, sid_2d):
+        r = client.get(f"/?sid={sid_2d}")
+        assert r.status_code == 200
+        assert "const _MIN_SPINNER_MS = 0" in r.text
+
     def test_shell_returns_html(self, client):
         r = client.get("/shell")
         assert r.status_code == 200

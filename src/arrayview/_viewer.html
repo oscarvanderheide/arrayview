@@ -3280,7 +3280,7 @@
         let _startupAnimPlayed = false; // once per page load — not reset on data refresh (by design)
         let _startupAnimTl = null;
         const _loadingShowTime = performance.now(); // page load = spinner visible
-        const _MIN_SPINNER_MS = 800; // minimum spinner dwell — prevents "flash of spinner"
+        const _MIN_SPINNER_MS = 0; // first rendered frame wins; no artificial startup dwell
 
         function _clearStartupChromeReveal() {
             const arrayName = document.getElementById('array-name');
@@ -3338,34 +3338,37 @@
             // ── Act 2: Overlay exits, canvas revealed ──────────────────────
             if (loadLogo) {
                 _startupAnimTl.to(loadLogo, {
-                    opacity: 0, scale: 0.6, duration: 0.35, ease: 'power2.in'
-                }, 0.30);
+                    opacity: 0, scale: 0.6, duration: 0.18, ease: 'power2.in'
+                }, 0.05);
             }
             if (loadName) {
                 _startupAnimTl.to(loadName, {
-                    opacity: 0, duration: 0.20, ease: 'power2.in'
-                }, 0.30);
+                    opacity: 0, duration: 0.14, ease: 'power2.in'
+                }, 0.05);
             }
             _startupAnimTl.to(canvasWrap, {
-                opacity: 1, duration: 0.50, ease: 'power2.out'
-            }, 0.40);
+                opacity: 1, duration: 0.22, ease: 'power2.out'
+            }, 0.08);
             _startupAnimTl.call(() => {
                 document.body.classList.remove('av-loading');
-            }, null, 0.50);
+            }, null, 0.08);
+            _startupAnimTl.call(() => {
+                if (ol) ol.style.display = 'none';
+            }, null, 0.30);
 
             // ── Act 3: Chrome assembles around canvas ──────────────────────
             _startupAnimTl
-                .to(arrayName, { opacity: 1, '--fly-y': '0px', duration: 0.38, ease: 'power3.out' }, 0.85)
-                .to(info,      { opacity: 1, '--fly-y': '0px', duration: 0.38, ease: 'power3.out' }, 0.92);
+                .to(arrayName, { opacity: 1, '--fly-y': '0px', duration: 0.26, ease: 'power3.out' }, 0.32)
+                .to(info,      { opacity: 1, '--fly-y': '0px', duration: 0.26, ease: 'power3.out' }, 0.38);
             if (cbVisible) {
                 _startupAnimTl.to(cbWrap, {
-                    opacity: 1, '--fly-y': '0px', duration: 0.36, ease: 'power3.out'
-                }, 1.05);
+                    opacity: 1, '--fly-y': '0px', duration: 0.24, ease: 'power3.out'
+                }, 0.48);
             }
             if (helpHint) {
                 _startupAnimTl.to(helpHint, {
-                    opacity: 1, scale: 1, duration: 0.28, ease: 'back.out(1.7)'
-                }, 1.20);
+                    opacity: 1, scale: 1, duration: 0.22, ease: 'back.out(1.7)'
+                }, 0.58);
             }
         }
         let _immersiveDriveTween = null; // tween that scrubs immersiveTl.progress()
