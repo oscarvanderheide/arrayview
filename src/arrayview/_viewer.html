@@ -2673,15 +2673,14 @@
     <div id="info">Connecting...</div>
     <div id="viewer-row">
         <div id="hist-picker-legend" aria-hidden="true">
-            <div id="hist-picker-legend-title">How each dim affects vmin/vmax</div>
+            <div id="hist-picker-legend-title">The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen.</div>
             <div class="hist-picker-legend-row">
                 <div class="hist-picker-legend-state scope">
                     <span class="hist-picker-legend-swatch scope"></span>
                     IN SCOPE
                 </div>
                 <div class="hist-picker-legend-copy">
-                    <strong>Scrolling this dim does not change vmin/vmax.</strong>
-                    All slices along it already feed the histogram.
+                    <strong>Full range in volume. Scrolling doesn't change limits.</strong>
                 </div>
             </div>
             <div class="hist-picker-legend-row">
@@ -2690,8 +2689,7 @@
                     RECOMPUTE
                 </div>
                 <div class="hist-picker-legend-copy">
-                    <strong>Scrolling this dim recomputes vmin/vmax.</strong>
-                    This dim is excluded from the histogram, so each slice gets fresh limits using the current percentile preset.
+                    <strong>Current position only. Scrolling recalculates limits.</strong>
                 </div>
             </div>
             <div class="hist-picker-legend-row">
@@ -2700,8 +2698,7 @@
                     FROZEN
                 </div>
                 <div class="hist-picker-legend-copy">
-                    <strong>Scrolling this dim keeps the current vmin/vmax.</strong>
-                    This dim is excluded from the histogram, so moving through slices will not update the limits.
+                    <strong>Current position only. Limits stay fixed.</strong>
                 </div>
             </div>
         </div>
@@ -22671,21 +22668,16 @@ if (typeof gsap !== 'undefined') {
                 hoveredDim = parseInt(span.dataset.dim);
                 _dimBarHovering = true;
                 _showAxesGnomon();
-                if (_histPickerActive) {
-                    _showHistTooltip(_tooltipTextForDim(hoveredDim), span.getBoundingClientRect());
-                }
             } else {
                 hoveredDim = -1;
                 _dimBarHovering = false;
                 if (!axesFlashTimer) _hideAxesGnomon();
-                if (_histPickerActive) _hideHistTooltip();
             }
         });
         infoEl.addEventListener('mouseleave', () => {
             hoveredDim = -1;
             _dimBarHovering = false;
             if (!axesFlashTimer) _hideAxesGnomon();
-            if (_histPickerActive) _hideHistTooltip();
         });
         infoEl.addEventListener('wheel', (e) => {
             if (hoveredDim === VFIELD_T_DIM) {
