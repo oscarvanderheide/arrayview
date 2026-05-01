@@ -32,10 +32,15 @@ Use **subagent-driven development**. Work in **feature branches**.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 
-For follow-up work in `src/arrayview/_viewer.html`, avoid broad searches.
-Prefer exact `rg` for known ids, function names, or section markers, then read
-one narrow `sed` range around the match. Do not reload `.mex` docs or skills
-on small follow-up UI fixes unless the task clearly needs fresh context.
+For follow-up work in `src/arrayview/_viewer.html`, do not run broad searches.
+Do not use regex alternations or generic keyword sweeps across `_viewer.html`.
+Search for one exact identifier at a time: an id, function name, command id, or
+section marker already suggested by the user or current context. After each hit,
+read only one narrow `sed` window around the match. If the needed identifier is
+not known, ask or infer from recent context instead of exploring broadly. If more
+than three exact searches would be needed, stop and explain why before continuing.
+Do not reload `.mex` docs or skills on small follow-up UI fixes unless the task
+clearly needs fresh context.
 
 ## Testing
 

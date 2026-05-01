@@ -5,6 +5,16 @@ description: Use when the user explicitly requests a full visual audit, when val
 
 # ArrayView UI Consistency Audit
 
+## Read Budget
+
+On entry, read only:
+
+- `Rule`
+- `Phase 1`
+- the tier commands in `Phase 2`
+
+Treat the mode matrix and rule catalog below as reference sections to revisit only if the task actually reaches the full audit stage.
+
 ## Rule
 
 This is the **full** visual audit path. Do not invoke it by default for every UI change. During normal feature development, do targeted verification for the specific area touched. Use this skill when the user explicitly asks for a broad visual check, when a regression spans modes/layouts, or when validating UI work for a release. This skill has two phases: a **proactive phase** (before coding) that plans the cross-mode behavior, and a **reactive phase** (after coding) that runs an automated visual audit.

@@ -20,10 +20,17 @@ edges:
     condition: when working on rendering, colormaps, LUTs, caching, or the render thread
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-29
+last_updated: 2026-05-01
 ---
 
 # arrayview — Router
+
+## Fast Path
+
+- New task or changed task family: read this file, then load at most one pattern and one context file.
+- Follow-up in the same thread and same subsystem: do **not** reopen this router. Reuse what is already loaded unless blocked.
+- Small localized `_viewer.html` fix with a known symbol: go straight to exact code search. Do **not** auto-load `context/frontend.md`.
+- Normal work should **not** load `.mex/SETUP.md`, `.mex/SYNC.md`, or `patterns/README.md`. Those are scaffold-maintenance files only.
 
 ## What This Is
 Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI, zarr, etc.) with a FastAPI backend, single-file HTML/JS frontend, and multi-environment display routing (Jupyter, VS Code, SSH, native window).
@@ -50,6 +57,17 @@ Python package for interactively viewing multi-dimensional arrays (numpy, NIfTI,
 3. Follow **one extra edge only when blocked**. Do not recursively fan out through second-hop edges.
 4. Load `context/project-state.md` only when the task depends on current shipped or in-progress work.
 5. For UI, animation, or behavior bugs: ask plain-English clarification questions **before** reading git history, large diffs, or broad source sweeps.
+6. For follow-up work in the same thread: prefer reusing already-loaded context over reopening router/context/pattern files.
+
+## Common Cases
+
+| Situation | Load |
+|-----------|------|
+| Follow-up in same area, no task-family change | No new `.mex` files by default |
+| Small `_viewer.html` tweak, exact function/id already known | Exact `rg` + narrow code read only |
+| `_viewer.html` change touching modes, reconcilers, keybind registry, or unfamiliar sections | `patterns/frontend-change.md`, then `context/frontend.md` only if still needed |
+| Backend/server change in a known file family | Matching pattern first, then one context file only if blocked |
+| Release validation or broad cross-mode audit | Matching pattern + relevant context file(s) deliberately |
 
 ## Current Project State
 
@@ -75,7 +93,7 @@ Load `context/project-state.md` only when you need active-workstream or recent-s
 
 ## Behavioural Contract
 
-1. **CONTEXT** — Load from the routing table. Start small: this file + one pattern + one context file is the default cap. Do not preload unrelated docs.
+1. **CONTEXT** — Load from the routing table. Start small: this file + one pattern + one context file is the default cap. Do not preload unrelated docs, and do not reopen docs on routine follow-ups.
 2. **CLARIFY** — If the task is about UI behavior, animation, or UX expectations, ask plain-English questions before deep investigation.
 3. **BUILD** — Do the work. If deviating from an established pattern, say so before writing code.
 4. **VERIFY** — If a pattern file was loaded, use its Verify section. Otherwise use the shared Verify Checklist in `context/conventions.md`.
