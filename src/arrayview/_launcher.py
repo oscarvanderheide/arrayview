@@ -1368,7 +1368,11 @@ def _with_loading(url: str) -> str:
 _OVERLAY_PALETTE = ["ff4444", "44cc44", "4488ff", "ffcc00", "ff44ff", "44ffff"]
 
 _JUPYTER_PROXY_INLINE_CACHE: bool | None = None
-_CLI_DAEMON_IDLE_SECONDS = 10.0
+_CLI_DAEMON_CONNECT_TIMEOUT_SECONDS = 20.0
+# CLI-launched transient viewers should shut down promptly once the last viewer
+# closes. Keeping a warm idle daemon around caused native-window sessions to
+# appear orphaned after close.
+_CLI_DAEMON_IDLE_SECONDS = 0.0
 
 
 def _join_query_values(values: _CSVValues) -> str:
@@ -2270,12 +2274,18 @@ async def _stop_server_when_viewer_closes(
 
 
 def _wait_for_viewer_close(
-    grace_seconds: float = 1.0, idle_seconds: float = 0.0
+    grace_seconds: float = 1.0,
+    idle_seconds: float = 0.0,
+    connect_timeout: float | None = _CLI_DAEMON_CONNECT_TIMEOUT_SECONDS,
 ) -> None:
     """Block until all viewer WebSocket connections close.
 
     Waits for a viewer WebSocket to connect, then all to disconnect, then applies a
     brief grace period so page refreshes don't prematurely kill the server.
+
+    If ``connect_timeout`` is set and no viewer WebSocket ever connects within
+    that interval, return so caller-owned daemon processes do not orphan after
+    a failed or abandoned launch.
 
     If ``idle_seconds > 0``, the server stays alive that many extra seconds after
     the grace period so the next ``arrayview`` CLI invocation can reuse it without
@@ -2283,7 +2293,12 @@ def _wait_for_viewer_close(
     """
     import arrayview._session as _sm
 
+    connect_deadline = (
+        None if connect_timeout is None else time.monotonic() + connect_timeout
+    )
     while _sm.VIEWER_SOCKETS == 0:
+        if connect_deadline is not None and time.monotonic() >= connect_deadline:
+            return
         time.sleep(0.2)
     while True:
         while _sm.VIEWER_SOCKETS > 0:
@@ -2641,9 +2656,9 @@ def _serve_daemon(
         except KeyboardInterrupt:
             pass
     else:
-        # Keep the server alive briefly after the last viewer closes (grace period
-        # for page refreshes), then a short idle window so quick repeated CLI
-        # launches reuse the warm server without leaving a durable orphan.
+        # Transient CLI launches should stop as soon as the last viewer is
+        # really gone, aside from the short grace period inside
+        # _wait_for_viewer_close for page refreshes.
         _wait_for_viewer_close(idle_seconds=_CLI_DAEMON_IDLE_SECONDS)
     os._exit(0)
 

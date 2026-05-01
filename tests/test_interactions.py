@@ -325,6 +325,62 @@ class TestDisplaySettings:
         )
         assert not pick_mode, "Expected picker closed after second Shift+D"
 
+    def test_shift_d_shows_in_pane_legend(self, loaded_viewer, sid_3d):
+        """Shift+D shows the always-visible in-pane legend with the three
+        vmin/vmax behaviors, then hides it when the picker closes."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        legend = page.evaluate("""
+            () => {
+                const el = document.getElementById('hist-picker-legend');
+                if (!el) return null;
+                return {
+                    visible: el.classList.contains('visible'),
+                    text: el.textContent || '',
+                    ariaHidden: el.getAttribute('aria-hidden'),
+                };
+            }
+        """)
+        assert legend is not None, "Expected #hist-picker-legend in the viewer DOM"
+        assert legend["visible"], "Expected the legend to become visible in picker mode"
+        assert legend["ariaHidden"] == "false", (
+            f"Legend should be exposed while visible, got aria-hidden={legend['ariaHidden']!r}"
+        )
+        text = " ".join(legend["text"].split()).lower()
+        assert "how each dim affects vmin/vmax" in text
+        assert "scrolling this dim recomputes vmin/vmax" in text
+        assert "scrolling this dim keeps the current vmin/vmax" in text
+        blur_state = page.evaluate("""
+            () => ({
+                pane: getComputedStyle(document.getElementById('canvas-viewport')).filter,
+                cb: getComputedStyle(document.getElementById('slim-cb-wrap')).filter,
+            })
+        """)
+        assert blur_state["pane"] != "none", (
+            f"Expected normal view pane blur while picker is open, got {blur_state['pane']!r}"
+        )
+        assert blur_state["cb"] == "none", (
+            f"Expected the normal colorbar island to stay sharp, got {blur_state['cb']!r}"
+        )
+
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        legend_hidden = page.evaluate("""
+            () => {
+                const el = document.getElementById('hist-picker-legend');
+                return {
+                    visible: !!(el && el.classList.contains('visible')),
+                    ariaHidden: el ? el.getAttribute('aria-hidden') : null,
+                };
+            }
+        """)
+        assert not legend_hidden["visible"], "Expected the legend to hide when picker closes"
+        assert legend_hidden["ariaHidden"] == "true", (
+            f"Legend should be hidden from assistive tech when closed, got aria-hidden={legend_hidden['ariaHidden']!r}"
+        )
+
     def test_shift_d_enter_cycles_active_dim_state(self, loaded_viewer, sid_3d):
         """Pressing Enter while the picker is open cycles the state of the
         current activeDim (keyboard parity with clicking)."""
@@ -853,6 +909,81 @@ class TestModeGuards:
             "() => document.getElementById('info').classList.contains('hist-pick-mode')"
         )
         assert pick_mode, "Expected #info.hist-pick-mode after Shift+D in qMRI"
+        legend_state = page.evaluate("""
+            () => ({
+                visible: document.getElementById('hist-picker-legend').classList.contains('visible'),
+                pane: getComputedStyle(document.querySelector('#qmri-view-wrap .qv-canvas-area')).filter,
+                cb: getComputedStyle(document.querySelector('#qmri-view-wrap .qv-cb-island')).filter,
+            })
+        """)
+        assert legend_state["visible"], "Expected the Shift+D legend to be visible in qMRI"
+        assert legend_state["pane"] != "none", (
+            f"Expected qMRI panes to blur while picker is open, got {legend_state['pane']!r}"
+        )
+        assert legend_state["cb"] == "none", (
+            f"Expected qMRI colorbar islands to stay sharp, got {legend_state['cb']!r}"
+        )
+
+    def test_shift_d_shows_legend_in_multiview(self, loaded_viewer, sid_3d):
+        """Shift+D shows the same centered legend in multiview."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        _focus_kb(page)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(300)
+        pick_mode = page.evaluate(
+            "() => document.getElementById('info').classList.contains('hist-pick-mode')"
+        )
+        assert pick_mode, "Expected #info.hist-pick-mode after Shift+D in multiview"
+        legend_state = page.evaluate("""
+            () => ({
+                visible: document.getElementById('hist-picker-legend').classList.contains('visible'),
+                pane: getComputedStyle(document.querySelector('#mv-panes .mv-canvas-wrap')).filter,
+                cb: getComputedStyle(document.getElementById('mv-cb-wrap')).filter,
+            })
+        """)
+        assert legend_state["visible"], "Expected the Shift+D legend to be visible in multiview"
+        assert legend_state["pane"] != "none", (
+            f"Expected multiview panes to blur while picker is open, got {legend_state['pane']!r}"
+        )
+        assert legend_state["cb"] == "none", (
+            f"Expected the multiview colorbar island to stay sharp, got {legend_state['cb']!r}"
+        )
+
+    def test_hist_handle_drag_shows_percentile_tooltip(self, loaded_viewer, sid_3d):
+        """Dragging a histogram handle shows a percentile tooltip above it."""
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("Shift+D")
+        page.wait_for_timeout(400)
+        hit = page.evaluate("""
+            () => {
+                const canvas = document.getElementById('slim-cb');
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: rect.left + (primaryCb._hitVminX ?? 0),
+                    y: rect.top + rect.height / 2,
+                };
+            }
+        """)
+        page.mouse.move(hit["x"], hit["y"])
+        page.mouse.down()
+        page.mouse.move(hit["x"] + 24, hit["y"], steps=4)
+        page.wait_for_timeout(100)
+        tip = page.evaluate("""
+            () => {
+                const el = document.getElementById('slim-cb-tooltip');
+                return {
+                    display: getComputedStyle(el).display,
+                    text: (el.textContent || '').trim(),
+                };
+            }
+        """)
+        page.mouse.up()
+        assert tip["display"] != "none", "Expected the histogram drag tooltip to be visible"
+        assert "%" in tip["text"], f"Expected percentile text during drag, got {tip['text']!r}"
 
     def test_f_fft_blocked_in_qmri(self, loaded_viewer, sid_4d):
         page = loaded_viewer(sid_4d)

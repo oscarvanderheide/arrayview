@@ -1424,6 +1424,51 @@ class TestViewHandle:
         assert h == "http://localhost:8123/?sid=abc"
 
 
+class TestLauncherShutdownWaiters:
+    def test_cli_daemon_does_not_keep_post_close_idle(self):
+        import arrayview._launcher as launcher
+
+        assert launcher._CLI_DAEMON_IDLE_SECONDS == 0.0
+
+    def test_wait_for_viewer_close_times_out_without_viewer(self, monkeypatch):
+        import arrayview._launcher as launcher
+        import arrayview._session as session_mod
+
+        monkeypatch.setattr(session_mod, "VIEWER_SOCKETS", 0)
+
+        start = time.monotonic()
+        launcher._wait_for_viewer_close(connect_timeout=0.05)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 0.5
+
+    def test_wait_for_viewer_close_returns_after_disconnect(self, monkeypatch):
+        import arrayview._launcher as launcher
+        import arrayview._session as session_mod
+
+        monkeypatch.setattr(session_mod, "VIEWER_SOCKETS", 0)
+
+        def _simulate_viewer_lifecycle():
+            time.sleep(0.05)
+            session_mod.VIEWER_SOCKETS = 1
+            time.sleep(0.35)
+            session_mod.VIEWER_SOCKETS = 0
+
+        worker = threading.Thread(target=_simulate_viewer_lifecycle, daemon=True)
+        worker.start()
+
+        start = time.monotonic()
+        launcher._wait_for_viewer_close(
+            grace_seconds=0.02,
+            connect_timeout=1.0,
+        )
+        elapsed = time.monotonic() - start
+        worker.join(timeout=1.0)
+
+        assert elapsed < 1.0
+        assert session_mod.VIEWER_SOCKETS == 0
+
+
 class TestLauncherUrlHelpers:
     """Pure URL helper tests; no server required."""
 
