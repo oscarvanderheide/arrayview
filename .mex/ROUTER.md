@@ -20,7 +20,9 @@ edges:
     condition: when working on rendering, colormaps, LUTs, caching, or the render thread
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-05-01
+  - target: ../../DESIGN.md
+    condition: when the task touches design philosophy — new features, UI changes, mode additions, or interaction model decisions
+last_updated: 2026-05-02
 ---
 
 # arrayview — Router
@@ -89,6 +91,7 @@ Load `context/project-state.md` only when you need active-workstream or recent-s
 | Adding a server route / WebSocket endpoint | `patterns/add-server-endpoint.md` |
 | Visual bugs / render artifacts | `patterns/debug-render.md` |
 | Verifying animation changes | `patterns/animation-verify.md` |
+| Design philosophy, new features, UI changes, mode additions, interaction model | `DESIGN.md` |
 | Any specific task | Check `patterns/INDEX.md` for a matching pattern |
 
 ## Behavioural Contract
