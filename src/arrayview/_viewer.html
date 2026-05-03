@@ -3540,6 +3540,7 @@
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
         let _mainLoupeDrag = null; // {startClientX,startClientY,active}
+        let _qmriLoupeDrag = null; // {startClientX,startClientY,active,canvas,ctx}
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
@@ -4410,6 +4411,8 @@
         window.addEventListener('mousemove', (e) => {
             _maybeActivateMainLoupe(e);
             _updateMainLoupe(e);
+            _maybeActivateQmriLoupe(e);
+            _updateQmriLoupe(e);
             // Right-click scrub drag
             if (_scrubDrag !== null && !compareActive && !multiViewActive && !qmriActive) {
                 const dy = e.clientY - _scrubDrag.y;
@@ -4453,6 +4456,8 @@
             }
             if (e.button === 2) { _scrubDrag = null; }
             _cmpCbDragPane = null; _cmpCbDragX = null;
+            _endMainLoupe();
+            _endQmriLoupe();
         });
 
         const sink = document.getElementById('keyboard-sink');
@@ -12473,7 +12478,10 @@
                 && !compareQmriActive && !mipActive && dim_z < 0 && !rgbMode;
         }
         function _mainLoupeEligible() {
-            return _mainInspectEligible()
+            // Allow zoom loupe in mosaic mode (dim_z >= 0) but still
+            // block in compare, multi-view, qMRI, mip, and rgb modes.
+            return !compareActive && !multiViewActive && !qmriActive && !compareMvActive
+                && !compareQmriActive && !mipActive && !rgbMode
                 && !mainPan.overflows
                 && !rectRoiMode
                 && !_segMode
@@ -12728,6 +12736,92 @@
             } else {
                 mainLoupe.style.display = 'none';
                 mainLoupe.style.transform = '';
+            }
+        }
+        let _qmriLoupeEl = null;
+        function _ensureQmriLoupeEl() {
+            if (_qmriLoupeEl) return _qmriLoupeEl;
+            const el = document.createElement('div');
+            el.id = 'qmri-loupe';
+            el.style.cssText = 'position:fixed;left:0;top:0;width:166px;height:166px;'
+                + 'border:2px solid var(--active-dim);border-radius:999px;overflow:hidden;'
+                + 'display:none;pointer-events:none;z-index:100;background:var(--surface);'
+                + 'box-shadow:0 0 0 1px var(--bg),0 14px 34px var(--bg);';
+            const cv = document.createElement('canvas');
+            cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--surface);';
+            el.appendChild(cv);
+            document.body.appendChild(el);
+            _qmriLoupeEl = el;
+            return el;
+        }
+        function _drawQmriLoupe(canvas, clientX, clientY) {
+            if (!canvas || !_qmriLoupeEl) return;
+            const loupeCv = _qmriLoupeEl.querySelector('canvas');
+            if (!loupeCv) return;
+            const rect = canvas.getBoundingClientRect();
+            const fx = (clientX - rect.left) / rect.width;
+            const fy = (clientY - rect.top) / rect.height;
+            const sx = Math.round(fx * canvas.width);
+            const sy = Math.round(fy * canvas.height);
+            const loupeCssSize = Math.round(_qmriLoupeEl.getBoundingClientRect().width) || 166;
+            const dpr = window.devicePixelRatio || 1;
+            const size = Math.round(loupeCssSize * dpr);
+            if (loupeCv.width !== size || loupeCv.height !== size) {
+                loupeCv.width = size;
+                loupeCv.height = size;
+            }
+            const ctx = loupeCv.getContext('2d');
+            const zoom = 6;
+            const srcW = Math.max(18, Math.min(canvas.width, Math.round(loupeCssSize / zoom)));
+            const srcH = Math.max(18, Math.min(canvas.height, Math.round(loupeCssSize / zoom)));
+            const ssx = Math.max(0, Math.min(canvas.width - srcW, sx - Math.round(srcW / 2)));
+            const ssy = Math.max(0, Math.min(canvas.height - srcH, sy - Math.round(srcH / 2)));
+            ctx.clearRect(0, 0, size, size);
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(canvas, ssx, ssy, srcW, srcH, 0, 0, size, size);
+        }
+        function _updateQmriLoupe(e) {
+            if (!_qmriLoupeDrag || !_qmriLoupeDrag.active || !_qmriLoupeEl) return;
+            _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
+            if (typeof gsap !== 'undefined') {
+                gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 92 });
+            } else {
+                _qmriLoupeEl.style.transform = `translate(${e.clientX + 18}px, ${e.clientY - 92}px)`;
+            }
+        }
+        function _activateQmriLoupe(e) {
+            if (!_qmriLoupeEl) _ensureQmriLoupeEl();
+            if (!_qmriLoupeEl) return;
+            _qmriLoupeEl.style.display = 'block';
+            if (typeof gsap !== 'undefined') {
+                gsap.killTweensOf(_qmriLoupeEl);
+                gsap.fromTo(_qmriLoupeEl, { opacity: 0 }, { opacity: 1, duration: 0.12, overwrite: 'auto' });
+                gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 92 });
+            }
+            _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
+        }
+        function _maybeActivateQmriLoupe(e) {
+            if (!_qmriLoupeDrag || _qmriLoupeDrag.active) return;
+            const dx = e.clientX - _qmriLoupeDrag.startClientX;
+            const dy = e.clientY - _qmriLoupeDrag.startClientY;
+            if (Math.hypot(dx, dy) < 3) return;
+            if (_qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
+            _qmriLoupeDrag.active = true;
+            _activateQmriLoupe(e);
+        }
+        function _endQmriLoupe() {
+            if (_qmriLoupeDrag && _qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
+            _qmriLoupeDrag = null;
+            if (!_qmriLoupeEl) return;
+            if (_qmriLoupeEl.style.display === 'none') return;
+            if (typeof gsap !== 'undefined') {
+                gsap.killTweensOf(_qmriLoupeEl);
+                gsap.to(_qmriLoupeEl, {
+                    opacity: 0, duration: 0.12, overwrite: 'auto',
+                    onComplete: () => { if (_qmriLoupeEl) _qmriLoupeEl.style.display = 'none'; },
+                });
+            } else {
+                _qmriLoupeEl.style.display = 'none';
             }
         }
         function _pixelInfoMarkup(payload) {
@@ -14558,6 +14652,7 @@ if (typeof gsap !== 'undefined') {
             if (_zoomSelectDrag) { _zoomSelectDrag = null; _removeZoomSelectRect(); }
             _bcEndDrag();
             _endMainLoupe();
+            _endQmriLoupe();
             // Crop drag: release outside of any pane as well.
             if (_cropDrag) {
                 const d = _cropDrag;
@@ -20535,6 +20630,21 @@ if (typeof gsap !== 'undefined') {
                         window.addEventListener('mousemove', onMove);
                         window.addEventListener('mouseup', onUp);
                     });
+                    cv.addEventListener('mousedown', (e2) => {
+                        if (e2.button !== 0 || e2.shiftKey || e2.metaKey || e2.ctrlKey || e2.altKey) return;
+                        if (rectRoiMode || _segMode || _segActivating || _cropActive) return;
+                        if (!_qmriLoupeEl) _ensureQmriLoupeEl();
+                        if (_qmriLoupeDrag) _endQmriLoupe();
+                        _qmriLoupeDrag = {
+                            startClientX: e2.clientX, startClientY: e2.clientY, active: false,
+                            canvas: cv, view,
+                            holdTimer: setTimeout(() => {
+                                if (!_qmriLoupeDrag || _qmriLoupeDrag.active) return;
+                                _qmriLoupeDrag.active = true;
+                                _activateQmriLoupe(e2);
+                            }, 150),
+                        };
+                    });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
                             (event) => qvOnMessage(view, event),
@@ -20588,6 +20698,8 @@ if (typeof gsap !== 'undefined') {
         function exitQmri() {
             _qmriVisibleMaps = null;
             _qvRoiDragView = null;
+            _endQmriLoupe();
+            if (_qmriLoupeEl) { _qmriLoupeEl.remove(); _qmriLoupeEl = null; }
             qmriActive = false;
             qmriDim = -1;
             qmriMosaicActive = false;
