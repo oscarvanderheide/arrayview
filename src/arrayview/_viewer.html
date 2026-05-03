@@ -16151,7 +16151,6 @@ if (typeof gsap !== 'undefined') {
                     if (!wasOpen) {
                         // Open only — don't cycle, don't touch vmin/vmax.
                         _lebesgueManual = false;
-                        _pulseHistDims();
                         _computeCbExpandedH();
                         primaryCb._expanded = true;
                         primaryCb._manualExpand = true;
@@ -25612,7 +25611,6 @@ if (typeof gsap !== 'undefined') {
             // feedback.
             if (!rgbMode && primaryCb && !primaryCb._expanded) {
                 _lebesgueManual = false;
-                _pulseHistDims();
                 _computeCbExpandedH();
                 primaryCb._expanded = true;
                 primaryCb._manualExpand = true;
