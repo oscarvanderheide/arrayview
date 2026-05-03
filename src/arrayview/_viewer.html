@@ -17629,13 +17629,6 @@ if (typeof gsap !== 'undefined') {
                     }
                 }
             }
-            const key = e.key.toLowerCase();
-            const isToolKeyHint = TOOL_TILES.some(t => (t.keyHint || '').toLowerCase() === key && _toolTileEnabled(t));
-            if (isToolKeyHint) {
-                e.preventDefault();
-                e.stopPropagation();
-                return true;
-            }
             return false;
         }
 
