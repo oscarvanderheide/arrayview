@@ -1362,7 +1362,7 @@
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-radius: 14px; padding: 10px 12px;
             font-size: 11px; color: var(--text); font-family: var(--mono);
-            display: none; z-index: 5; min-width: 240px; max-width: 280px;
+            display: none; z-index: 5; min-width: 300px; max-width: 360px;
             max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden;
             transition: opacity 0.3s ease;
             cursor: grab; user-select: none;
@@ -1373,63 +1373,214 @@
         #dynamic-island::-webkit-scrollbar-thumb {
             background: rgba(255,255,255,0.12); border-radius: 3px;
         }
-        #dynamic-island .po-header {
-            display: flex; align-items: center; gap: 10px;
-            padding: 2px 0 12px 0;
-        }
-        #dynamic-island .po-title {
-            color: var(--active-dim); font-weight: 600;
-            letter-spacing: 0.14em; font-size: 11px;
-            flex: 1;
-        }
         #dynamic-island:active { cursor: grabbing; }
         #dynamic-island.visible { display: block; }
-        #dynamic-island .tool-section + .tool-section {
-            margin-top: 7px;
-        }
-        #dynamic-island .tool-section {
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 12px;
-            background: rgba(255,255,255,0.02);
+
+        /* ── Tool Panel (overrides in tool-list / tool-options mode) ── */
+        #dynamic-island.tool-list,
+        #dynamic-island.tool-options {
+            width: 320px;
+            height: auto;
+            max-height: calc(100vh - 32px);
             overflow: hidden;
-            transition: border-color 0.15s ease, background 0.15s ease;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(18, 18, 18, 0.94);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+            padding: 0;
+            cursor: default;
         }
-        #dynamic-island .tool-section.active {
-            border-color: rgba(245,200,66,0.16);
-            background: rgba(245,200,66,0.05);
+        #dynamic-island.tool-list .tool-panel-inner,
+        #dynamic-island.tool-options .tool-panel-inner {
+            padding: 16px 18px 14px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            max-height: inherit;
         }
-        #dynamic-island .tool-section.unavailable {
-            opacity: 0.36;
+        #dynamic-island.tool-list .tool-panel-inner::-webkit-scrollbar,
+        #dynamic-island.tool-options .tool-panel-inner::-webkit-scrollbar { width: 6px; }
+        #dynamic-island.tool-list .tool-panel-inner::-webkit-scrollbar-track,
+        #dynamic-island.tool-options .tool-panel-inner::-webkit-scrollbar-track { background: transparent; }
+        #dynamic-island.tool-list .tool-panel-inner::-webkit-scrollbar-thumb,
+        #dynamic-island.tool-options .tool-panel-inner::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.12); border-radius: 3px;
         }
-        #dynamic-island .tool-row-head {
-            display: flex; align-items: center; gap: 6px;
-            min-height: 24px;
-            padding: 5px 10px;
-            cursor: pointer; user-select: none;
+
+        /* ── Tool Panel Header ── */
+        #dynamic-island.tool-list .po-header,
+        #dynamic-island.tool-options .po-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 24px;
+            margin-bottom: 12px;
+            padding: 0;
+            border-bottom: none;
         }
-        #dynamic-island .tool-row-title {
-            flex: 1; min-width: 0; font-size: 12px; color: var(--text);
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        #dynamic-island .tool-section.active .tool-row-title {
+        #dynamic-island.tool-list .po-title,
+        #dynamic-island.tool-options .po-title {
             color: var(--active-dim);
-            text-decoration: underline;
-            text-decoration-color: rgba(245,200,66,0.85);
-            text-underline-offset: 0.18em;
-            animation: tool-title-pulse 1.25s ease-out;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.20em;
+            text-transform: uppercase;
+            flex: 1;
         }
-        #dynamic-island .tool-cue {
-            color: var(--text);
-            text-decoration: underline;
-            text-decoration-color: rgba(245,200,66,0.72);
-            text-underline-offset: 0.18em;
-            font-weight: 600;
+        #dynamic-island.tool-list .po-close,
+        #dynamic-island.tool-options .po-close {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; border-radius: 6px;
+            color: rgba(255,255,255,0.48); cursor: pointer;
+            transition: color 120ms ease, background 120ms ease;
+            font-size: 13px; line-height: 1;
         }
-        #dynamic-island .tool-section.unavailable .tool-row-title {
-            color: rgba(216,216,216,0.34);
+        #dynamic-island.tool-list .po-close:hover,
+        #dynamic-island.tool-options .po-close:hover {
+            color: var(--text); background: rgba(255,255,255,0.08);
         }
+        #dynamic-island.tool-list .po-back,
+        #dynamic-island.tool-options .po-back {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; border-radius: 6px;
+            color: rgba(255,255,255,0.48); cursor: pointer;
+            transition: color 120ms ease, background 120ms ease;
+            font-size: 15px; line-height: 1;
+        }
+        #dynamic-island.tool-list .po-back:hover,
+        #dynamic-island.tool-options .po-back:hover {
+            color: var(--text); background: rgba(255,255,255,0.08);
+        }
+
+        /* ── Tool Row (3-column grid) ── */
+        #dynamic-island.tool-list .tool-row {
+            display: grid;
+            grid-template-columns: 24px minmax(0, 1fr) 30px;
+            column-gap: 9px;
+            align-items: center;
+            min-height: 46px;
+            padding: 5px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        #dynamic-island.tool-list .tool-row.unavailable {
+            opacity: 0.42;
+            cursor: default;
+        }
+        #dynamic-island.tool-list .tool-row.unavailable:hover {
+            background: transparent;
+        }
+        #dynamic-island.tool-list .tool-row.available:hover {
+            background: rgba(255, 255, 255, 0.045);
+        }
+        #dynamic-island.tool-list .tool-row.active {
+            background: rgba(245, 190, 40, 0.08);
+            outline: 1px solid rgba(245, 190, 40, 0.55);
+        }
+        #dynamic-island.tool-list .tool-row.active .tool-title,
+        #dynamic-island.tool-list .tool-row.active .tool-icon {
+            color: var(--active-dim);
+        }
+        #dynamic-island.tool-list .tool-row.active .shortcut-key {
+            border-color: rgba(245, 190, 40, 0.45);
+            color: var(--active-dim);
+        }
+
+        /* ── Icon Column ── */
+        #dynamic-island.tool-list .tool-icon {
+            width: 17px;
+            height: 17px;
+            color: rgba(255, 255, 255, 0.52);
+            display: grid;
+            place-items: center;
+            justify-self: center;
+        }
+        #dynamic-island.tool-list .tool-icon svg {
+            width: 17px;
+            height: 17px;
+            stroke-width: 1.7;
+        }
+
+        /* ── Text Column ── */
+        #dynamic-island.tool-list .tool-text-col {
+            min-width: 0;
+        }
+        #dynamic-island.tool-list .tool-title {
+            font-size: 13px;
+            font-weight: 650;
+            line-height: 1.1;
+            color: rgba(255, 255, 255, 0.86);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #dynamic-island.tool-list .tool-description {
+            margin-top: 3px;
+            font-size: 10.5px;
+            line-height: 1.15;
+            color: rgba(255, 255, 255, 0.38);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ── Shortcut Keycap Column ── */
+        #dynamic-island.tool-list .shortcut-key {
+            justify-self: end;
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            display: grid;
+            place-items: center;
+            color: rgba(255, 255, 255, 0.48);
+            background: rgba(255, 255, 255, 0.035);
+            font-size: 11px;
+            font-family: var(--mono);
+        }
+
+        /* ── Section Labels ── */
+        #dynamic-island.tool-list .tool-section {
+            padding-top: 6px;
+            border-top: 1px solid rgba(255, 255, 255, 0.07);
+        }
+        #dynamic-island.tool-list .tool-section:first-child {
+            border-top: none;
+            padding-top: 0;
+        }
+        #dynamic-island.tool-list .section-label {
+            margin: 12px 0 6px;
+            font-size: 9px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.36);
+        }
+
+        /* ── Unavailable toggle ── */
+        #dynamic-island.tool-list .tool-more-toggle {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 6px; padding: 4px 6px;
+            cursor: pointer; user-select: none;
+            color: rgba(255,255,255,0.36); font-size: 9px;
+            letter-spacing: 0.22em; text-transform: uppercase;
+            transition: color 120ms ease;
+        }
+        #dynamic-island.tool-list .tool-more-toggle:hover { color: rgba(255,255,255,0.6); }
+        #dynamic-island.tool-list .tool-more-arrow {
+            transition: transform 120ms ease; font-size: 11px;
+        }
+        #dynamic-island.tool-list .tool-more-arrow.expanded { transform: rotate(180deg); }
+
+        /* ── Footer hint (tool options) ── */
+        #dynamic-island.tool-options .tool-footer-hint {
+            margin-top: 10px;
+            font-size: 9px;
+            color: rgba(255,255,255,0.3);
+            text-align: center;
+        }
+
+        /* ── Tool options body ── */
         #dynamic-island .tool-body {
-            padding: 0 10px 10px;
+            padding: 0;
             border-top: 1px solid rgba(255,255,255,0.04);
         }
         #dynamic-island .compare-center-mode-row {
@@ -3414,6 +3565,9 @@
         let _qvRoiDragView = null; // which qMRI view initiated current ROI drag
         let _islandDragPos = null;  // {x, y} — remembered drag position, null = default left
         let toolMenuOpen = false;
+        let _toolPanelState = 'closed';
+        let _moreToolsExpanded = false;
+        let _toolPanelUserClosed = false;
         let _roiNames = {}; // {roiIdx: 'user name'} — custom ROI labels, per session
         let _infoDragPos = null;   // {x, y} — immersive dimbar drag position
         let _cbDragPos = null;     // {x, y} — immersive colorbar drag position
@@ -10686,7 +10840,7 @@
         }
 
         function _collapseIslandToHint() {
-            closeToolMenu();
+            closeToolPanel();
         }
 
         function _expandIslandFromHint() {
@@ -13553,68 +13707,87 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         }
 
         let paletteOpen = false;
+        const TOOL_ICONS = {
+            comparecenter: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><path d="M12 6h5a2 2 0 0 1 2 2v7"/><path d="m15 9-3-3 3-3"/><circle cx="19" cy="18" r="3"/><path d="M12 18H7a2 2 0 0 1-2-2V9"/><path d="m9 15 3 3-3 3"/></svg>`,
+            qmri: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v5"/><path d="M16 14v7"/><path d="M20 10v11"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/><path d="M4 18v3"/><path d="M8 14v7"/></svg>`,
+            segmentation: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>`,
+            roi: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z"/><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h2"/><path d="M14 3h1"/><path d="M3 9v1"/><path d="M21 9v2"/><path d="M3 14v1"/></svg>`,
+            overlay: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><circle cx="15" cy="15" r="7"/></svg>`,
+            vectorfield: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 7a24 24 0 0 1 0 10"/><path d="M4.5 7a24 24 0 0 0 0 10"/><path d="M7 19.5a24 24 0 0 0 10 0"/><path d="M7 4.5a24 24 0 0 1 10 0"/><rect x="17" y="17" width="5" height="5" rx="1"/><rect x="17" y="2" width="5" height="5" rx="1"/><rect x="2" y="17" width="5" height="5" rx="1"/><rect x="2" y="2" width="5" height="5" rx="1"/></svg>`,
+            crop: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>`,
+        };
+        function _toolIcon(id) {
+            return TOOL_ICONS[id] || '';
+        }
         const TOOL_TILES = [
             {
                 id: 'comparecenter',
                 label: 'Compare center',
-                desc: 'pick the exact 2-array center comparison mode',
+                desc: 'Pick the exact 2-array center comparison mode.',
                 keyHint: 'x',
                 isEnabled: () => _compareCenterSupported(),
                 isActive: () => compareCenterMode > 0,
+                unavailableReason: () => 'Requires 2-pane compare view.',
                 excludes: [],
             },
             {
                 id: 'qmri',
-                label: 'Quantitative MRI mode',
-                desc: 'fit and visualise parameter maps',
+                label: 'Quantitative MRI',
+                desc: 'Inspect parameter maps.',
                 keyHint: 'q',
                 isEnabled: () => qmriActive || compareQmriActive || shape.some(size => [3, 4, 5, 6].includes(size)),
                 isActive: () => qmriActive || compareQmriActive,
+                unavailableReason: () => 'Requires quantitative metadata.',
                 excludes: ['overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'segmentation',
                 label: 'Segmentation',
-                desc: 'interactive AI-assisted masking',
+                desc: 'Create or edit masks.',
                 keyHint: 's',
                 isEnabled: () => _segMode || (!compareActive && !multiViewActive),
                 isActive: () => _segMode || _segActivating,
+                unavailableReason: () => 'Not available in compare or multi-view.',
                 excludes: ['roi', 'overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'roi',
-                label: 'Region-of-interest analysis',
-                desc: 'draw regions and measure statistics',
+                label: 'ROI analysis',
+                desc: 'Measure regions.',
                 keyHint: 'r',
                 isEnabled: () => rectRoiMode || (!compareActive && !multiViewActive),
                 isActive: () => rectRoiMode,
+                unavailableReason: () => 'Not available in compare or multi-view.',
                 excludes: ['segmentation', 'overlay', 'vectorfield', 'crop'],
             },
             {
                 id: 'overlay',
                 label: 'Overlay',
-                desc: 'seg masks and heatmaps composited on the canvas',
+                desc: 'Show masks and maps.',
                 keyHint: 'o',
                 isEnabled: () => !compareActive && !multiViewActive,
                 isActive: () => _overlaySids.length > 0 && _overlayVisibility !== 'none',
+                unavailableReason: () => 'Not available in compare or multi-view.',
                 excludes: ['qmri', 'segmentation', 'roi', 'vectorfield', 'crop'],
             },
             {
                 id: 'vectorfield',
                 label: 'Vector field',
-                desc: 'arrow overlay of a displacement field',
+                desc: 'Inspect displacement or flow fields.',
                 keyHint: 'v',
                 isEnabled: () => hasVectorfield,
                 isActive: () => hasVectorfield && vfieldVisible,
+                unavailableReason: () => 'No vector field found in this dataset.',
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'crop'],
             },
             {
                 id: 'crop',
                 label: 'Crop',
-                desc: 'pick an x-range on a spatial dim for downstream pipelines',
+                desc: 'Select a spatial range.',
                 keyHint: 'c',
-                isEnabled: () => !compareActive && !compareQmriActive && !compareMvActive,
+                isEnabled: () => !compareActive && !compareQmriActive,
                 isActive: () => _cropActive,
+                unavailableReason: () => 'Not available in compare mode.',
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
         ];
@@ -13651,7 +13824,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             if (visible) {
                 closeCommandPalette();
                 if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
-                closeToolMenu();
+                closeToolPanel();
             }
             helpOverlay.classList.toggle('visible', !!visible);
             if (visible) setHelpTab(helpTabIdx);
@@ -14797,7 +14970,7 @@ if (typeof gsap !== 'undefined') {
 
             island.addEventListener('mousedown', e => {
                 // Allow drag from any non-interactive surface
-                if (e.target.closest('button, input, select, a, .tool-row-head, .tool-body, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, .island-pill')) return;
+                if (e.target.closest('button, input, select, a, .tool-row, .tool-body, .island-shapes, .island-download, .island-modal-btn, .island-name.editable, .island-delete, .island-cb-row, .island-eye, .island-slider, .island-add-row, .island-pill')) return;
                 dragging = true;
                 const rect = island.getBoundingClientRect();
                 dragOffX = e.clientX - rect.left;
@@ -16590,15 +16763,15 @@ if (typeof gsap !== 'undefined') {
                 run: (ctx, e) => { openToolMenu(); },
             },
             'toolmenu.close': {
-                title: 'Close tool menu',
+                title: 'Close tool panel',
                 when: ['toolMenuOpen'],
-                run: (ctx, e) => { closeToolMenu(); },
+                run: (ctx, e) => { closeToolPanel(); },
             },
             'tool.exit': {
                 title: 'Exit all tools',
                 when: ['anyToolActive'],
                 run: (ctx, e) => {
-                    closeToolMenu();
+                    closeToolPanel();
                     const needsCrossfade = (
                         (typeof _segMode !== 'undefined' && _segMode)
                         || rectRoiMode
@@ -16764,7 +16937,7 @@ if (typeof gsap !== 'undefined') {
                         entries: [
                             { key: 'i', action: 'Toggle hover pixel info', hint: 'shows value under cursor; click adds pins; Esc clears all pins' },
                             { key: 'I', action: 'Info panel', hint: 'array shape, dtype, memory layout' },
-                            { key: '/', action: 'Tool menu', hint: 'open tools — Esc closes the menu first, then exits tools' },
+                            { key: '/', action: 'Tool menu', hint: 'open tools — / toggles the menu · Esc goes back one level' },
                         ]
                     },
                     {
@@ -17185,23 +17358,12 @@ if (typeof gsap !== 'undefined') {
             return false;
         }
 
-        function _toolLabelMarkup(tile, active, enabled) {
-            const label = tile.label || '';
-            if (!enabled) return label;
-            if (active) return label;
-            const key = (tile.keyHint || '').toLowerCase();
-            const matchIdx = key ? label.toLowerCase().indexOf(key) : -1;
-            if (matchIdx < 0) return label;
-            return label.slice(0, matchIdx)
-                + `<span class="tool-cue">${label[matchIdx]}</span>`
-                + label.slice(matchIdx + 1);
-        }
-
         function _toolSortRank(tile) {
             return _toolTileEnabled(tile) ? 0 : 1;
         }
 
         function _toolToggle(id) {
+            _toolPanelUserClosed = false;
             const tile = TOOL_TILES.find(t => t.id === id);
             if (!tile || !_toolTileEnabled(tile)) return;
             if (id === 'comparecenter') {
@@ -17248,45 +17410,232 @@ if (typeof gsap !== 'undefined') {
         }
         window._toolToggle = _toolToggle;
 
+        function _toolPanelIsOpen() {
+            return _toolPanelState !== 'closed';
+        }
+
         function openToolMenu() {
-            if (toolMenuOpen) return;
+            if (_toolPanelState !== 'closed') return;
             closeCommandPalette();
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
+            _toolPanelState = 'tool-menu';
             toolMenuOpen = true;
+            _toolPanelUserClosed = false;
+            _moreToolsExpanded = false;
             renderToolMenu();
             setTimeout(() => { try { sink.focus(); } catch (_) {} }, 0);
         }
 
-        function closeToolMenu() {
-            if (!toolMenuOpen) return;
+        function closeToolPanel() {
+            if (_toolPanelState === 'closed') return;
+            _toolPanelState = 'closed';
             toolMenuOpen = false;
+            _toolPanelUserClosed = true;
             renderToolMenu();
             try { sink.focus(); } catch (_) {}
         }
 
+        function openToolOptions(toolId) {
+            const tile = TOOL_TILES.find(t => t.id === toolId);
+            if (!tile || !_toolTileEnabled(tile)) return;
+            _toolPanelState = { kind: 'tool-options', toolId };
+            toolMenuOpen = true;
+            _toolPanelUserClosed = false;
+            if (!_toolTileActive(tile)) {
+                _toolToggle(toolId);
+            }
+            _moreToolsExpanded = false;
+            renderToolMenu();
+        }
+
+        function _activeToolId() {
+            if (compareCenterMode > 0) return 'comparecenter';
+            if (qmriActive || (typeof compareQmriActive !== 'undefined' && compareQmriActive)) return 'qmri';
+            if ((typeof _segMode !== 'undefined' && _segMode) || (typeof _segActivating !== 'undefined' && _segActivating)) return 'segmentation';
+            if (rectRoiMode) return 'roi';
+            if (_overlaySids.length > 0 && _overlayVisibility !== 'none') return 'overlay';
+            if (typeof hasVectorfield !== 'undefined' && hasVectorfield && vfieldVisible) return 'vectorfield';
+            if (typeof _cropActive !== 'undefined' && _cropActive) return 'crop';
+            return null;
+        }
+
+        function _autoOpenActiveToolPanel() {
+            if (_toolPanelState !== 'closed') return;
+            if (_toolPanelUserClosed) return;
+            const id = _activeToolId();
+            if (!id) return;
+            const tile = TOOL_TILES.find(t => t.id === id);
+            if (!tile) return;
+            _toolPanelState = { kind: 'tool-options', toolId: id };
+            toolMenuOpen = true;
+        }
+
+        function _goBackOrCloseToolPanel() {
+            if (_toolPanelState === 'closed') return;
+            if (_toolPanelState === 'tool-menu') {
+                closeToolPanel();
+            } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                _exitActiveTool(_toolPanelState.toolId);
+                _toolPanelState = 'tool-menu';
+                renderToolMenu();
+            }
+        }
+
+        function _exitActiveTool(toolId) {
+            const tile = TOOL_TILES.find(t => t.id === toolId);
+            if (!tile || !_toolTileActive(tile)) return;
+            _toolToggle(toolId);
+        }
+
         function _handleToolMenuKey(e) {
-            if (e.key === 'Escape' || e.key === '/') {
+            if (e.key === '/') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeToolMenu();
+                closeToolPanel();
+                return true;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                _goBackOrCloseToolPanel();
                 return true;
             }
             if (e.key === '?') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeToolMenu();
+                closeToolPanel();
                 setHelpVisible(true);
                 return true;
             }
-            const target = String(e.key || '').toLowerCase();
-            const tile = TOOL_TILES.find(t => (t.keyHint || '').toLowerCase() === target);
-            if (tile) {
+            if (_toolPanelState === 'tool-menu') {
+                const target = String(e.key || '').toLowerCase();
+                const tile = TOOL_TILES.find(t => (t.keyHint || '').toLowerCase() === target);
+                if (tile && _toolTileEnabled(tile)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openToolOptions(tile.id);
+                    return true;
+                }
+            }
+            if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                const toolId = _toolPanelState.toolId;
+                const toolShortcuts = {
+                    segmentation: { t: 'segmentation.cycle', g: 'roi.cycleMode', w: 'roi.cycleMode', p: 'roi.cycleMode' },
+                };
+                const shortcuts = toolShortcuts[toolId];
+                if (shortcuts) {
+                    const key = e.key.toLowerCase();
+                    if (shortcuts[key]) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const cmd = shortcuts[key];
+                        if (commands[cmd]) commands[cmd].run(makeContext(null), null);
+                        return true;
+                    }
+                }
+            }
+            const key = e.key.toLowerCase();
+            const isToolKeyHint = TOOL_TILES.some(t => (t.keyHint || '').toLowerCase() === key && _toolTileEnabled(t));
+            if (isToolKeyHint) {
                 e.preventDefault();
                 e.stopPropagation();
-                _toolToggle(tile.id);
                 return true;
             }
             return false;
+        }
+
+        function _renderToolRow(tile, enabled, active) {
+            const rowCls = active ? 'tool-row active' : enabled ? 'tool-row available' : 'tool-row unavailable';
+            const keycap = (tile.keyHint || '').toUpperCase();
+            const desc = tile.desc || '';
+            const icon = _toolIcon(tile.id);
+            const onclick = enabled ? ` onclick="_openToolOptions('${tile.id}')"` : '';
+            let html = `<div class="${rowCls}" data-tool="${tile.id}"${onclick}>`;
+            html += `<span class="tool-icon">${icon}</span>`;
+            html += `<div class="tool-text-col"><div class="tool-title">${tile.label || ''}</div>`;
+            if (desc) html += `<div class="tool-description">${desc}</div>`;
+            html += `</div>`;
+            html += `<span class="shortcut-key">${keycap}</span>`;
+            html += `</div>`;
+            return html;
+        }
+
+        function _renderToolOptionsBody(tile) {
+            const id = tile.id;
+            let body = '';
+            if (id === 'comparecenter') {
+                body += _renderCompareCenterModeButtons({ activeMode: compareCenterMode, showLabels: true });
+            } else if (id === 'qmri') {
+                const qDim = compareQmriActive ? compareQmriDim : qmriDim;
+                const n = shape[qDim];
+                const allCmaps = QMRI_COLORMAPS[n];
+                const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
+                body += `<div class="island-pills">`;
+                for (let i = 0; i < allCmaps.length; i++) {
+                    const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
+                    const isVisible = visibleSet.has(i);
+                    const isOnly = visibleSet.size === 1 && isVisible;
+                    const pillCls = isVisible ? (isOnly ? 'on only' : 'on') : 'off';
+                    body += `<div class="island-pill ${pillCls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
+                }
+                body += `</div>`;
+            } else if (id === 'roi' || id === 'segmentation') {
+                const isRoi = id === 'roi';
+                const isSegLoading = !isRoi && _segActivating && !_segMode;
+                const accentColor = '#f0c674';
+                if (isSegLoading) {
+                    body += `<div class="island-rows"><div class="island-row"><div class="island-swatch pulse" style="background:${accentColor}"></div><span class="island-name default-name">nnInteractive \u00B7 connecting</span></div></div>`;
+                } else {
+                    const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
+                    const currentShape = isRoi ? _roiShape : _segMethod;
+                    body += `<div class="island-toolbar"><div class="island-shapes">`;
+                    for (const key of Object.keys(shapes)) {
+                        const isCurrent = key === currentShape;
+                        const color = isCurrent ? accentColor : '#555';
+                        const opacity = isCurrent ? '1' : '0.5';
+                        body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
+                    }
+                    body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="${isRoi ? 'Export table' : 'Export segments'}">${_MAGNIFIER_ICON}</span></div>`;
+                    body += `<div class="island-rows">${isRoi ? _renderRoiRows() : _renderSegRows()}</div>`;
+                }
+            } else if (id === 'overlay') {
+                if (_overlaySids.length) {
+                    body += `<div class="island-rows">${_renderOverlayRows()}</div>`;
+                    const alphaPct = Math.round(overlayAlpha * 100);
+                    body += `<div class="island-slider-row"><span class="island-slider-label">opacity</span><input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}"><span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span></div>`;
+                }
+                body += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
+            } else if (id === 'vectorfield') {
+                body += `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}"><div class="island-swatch" style="background:#f0c674"></div><span class="island-name">displacement</span><span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span></div></div>`;
+                body += `<div class="island-slider-row"><span class="island-slider-label">density</span><input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}"><span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span></div>`;
+                body += `<div class="island-slider-row"><span class="island-slider-label">length</span><input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}"><span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span></div>`;
+            } else if (id === 'crop') {
+                const ready = _crop.registered;
+                const nx = Math.max(1, _crop.nx);
+                const xs = _crop.xStart, xe = _crop.xEnd;
+                const disabled = ready ? '' : ' disabled';
+                const overlayOn = !!_crop.overlayVisible;
+                const statusKind = _crop.statusKind ? ` crop-status-${_crop.statusKind}` : '';
+                const statusMsg = _crop.statusMsg || (ready ? '' : 'initialising\u2026');
+                if (ready && Array.isArray(shape) && shape.length > 1) {
+                    const dirs = _cropAvailableDirections();
+                    body += `<div class="crop-dim-picker"><span class="crop-dim-picker-label">direction</span><div class="crop-dim-picker-btns">`;
+                    for (const d of dirs) {
+                        const isCurrent = d === _crop.direction;
+                        const cls2 = isCurrent ? 'crop-dim-btn on' : 'crop-dim-btn';
+                        const rd = _cropReadoutDimFor(d);
+                        const sz = rd >= 0 ? shape[rd] : '?';
+                        body += `<button type="button" class="${cls2}" onclick="_cropOnDirPick('${d}')" title="crop along screen axis ${d} (dim ${rd}, size ${sz})">${d}</button>`;
+                    }
+                    body += `</div></div>`;
+                }
+                body += `<div class="crop-rows"><div class="crop-row"><label for="crop-start-range">start</label><input id="crop-start-range" type="range" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-start-num" type="number" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"></div>`;
+                body += `<div class="crop-row"><label for="crop-end-range">end</label><input id="crop-end-range" type="range" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-end-num" type="number" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"></div></div>`;
+                body += `<div id="crop-summary" class="crop-summary">${_cropSummaryText()}</div>`;
+                body += `<div class="crop-actions"><button class="crop-btn primary" onclick="_cropConfirmBtn()"${disabled}>confirm</button><button class="crop-btn" onclick="_cropLoadRecentBtn()"${disabled}>load recent</button><button class="crop-btn${overlayOn ? ' on' : ''}" onclick="_cropOverlayToggle()"${disabled}>${overlayOn ? 'hide overlay' : 'show overlay'}</button></div>`;
+                body += `<div id="crop-status" class="crop-status${statusKind}">${statusMsg}</div>`;
+            }
+            return body;
         }
 
         function renderToolMenu() {
@@ -17294,105 +17643,82 @@ if (typeof gsap !== 'undefined') {
             if (!el) return;
             if (_islandSliderDragging) return;
             const hint = document.getElementById('tool-hint');
-            if (hint) hint.classList.toggle('active', toolMenuOpen);
-            if (!toolMenuOpen) {
-                el.classList.remove('visible');
+            if (hint) hint.classList.toggle('active', _toolPanelIsOpen() || !!_activeToolId());
+
+            if (_toolPanelState === 'closed') {
+                el.classList.remove('visible', 'tool-list', 'tool-options');
                 if (typeof _hideRoiRowTooltip === 'function') _hideRoiRowTooltip();
                 return;
             }
 
+            const ORDER = ['segmentation', 'crop', 'roi', 'overlay', 'qmri', 'comparecenter', 'vectorfield'];
             const tiles = [...TOOL_TILES].sort((a, b) => {
+                const ai = ORDER.indexOf(a.id);
+                const bi = ORDER.indexOf(b.id);
+                if (ai !== -1 && bi !== -1) return ai - bi;
+                if (ai !== -1) return -1;
+                if (bi !== -1) return 1;
                 const rankDiff = _toolSortRank(a) - _toolSortRank(b);
                 if (rankDiff !== 0) return rankDiff;
                 return a.label.localeCompare(b.label);
             });
-            let html = `<div class="po-header"><span class="po-title">TOOLS</span></div>`;
-            for (const tile of tiles) {
-                const enabled = _toolTileEnabled(tile);
-                const active = _toolTileActive(tile);
-                const cls = active ? 'tool-section active' : enabled ? 'tool-section available' : 'tool-section unavailable';
-                let body = '';
-                if (active) {
-                    if (tile.id === 'comparecenter') {
-                        body += _renderCompareCenterModeButtons({ activeMode: compareCenterMode, showLabels: true });
-                    } else if (tile.id === 'qmri') {
-                        const qDim = compareQmriActive ? compareQmriDim : qmriDim;
-                        const n = shape[qDim];
-                        const allCmaps = QMRI_COLORMAPS[n];
-                        const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
-                        body += `<div class="island-pills">`;
-                        for (let i = 0; i < allCmaps.length; i++) {
-                            const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
-                            const isVisible = visibleSet.has(i);
-                            const isOnly = visibleSet.size === 1 && isVisible;
-                            const pillCls = isVisible ? (isOnly ? 'on only' : 'on') : 'off';
-                            body += `<div class="island-pill ${pillCls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
+
+            let html = '';
+
+            if (_toolPanelState === 'tool-menu') {
+                el.classList.add('visible', 'tool-list');
+                el.classList.remove('tool-options');
+                html += `<div class="tool-panel-inner">`;
+                html += `<div class="po-header"><span class="po-title">TOOLS</span><span class="po-close" onclick="closeToolPanel()" title="Close">\u00d7</span></div>`;
+                const available = tiles.filter(t => _toolTileEnabled(t));
+                const unavailable = tiles.filter(t => !_toolTileEnabled(t));
+                if (available.length) {
+                    html += `<div class="section-label">AVAILABLE</div>`;
+                    html += `<div class="tool-section">`;
+                    for (const tile of available) {
+                        const active = _toolTileActive(tile);
+                        html += _renderToolRow(tile, true, active);
+                    }
+                    html += `</div>`;
+                }
+                if (unavailable.length) {
+                    html += `<div class="tool-more-toggle" onclick="_toggleMoreTools()"><span>CURRENTLY UNAVAILABLE</span><span class="tool-more-arrow${_moreToolsExpanded ? ' expanded' : ''}">\u02c7</span></div>`;
+                    if (_moreToolsExpanded) {
+                        html += `<div class="tool-section">`;
+                        for (const tile of unavailable) {
+                            html += _renderToolRow(tile, false, false);
                         }
-                        body += `</div>`;
-                    } else if (tile.id === 'roi' || tile.id === 'segmentation') {
-                        const isRoi = tile.id === 'roi';
-                        const isSegLoading = !isRoi && _segActivating && !_segMode;
-                        const accentColor = '#f0c674';
-                        if (isSegLoading) {
-                            body += `<div class="island-rows"><div class="island-row"><div class="island-swatch pulse" style="background:${accentColor}"></div><span class="island-name default-name">nnInteractive \u00B7 connecting</span></div></div>`;
-                        } else {
-                            const shapes = isRoi ? _ROI_SHAPE_ICONS : _SEG_METHOD_ICONS;
-                            const currentShape = isRoi ? _roiShape : _segMethod;
-                            body += `<div class="island-toolbar"><div class="island-shapes">`;
-                            for (const key of Object.keys(shapes)) {
-                                const isCurrent = key === currentShape;
-                                const color = isCurrent ? accentColor : '#555';
-                                const opacity = isCurrent ? '1' : '0.5';
-                                body += `<span data-shape="${key}" style="color:${color};opacity:${opacity}" onclick="_islandSetShape('${key}')">${shapes[key]}</span>`;
-                            }
-                            body += `</div><span class="island-modal-btn" onclick="_islandExport()" title="${isRoi ? 'Export table' : 'Export segments'}">${_MAGNIFIER_ICON}</span></div>`;
-                            body += `<div class="island-rows">${isRoi ? _renderRoiRows() : _renderSegRows()}</div>`;
-                        }
-                    } else if (tile.id === 'overlay') {
-                        if (_overlaySids.length) {
-                            body += `<div class="island-rows">${_renderOverlayRows()}</div>`;
-                            const alphaPct = Math.round(overlayAlpha * 100);
-                            body += `<div class="island-slider-row"><span class="island-slider-label">opacity</span><input type="range" class="island-slider" id="island-alpha-slider" min="5" max="95" value="${alphaPct}"><span class="island-slider-value" id="island-alpha-value">${alphaPct}%</span></div>`;
-                        }
-                        body += `<div class="island-add-row" onclick="_islandAddOverlay()" title="Load another array as overlay">+ add overlay</div>`;
-                    } else if (tile.id === 'vectorfield') {
-                        body += `<div class="island-rows"><div class="island-row${vfieldVisible ? '' : ' hidden'}"><div class="island-swatch" style="background:#f0c674"></div><span class="island-name">displacement</span><span class="island-eye${vfieldVisible ? '' : ' off'}" onclick="_islandToggleVfield()" title="Toggle visibility">${vfieldVisible ? _EYE_ON_ICON : _EYE_OFF_ICON}</span></div></div>`;
-                        body += `<div class="island-slider-row"><span class="island-slider-label">density</span><input type="range" class="island-slider" id="island-vf-density-slider" min="-5" max="5" step="1" value="${vfDensityLevel}"><span class="island-slider-value" id="island-vf-density-value">${vfDensityLevel > 0 ? '+' : ''}${vfDensityLevel}</span></div>`;
-                        body += `<div class="island-slider-row"><span class="island-slider-label">length</span><input type="range" class="island-slider" id="island-vf-length-slider" min="-5" max="5" step="1" value="${vfLengthLevel}"><span class="island-slider-value" id="island-vf-length-value">${vfLengthLevel > 0 ? '+' : ''}${vfLengthLevel}</span></div>`;
-                    } else if (tile.id === 'crop') {
-                        const ready = _crop.registered;
-                        const nx = Math.max(1, _crop.nx);
-                        const xs = _crop.xStart, xe = _crop.xEnd;
-                        const disabled = ready ? '' : ' disabled';
-                        const overlayOn = !!_crop.overlayVisible;
-                        const statusKind = _crop.statusKind ? ` crop-status-${_crop.statusKind}` : '';
-                        const statusMsg = _crop.statusMsg || (ready ? '' : 'initialising\u2026');
-                        if (ready && Array.isArray(shape) && shape.length > 1) {
-                            const dirs = _cropAvailableDirections();
-                            body += `<div class="crop-dim-picker"><span class="crop-dim-picker-label">direction</span><div class="crop-dim-picker-btns">`;
-                            for (const d of dirs) {
-                                const isCurrent = d === _crop.direction;
-                                const cls2 = isCurrent ? 'crop-dim-btn on' : 'crop-dim-btn';
-                                const rd = _cropReadoutDimFor(d);
-                                const sz = rd >= 0 ? shape[rd] : '?';
-                                body += `<button type="button" class="${cls2}" onclick="_cropOnDirPick('${d}')" title="crop along screen axis ${d} (dim ${rd}, size ${sz})">${d}</button>`;
-                            }
-                            body += `</div></div>`;
-                        }
-                        body += `<div class="crop-rows"><div class="crop-row"><label for="crop-start-range">start</label><input id="crop-start-range" type="range" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-start-num" type="number" min="0" max="${Math.max(0, nx - 1)}" step="1" value="${xs}"${disabled} oninput="_cropOnStartInput(this.value)" onchange="_cropOnRangeCommit()"></div>`;
-                        body += `<div class="crop-row"><label for="crop-end-range">end</label><input id="crop-end-range" type="range" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"><input id="crop-end-num" type="number" min="1" max="${nx}" step="1" value="${xe}"${disabled} oninput="_cropOnEndInput(this.value)" onchange="_cropOnRangeCommit()"></div></div>`;
-                        body += `<div id="crop-summary" class="crop-summary">${_cropSummaryText()}</div>`;
-                        body += `<div class="crop-actions"><button class="crop-btn primary" onclick="_cropConfirmBtn()"${disabled}>confirm</button><button class="crop-btn" onclick="_cropLoadRecentBtn()"${disabled}>load recent</button><button class="crop-btn${overlayOn ? ' on' : ''}" onclick="_cropOverlayToggle()"${disabled}>${overlayOn ? 'hide overlay' : 'show overlay'}</button></div>`;
-                        body += `<div id="crop-status" class="crop-status${statusKind}">${statusMsg}</div>`;
+                        html += `</div>`;
                     }
                 }
-                html += `<div class="${cls}" data-tool="${tile.id}">`;
-                html += `<div class="tool-row-head" onclick="_toolToggle('${tile.id}')"><span class="tool-row-title">${_toolLabelMarkup(tile, active, enabled)}</span></div>`;
-                if (active && body) html += `<div class="tool-body">${body}</div>`;
+                html += `</div>`;
+            } else if (_toolPanelState && _toolPanelState.kind === 'tool-options') {
+                const tileId = _toolPanelState.toolId;
+                const tile = TOOL_TILES.find(t => t.id === tileId);
+                if (!tile) {
+                    _toolPanelState = 'tool-menu';
+                    renderToolMenu();
+                    return;
+                }
+                el.classList.add('visible', 'tool-options');
+                el.classList.remove('tool-list');
+                const active = _toolTileActive(tile);
+                const title = (tile.label || '').toUpperCase();
+                html += `<div class="tool-panel-inner">`;
+                html += `<div class="po-header"><span class="po-back" onclick="_goBackOrCloseToolPanel()" title="Back to tools">\u2190</span><span class="po-title">${title}</span><span class="po-close" onclick="closeToolPanel()" title="Close">\u00d7</span></div>`;
+                if (active) {
+                    const body = _renderToolOptionsBody(tile);
+                    if (body) {
+                        html += `<div class="tool-body">${body}</div>`;
+                    }
+                } else {
+                    html += `<div style="padding:6px 2px;color:var(--muted);font-size:10px;">Activate to see options</div>`;
+                }
+                html += `<div class="tool-footer-hint">Esc tools &middot; / close</div>`;
                 html += `</div>`;
             }
+
             el.innerHTML = html;
-            el.classList.add('visible');
             _positionIsland();
             _hideRoiRowTooltip();
             _attachRoiRowTooltipHandlers();
@@ -17400,6 +17726,13 @@ if (typeof gsap !== 'undefined') {
         }
 
         function renderIsland() { renderToolMenu(); }
+        window._openToolOptions = openToolOptions;
+        window._goBackOrCloseToolPanel = _goBackOrCloseToolPanel;
+        window.closeToolPanel = closeToolPanel;
+        window._toggleMoreTools = function() {
+            _moreToolsExpanded = !_moreToolsExpanded;
+            renderToolMenu();
+        };
 
         // ── Save menu (colorbar flip) ────────────────────────────
         // Pressing `s` flips the main colorbar around (same rotateX animation
@@ -17547,7 +17880,7 @@ if (typeof gsap !== 'undefined') {
                 return;
             }
             closeCommandPalette();
-            closeToolMenu();
+            closeToolPanel();
             if (!_saveMenuBuilt) _buildSaveMenu();
             _refreshSaveMenu();
             saveMenuOpen = true;
@@ -17667,7 +18000,7 @@ if (typeof gsap !== 'undefined') {
         function openCommandPalette() {
             if (paletteOpen) return;
             if (!_paletteBuilt) { _paletteBuild(); _paletteBuilt = true; }
-            closeToolMenu();
+            closeToolPanel();
             if (typeof _cmapPickerOpen !== 'undefined' && _cmapPickerOpen) closeCmapPicker();
             const root = document.getElementById('cmd-palette');
             const input = document.getElementById('cmd-palette-input');
@@ -17892,7 +18225,7 @@ if (typeof gsap !== 'undefined') {
             const summary = document.getElementById('cmap-picker-summary');
             const empty = document.getElementById('cmap-picker-empty');
             const list = document.getElementById('cmap-picker-list');
-            closeToolMenu();
+            closeToolPanel();
             if (paletteOpen) closeCommandPalette();
             _cmapPickerOpen = true;
             root.classList.add('visible');
@@ -18096,6 +18429,7 @@ if (typeof gsap !== 'undefined') {
                 }
             }
             if (e.key === '?') {
+                if (_toolPanelIsOpen()) closeToolPanel();
                 const _activeTool = compareCenterMode > 0 ? 'comparecenter'
                     : (qmriActive || compareQmriActive) ? 'qmri'
                     : (typeof _segMode !== 'undefined' && _segMode) ? 'segmentation'
@@ -18111,7 +18445,7 @@ if (typeof gsap !== 'undefined') {
                 }
                 return;
             }
-            if (toolMenuOpen) {
+            if (_toolPanelIsOpen()) {
                 if (_handleToolMenuKey(e)) return;
             }
             if (saveMenuOpen) {
@@ -22554,13 +22888,6 @@ if (typeof gsap !== 'undefined') {
         helpOverlay.addEventListener('click', (e) => {
             if (e.target === helpOverlay) setHelpVisible(false);
         });
-        document.addEventListener('mousedown', (e) => {
-            if (!toolMenuOpen) return;
-            const menu = document.getElementById('dynamic-island');
-            const hint = document.getElementById('tool-hint');
-            if ((menu && menu.contains(e.target)) || (hint && hint.contains(e.target))) return;
-            closeToolMenu();
-        }, true);
         // Clicking outside the flipped colorbar closes the save menu.
         document.addEventListener('mousedown', (e) => {
             if (!saveMenuOpen) return;
@@ -22571,7 +22898,7 @@ if (typeof gsap !== 'undefined') {
             setHelpVisible(!helpOverlay.classList.contains('visible'));
         });
         document.getElementById('tool-hint').addEventListener('click', () => {
-            if (toolMenuOpen) closeToolMenu();
+            if (toolMenuOpen) closeToolPanel();
             else openToolMenu();
         });
 
