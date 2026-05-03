@@ -17455,10 +17455,6 @@ if (typeof gsap !== 'undefined') {
             }
             const ctx = makeContext(null);
             const active = _toolTileActive(tile);
-            if (id === 'overlay' && !_overlaySids.length && !active) {
-                _islandAddOverlay();
-                return;
-            }
             const toggleId = {
                 qmri: 'qmri.cycle',
                 segmentation: 'segmentation.cycle',
