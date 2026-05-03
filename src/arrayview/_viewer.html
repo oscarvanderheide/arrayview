@@ -12068,34 +12068,20 @@
         }
 
         async function _islandAddOverlay() {
-            const initial = await _islandPickerInitialDir();
-            const filepath = await openFilePicker({
-                title: 'Add overlay',
-                initialPath: initial,
-                base_sid: sid,
-                mode: 'overlay',
-            });
-            if (!filepath) return;
+            const result = await showUnifiedPicker('overlay');
+            if (!result || result.action !== 'add-overlay') return;
             showStatus('loading overlay...');
             try {
-                const r = await proxyFetch('/load', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filepath, name: filepath.split(/[\\/]/).pop(), notify: false }),
-                });
-                const d = await r.json();
-                if (d.error) { showToast(`overlay: ${d.error}`); return; }
-                if (!d.sid) { showToast('overlay: load failed'); return; }
-                _overlaySids.push(d.sid);
+                _overlaySids.push(result.sid);
                 const nextColor = _OVERLAY_PALETTE[_overlayColors.length % _OVERLAY_PALETTE.length];
                 _overlayColors.push(nextColor);
                 _overlayVisible.push(true);
-                _overlayLabels.push(d.name || `overlay ${_overlaySids.length}`);
+                _overlayLabels.push(result.name || `overlay ${_overlaySids.length}`);
                 _overlayVisibility = 'all';
                 renderIsland();
                 updateView();
                 saveState();
-                showStatus(`overlay added: ${d.name || filepath.split(/[\\/]/).pop()}`);
+                showStatus(`overlay added: ${result.name}`);
             } catch (err) {
                 showToast(`overlay: ${err.message}`);
             }
@@ -18852,6 +18838,12 @@ if (typeof gsap !== 'undefined') {
 
                 function _updateHint() {
                     const n = _selCount();
+                    if (mode === 'overlay') {
+                        hintEl.textContent = n === 0 ? 'Space to select · Enter to add as overlay' : `Enter to add as overlay`;
+                        pilEl.textContent = 'Add Overlay';
+                        overlay.style.setProperty('--picker-accent', 'var(--active-dim)');
+                        return;
+                    }
                     if (n === 0) {
                         hintEl.textContent = 'Space to select · Enter to open';
                     } else if (n === 1) {
@@ -18961,6 +18953,25 @@ if (typeof gsap !== 'undefined') {
                                 _refreshSelMark(); _updateHint(); _updateDimming();
                             }
                             function openFile() {
+                                if (mode === 'overlay') {
+                                    item.classList.add('cp-item-loading');
+                                    item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
+                                    proxyFetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ filepath: f.path, name: f.name, notify: false }),
+                                    }).then(r => r.json()).then(async data => {
+                                        if (data.error === 'insufficient_memory') {
+                                            item.classList.remove('cp-item-loading');
+                                            await _showRamBlockDialog(
+                                                document.getElementById('uni-picker-box'),
+                                                data.filename, data.estimated_bytes, data.available_bytes
+                                            );
+                                            return;
+                                        }
+                                        if (data.error) { showToast(`load error: ${data.error}`); finish(null); return; }
+                                        finish({ action: 'add-overlay', sid: data.sid, name: data.name || f.name });
+                                    }).catch(() => { showToast('load failed'); finish(null); });
+                                    return;
+                                }
                                 if (_selCount() <= 1) {
                                     // Open directly
                                     item.classList.add('cp-item-loading');
