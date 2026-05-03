@@ -17777,7 +17777,7 @@ if (typeof gsap !== 'undefined') {
                 const title = (tile.label || '').toUpperCase();
                 html += `<div class="tool-panel-inner">`;
                 html += `<div class="po-header"><span class="po-back" onclick="_goBackOrCloseToolPanel()" title="Back to tools">\u2190</span><span class="po-title">${title}</span><span class="po-close" onclick="closeToolPanel()" title="Close">\u00d7</span></div>`;
-                if (active) {
+                if (active || tileId === 'overlay') {
                     const body = _renderToolOptionsBody(tile);
                     if (body) {
                         html += `<div class="tool-body">${body}</div>`;
