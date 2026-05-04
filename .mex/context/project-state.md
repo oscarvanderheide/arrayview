@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-04-29
+last_updated: 2026-05-05
 ---
 
 # Project State

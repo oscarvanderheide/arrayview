@@ -18,7 +18,7 @@ edges:
     condition: when the task involves _viewer.html, modes, reconcilers, or the View Component System
   - target: context/render-pipeline.md
     condition: when the task involves slice extraction, colormaps, caching, or the render thread
-last_updated: 2026-04-29
+last_updated: 2026-05-05
 ---
 
 # Architecture
@@ -54,11 +54,12 @@ pywebview, or system browser).
 - **`_server.py`** — FastAPI app initialization, route-registration orchestrator, and infrastructure routes. Feature domains are delegated to `_routes_*.py` modules via `register_*()` calls. Remaining inline routes are `/`, `/ping`, `/colormap/{name}`, `/shell`, and the GSAP asset route that serves `src/arrayview/gsap.min.js`, plus shared helpers like `get_session_or_404()`.
 - **`_routes_*.py`** — Feature-route modules grouped by domain (analysis, loading, persistence, segmentation, state, query, export, preload, vectorfield, rendering, websocket transport). Each module exposes `register_*_routes(app, ...)` and keeps `_server.py` focused on assembly and shared dependencies.
 - **`_session.py`** — Single source of global mutable state: `SESSIONS`, `SERVER_LOOP`, `VIEWER_SOCKETS`, `VIEWER_SIDS`, `SHELL_SOCKETS`. Owns the render thread (`_RENDER_QUEUE`, `_RENDER_THREAD`), prefetch pool, and the `Session` class with its three LRU caches.
-- **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`).
+- **`_render.py`** — Stateless rendering functions: `extract_slice()`, `apply_complex_mode()`, `render_rgba()`, `render_rgb_rgba()`, `render_mosaic()`, `extract_projection()`. Owns colormap LUTs (`LUTS` dict, lazy-initialized by `_init_luts()`). Also provides `_build_mosaic_grid()` (shared grid builder) and `_evict_lru()` (shared cache eviction).
+- **`_imaging.py`** — Shared lazy PIL accessors (`ensure_image()`, `ensure_imageops()`) used by `_diff`, `_server`, `_routes_rendering`, `_routes_websocket`, `_stdio_server`.
 - **`_analysis.py`, `_diff.py`, `_overlays.py`, `_vectorfield.py`** — Shared backend helpers for metadata, analysis endpoints, compare/diff rendering, overlay compositing, vector field validation, and arrow sampling. Imported by both `_server.py` and `_stdio_server.py`.
 - **`_io.py`** — All file-format loading behind `load_data(filepath)`. Lazy nibabel import for NIfTI. Handles `.npy`, `.npz`, `.nii` and `.nii.gz`, `.zarr`, `.zarr.zip`, `.pt` and `.pth`, `.h5` and `.hdf5`, `.tif` and `.tiff`, `.mat`. Extensions registered in `_SUPPORTED_EXTS`.
 - **`_platform.py`** — Environment detection: checks jupyter → vscode → julia → ssh → terminal in priority order. Results cached. Never short-circuit this order.
-- **`_vscode.py`** — VS Code extension install/management, signal-file IPC, shared-memory IPC, webview panel and direct webview opening.
+- **`_vscode.py`** — VS Code integration facade. Submodules: `_vscode_extension.py` (install), `_vscode_signal.py` (signal-file IPC), `_vscode_shm.py` (shared-memory transport), `_vscode_browser.py` (browser/SSH guidance).
 - **`_stdio_server.py`** — Alternative to FastAPI for VS Code tunnel (direct webview): JSON on stdin, length-prefixed binary on stdout.
 - **`_viewer.html`** — The entire frontend (~24 100 lines). CSS + JS in one file, no build step. Canvas-based rendering, WebSocket binary protocol, all viewing modes, reconcilers, command registry. See `context/frontend.md`.
 

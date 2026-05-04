@@ -143,3 +143,50 @@ def test_analysis_helpers_cover_metadata_histograms_and_pixels():
     two_d = Session(np.arange(20, dtype=np.float32).reshape(4, 5))
     assert _pixel_value(two_d, 1, 0, "0,0", px=4, py=3) == 19.0
     assert _pixel_value(two_d, 1, 0, "0,0", px=99, py=99) is None
+
+
+def test_app_shim_re_exports():
+    """_app.py re-exports key symbols from the new submodule layout."""
+    import arrayview._app as appmod
+
+    # Core API
+    assert hasattr(appmod, "view")
+    assert hasattr(appmod, "ViewHandle")
+    assert hasattr(appmod, "arrayview")
+    assert hasattr(appmod, "Session")
+    assert hasattr(appmod, "SESSIONS")
+    assert hasattr(appmod, "app")
+
+    # Rendering
+    assert hasattr(appmod, "render_rgba")
+    assert hasattr(appmod, "render_mosaic")
+    assert hasattr(appmod, "LUTS")
+
+    # IO
+    assert hasattr(appmod, "load_data")
+    assert hasattr(appmod, "_tensor_to_numpy")
+
+    # Platform
+    assert hasattr(appmod, "_in_jupyter")
+    assert hasattr(appmod, "_in_vscode_terminal")
+
+    # VS Code (now in submodules)
+    assert hasattr(appmod, "_ensure_vscode_extension")
+    assert hasattr(appmod, "_open_via_signal_file")
+    assert hasattr(appmod, "_open_browser")
+    assert hasattr(appmod, "_write_vscode_signal")
+
+    # Launcher
+    assert hasattr(appmod, "_serve_background")
+    assert hasattr(appmod, "_server_alive")
+    assert hasattr(appmod, "_open_webview")
+
+    # Server
+    assert hasattr(appmod, "_VIEWER_HTML_TEMPLATE")
+    assert hasattr(appmod, "_pil_image")
+
+    # Analysis / diff / vectorfield / overlays
+    assert hasattr(appmod, "_safe_float")
+    assert hasattr(appmod, "_render_normalized")
+    assert hasattr(appmod, "_vfield_n_times")
+    assert hasattr(appmod, "_notify_shells")
