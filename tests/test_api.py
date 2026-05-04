@@ -2619,16 +2619,15 @@ class TestPortAndTunnelHelpers:
         assert platform._can_native_window() is True
 
     def test_open_browser_skips_vscode_signal_when_terminal_check_is_false(self, monkeypatch):
-        import arrayview._vscode as vscode
+        import arrayview._vscode_browser as browser_mod
 
         signal_calls = []
         open_calls = []
 
-        monkeypatch.setattr(vscode, "_in_vscode_terminal", lambda: False)
-        monkeypatch.setattr(vscode, "_is_vscode_remote", lambda: False)
-        monkeypatch.setattr(vscode, "_find_vscode_ipc_hook", lambda: "/tmp/vscode-ipc")
-        monkeypatch.setattr(vscode, "_open_via_signal_file", lambda *args, **kwargs: signal_calls.append(args))
-        monkeypatch.setattr(vscode.sys, "platform", "darwin")
+        monkeypatch.setattr(browser_mod, "_in_vscode_terminal", lambda: False)
+        monkeypatch.setattr(browser_mod, "_is_vscode_remote", lambda: False)
+        monkeypatch.setattr(browser_mod, "_open_via_signal_file", lambda *args, **kwargs: signal_calls.append(args))
+        monkeypatch.setattr(browser_mod.sys, "platform", "darwin")
         monkeypatch.delenv("SSH_CLIENT", raising=False)
         monkeypatch.delenv("SSH_CONNECTION", raising=False)
 
@@ -2636,9 +2635,9 @@ class TestPortAndTunnelHelpers:
             open_calls.append(cmd)
             return type("Completed", (), {"returncode": 0})()
 
-        monkeypatch.setattr(vscode.subprocess, "run", _fake_run)
+        monkeypatch.setattr(browser_mod.subprocess, "run", _fake_run)
 
-        vscode._open_browser("http://localhost:8123/?sid=sid_matlab", blocking=True)
+        browser_mod._open_browser("http://localhost:8123/?sid=sid_matlab", blocking=True)
 
         assert signal_calls == []
         assert open_calls == [["open", "http://localhost:8123/?sid=sid_matlab"]]
