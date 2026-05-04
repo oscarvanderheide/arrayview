@@ -16541,7 +16541,7 @@ if (typeof gsap !== 'undefined') {
             },
             'qmri.cycle': {
                 title: 'Enter / exit qMRI mode',
-                when: [],
+                when: ['toolMenuOpen'],
                 run: (ctx, e) => {
                     crossfade(() => {
                         if (compareQmriActive) {
