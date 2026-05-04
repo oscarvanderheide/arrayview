@@ -8,6 +8,7 @@ from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
 from arrayview._overlays import _composite_overlays
 from arrayview._render import (
     LUTS,
+    _build_mosaic_grid,
     _compute_vmin_vmax,
     _ensure_lut,
     _init_luts,
@@ -15,7 +16,6 @@ from arrayview._render import (
     apply_complex_mode,
     extract_projection,
     extract_slice,
-    mosaic_shape,
     render_mosaic,
     render_projection_rgba,
     render_rgb_rgba,
@@ -24,16 +24,7 @@ from arrayview._render import (
 from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS
 
 
-_pil_image_mod = None
-
-
-def _pil_image():
-    global _pil_image_mod
-    if _pil_image_mod is None:
-        from PIL import Image
-
-        _pil_image_mod = Image
-    return _pil_image_mod
+from arrayview._imaging import ensure_image as _pil_image
 
 
 def register_rendering_routes(app, *, get_session_or_404) -> None:
@@ -408,18 +399,7 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         vmin = float(np.percentile(all_data, 1))
         vmax = float(np.percentile(all_data, 99))
 
-        rows, cols = mosaic_shape(n)
-        height, width = frames[0].shape
-        gap = 2
-        total_h = rows * height + (rows - 1) * gap
-        total_w = cols * width + (cols - 1) * gap
-        grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
-        for k in range(n):
-            row, col = divmod(k, cols)
-            grid[
-                row * (height + gap) : row * (height + gap) + height,
-                col * (width + gap) : col * (width + gap) + width,
-            ] = all_data[k]
+        grid, _, _ = _build_mosaic_grid(all_data, n)
 
         nan_mask = np.isnan(grid)
         filled = np.where(nan_mask, vmin, grid)

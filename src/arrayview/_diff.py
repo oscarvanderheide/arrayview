@@ -6,26 +6,16 @@ import numpy as np
 
 from arrayview._render import (
     LUTS,
+    _build_mosaic_grid,
     _compute_vmin_vmax,
     _ensure_lut,
     _prepare_display,
     apply_complex_mode,
     extract_slice,
-    mosaic_shape,
 )
 
 
-_pil_image_mod = None
-
-
-def _pil_image():
-    """Lazy PIL.Image import."""
-    global _pil_image_mod
-    if _pil_image_mod is None:
-        from PIL import Image
-
-        _pil_image_mod = Image
-    return _pil_image_mod
+from arrayview._imaging import ensure_image as _pil_image
 
 
 def _render_normalized(session, dim_x, dim_y, idx_tuple, dr, complex_mode, log_scale):
@@ -71,16 +61,7 @@ def _render_normalized_mosaic(
     else:
         vmin, vmax = _compute_vmin_vmax(session, all_data, dr, complex_mode)
 
-    rows, cols = mosaic_shape(n)
-    H, W = frames[0].shape
-    gap = 2
-    total_h = rows * H + (rows - 1) * gap
-    total_w = cols * W + (cols - 1) * gap
-    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
-    for k in range(n):
-        r, c = divmod(k, cols)
-        r0, c0 = r * (H + gap), c * (W + gap)
-        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
+    grid, _, _ = _build_mosaic_grid(all_data, n)
 
     nan_mask = np.isnan(grid)
     if vmax > vmin:

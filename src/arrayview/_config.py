@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 
 CONFIG_PATH = os.path.expanduser("~/.arrayview/config.toml")
 
@@ -118,28 +117,10 @@ def get_window_default(environment: str) -> str | None:
 
 
 def _parse_toml(text: str) -> dict:
-    """Parse simple TOML (flat tables with string values). Uses tomllib on 3.11+."""
-    if sys.version_info >= (3, 11):
-        import tomllib
+    """Parse TOML using tomllib (Python 3.11+)."""
+    import tomllib
 
-        return tomllib.loads(text)
-    # Minimal fallback for 3.10
-    result: dict = {}
-    current_table: dict | None = None
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("[") and not line.startswith("[["):
-            key = line.strip("[] ")
-            result[key] = {}
-            current_table = result[key]
-        elif "=" in line and current_table is not None:
-            k, v = line.split("=", 1)
-            k = k.strip()
-            v = v.strip().strip('"').strip("'")
-            current_table[k] = v
-    return result
+    return tomllib.loads(text)
 
 
 def _dump_toml(config: dict) -> str:

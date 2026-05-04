@@ -45,30 +45,7 @@ from arrayview._routes_websocket import _notify_shells, register_websocket_route
 from arrayview._config import get_viewer_colormaps, get_viewer_rounded_panes, get_viewer_theme
 
 
-# ── Lazy PIL Import ───────────────────────────────────────────────
-
-_pil_image_mod = None
-_pil_imageops_mod = None
-
-
-def _pil_image():
-    """Lazy PIL.Image import."""
-    global _pil_image_mod
-    if _pil_image_mod is None:
-        from PIL import Image
-
-        _pil_image_mod = Image
-    return _pil_image_mod
-
-
-def _pil_imageops():
-    """Lazy PIL.ImageOps import."""
-    global _pil_imageops_mod
-    if _pil_imageops_mod is None:
-        from PIL import ImageOps
-
-        _pil_imageops_mod = ImageOps
-    return _pil_imageops_mod
+from arrayview._imaging import ensure_image as _pil_image, ensure_imageops as _pil_imageops
 
 
 # ── FastAPI Application ───────────────────────────────────────────

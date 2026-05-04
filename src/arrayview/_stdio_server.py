@@ -52,18 +52,7 @@ from arrayview._vectorfield import _compute_vfield_arrows
 
 
 # ---------------------------------------------------------------------------
-# Lazy PIL import
-# ---------------------------------------------------------------------------
-_pil_image_mod = None
-
-
-def _pil_image():
-    global _pil_image_mod
-    if _pil_image_mod is None:
-        from PIL import Image
-
-        _pil_image_mod = Image
-    return _pil_image_mod
+from arrayview._imaging import ensure_image as _pil_image
 
 
 # ---------------------------------------------------------------------------

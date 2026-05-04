@@ -11,6 +11,20 @@ from arrayview._session import (
 )
 
 # ---------------------------------------------------------------------------
+# Cache eviction
+# ---------------------------------------------------------------------------
+
+
+def _evict_lru(session, bytes_attr, cache_attr, budget_attr):
+    """Evict oldest LRU entries until the byte budget is satisfied."""
+    cache = getattr(session, cache_attr)
+    budget = getattr(session, budget_attr)
+    while getattr(session, bytes_attr) > budget and cache:
+        _, v = cache.popitem(last=False)
+        setattr(session, bytes_attr, getattr(session, bytes_attr) - v.nbytes)
+
+
+# ---------------------------------------------------------------------------
 # Colormap LUTs (deferred initialisation)
 # ---------------------------------------------------------------------------
 LUTS: dict = {}
@@ -104,6 +118,23 @@ def mosaic_shape(batch):
     return tuple(mshape)
 
 
+def _build_mosaic_grid(all_data, n, gap=2, cols=None):
+    """Place n frames into a NaN-padded mosaic grid. Returns (grid, rows, cols)."""
+    if cols is not None:
+        rows = 1
+    else:
+        rows, cols = mosaic_shape(n)
+    H, W = all_data[0].shape
+    total_h = rows * H + (rows - 1) * gap
+    total_w = cols * W + (cols - 1) * gap
+    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
+    for k in range(n):
+        r, c = divmod(k, cols)
+        r0, c0 = r * (H + gap), c * (W + gap)
+        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
+    return grid, rows, cols
+
+
 # ---------------------------------------------------------------------------
 # Slice extraction & display preparation
 # ---------------------------------------------------------------------------
@@ -144,9 +175,7 @@ def extract_slice(session, dim_x, dim_y, idx_list):
         if key not in session.raw_cache:  # double-check: another worker may have populated it
             session.raw_cache[key] = result
             session._raw_bytes += result.nbytes
-            while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
-                _, v = session.raw_cache.popitem(last=False)
-                session._raw_bytes -= v.nbytes
+            _evict_lru(session, "_raw_bytes", "raw_cache", "RAW_CACHE_BYTES")
     return result
 
 
@@ -218,9 +247,7 @@ def extract_projection(session, dim_x, dim_y, idx_list, proj_dim, proj_mode):
         if key not in session.raw_cache:
             session.raw_cache[key] = result
             session._raw_bytes += result.nbytes
-            while session._raw_bytes > session.RAW_CACHE_BYTES and session.raw_cache:
-                _, v = session.raw_cache.popitem(last=False)
-                session._raw_bytes -= v.nbytes
+            _evict_lru(session, "_raw_bytes", "raw_cache", "RAW_CACHE_BYTES")
     return result
 
 
@@ -403,9 +430,7 @@ def render_rgb_rgba(session, dim_x: int, dim_y: int, idx_list: list) -> np.ndarr
         if cache_key not in session.rgba_cache:
             session.rgba_cache[cache_key] = rgba
             session._rgba_bytes += rgba.nbytes
-            while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
-                _, v = session.rgba_cache.popitem(last=False)
-                session._rgba_bytes -= v.nbytes
+            _evict_lru(session, "_rgba_bytes", "rgba_cache", "RGBA_CACHE_BYTES")
 
     return rgba
 
@@ -454,9 +479,7 @@ def render_rgba(
             if key not in session.rgba_cache:
                 session.rgba_cache[key] = rgba
                 session._rgba_bytes += rgba.nbytes
-                while session._rgba_bytes > session.RGBA_CACHE_BYTES and session.rgba_cache:
-                    _, v = session.rgba_cache.popitem(last=False)
-                    session._rgba_bytes -= v.nbytes
+                _evict_lru(session, "_rgba_bytes", "rgba_cache", "RGBA_CACHE_BYTES")
     return rgba
 
 
@@ -719,19 +742,9 @@ def render_mosaic(
         vmax = float(np.percentile(all_data, 99))
 
     if mosaic_cols is not None:
-        cols = mosaic_cols
-        rows = 1
+        grid, rows, cols = _build_mosaic_grid(all_data, n, cols=mosaic_cols)
     else:
-        rows, cols = mosaic_shape(n)
-    H, W = frames[0].shape
-    GAP = 2
-    total_h = rows * H + (rows - 1) * GAP
-    total_w = cols * W + (cols - 1) * GAP
-    grid = np.full((total_h, total_w), np.nan, dtype=np.float32)
-    for k in range(n):
-        r, c = divmod(k, cols)
-        r0, c0 = r * (H + GAP), c * (W + GAP)
-        grid[r0 : r0 + H, c0 : c0 + W] = all_data[k]
+        grid, rows, cols = _build_mosaic_grid(all_data, n)
 
     nan_mask = np.isnan(grid)
     filled = np.where(nan_mask, vmin, grid)
@@ -748,9 +761,7 @@ def render_mosaic(
         if key not in session.mosaic_cache:
             session.mosaic_cache[key] = rgba
             session._mosaic_bytes += rgba.nbytes
-            while session._mosaic_bytes > session.MOSAIC_CACHE_BYTES and session.mosaic_cache:
-                _, v = session.mosaic_cache.popitem(last=False)
-                session._mosaic_bytes -= v.nbytes
+            _evict_lru(session, "_mosaic_bytes", "mosaic_cache", "MOSAIC_CACHE_BYTES")
     return rgba
 
 

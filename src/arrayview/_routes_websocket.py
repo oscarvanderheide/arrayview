@@ -27,16 +27,7 @@ from arrayview._session import (
 from arrayview._vectorfield import _compute_vfield_arrows
 
 
-_pil_image_mod = None
-
-
-def _pil_image():
-    global _pil_image_mod
-    if _pil_image_mod is None:
-        from PIL import Image
-
-        _pil_image_mod = Image
-    return _pil_image_mod
+from arrayview._imaging import ensure_image as _pil_image
 
 
 async def _notify_shells(sid, name, url=None, wait: bool = True) -> bool:
