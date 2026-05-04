@@ -165,3 +165,30 @@ Phase 4 (2-3 sessions): Frontend cleanup — targeted, medium risk
 - Extracting slice response building across transports — glue code resists clean extraction
 - Replacing `_LazyMod` — works, fast-path critical, one instance only
 - `_segmentation.py` module-level globals — no multi-session segmentation in practice
+
+---
+
+## Completion Notes (2026-05-05)
+
+### Phase 1: ✓ Done (commit `08b818f`)
+- Removed dead TOML parser fallback
+- Created `_imaging.py` with shared lazy PIL accessors (replaced in 5 files)
+- Extracted `_evict_lru()` cache helper in `_render.py`
+- Extracted `_build_mosaic_grid()` shared mosaic builder
+- Net: -90 lines
+
+### Phase 2: ✓ Done (commit `526cf09`)
+- Split `_vscode.py` into 4 submodules + facade
+- `_vscode_extension.py` (346 lines), `_vscode_signal.py` (822 lines), `_vscode_shm.py` (77 lines), `_vscode_browser.py` (176 lines)
+- `_vscode.py` → 30-line facade re-exporting all public symbols
+- Updated tests for new module structure
+
+### Phase 3: ✗ Reverted
+- `_launcher.py` split reverted — 11 test failures due to tight monkeypatching
+- Extracted submodules deleted (`_port_utils`, `_loading_server`, `_url_builder`, `_webview`, `_cli_paths`, `_lazy`)
+- Requires test refactoring before attempting again
+
+### Phase 4: ✓ Partially done (commit `de96bb2`)
+- Added `_app.py` re-export verification test (`test_app_shim_re_exports`)
+- Updated `.mex/context/architecture.md` and `project-state.md` for new file layout
+- Skipped frontend VCS/LayoutStrategy/App namespace changes — too high-risk in 26K-line file
