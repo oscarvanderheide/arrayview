@@ -13873,6 +13873,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 excludes: ['qmri', 'segmentation', 'roi', 'overlay', 'vectorfield'],
             },
         ];
+        const _TOOL_ORTHO_ALLOWED = new Set(['crop']);
         const TOOL_HELP = {
             comparecenter: 'compare',
             qmri:         'tool-qmri',
@@ -14132,8 +14133,9 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 _performFloodFill(ffPx, ffPy);
                 return;
             }
-            // Left-click pan when zoomed in and not in ROI mode
-            if (!rectRoiMode && mainPan.overflows) {
+            // Left-click pan when zoomed in and not in ROI mode.
+            // In mosaic mode (dim_z >= 0) defer to loupe even if canvas overflows.
+            if (!rectRoiMode && mainPan.overflows && dim_z < 0) {
                 mainPan.startDrag(e);
                 canvas.style.cursor = 'grabbing';
                 return;
@@ -16418,6 +16420,12 @@ if (typeof gsap !== 'undefined') {
                 run: (ctx, e) => {
                     if (compareMvActive) { crossfade(() => exitCompareMv()); return; }
                     if (compareActive) { crossfade(() => enterCompareMv()); return; }
+                    const activeTool = _activeToolId();
+                    if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
+                        const tile = TOOL_TILES.find(t => t.id === activeTool);
+                        showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
+                        return;
+                    }
                     crossfade(() => {
                         if (qmriActive) exitQmri();
                         if (multiViewActive) { exitMultiView(); } else {
@@ -16541,7 +16549,7 @@ if (typeof gsap !== 'undefined') {
             },
             'qmri.cycle': {
                 title: 'Enter / exit qMRI mode',
-                when: ['toolMenuOpen'],
+                when: ['toolMenuList'],
                 run: (ctx, e) => {
                     crossfade(() => {
                         if (compareQmriActive) {
@@ -16974,6 +16982,7 @@ if (typeof gsap !== 'undefined') {
                 paletteOpen: (typeof paletteOpen !== 'undefined') ? !!paletteOpen : false,
                 cmapPickerOpen: (typeof _cmapPickerOpen !== 'undefined') ? !!_cmapPickerOpen : false,
                 toolMenuOpen: (typeof toolMenuOpen !== 'undefined') ? !!toolMenuOpen : false,
+                toolMenuList: (typeof _toolPanelState !== 'undefined') ? _toolPanelState === 'tool-menu' : false,
                 saveMenuOpen: (typeof saveMenuOpen !== 'undefined') ? !!saveMenuOpen : false,
                 anyToolActive: (
                     compareCenterMode > 0
@@ -19414,6 +19423,12 @@ if (typeof gsap !== 'undefined') {
         function enterMultiView(dims) {
             if (shape.length < 3) { showStatus('Need at least 3 dimensions'); return; }
             if (compareActive) exitCompareMode();
+            const activeTool = _activeToolId();
+            if (activeTool && !_TOOL_ORTHO_ALLOWED.has(activeTool)) {
+                const tile = TOOL_TILES.find(t => t.id === activeTool);
+                showStatus(`Ortho not available while ${tile ? tile.label.toLowerCase() : 'a tool'} is active`);
+                return;
+            }
             multiViewActive = true;
             _orthoAutoLayoutMode = null;
             _mvOrientationHidden = false;
@@ -20714,6 +20729,9 @@ if (typeof gsap !== 'undefined') {
             wrap.innerHTML = '';
             wrap.className = '';
             userZoom = _qmriPrevZoom;  // restore prior zoom (mirrors exitMultiView line 10521)
+            if (_toolPanelState && _toolPanelState.kind === 'tool-options' && _toolPanelState.toolId === 'qmri') {
+                _toolPanelState = 'tool-menu';
+            }
             updateView();
             _reconcileUI();
             renderInfo();
@@ -22916,7 +22934,10 @@ if (typeof gsap !== 'undefined') {
             }
 
             fixWrapperAlignment();
-            if (_mvPanesEl) _mvPanesEl.classList.remove('mv-promote-enabled', 'mv-crosshair-active');
+            if (_mvPanesEl) {
+                _mvPanesEl.classList.remove('mv-promote-enabled');
+                _mvPanesEl.classList.toggle('mv-crosshair-active', _mvCrosshairTarget > 0);
+            }
             positionEggs();
             return _mvAtMax ? 'max' : null;
         }
