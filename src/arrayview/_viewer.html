@@ -20729,9 +20729,6 @@ if (typeof gsap !== 'undefined') {
             wrap.innerHTML = '';
             wrap.className = '';
             userZoom = _qmriPrevZoom;  // restore prior zoom (mirrors exitMultiView line 10521)
-            if (_toolPanelState && _toolPanelState.kind === 'tool-options' && _toolPanelState.toolId === 'qmri') {
-                _toolPanelState = 'tool-menu';
-            }
             updateView();
             _reconcileUI();
             renderInfo();
