@@ -32,6 +32,20 @@ Use **subagent-driven development**. Work in **feature branches**.
 
 Read `CONTRIBUTING.md` before any user-facing change or PR.
 
+For validation inside the Codex app in-app browser, open a served ArrayView
+session on `http://localhost:<port>/`.
+Do not use raw file links to `src/arrayview/_viewer.html` in the Codex app;
+they open `file://.../_viewer.html` without a backend session and the viewer
+will not work.
+
+If `uv run arrayview --serve --port <port>` reports success but `localhost:<port>`
+refuses connections, start the empty server directly and then load the file:
+
+```bash
+uv run python -c "from arrayview._launcher import _serve_empty; _serve_empty(8000)"
+uv run arrayview <file> --window browser --port 8000
+```
+
 For follow-up work in `src/arrayview/_viewer.html`, do not run broad searches.
 Do not use regex alternations or generic keyword sweeps across `_viewer.html`.
 Search for one exact identifier at a time: an id, function name, command id, or

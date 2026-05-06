@@ -52,8 +52,8 @@
         #wrapper {
             background: var(--bg); color: var(--text);
             font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 14px 20px 16px; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            padding: 14px 20px 0; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
             transition: opacity 0.14s ease;
         }
         #wrapper.mode-fade { opacity: 0; }
@@ -67,10 +67,10 @@
             transition: opacity 0.3s ease;
         }
         #info {
-            margin-bottom: 10px; font-size: 18px; white-space: nowrap;
+            margin-bottom: 8px; font-size: 18px; white-space: nowrap;
             text-align: left; flex-shrink: 0; letter-spacing: 0.01em;
             font-variant-numeric: tabular-nums; align-self: center;
-            padding: 5px 16px; border-radius: 18px;
+            padding: 3px 14px; border-radius: 15px;
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -122,7 +122,7 @@
         #viewer-row {
             position: relative;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-            width: 100%; padding: 8px; box-sizing: border-box;
+            width: 100%; padding: 0; box-sizing: border-box;
         }
         #canvas-viewport, #mv-panes .mv-canvas-wrap, .compare-canvas-area, .qv-canvas-area {
             transition: filter 0.16s ease;
@@ -177,11 +177,11 @@
                extra upward to keep the colorbar row visually fixed while the
                island extends above it. */
             --cb-extra-top: 0px;
-            padding: calc(5px + var(--cb-extra-top)) 12px 5px;
+            padding: calc(3px + var(--cb-extra-top)) 10px 3px;
             margin-top: calc(-1 * var(--cb-extra-top));
             position: fixed; z-index: 2;
             transition: opacity 0.26s ease, transform 0.26s ease, background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
-            border-radius: 18px;
+            border-radius: 15px;
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -207,9 +207,9 @@
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
             --cb-extra-top: 0px;
-            --cb-base-pad-top: 5px;
-            --cb-base-pad-x: 10px;
-            --cb-base-pad-bottom: 5px;
+            --cb-base-pad-top: 3px;
+            --cb-base-pad-x: 8px;
+            --cb-base-pad-bottom: 3px;
             --cb-base-margin-top: 0px;
             position: relative;
             border-radius: 14px;
@@ -2374,7 +2374,7 @@
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px;
+            border-radius: 12px;
             pointer-events: none;
         }
         body.fullscreen-mode #info > * { pointer-events: auto; }
@@ -2394,7 +2394,7 @@
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
             border-radius: 14px !important;
             pointer-events: none;
-            padding: calc(6px + var(--cb-extra-top, 0px)) 14px 6px !important;
+            padding: calc(4px + var(--cb-extra-top, 0px)) 12px 4px !important;
         }
         body.fullscreen-mode #slim-cb-wrap > *,
         body.fullscreen-mode #slim-cb-wrap .save-flip-front > *,
@@ -2429,13 +2429,13 @@
            so they float over the canvas content. */
         body.fullscreen-mode .compare-pane-cb-island.fs-overlay {
             opacity: 1 !important; max-height: none !important; overflow: visible !important;
-            position: absolute !important; bottom: 10px !important; left: 50% !important;
+            position: absolute !important; bottom: 8px !important; left: 50% !important;
             transform: translateX(-50%) !important;
-            margin: 0 !important; padding: 6px 14px !important;
+            margin: 0 !important; padding: 4px 12px !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
-            border-radius: 14px !important; z-index: 2;
+            border-radius: 12px !important; z-index: 2;
             box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
             /* Match single-view immersive island layout */
             align-items: center !important; gap: 8px !important;
@@ -2448,13 +2448,13 @@
         /* qMRI per-map colorbars as floating islands in immersive */
         body.fullscreen-mode .qv-canvas-wrap { position: relative; }
         body.fullscreen-mode .qv-cb-island.fs-overlay {
-            opacity: 1 !important; position: absolute !important; bottom: 6px !important;
+            opacity: 1 !important; position: absolute !important; bottom: 8px !important;
             left: 50% !important; transform: translateX(-50%) !important;
-            margin: 0 !important; padding: 4px 10px !important;
+            margin: 0 !important; padding: 3px 8px !important;
             background: rgba(30, 30, 30, 0.8) !important;
             backdrop-filter: blur(12px) !important; -webkit-backdrop-filter: blur(12px) !important;
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
-            border-radius: 10px !important; z-index: 2;
+            border-radius: 8px !important; z-index: 2;
             box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important;
             pointer-events: none !important;
         }
@@ -4576,8 +4576,8 @@
 
         // const MAX_CANVAS_FIT_PX = 600;
         const NORMAL_SIDE_RESERVE = 80;
-        const NORMAL_BOTTOM_RESERVE = 54;
-        const NORMAL_UI_RESERVE_FLOOR = 76;
+        const NORMAL_BOTTOM_RESERVE = 48;
+        const NORMAL_UI_RESERVE_FLOOR = 44;
         const MV_COLORBAR_BOTTOM_CLEARANCE = 42;
 
         function uiReserveV() {
@@ -4585,7 +4585,7 @@
                 // In fullscreen mode (not crossfading): chrome is overlaid, so no reserve
                 return 0;
             }
-            let h = 30; // wrapper padding
+            let h = 14; // wrapper padding
             for (const id of ['info']) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -6251,7 +6251,7 @@
                 }
             }
             // Top is fixed at pane bottom + chromeGap. Never moves.
-            let cbTop = _cbAnchorBottom + (_sharedCompareCb ? 10 : chromeGap);
+            let cbTop = _cbAnchorBottom + (_sharedCompareCb ? 10 : 8);
             if (_sharedCompareCb) {
                 const _topRect = _sharedTopSourceClip ? _sharedTopSourceClip.getBoundingClientRect() : null;
                 const _bottomRect = _sharedBottomSourceClip ? _sharedBottomSourceClip.getBoundingClientRect() : null;
@@ -24201,7 +24201,7 @@ if (typeof gsap !== 'undefined') {
                         if (maxBottom > 0) anchorBottom = maxBottom;
                     }
                     const infoH = infoEl.offsetHeight || 0;
-                    const desiredTop = anchorTop + 8;
+                    const desiredTop = anchorTop + 2;
                     const maxTop = anchorBottom - infoH - 4;
                     infoEl.style.top = Math.min(desiredTop, Math.max(anchorTop, maxTop)) + 'px';
                 }
@@ -24237,7 +24237,7 @@ if (typeof gsap !== 'undefined') {
                         });
                         if (maxClipBottom > 0) anchorBottom = maxClipBottom;
                     }
-                    const cbBottom = Math.max(10, window.innerHeight - anchorBottom + 10);
+                    const cbBottom = Math.max(14, window.innerHeight - anchorBottom + 14);
                     cbWrap.style.bottom = cbBottom + 'px';
                 }
             }
