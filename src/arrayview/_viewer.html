@@ -152,7 +152,7 @@
            Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
         body.rounded-panes #canvas-viewport,
         body.rounded-panes .mv-pane,
-        body.rounded-panes .qv-canvas-wrap {
+        body.rounded-panes .qv-canvas-clip {
             border-radius: 10px;
             overflow: hidden;
         }
@@ -2127,6 +2127,7 @@
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
         .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .compare-canvas-clip.canvas-bordered canvas { outline: none; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-source-pane-badge {
             position: absolute;
@@ -2247,6 +2248,10 @@
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
+        .qv-canvas-clip { position: relative; display: inline-flex; overflow: hidden; }
+        .qv-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
+        .qv-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .qv-canvas-clip.canvas-bordered canvas { outline: none; }
         .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; }
         .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
         .qv-cb-labels { display: none; }
@@ -20503,7 +20508,7 @@ if (typeof gsap !== 'undefined') {
                     // Tight box so axes-indicator's bottom:6px measures from the
                     // canvas, not from below the colorbar sibling in cvWrap.
                     const qvCvBox = document.createElement('div');
-                    qvCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    qvCvBox.className = 'qv-canvas-clip';
                     qvCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
@@ -20866,7 +20871,7 @@ if (typeof gsap !== 'undefined') {
                     // Tight box so axes-indicator's bottom:6px measures from the
                     // canvas, not from below the colorbar sibling in cvWrap.
                     const cqCvBox = document.createElement('div');
-                    cqCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    cqCvBox.className = 'qv-canvas-clip';
                     cqCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
@@ -21295,7 +21300,7 @@ if (typeof gsap !== 'undefined') {
                     cv.className = 'qv-canvas';
                     // Tight box: canvas + axes-indicator positioned relative to canvas
                     const cvBox = document.createElement('div');
-                    cvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    cvBox.className = 'qv-canvas-clip';
                     cvBox.appendChild(cv);
                     // Axes indicator (same style as regular 3-plane view)
                     const _axLetters = ['x', 'y', 'z'];
@@ -24513,7 +24518,7 @@ if (typeof gsap !== 'undefined') {
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
             if (vp) vp.classList.toggle('canvas-bordered', canvasBorders);
-            document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-pane').forEach(el => {
+            document.querySelectorAll('.qv-canvas-clip, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
             document.querySelectorAll('.compare-canvas-clip').forEach(el => {
