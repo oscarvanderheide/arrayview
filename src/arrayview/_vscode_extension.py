@@ -12,10 +12,6 @@ from importlib.resources import files as _pkg_files
 from arrayview._session import _vprint
 from arrayview._platform import _find_code_cli, _find_vscode_ipc_hook, _in_vscode_terminal, _is_vscode_remote
 
-_VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
-_VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.3"  # current bundled extension version
-
 # ---------------------------------------------------------------------------
 # VS Code .app bundle detection (macOS)
 # ---------------------------------------------------------------------------
@@ -48,7 +44,7 @@ def _vscode_app_bundle() -> str | None:
 
 _VSCODE_EXT_INSTALLED = False  # cached so we only check once per process
 _VSCODE_EXT_FRESH_INSTALL = False  # True if we just installed it this session
-_VSCODE_EXT_VERSION = "0.14.3"  # current bundled extension version
+_VSCODE_EXT_VERSION = "0.14.4"  # current bundled extension version
 
 def _bundled_vscode_vsix_version(vsix_path: str) -> str | None:
     """Return the bundled opener extension version recorded inside the VSIX."""

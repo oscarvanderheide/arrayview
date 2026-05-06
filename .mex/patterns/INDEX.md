@@ -26,6 +26,7 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [add-file-format.md](add-file-format.md) | Adding support for a new file format in `_io.py` |
 | [animation-verify.md](animation-verify.md) | Verifying animation quality after GSAP, rAF, or CSS transition changes |
 | [add-server-endpoint.md](add-server-endpoint.md) | Adding a new REST or WebSocket route to `_server.py` |
+| [debug-vscode-extension-python.md](debug-vscode-extension-python.md) | Diagnosing VS Code custom-editor failures caused by Python selection, workspace virtualenv drift, or uv fallback behavior |
 | [debug-render.md](debug-render.md) | Visual rendering failures — wrong colors, blank canvas, artifacts, colormap issues |
 | [extract-server-route-module.md](extract-server-route-module.md) | Moving an existing route cluster out of `_server.py` into a dedicated `_routes_*.py` module |
 | [frontend-change.md](frontend-change.md) | Any change to `_viewer.html` — CSS, JS, new mode, keybind, layout, colorbar |

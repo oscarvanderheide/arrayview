@@ -95,11 +95,14 @@ class PythonBridge {
             // 1. Explicit pythonPath (from signal file — always correct)
             // 2. Workspace .venv (covers uv sync / editable installs during dev)
             // 3. System python3/python (might have arrayview via pip)
-            // 4. uv run --with arrayview (ephemeral env from PyPI — always works)
+            // 4. uv run --python 3.12 --with arrayview (ephemeral env from PyPI)
+            //    ArrayView requires Python >=3.12, so pin the uv fallback to a
+            //    compatible interpreter instead of inheriting an older workspace
+            //    Python (common in remote/tunnel projects).
             if (this.pythonPath) {
                 this._candidates = [this.pythonPath];
             } else {
-                this._candidates = ['python3', 'python', 'uv run --with arrayview python'];
+                this._candidates = ['python3', 'python', 'uv run --python 3.12 --with arrayview python'];
                 // Prepend workspace .venv if it exists
                 const folders = vscode.workspace.workspaceFolders;
                 if (folders) {
