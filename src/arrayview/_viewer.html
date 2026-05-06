@@ -2362,6 +2362,8 @@
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
         body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+        body.zen-mode .qv-cb-island,
+        body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
         /* ── CSS: Immersive, Fullscreen, and Compact Mode ─────────── */
@@ -23564,6 +23566,12 @@ if (typeof gsap !== 'undefined') {
         // ── 2. Zen / focus mode ───────────────────────────────────────
         let _zenActive = false;
         let _zenInactivityTimer = null;
+        function _setZenQmriChromeOpacity(value) {
+            document.querySelectorAll('.qv-cb-island, .qmri-pane > .qv-label').forEach(el => {
+                el.style.opacity = value;
+                el.style.pointerEvents = value === '0' ? 'none' : '';
+            });
+        }
         function _zenShowChrome() {
             clearTimeout(_zenInactivityTimer);
             if (!_zenActive) return;
@@ -23575,10 +23583,12 @@ if (typeof gsap !== 'undefined') {
             if (eggs) eggs.style.opacity = '';
             const hint = document.getElementById('help-hint');
             if (hint) hint.style.opacity = '';
+            _setZenQmriChromeOpacity('');
             _zenInactivityTimer = setTimeout(_zenHideChrome, 2500);
         }
         function _zenHideChrome() {
-            // Already hidden via body.zen-mode CSS; just let the CSS class do the work
+            if (!_zenActive) return;
+            _setZenQmriChromeOpacity('0');
         }
         function toggleZenMode() {
             _zenActive = !_zenActive;
@@ -23589,11 +23599,13 @@ if (typeof gsap !== 'undefined') {
                     || document.documentElement.mozRequestFullScreen;
                 if (req) req.call(document.documentElement).catch(() => {});
                 document.addEventListener('mousemove', _zenShowChrome);
+                _zenHideChrome();
                 showToast('zen mode — move mouse to reveal chrome · Z to exit');
             } else {
                 document.body.classList.remove('zen-mode');
                 clearTimeout(_zenInactivityTimer);
                 document.removeEventListener('mousemove', _zenShowChrome);
+                _setZenQmriChromeOpacity('');
                 if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
                 else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
             }
@@ -23604,6 +23616,7 @@ if (typeof gsap !== 'undefined') {
                 document.body.classList.remove('zen-mode');
                 clearTimeout(_zenInactivityTimer);
                 document.removeEventListener('mousemove', _zenShowChrome);
+                _setZenQmriChromeOpacity('');
             }
         });
 
@@ -24496,6 +24509,7 @@ if (typeof gsap !== 'undefined') {
             _reconcileLayout();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
             if (_mainHoverPinEligible()) _renderHoverPins();
             else _clearHoverPins();
