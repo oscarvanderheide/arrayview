@@ -2239,12 +2239,23 @@
             display: none !important;
         }
         #qmri-view-wrap { display: none; width: 100%; }
-        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
+        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; margin-top: -4px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
         .qv-row.cq-row { position: relative; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+        .qmri-pane { position: relative; }
         .qv-placeholder { visibility: hidden; pointer-events: none; }
         .qv-label { font-size: 16px; color: var(--fg); flex-shrink: 0; letter-spacing: 0.05em; }
+        .qmri-pane > .qv-label {
+            position: absolute; top: 8px; left: 10px; z-index: 3;
+            font-size: 12px; line-height: 1; padding: 5px 9px;
+            color: var(--text); background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border-radius: 999px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+            pointer-events: none;
+        }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
@@ -2466,13 +2477,9 @@
         }
         body.fullscreen-mode .qv-cb-island.fs-overlay > * { pointer-events: auto; }
         /* qMRI pane titles as glass corner labels in immersive */
-        body.fullscreen-mode .qv-pane { position: relative; }
-        body.fullscreen-mode .qv-label {
-            position: absolute; top: 4px; left: 4px; z-index: 3;
-            font-size: 12px; padding: 2px 8px; color: #d8d8d8;
-            background: rgba(30, 30, 30, 0.6);
-            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-            border-radius: 0 0 6px 0;
+        body.fullscreen-mode .qmri-pane > .qv-label {
+            top: 4px; left: 4px;
+            padding: 2px 8px;
         }
         /* qMRI immersive: no extra padding — dimbar overlays the panes */
         body.fullscreen-mode #qmri-view-wrap.active {
@@ -20495,7 +20502,7 @@ if (typeof gsap !== 'undefined') {
                     const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
                     const cmap = cmaps[viewIdx];
                     const pane = document.createElement('div');
-                    pane.className = 'qv-pane';
+                    pane.className = 'qv-pane qmri-pane';
                     const label = document.createElement('div');
                     label.className = 'qv-label';
                     label.textContent = QMRI_LABELS[cmap] || cmap;
@@ -22070,7 +22077,7 @@ if (typeof gsap !== 'undefined') {
             const colGap = 24;  // matches .qv-row gap
             const rowGap = 14;  // matches #qmri-view-wrap gap
             const sidePad = 120; // 40px padding + colorbar label flanks
-            const labelH = 24;  // qv-label above each canvas
+            const labelH = 0;   // qMRI labels are overlaid inside each pane
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
