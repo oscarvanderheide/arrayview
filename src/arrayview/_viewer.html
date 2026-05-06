@@ -10,7 +10,7 @@
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(255,255,255,0.06);
-            --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
+            --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
             --dim-hover: #777;
@@ -18,9 +18,9 @@
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
             --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
-            --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
+            --text: #1a1a1a; --muted: #727272; --subtle: #9f9f9f;
             --highlight: #000; --canvas-border: rgba(0,0,0,0.08);
-            --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
+            --active-dim: #d08770; --playing-dim: #bf616a; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #81a1c1;
             --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
             --dim-hover: #888;
@@ -28,9 +28,9 @@
         :root.solarized {
             --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
             --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
-            --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
+            --text: #657b83; --muted: #7f8f8f; --subtle: #b7b08f;
             --highlight: #073642; --canvas-border: rgba(0,0,0,0.08);
-            --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
+            --active-dim: #a3be8c; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #5e81ac;
             --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
             --dim-hover: #8a8a7a;
@@ -252,6 +252,7 @@
         .cb-canvas {
             display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
             position: absolute; bottom: 0; left: 0; background: transparent;
+            box-shadow: 0 0 0 1px var(--canvas-border);
         }
         .cb-tri-zone {
             position: absolute; bottom: 0; left: 0; width: 100%;
@@ -270,7 +271,7 @@
             color: var(--muted);
             letter-spacing: 0.01em;
         }
-        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; }
+        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; box-shadow: 0 0 0 1px var(--canvas-border); }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
         .slim-cb-tri {
@@ -2498,20 +2499,67 @@
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
         body:not(.fullscreen-mode) #info {
-            background-color: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) #slim-cb-wrap {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) .cb-island {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        body:not(.fullscreen-mode) #info .dim-label:not(.active-dim):not(.playing-dim):not(.vfield-t-dim):not(.spatial-dim) {
+            color: var(--text);
+            opacity: 0.54;
+        }
+        body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
+            opacity: 0.64;
+        }
+        :root.light body:not(.fullscreen-mode) #info .spatial-dim.dim-label,
+        :root.solarized body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
+            opacity: 0.92;
+        }
+        body:not(.fullscreen-mode) #info .dim-size {
+            opacity: 0.42;
+        }
+        :root.light body:not(.fullscreen-mode) #info .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .dim-size {
+            opacity: 0.6;
+        }
+        body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+            opacity: 0.82;
+        }
+        :root.light body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+            opacity: 0.9;
+        }
+        body:not(.fullscreen-mode) #info .dim-sep {
+            color: var(--text);
+            opacity: 0.24;
+        }
+        :root.light body:not(.fullscreen-mode) #info .dim-sep,
+        :root.solarized body:not(.fullscreen-mode) #info .dim-sep {
+            opacity: 0.38;
         }
 
         /* ── Colormap preview strip ──────────────────────────────── */
@@ -12229,13 +12277,13 @@
         function dimSlash(pct, active, playing, isVfieldT) {
             const style = getComputedStyle(document.documentElement);
             const muted = style.getPropertyValue('--muted').trim();
-            const border = style.getPropertyValue('--border').trim();
+            const subtle = style.getPropertyValue('--subtle').trim();
             let fill;
             if (isVfieldT) fill = style.getPropertyValue('--vfield-t-dim').trim();
             else if (playing) fill = style.getPropertyValue('--playing-dim').trim();
             else if (active) fill = style.getPropertyValue('--active-dim').trim();
             else fill = muted;
-            const unfilled = (active || playing || isVfieldT) ? muted : border;
+            const unfilled = (active || playing || isVfieldT) ? muted : subtle;
             return slashFill(pct, fill, unfilled);
         }
         /* ── JS: Info Bar and Pixel Display ───────────────────────── */
