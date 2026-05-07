@@ -6823,20 +6823,9 @@
 
             /** Return the visible colorbar-strip value at hover fraction frac. */
             _hoverBarValueAt(frac) {
-                const hd = this._histData;
-                if (!hd) return this._hoverValueAt(frac);
-                const dmin = hd.vmin, dmax = hd.vmax;
-                const range = dmax - dmin || 1;
                 const win = this.opts.getWindow ? this.opts.getWindow() : null;
-                const wmin = Number.isFinite(win?.vmin) ? win.vmin : dmin;
-                const wmax = Number.isFinite(win?.vmax) ? win.vmax : dmax;
-                let vminFrac = (wmin - dmin) / range;
-                let vmaxFrac = (wmax - dmin) / range;
-                if (vminFrac <= 0) vminFrac = 0;
-                if (vmaxFrac >= 1) vmaxFrac = 1;
-                if (frac >= vminFrac && frac <= vmaxFrac && vmaxFrac - vminFrac > 1e-6) {
-                    const localFrac = (frac - vminFrac) / (vmaxFrac - vminFrac);
-                    return wmin + localFrac * (wmax - wmin);
+                if (win && Number.isFinite(win.vmin) && Number.isFinite(win.vmax)) {
+                    return win.vmin + frac * (win.vmax - win.vmin);
                 }
                 return this._hoverValueAt(frac);
             }

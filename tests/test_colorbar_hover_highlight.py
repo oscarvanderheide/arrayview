@@ -11,6 +11,7 @@ def test_colorbar_hover_bar_bin_mapping_branch_present():
     assert "_hoverBarValueAt(frac)" in src
     assert "_hoverBinIndexForPoint(frac, y, cssH)" in src
     assert "const isBarStrip = y >= Math.max(0, cssH - CB_COLLAPSED_H);" in src
+    assert "return win.vmin + frac * (win.vmax - win.vmin);" in src
 
 
 def test_colorbar_hover_can_drive_lebesgue_without_histogram_expand():
@@ -55,6 +56,26 @@ def test_collapsed_colorbar_hover_shows_lebesgue_overlay(loaded_viewer, sid_2d):
         }""",
         timeout=5000,
     )
+
+
+@pytest.mark.browser
+def test_colorbar_hover_uses_window_range_not_histogram_range(loaded_viewer, sid_3d):
+    page = loaded_viewer(sid_3d)
+    vals = page.evaluate(
+        """async () => {
+            await window._primaryCb.ensureHistogramData();
+            window._primaryCb.opts.setWindow(-1, 1);
+            window._primaryCb.draw();
+            return {
+                left: window._primaryCb._hoverBarValueAt(0),
+                right: window._primaryCb._hoverBarValueAt(1),
+                mid: window._primaryCb._hoverBarValueAt(0.5),
+            };
+        }"""
+    )
+    assert abs(vals["left"] + 1) < 1e-9
+    assert abs(vals["right"] - 1) < 1e-9
+    assert abs(vals["mid"]) < 1e-9
 
 
 @pytest.mark.browser
