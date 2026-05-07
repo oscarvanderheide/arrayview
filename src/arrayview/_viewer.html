@@ -2593,7 +2593,7 @@
         .cmap-thumb.active span { color:var(--fg); }
 
         /* ── Colormap picker: integrated preview inside colorbar island ──
-           The grid is absolute-positioned inside #slim-cb-wrap, in the space
+           The menu is absolute-positioned inside #slim-cb-wrap, in the space
            opened up by animating the wrap's top padding (--cb-extra-top).
            Swatches fade in only after the island finishes extending. */
         #slim-cb-preview,
@@ -2646,6 +2646,75 @@
         .cmap-hold-preview .cmh-cell.active span { color: var(--active-dim); }
         #slim-cb-preview .cmh-cell.active canvas,
         .cmap-hold-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
+
+        #slim-cb-preview.cmap-wheel,
+        .cmap-hold-preview.cmap-wheel {
+            --cmap-wheel-size: min(198px, calc(100vw - 128px));
+            left: 50%;
+            right: auto;
+            width: var(--cmap-wheel-size);
+            height: calc(var(--cmap-wheel-size) + 18px);
+            display: block;
+            transform: translateX(-50%);
+            overflow: visible;
+        }
+        #slim-cb-preview.cmap-wheel::before,
+        .cmap-hold-preview.cmap-wheel::before {
+            content: '';
+            position: absolute;
+            inset: 12px;
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            opacity: 0.42;
+            width: calc(var(--cmap-wheel-size) - 24px);
+            height: calc(var(--cmap-wheel-size) - 24px);
+            box-sizing: border-box;
+        }
+        #slim-cb-preview.cmap-wheel .cmap-wheel-canvas,
+        .cmap-hold-preview.cmap-wheel .cmap-wheel-canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: var(--cmap-wheel-size);
+            height: var(--cmap-wheel-size);
+            background: transparent !important;
+            cursor: pointer;
+        }
+        #slim-cb-preview.cmap-wheel .cmh-cell,
+        .cmap-hold-preview.cmap-wheel .cmh-cell {
+            display: none;
+        }
+        #slim-cb-preview.cmap-wheel .cmh-cell span,
+        .cmap-hold-preview.cmap-wheel .cmh-cell span {
+            display: none;
+        }
+        .cmap-wheel-label {
+            position: absolute;
+            left: 50%;
+            top: calc(var(--cmap-wheel-size) - 2px);
+            min-width: 74px;
+            height: 18px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: translateX(-50%);
+            border: 0;
+            background: transparent;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+        .cmap-wheel-label-text {
+            max-width: 96px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--active-dim);
+            font-family: monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            text-align: center;
+            white-space: nowrap;
+        }
 
         /* ── Hold-g grid layout picker ──────────────────────────── */
         .layout-picker {
@@ -24922,30 +24991,93 @@ if (typeof gsap !== 'undefined') {
             return Math.max(1, cols);
         }
 
+        function _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1) {
+            g.beginPath();
+            g.arc(cx, cy, outerR, a0, a1, false);
+            g.arc(cx, cy, innerR, a1, a0, true);
+            g.closePath();
+        }
+
+        function _cmapHoldDrawWheel() {
+            if (!_cmapHoldPreviewEl) return;
+            const cv = _cmapHoldPreviewEl.querySelector('.cmap-wheel-canvas');
+            if (!cv) return;
+            const pool = _cmapHoldPool || COLORMAPS;
+            const n = pool.length;
+            const g = cv.getContext('2d');
+            const cx = cv.width / 2;
+            const cy = cv.height / 2;
+            const baseOuter = cv.width * 0.425;
+            const baseInner = cv.width * 0.245;
+            const step = (Math.PI * 2) / Math.max(1, n);
+            const gap = Math.min(0.075, step * 0.18);
+            const start = -Math.PI / 2;
+            const rootStyle = getComputedStyle(document.documentElement);
+            const activeColor = rootStyle.getPropertyValue('--active-dim').trim();
+            g.clearRect(0, 0, cv.width, cv.height);
+            for (let i = 0; i < n; i++) {
+                const stops = COLORMAP_GRADIENT_STOPS[pool[i]];
+                if (!stops) continue;
+                const active = i === _cmapHoldSelIdx;
+                const mid = start + i * step;
+                const a0 = mid - step / 2 + gap;
+                const a1 = mid + step / 2 - gap;
+                const outerR = baseOuter + (active ? cv.width * 0.035 : 0);
+                const innerR = baseInner - (active ? cv.width * 0.008 : 0);
+                const tx = Math.cos(mid + Math.PI / 2);
+                const ty = Math.sin(mid + Math.PI / 2);
+                const grad = g.createLinearGradient(cx - tx * outerR, cy - ty * outerR, cx + tx * outerR, cy + ty * outerR);
+                stops.forEach(([r, gv, b], j) => {
+                    grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                });
+                g.save();
+                _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1);
+                g.clip();
+                g.fillStyle = grad;
+                g.fillRect(0, 0, cv.width, cv.height);
+                g.restore();
+                if (active && activeColor) {
+                    _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1);
+                    g.lineWidth = 7;
+                    g.strokeStyle = activeColor;
+                    g.stroke();
+                }
+            }
+        }
+
         function _cmapHoldBuild() {
             if (!_cmapHoldPreviewEl) return;
             const pool = _cmapHoldPool || COLORMAPS;
             const n = pool.length;
-            let html = '';
+            let html = '<canvas class="cmap-wheel-canvas" width="420" height="420" aria-hidden="true"></canvas>';
             for (let i = 0; i < n; i++) {
-                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${pool[i]}</span></div>`;
+                html += `<div class="cmh-cell" data-cmh-idx="${i}"><span>${pool[i]}</span></div>`;
             }
+            html += '<div class="cmap-wheel-label" aria-hidden="true"><div class="cmap-wheel-label-text"></div></div>';
+            _cmapHoldPreviewEl.classList.add('cmap-wheel');
             _cmapHoldPreviewEl.innerHTML = html;
-            // Paint gradient swatches and wire hover/click.
+            const wheelCanvas = _cmapHoldPreviewEl.querySelector('.cmap-wheel-canvas');
+            if (wheelCanvas) {
+                wheelCanvas.addEventListener('mousemove', (e) => {
+                    if (!_cmapHoldActive) return;
+                    const idx = _cmapHoldIndexFromPoint(e, wheelCanvas);
+                    if (idx < 0 || idx === _cmapHoldSelIdx) return;
+                    _cmapHoldSelIdx = idx;
+                    _cmapHoldHighlight();
+                    _cmapHoldApply(idx);
+                    _restartCmapAutoDismiss();
+                });
+                wheelCanvas.addEventListener('click', (e) => {
+                    if (!_cmapHoldActive) return;
+                    const idx = _cmapHoldIndexFromPoint(e, wheelCanvas);
+                    if (idx < 0) return;
+                    _cmapHoldSelIdx = idx;
+                    _cmapHoldCommit();
+                });
+            }
+            // Hidden cells preserve existing active state/query semantics.
             const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => {
-                const cv = cell.querySelector('canvas');
-                const stops = COLORMAP_GRADIENT_STOPS[pool[i]];
-                if (cv && stops) {
-                    const g = cv.getContext('2d');
-                    // whitelisted non-ColorBar use: colormap picker swatches
-                    const grad = g.createLinearGradient(0, 0, cv.width, 0);
-                    stops.forEach(([r, gv, b], j) => {
-                        grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
-                    });
-                    g.fillStyle = grad;
-                    g.fillRect(0, 0, cv.width, cv.height);
-                }
                 cell.addEventListener('mouseover', () => {
                     if (!_cmapHoldActive) return;
                     _cmapHoldSelIdx = i;
@@ -24961,10 +25093,36 @@ if (typeof gsap !== 'undefined') {
             });
         }
 
+        function _cmapHoldIndexFromPoint(e, cv) {
+            const pool = _cmapHoldPool || COLORMAPS;
+            const n = pool.length;
+            if (!cv || !n) return -1;
+            const rect = cv.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * cv.width / rect.width;
+            const y = (e.clientY - rect.top) * cv.height / rect.height;
+            const dx = x - cv.width / 2;
+            const dy = y - cv.height / 2;
+            const r = Math.hypot(dx, dy);
+            const inner = cv.width * 0.22;
+            const outer = cv.width * 0.47;
+            if (r < inner || r > outer) return -1;
+            const step = (Math.PI * 2) / n;
+            const start = -Math.PI / 2;
+            const angle = Math.atan2(dy, dx);
+            return Math.round((angle - start) / step + n) % n;
+        }
+
         function _cmapHoldHighlight() {
             if (!_cmapHoldPreviewEl) return;
             const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
-            cells.forEach((cell, i) => cell.classList.toggle('active', i === _cmapHoldSelIdx));
+            const pool = _cmapHoldPool || COLORMAPS;
+            cells.forEach((cell, i) => {
+                const active = i === _cmapHoldSelIdx;
+                cell.classList.toggle('active', active);
+            });
+            _cmapHoldDrawWheel();
+            const label = _cmapHoldPreviewEl.querySelector('.cmap-wheel-label-text');
+            if (label) label.textContent = pool[_cmapHoldSelIdx] || '';
         }
 
         function _cmapHoldApply(idx) {
@@ -25083,15 +25241,9 @@ if (typeof gsap !== 'undefined') {
         function _cmapHoldNav(dx, dy) {
             if (!_cmapHoldActive) return;
             const n = (_cmapHoldPool || COLORMAPS).length;
-            const cols = _cmapHoldCols;
-            const row = Math.floor(_cmapHoldSelIdx / cols);
-            const col = _cmapHoldSelIdx % cols;
-            const rows = Math.ceil(n / cols);
-            // Clamp (safer than wrap for a small grid).
-            const nextRow = Math.max(0, Math.min(rows - 1, row + dy));
-            const nextCol = Math.max(0, Math.min(cols - 1, col + dx));
-            let next = nextRow * cols + nextCol;
-            if (next >= n) next = n - 1;  // last row may be short
+            let step = dx || 0;
+            if (dy) step = Math.max(1, Math.round(n / 4)) * dy;
+            const next = (_cmapHoldSelIdx + step + n) % n;
             if (next === _cmapHoldSelIdx) return;
             _cmapHoldSelIdx = next;
             _cmapHoldHighlight();

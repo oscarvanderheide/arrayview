@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArrayView Egg Placement Mockup</title>
+  <style>
+    :root {
+      --bg: #222433;
+      --surface: rgba(39, 43, 61, 0.9);
+      --surface-2: rgba(45, 50, 71, 0.92);
+      --border: rgba(109, 119, 154, 0.22);
+      --text: rgba(231, 235, 245, 0.92);
+      --muted: rgba(149, 157, 184, 0.78);
+      --active-dim: rgba(245, 200, 66, 0.9);
+      --radius: 14px;
+      --radius-lg: 18px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+      --pane-gap: 22px;
+      --chip-gap: 8px;
+      --mono: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top, rgba(80, 86, 120, 0.16), transparent 34%),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow: hidden;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 7px 12px;
+      cursor: pointer;
+    }
+
+    button.is-active {
+      border-color: rgba(245, 200, 66, 0.4);
+      color: var(--active-dim);
+      background: rgba(245, 200, 66, 0.08);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      min-height: 100vh;
+    }
+
+    .controls {
+      padding: 22px 18px;
+      border-right: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(28, 31, 45, 0.98), rgba(24, 27, 39, 0.92));
+    }
+
+    .controls h1 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .controls p {
+      margin: 0 0 18px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .control-group {
+      margin-bottom: 18px;
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .control-group h2 {
+      margin: 0 0 10px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .toggle-row + .toggle-row {
+      margin-top: 10px;
+    }
+
+    .controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #f5c842;
+    }
+
+    .stage-wrap {
+      position: relative;
+      padding: 26px 24px 24px;
+    }
+
+    .stage {
+      position: relative;
+      height: calc(100vh - 50px);
+      border-radius: 28px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%),
+        rgba(255, 255, 255, 0.01);
+    }
+
+    .stage[data-bar-orientation="vertical"] .viewport {
+      inset: 84px 112px 28px 22px;
+    }
+
+    .slice-hud {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      padding: 12px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+    }
+
+    .stage[data-bar-orientation="vertical"] .slice-hud {
+      top: 112px;
+      right: 24px;
+      left: auto;
+      transform: none;
+      flex-direction: column;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 14px 16px;
+      border-radius: 22px;
+    }
+
+    .stage[data-bar-orientation="vertical"] .slice-hud .divider {
+      display: none;
+    }
+
+    .slice-hud-item {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 3px;
+    }
+
+    .slice-hud .axis {
+      color: #c7abc0;
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    .slice-hud .divider {
+      color: rgba(149, 157, 184, 0.3);
+    }
+
+    .viewport {
+      position: absolute;
+      inset: 84px 22px 86px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .viewport[data-mode="single"] {
+      display: block;
+    }
+
+    .viewport[data-mode="single"] .pane {
+      position: absolute;
+      inset: 0;
+    }
+
+    .viewport[data-mode="ortho"] {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--pane-gap);
+    }
+
+    .viewport[data-mode="ortho"] .pane {
+      position: relative;
+    }
+
+    .viewport[data-mode="compare"] {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--pane-gap);
+    }
+
+    .pane {
+      border-radius: 22px;
+      border: 1px solid rgba(109, 119, 154, 0.18);
+      background: rgba(8, 10, 14, 0.62);
+    }
+
+    .pane::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+      pointer-events: none;
+    }
+
+    .pane-label {
+      position: absolute;
+      left: 14px;
+      top: 12px;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(149, 157, 184, 0.6);
+    }
+
+    .value-chip {
+      position: absolute;
+      right: 26px;
+      bottom: 88px;
+      min-width: 112px;
+      padding: 12px 14px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .stage[data-bar-orientation="vertical"] .value-chip {
+      right: 24px;
+      bottom: 138px;
+      min-width: 78px;
+      padding: 14px 10px;
+      text-align: center;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      line-height: 1.2;
+    }
+
+    .value-chip-value {
+      color: var(--active-dim);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .colorbar {
+      position: absolute;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: 54px 1fr 54px;
+      gap: 12px;
+      align-items: center;
+      width: min(520px, calc(100% - 80px));
+      padding: 10px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .stage[data-bar-orientation="vertical"] .colorbar {
+      left: auto;
+      right: 24px;
+      top: 50%;
+      bottom: auto;
+      transform: translateY(-50%);
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: 36px 1fr 36px;
+      justify-items: center;
+      gap: 12px;
+      width: 76px;
+      height: min(420px, calc(100% - 250px));
+      padding: 16px 10px;
+      border-radius: 24px;
+    }
+
+    .colorbar-label {
+      text-align: center;
+    }
+
+    .colorbar-gradient {
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #000 0%, #6b6b6b 45%, #fff 100%);
+    }
+
+    .stage[data-bar-orientation="vertical"] .colorbar-gradient {
+      width: 28px;
+      height: 100%;
+      background: linear-gradient(180deg, #fff 0%, #6b6b6b 55%, #000 100%);
+    }
+
+    .egg-overlay {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      display: inline-flex;
+      gap: var(--chip-gap);
+      padding: 8px 10px;
+      border-radius: 16px;
+      background: rgba(10, 12, 18, 0.25);
+      border: 1px dashed rgba(149, 157, 184, 0.15);
+      backdrop-filter: blur(10px);
+      cursor: grab;
+      user-select: none;
+      box-shadow: var(--shadow);
+      touch-action: none;
+      transform: translate(-50%, -50%);
+    }
+
+    .egg-overlay[data-layout="vertical"] {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .egg-overlay.dragging {
+      cursor: grabbing;
+      border-color: rgba(245, 200, 66, 0.26);
+      background: rgba(10, 12, 18, 0.48);
+    }
+
+    .egg {
+      padding: 8px 11px 7px;
+      border-radius: 10px;
+      border: 1px solid currentColor;
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .egg.fft { color: #8ad1a7; }
+    .egg.log { color: #d1a84d; }
+    .egg.imag { color: #8ec9d8; }
+    .egg.alpha { color: #d27a73; }
+    .egg.sos { color: #9b82ea; }
+
+    .readout {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .hint {
+      position: absolute;
+      left: 26px;
+      bottom: 24px;
+      font-size: 12px;
+      color: rgba(149, 157, 184, 0.68);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="controls">
+      <h1>Egg Placement Mockup</h1>
+      <p>Drag the transform strip anywhere in the global viewer chrome and switch between horizontal and vertical stacking.</p>
+
+      <section class="control-group">
+        <h2>Viewport Mode</h2>
+        <div class="button-row" id="mode-buttons">
+          <button data-mode="single" class="is-active">Single</button>
+          <button data-mode="ortho">Ortho</button>
+          <button data-mode="compare">2 Arrays</button>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2>Placement Presets</h2>
+        <div class="button-row" id="preset-buttons">
+          <button data-preset="top">Top Center</button>
+          <button data-preset="under-hud">Under HUD</button>
+          <button data-preset="above-colorbar" class="is-active">Above Colorbar</button>
+          <button data-preset="bottom-right">Bottom Right</button>
+          <button data-preset="left-rail">Left Rail</button>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2>Arrangement</h2>
+        <div class="button-row" id="layout-buttons">
+          <button data-layout="horizontal" class="is-active">Horizontal</button>
+          <button data-layout="vertical">Vertical</button>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2>Bar Orientation</h2>
+        <div class="button-row" id="bar-orientation-buttons">
+          <button data-bar-orientation="horizontal" class="is-active">Horizontal</button>
+          <button data-bar-orientation="vertical">Vertical</button>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2>Options</h2>
+        <label class="toggle-row">
+          <span>Show scope label</span>
+          <input id="scope-toggle" type="checkbox" checked />
+        </label>
+        <label class="toggle-row">
+          <span>Dim panes to emphasize global scope</span>
+          <input id="pane-dim-toggle" type="checkbox" />
+        </label>
+      </section>
+
+      <div class="readout" id="readout">Position: 50%, 82%</div>
+    </aside>
+
+    <main class="stage-wrap">
+      <div class="stage" id="stage">
+        <div class="slice-hud">
+          <span class="slice-hud-item"><span class="axis">x</span>/224</span>
+          <span class="divider">•</span>
+          <span class="slice-hud-item"><span class="axis">y</span>/240</span>
+          <span class="divider">•</span>
+          <span class="slice-hud-item"><span class="axis">p</span>/204</span>
+          <span class="divider">•</span>
+          <span class="slice-hud-item"><span style="color: var(--active-dim); font-weight: 700; font-size: 18px;">1</span>/6</span>
+        </div>
+
+        <div class="viewport" id="viewport" data-mode="ortho">
+          <div class="pane"><span class="pane-label">Axial</span></div>
+          <div class="pane"><span class="pane-label">Coronal</span></div>
+          <div class="pane"><span class="pane-label">Sagittal</span></div>
+        </div>
+
+        <div class="egg-overlay" id="egg-overlay" data-layout="horizontal">
+          <div class="egg fft">FFT</div>
+          <div class="egg log">LOG</div>
+          <div class="egg imag">IMAG</div>
+          <div class="egg alpha">ALPHA</div>
+          <div class="egg sos">SOS</div>
+        </div>
+
+        <div class="value-chip">
+          <div class="value-chip-value">0</div>
+          <div>x=155 y=184</div>
+        </div>
+
+        <div class="colorbar">
+          <div class="colorbar-label">0</div>
+          <div class="colorbar-gradient"></div>
+          <div class="colorbar-label">0</div>
+        </div>
+
+        <div class="hint">Drag the transform strip. Presets are just anchors.</div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const viewport = document.getElementById('viewport');
+    const overlay = document.getElementById('egg-overlay');
+    const readout = document.getElementById('readout');
+    const modeButtons = [...document.querySelectorAll('#mode-buttons button')];
+    const presetButtons = [...document.querySelectorAll('#preset-buttons button')];
+    const layoutButtons = [...document.querySelectorAll('#layout-buttons button')];
+    const barOrientationButtons = [...document.querySelectorAll('#bar-orientation-buttons button')];
+    const scopeToggle = document.getElementById('scope-toggle');
+    const paneDimToggle = document.getElementById('pane-dim-toggle');
+
+    const presets = {
+      top: { x: 50, y: 12 },
+      'under-hud': { x: 50, y: 20 },
+      'above-colorbar': { x: 50, y: 82 },
+      'bottom-right': { x: 82, y: 77 },
+      'left-rail': { x: 12, y: 50 },
+    };
+
+    let overlayState = {
+      x: 50,
+      y: 82,
+      layout: 'horizontal',
+      barOrientation: 'horizontal',
+      preset: 'above-colorbar',
+    };
+
+    let drag = null;
+
+    function updateReadout() {
+      readout.textContent = `Position: ${overlayState.x.toFixed(1)}%, ${overlayState.y.toFixed(1)}%`;
+    }
+
+    function applyOverlayState() {
+      overlay.style.left = `${overlayState.x}%`;
+      overlay.style.top = `${overlayState.y}%`;
+      overlay.dataset.layout = overlayState.layout;
+      overlay.style.flexDirection = overlayState.layout === 'vertical' ? 'column' : 'row';
+      updateReadout();
+    }
+
+    function setActive(buttons, predicate) {
+      buttons.forEach((button) => {
+        button.classList.toggle('is-active', predicate(button));
+      });
+    }
+
+    function setPreset(name) {
+      overlayState.preset = name;
+      overlayState.x = presets[name].x;
+      overlayState.y = presets[name].y;
+      setActive(presetButtons, (button) => button.dataset.preset === name);
+      applyOverlayState();
+    }
+
+    function setLayout(name) {
+      overlayState.layout = name;
+      setActive(layoutButtons, (button) => button.dataset.layout === name);
+      applyOverlayState();
+    }
+
+    function setBarOrientation(name) {
+      overlayState.barOrientation = name;
+      stage.dataset.barOrientation = name;
+      setActive(barOrientationButtons, (button) => button.dataset.barOrientation === name);
+    }
+
+    function setMode(mode) {
+      viewport.dataset.mode = mode;
+      viewport.innerHTML = '';
+
+      if (mode === 'single') {
+        const pane = document.createElement('div');
+        pane.className = 'pane';
+        pane.innerHTML = '<span class="pane-label">Single Slice</span>';
+        viewport.appendChild(pane);
+      }
+
+      if (mode === 'ortho') {
+        ['Axial', 'Coronal', 'Sagittal'].forEach((label) => {
+          const pane = document.createElement('div');
+          pane.className = 'pane';
+          pane.innerHTML = `<span class="pane-label">${label}</span>`;
+          viewport.appendChild(pane);
+        });
+      }
+
+      if (mode === 'compare') {
+        ['Array A', 'Array B'].forEach((label) => {
+          const pane = document.createElement('div');
+          pane.className = 'pane';
+          pane.innerHTML = `<span class="pane-label">${label}</span>`;
+          viewport.appendChild(pane);
+        });
+      }
+
+      setActive(modeButtons, (button) => button.dataset.mode === mode);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    overlay.addEventListener('pointerdown', (event) => {
+      const stageRect = stage.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        stageRect,
+        offsetX: event.clientX - overlay.getBoundingClientRect().left,
+        offsetY: event.clientY - overlay.getBoundingClientRect().top,
+      };
+      overlay.classList.add('dragging');
+      overlay.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    overlay.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+
+      const overlayRect = overlay.getBoundingClientRect();
+      const x = ((event.clientX - drag.stageRect.left - drag.offsetX) + (overlayRect.width / 2)) / drag.stageRect.width;
+      const y = ((event.clientY - drag.stageRect.top - drag.offsetY) + (overlayRect.height / 2)) / drag.stageRect.height;
+
+      overlayState.x = clamp(x * 100, 6, 94);
+      overlayState.y = clamp(y * 100, 8, 92);
+      overlayState.preset = null;
+      setActive(presetButtons, () => false);
+      applyOverlayState();
+    });
+
+    function endDrag(event) {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      overlay.classList.remove('dragging');
+      overlay.releasePointerCapture(event.pointerId);
+      drag = null;
+    }
+
+    overlay.addEventListener('pointerup', endDrag);
+    overlay.addEventListener('pointercancel', endDrag);
+
+    modeButtons.forEach((button) => {
+      button.addEventListener('click', () => setMode(button.dataset.mode));
+    });
+
+    presetButtons.forEach((button) => {
+      button.addEventListener('click', () => setPreset(button.dataset.preset));
+    });
+
+    layoutButtons.forEach((button) => {
+      button.addEventListener('click', () => setLayout(button.dataset.layout));
+    });
+
+    barOrientationButtons.forEach((button) => {
+      button.addEventListener('click', () => setBarOrientation(button.dataset.barOrientation));
+    });
+
+    scopeToggle.addEventListener('change', () => {
+      const existingLabel = overlay.querySelector('[data-scope-label]');
+      if (scopeToggle.checked && !existingLabel) {
+        const label = document.createElement('div');
+        label.dataset.scopeLabel = 'true';
+        label.textContent = 'DISPLAY';
+        label.style.fontSize = '10px';
+        label.style.letterSpacing = '0.16em';
+        label.style.textTransform = 'uppercase';
+        label.style.color = 'var(--muted)';
+        label.style.alignSelf = overlayState.layout === 'vertical' ? 'center' : 'stretch';
+        overlay.prepend(label);
+      }
+      if (!scopeToggle.checked && existingLabel) {
+        existingLabel.remove();
+      }
+      applyOverlayState();
+    });
+
+    paneDimToggle.addEventListener('change', () => {
+      viewport.style.opacity = paneDimToggle.checked ? '0.78' : '1';
+    });
+
+    setMode('ortho');
+    setLayout('horizontal');
+    setBarOrientation('horizontal');
+    setPreset('above-colorbar');
+    scopeToggle.dispatchEvent(new Event('change'));
+  </script>
+</body>
+</html>

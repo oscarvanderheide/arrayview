@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic:
+        - generic: "The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen."
+        - generic:
+          - generic: IN SCOPE
+          - generic:
+            - strong: Full range in volume. Scrolling doesn't change limits.
+        - generic:
+          - generic: RECOMPUTE
+          - generic:
+            - strong: Current position only. Scrolling recalculates limits.
+        - generic:
+          - generic: FROZEN
+          - generic:
+            - strong: Current position only. Limits stay fixed.
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img:
+            - generic: x
+            - generic: "y"
+        - generic: "{cmd,ctrl,shift}+o · drop to open array"
+    - textbox [active] [ref=e8]
+    - generic [ref=e9] [cursor=pointer]: "?"
+    - generic "Open tools (/)" [ref=e10] [cursor=pointer]: /
+  - generic [ref=e12]:
+    - generic [ref=e13]: Snapshots
+    - generic [ref=e14]: "0"
+    - button "⤓" [ref=e15] [cursor=pointer]
+    - button "×" [ref=e16] [cursor=pointer]
