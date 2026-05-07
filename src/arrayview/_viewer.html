@@ -7075,6 +7075,10 @@
                 const labelH = CB_LABEL_H * aT;
                 const histTop = labelH;
                 const histH = cssH - histTop;
+                const hoverBinCount = this._histData?.counts?.length || 0;
+                const hoverBinIdx = (hoverBinCount > 0 && this._hoverFrac >= 0 && this._hoverFrac <= 1)
+                    ? Math.min(hoverBinCount - 1, Math.max(0, Math.floor(this._hoverFrac * hoverBinCount)))
+                    : -1;
 
                 for (let px = 0; px < cssW; px++) {
                     const t = px / cssW;
@@ -7101,7 +7105,12 @@
 
                     const y = cssH - colH;
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
-                    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+                    let drawAlpha = alpha;
+                    if (hoverBinIdx >= 0) {
+                        const pxBinIdx = Math.min(hoverBinCount - 1, Math.max(0, Math.floor(t * hoverBinCount)));
+                        if (pxBinIdx !== hoverBinIdx) drawAlpha *= 0.28;
+                    }
+                    ctx.fillStyle = `rgba(${r},${g},${b},${drawAlpha})`;
                     ctx.fillRect(px, y, 1, colH);
                 }
 
