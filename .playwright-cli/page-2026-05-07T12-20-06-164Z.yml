@@ -1,0 +1,109 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e30] [cursor=pointer]: "-y/224"
+      - text: ·
+      - generic [ref=e31] [cursor=pointer]: x/240
+      - text: ·
+      - generic [ref=e32] [cursor=pointer]: 103/204
+      - text: ·
+      - generic [ref=e33] [cursor=pointer]: 1/6
+    - generic [ref=e8]:
+      - generic:
+        - generic: "The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen."
+        - generic:
+          - generic: IN SCOPE
+          - generic:
+            - strong: Full range in volume. Scrolling doesn't change limits.
+        - generic:
+          - generic: RECOMPUTE
+          - generic:
+            - strong: Current position only. Scrolling recalculates limits.
+        - generic:
+          - generic: FROZEN
+          - generic:
+            - strong: Current position only. Limits stay fixed.
+      - generic [ref=e10]:
+        - img:
+          - generic: x
+          - generic: "y"
+      - generic [ref=e15]:
+        - generic [ref=e16]: "0"
+        - generic [ref=e19]: "1"
+    - textbox [active] [ref=e21]
+    - generic [ref=e22] [cursor=pointer]: "?"
+    - generic "Open tools (/)" [ref=e23] [cursor=pointer]: /
+  - dialog "colormap" [ref=e35]:
+    - generic [ref=e36]:
+      - generic [ref=e37]: colormap
+      - button "Close colormap picker" [ref=e38] [cursor=pointer]: ×
+    - generic [ref=e39]:
+      - button "gray" [ref=e40] [cursor=pointer]:
+        - generic: gray
+      - button "lipari" [ref=e42] [cursor=pointer]:
+        - generic: lipari
+      - button "navia" [ref=e44] [cursor=pointer]:
+        - generic: navia
+      - button "viridis" [ref=e46] [cursor=pointer]:
+        - generic: viridis
+      - button "plasma" [ref=e48] [cursor=pointer]:
+        - generic: plasma
+      - button "magma" [ref=e50] [cursor=pointer]:
+        - generic: magma
+      - button "inferno" [ref=e52] [cursor=pointer]:
+        - generic: inferno
+      - button "cividis" [ref=e54] [cursor=pointer]:
+        - generic: cividis
+      - button "rainbow" [ref=e56] [cursor=pointer]:
+        - generic: rainbow
+      - button "RdBu_r" [ref=e58] [cursor=pointer]:
+        - generic: RdBu_r
+      - button "twilight_shifted" [ref=e60] [cursor=pointer]:
+        - generic: twilight_shifted
+      - button "turbo" [ref=e62] [cursor=pointer]:
+        - generic: turbo
+    - textbox "Search colormaps…" [ref=e64]
+    - generic:
+      - generic:
+        - generic:
+          - generic: Greys
+      - generic:
+        - generic:
+          - generic: RdBu_r
+          - generic: reversed
+      - generic:
+        - generic:
+          - generic: Spectral
+      - generic:
+        - generic:
+          - generic: cividis
+      - generic:
+        - generic:
+          - generic: coolwarm
+      - generic:
+        - generic:
+          - generic: cubehelix
+      - generic:
+        - generic:
+          - generic: gray
+        - generic: current
+      - generic:
+        - generic:
+          - generic: inferno
+      - generic:
+        - generic:
+          - generic: magma
+      - generic:
+        - generic:
+          - generic: plasma
+      - generic:
+        - generic:
+          - generic: turbo
+      - generic:
+        - generic:
+          - generic: viridis
+  - generic [ref=e25]:
+    - generic [ref=e26]: Snapshots
+    - generic [ref=e27]: "0"
+    - button "⤓" [ref=e28] [cursor=pointer]
+    - button "×" [ref=e29] [cursor=pointer]

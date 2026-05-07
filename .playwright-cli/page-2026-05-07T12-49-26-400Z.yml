@@ -1,0 +1,33 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: Connecting...
+    - generic [ref=e4]:
+      - generic:
+        - generic: "The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen."
+        - generic:
+          - generic: IN SCOPE
+          - generic:
+            - strong: Full range in volume. Scrolling doesn't change limits.
+        - generic:
+          - generic: RECOMPUTE
+          - generic:
+            - strong: Current position only. Scrolling recalculates limits.
+        - generic:
+          - generic: FROZEN
+          - generic:
+            - strong: Current position only. Limits stay fixed.
+      - generic [ref=e6]:
+        - img:
+          - generic: x
+          - generic: "y"
+      - generic:
+        - img
+        - generic: phantom.npy
+    - textbox [active] [ref=e15]
+    - generic [ref=e16] [cursor=pointer]: "?"
+    - generic "Open tools (/)" [ref=e17] [cursor=pointer]: /
+  - generic [ref=e19]:
+    - generic [ref=e20]: Snapshots
+    - generic [ref=e21]: "0"
+    - button "⤓" [ref=e22] [cursor=pointer]
+    - button "×" [ref=e23] [cursor=pointer]
