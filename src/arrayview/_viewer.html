@@ -3669,6 +3669,9 @@
         let _lebesgueFetchCtrl = null;  // AbortController for in-flight Lebesgue fetch
         let _hoverPrefetchTimer = null; // debounce for hover prefetch during rapid scrolling
         let _lastLebesgueBin = -1;      // tracks which histogram bin is currently highlighted
+        let _lastLebesgueSource = '';   // ColorBar id/source for the last highlighted bin
+        let _lastLebesgueColorBar = null; // last ColorBar that drove the highlight
+        let _colorbarLebesgueHover = false; // true while colorbar hover should drive Lebesgue highlighting
         let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
         let compareFocusMode = false;
@@ -6608,6 +6611,7 @@
 
                 // Hover / drag state
                 this._hoverFrac = -1;
+                this._hoverY = -1;
                 this._mouseOver = false;
                 this._hoverTimer = null;
                 this._dragActive = false;
@@ -7350,12 +7354,7 @@
                 this._expanded = true;
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
-                if (this.opts.fetchHistogram) {
-                    this._histFetching = true;
-                    this._histData = await this.opts.fetchHistogram();
-                    this._histFetching = false;
-                }
-                this._buildKDE();
+                await this.ensureHistogramData();
                 this.startAnim(true);
                 if (this.opts.onExpand) this.opts.onExpand();
                 if (this._syncWith && !this._syncing) {
@@ -7397,6 +7396,31 @@
                 this._histFetching = false;
                 this._buildKDE();
                 this.draw();
+            }
+
+            /** Ensure histogram data exists without forcing the bar open. */
+            async ensureHistogramData() {
+                if (this._histData || this._histFetching || !this.opts.fetchHistogram) return this._histData;
+                this._histFetching = true;
+                try {
+                    this._histData = await this.opts.fetchHistogram();
+                } finally {
+                    this._histFetching = false;
+                }
+                this._buildKDE();
+                if (this === primaryCb && this._histData) {
+                    _histData = this._histData;
+                    _kdeSmooth = this._kdeSmooth;
+                }
+                this.draw();
+                if (this._onBinHover && this._mouseOver && this._hoverFrac >= 0 && this.orientation === 'horizontal') {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const cssH = rect.height || this.canvas.clientHeight || CB_COLLAPSED_H;
+                    const hoverY = this._hoverY >= 0 ? this._hoverY : cssH - 1;
+                    const binIdx = this._hoverBinIndexForPoint(this._hoverFrac, hoverY, cssH);
+                    this._onBinHover(binIdx, this._hoverFrac);
+                }
+                return this._histData;
             }
 
             /** Auto-collapse after a delay (ms). */
@@ -7540,12 +7564,14 @@
                 // Mouseenter/leave on wrap
                 this.wrap.addEventListener('mouseenter', () => {
                     this._mouseOver = true;
+                    if (this._onBinHover) this.ensureHistogramData();
                     if (this.opts.onMouseEnter) this.opts.onMouseEnter();
                 });
                 this.wrap.addEventListener('mouseleave', () => {
                     this._mouseOver = false;
                     if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
+                        this._hoverY = -1;
                         this.draw();
                         if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
@@ -7658,6 +7684,7 @@
                     const inCanvas = x >= 0 && x <= cssW;
                     if (inCanvas) {
                         this._hoverFrac = frac;
+                        this._hoverY = e.clientY - rect.top;
                         const hit = this._expanded ? this._hitTest(x) : null;
                         this.canvas.style.cursor = hit ? 'ew-resize' : 'crosshair';
                         this.draw();
@@ -7689,6 +7716,7 @@
                         }
                     } else if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
+                        this._hoverY = -1;
                         this.canvas.style.cursor = '';
                         this.draw();
                         if (this.tooltip) {
@@ -7699,6 +7727,7 @@
                     }
                 } else if (this._hoverFrac >= 0) {
                     this._hoverFrac = -1;
+                    this._hoverY = -1;
                     this.draw();
                     if (this._onBinHover) this._onBinHover(-1, -1);
                 }
@@ -8513,11 +8542,13 @@
                 lebesgueMode = false;
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
+                _lastLebesgueSource = '';
                 const _cbTip = document.getElementById('slim-cb-tooltip');
                 if (_cbTip) _cbTip.style.display = 'none';
                 _redrawActiveColorbar();
             },
             onMouseEnter: () => {
+                _startColorbarLebesgueHover();
                 // Pause the 'd'-key auto-dismiss timer while the user hovers
                 if (!_lebesgueManual && _histAutoDismissTimer) {
                     clearTimeout(_histAutoDismissTimer);
@@ -8525,26 +8556,14 @@
                 }
             },
             onMouseLeave: () => {
+                _stopColorbarLebesgueHover();
                 // Restart fresh 3-second timer when mouse leaves after 'd'-key open
                 if (!_lebesgueManual && lebesgueMode && primaryCb._expanded) {
                     _restartHistAutoDismiss();
                 }
             },
             onBinHover: (binIdx, frac) => {
-                if (!lebesgueMode) return;
-                if (binIdx < 0) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; return; }
-                if (binIdx !== _lastLebesgueBin) {
-                    _lastLebesgueBin = binIdx;
-                    if (primaryCb._histData) {
-                        const { edges, counts } = primaryCb._histData;
-                        if (edges && counts) {
-                            const binLow = edges[binIdx];
-                            const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
-                            _drawLebesgueHighlight(binLow, binHigh);
-                            _highlightHistBin(binIdx);
-                        }
-                    }
-                }
+                _drawLebesgueHighlightForColorbar(primaryCb, binIdx);
             },
         });
         let _cbWindowChangeRafId = null;
@@ -8976,6 +8995,14 @@
             } catch (_) { return null; }
         }
 
+        function _hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
+            return fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+        }
+
+        function _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
+            return _hoverSliceCache[_hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices)] || null;
+        }
+
         function _prefetchHoverSlices() {
             if (qmriActive) {
                 qmriViews.forEach(v => {
@@ -9067,6 +9094,29 @@
                 }
             } catch (_) { /* aborted or network error */ }
             if (_lebesgueFetchCtrl === ctrl) _lebesgueFetchCtrl = null;
+            if (_colorbarLebesgueHoverActive() && _lastLebesgueBin >= 0 && _lastLebesgueColorBar) {
+                _drawLebesgueHighlightForColorbar(_lastLebesgueColorBar, _lastLebesgueBin, true);
+            }
+        }
+
+        function _colorbarLebesgueHoverActive() {
+            return lebesgueMode || _colorbarLebesgueHover;
+        }
+
+        function _startColorbarLebesgueHover() {
+            _colorbarLebesgueHover = true;
+            _fetchLebesgueSlice();
+            _prefetchHoverSlices();
+        }
+
+        function _stopColorbarLebesgueHover() {
+            _colorbarLebesgueHover = false;
+            _lastLebesgueSource = '';
+            _lastLebesgueColorBar = null;
+            if (!lebesgueMode) {
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
+            }
         }
 
         function _clearLebesgueOverlay() {
@@ -9080,6 +9130,8 @@
                 const ctx = el.getContext('2d');
                 if (ctx) ctx.clearRect(0, 0, el.width, el.height);
             });
+            _lastLebesgueSource = '';
+            _lastLebesgueColorBar = null;
         }
 
         /** Highlight a single histogram bin region on the morph with a bright column. */
@@ -9150,6 +9202,60 @@
             return overlay;
         }
 
+        function _drawLebesgueHighlightOnCanvas(targetCv, sliceEntry, binLow, binHigh) {
+            if (!targetCv || !sliceEntry || !sliceEntry.slice || !sliceEntry.w || !sliceEntry.h) return false;
+            const overlay = _getLebesgueOverlay(targetCv);
+            if (!overlay) return false;
+            _drawLebesgueOnCanvas(overlay, targetCv, sliceEntry.slice, sliceEntry.w, sliceEntry.h, binLow, binHigh);
+            return true;
+        }
+
+        function _drawLebesgueHighlightForCachedSlice(targetCv, fetchSid, fetchDimX, fetchDimY, fetchIndices, binLow, binHigh) {
+            return _drawLebesgueHighlightOnCanvas(
+                targetCv,
+                _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices),
+                binLow,
+                binHigh,
+            );
+        }
+
+        function _drawLebesgueHighlightForQmriPane(view, binLow, binHigh) {
+            if (!view?.canvas) return;
+            if (compareQmriActive && view.sid) {
+                const qIdx = [...indices];
+                qIdx[compareQmriDim] = view.qmriIdx;
+                _drawLebesgueHighlightForCachedSlice(view.canvas, view.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                return;
+            }
+            if (qmriActive) {
+                const qIdx = [...indices];
+                qIdx[qmriDim] = view.qmriIdx;
+                _drawLebesgueHighlightForCachedSlice(view.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
+            }
+        }
+
+        function _drawLebesgueHighlightForColorbar(cb, binIdx, force = false) {
+            if (!_colorbarLebesgueHoverActive()) return;
+            const hd = cb?._histData;
+            const counts = hd?.counts;
+            const edges = hd?.edges;
+            if (!counts || !edges || binIdx < 0 || binIdx >= counts.length) {
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
+                return;
+            }
+            const sourceId = cb?.id || '';
+            if (!force && binIdx === _lastLebesgueBin && sourceId === _lastLebesgueSource) return;
+            _lastLebesgueBin = binIdx;
+            _lastLebesgueSource = sourceId;
+            _lastLebesgueColorBar = cb || null;
+            const binLow = edges[binIdx];
+            const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
+            if (cb?._lebesgueView) _drawLebesgueHighlightForQmriPane(cb._lebesgueView, binLow, binHigh);
+            else _drawLebesgueHighlight(binLow, binHigh);
+            if (cb === primaryCb) _highlightHistBin(binIdx);
+        }
+
         /** Get or create a vector field overlay canvas for a multi-view pane. */
         function _getMvVfieldCanvas(targetCv) {
             const parent = targetCv.parentElement;
@@ -9172,17 +9278,31 @@
                     const cv = compareCanvases[i];
                     if (!cv) return;
                     const entry = _lebesguePerSession[s];
-                    if (!entry) return;
-                    const overlay = _getLebesgueOverlay(cv);
-                    if (overlay) _drawLebesgueOnCanvas(overlay, cv, entry.slice, entry.w, entry.h, binLow, binHigh);
+                    _drawLebesgueHighlightOnCanvas(cv, entry, binLow, binHigh);
+                });
+            } else if (compareQmriActive) {
+                compareQmriViews.forEach(v => {
+                    if (!v.canvas) return;
+                    const qIdx = [...indices];
+                    qIdx[compareQmriDim] = v.qmriIdx;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                });
+            } else if (compareMvActive) {
+                compareMvViews.forEach(v => {
+                    if (!v.canvas) return;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, v.dimX, v.dimY, indices, binLow, binHigh);
+                });
+            } else if (qmriActive) {
+                qmriViews.forEach(v => {
+                    if (!v.canvas) return;
+                    const qIdx = [...indices];
+                    qIdx[qmriDim] = v.qmriIdx;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
                 });
             } else if (multiViewActive) {
-                // Highlight on all multiview panes (same session/slice)
-                if (!_lebesgueSlice || !_lebesgueSliceW) return;
                 mvViews.forEach(v => {
                     if (!v.canvas) return;
-                    const overlay = _getLebesgueOverlay(v.canvas);
-                    if (overlay) _drawLebesgueOnCanvas(overlay, v.canvas, _lebesgueSlice, _lebesgueSliceW, _lebesgueSliceH, binLow, binHigh);
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, v.dimX, v.dimY, indices, binLow, binHigh);
                 });
             } else {
                 // Normal single-view mode — use the existing #lebesgue-canvas
@@ -19659,10 +19779,10 @@ if (typeof gsap !== 'undefined') {
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
+                    onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                    onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
-                        if (!lebesgueMode) return;
-                        if (binIdx < 0) { _clearLebesgueOverlay(); return; }
-                        _drawLebesgueHighlight(binIdx);
+                        _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
                 });
                 // Set IDs on ColorBar DOM elements for backward compatibility
@@ -20701,9 +20821,13 @@ if (typeof gsap !== 'undefined') {
                                 fixedIndices,
                             });
                         },
+                        onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                        onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_qvCb, binIdx); },
                         onWindowChange: () => { qvRender(view); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
                     });
+                    _qvCb._lebesgueView = view;
                     _qvCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _qvCb;
                     view.cbCanvas = _qvCb.canvas;
@@ -21059,9 +21183,13 @@ if (typeof gsap !== 'undefined') {
                                 fixedIndices,
                             });
                         },
+                        onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                        onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_cqCb, binIdx); },
                         onWindowChange: () => { compareQmriRender(view); },
                         onAnimFrame: () => { compareQmriScaleAllCanvases(); },
                     });
+                    _cqCb._lebesgueView = view;
                     _cqCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _cqCb;
                     view.cbCanvas = _cqCb.canvas;
@@ -21403,10 +21531,10 @@ if (typeof gsap !== 'undefined') {
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of compareMvViews) compareMvRender(v); _mipOnWindowChange(); },
+                    onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                    onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
-                        if (!lebesgueMode) return;
-                        if (binIdx < 0) { _clearLebesgueOverlay(); return; }
-                        _drawLebesgueHighlight(binIdx);
+                        _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
                 });
                 window._mvColorBar.wrap.id = 'mv-cb-wrap';
