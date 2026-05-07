@@ -3422,6 +3422,7 @@
         const _postMessageChannels = new Map();
         let _pendingFetches = new Map();
         let _fetchSeq = 0;
+        let _qmriRenderGeneration = 0;
 
         function resolveServerPath(path) {
             if (!path || postMessageTransport) return path;
@@ -3444,7 +3445,7 @@
 
                 if (msg.type === 'slice-data') {
                     const channel = _postMessageChannels.get(msg.channelId);
-                    if (channel && channel.onmessage) {
+                    if (channel && channel.readyState === WebSocket.OPEN && channel.onmessage) {
                         // Buffer may arrive as Uint8Array (VS Code structured clone).
                         // Ensure we pass a plain ArrayBuffer to the binary parser.
                         let buf = msg.buffer;
@@ -3494,7 +3495,10 @@
                     send(data) {
                         _vscodeApi.postMessage({ type: 'ws-send', channelId, sid: transportSid, data: JSON.parse(data) });
                     },
-                    close() { t.readyState = WebSocket.CLOSED; },
+                    close() {
+                        t.readyState = WebSocket.CLOSED;
+                        _postMessageChannels.delete(channelId);
+                    },
                     onopen: onOpen || null,
                     onmessage: onMessage || null,
                     onclose: onClose || null,
@@ -20533,6 +20537,7 @@ if (typeof gsap !== 'undefined') {
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
+            _qmriRenderGeneration++;
             // Auto-detect: if exactly one dim has size 3–6, use it; otherwise fall back to activeDim
             const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
@@ -20619,6 +20624,7 @@ if (typeof gsap !== 'undefined') {
                         _mosaicVcb: null, _mosaicColorBar: null,
                         _histData: null, _histFetching: false,
                         _colorBar: null,
+                        _qmriGeneration: _qmriRenderGeneration,
                     };
                     // Create ColorBar instance for this qMRI view
                     const _qvCb = new ColorBar({
@@ -20843,6 +20849,7 @@ if (typeof gsap !== 'undefined') {
         }
 
         function exitQmri() {
+            _qmriRenderGeneration++;
             _qmriVisibleMaps = null;
             _qvRoiDragView = null;
             _endQmriLoupe();
@@ -20878,6 +20885,7 @@ if (typeof gsap !== 'undefined') {
         // Layout: rows = compared arrays, columns = parameter maps
         function enterCompareQmri() {
             if (!compareActive) return;
+            _qmriRenderGeneration++;
             // Detect qMRI dim
             const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
@@ -20977,6 +20985,7 @@ if (typeof gsap !== 'undefined') {
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
                         _colorBar: null,
+                        _qmriGeneration: _qmriRenderGeneration,
                     };
                     // Create ColorBar instance for this compare-qMRI view
                     const _cqCb = new ColorBar({
@@ -21084,6 +21093,7 @@ if (typeof gsap !== 'undefined') {
         }
 
         function exitCompareQmri() {
+            _qmriRenderGeneration++;
             compareQmriActive = false;
             compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
             compareQmriViews = [];
@@ -21125,6 +21135,7 @@ if (typeof gsap !== 'undefined') {
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
+                pane_key: `compare-qmri:${v.sid}:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
@@ -21166,6 +21177,7 @@ if (typeof gsap !== 'undefined') {
                     params.set('vmax_override', String(v.lockedVmax));
                 }
                 const frame = await fetchSliceFrame(params, v.sid);
+                if (!compareQmriActive || v._qmriGeneration !== _qmriRenderGeneration || !compareQmriViews.includes(v)) return;
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -21275,7 +21287,7 @@ if (typeof gsap !== 'undefined') {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
-            if (h32[0] === v.seq) {
+            if (h32[0] === v.seq && compareQmriActive && v._qmriGeneration === _qmriRenderGeneration && compareQmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
@@ -21867,6 +21879,7 @@ if (typeof gsap !== 'undefined') {
             const _qmMsg = {
                 seq: v.seq, dim_x, dim_y, dim_z: qmriMosaicActive ? _qmriMosaicZDim : -1,
                 indices: qIndices, colormap: v.colormap,
+                pane_key: `qmri:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
                 // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                 log_scale: logScale && v.qmriIdx < 2,
@@ -21913,6 +21926,7 @@ if (typeof gsap !== 'undefined') {
                 { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
+                if (!qmriActive || v._qmriGeneration !== _qmriRenderGeneration || !qmriViews.includes(v)) return;
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -22219,7 +22233,7 @@ if (typeof gsap !== 'undefined') {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
-            if (h32[0] === v.seq) {
+            if (h32[0] === v.seq && qmriActive && v._qmriGeneration === _qmriRenderGeneration && qmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
