@@ -102,3 +102,24 @@ def test_qmri_colorbar_hover_only_highlights_its_own_pane(loaded_viewer, sid_4d)
         }""",
         timeout=5000,
     )
+
+
+@pytest.mark.browser
+def test_colorbar_and_hover_info_formatters_avoid_scientific_notation(loaded_viewer, sid_2d):
+    page = loaded_viewer(sid_2d)
+    formatted = page.evaluate(
+        """() => ({
+            cbHtml: _cbFmt(1e-10),
+            cbPlain: _cbFmtPlain(1e-10),
+            pixelTiny: _pixelFmt(1e-10),
+            pixelNegative: _pixelFmt(-2.5e-7),
+        })"""
+    )
+
+    assert formatted == {
+        "cbHtml": "0.0000000001",
+        "cbPlain": "0.0000000001",
+        "pixelTiny": "0.0000000001",
+        "pixelNegative": "-0.00000025",
+    }
+    assert all("e" not in value.lower() for value in formatted.values())

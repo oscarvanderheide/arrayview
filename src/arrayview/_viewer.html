@@ -6193,50 +6193,48 @@
 
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
-        const _cbFmt = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            // Normal range: show as-is with limited precision
-            if (av >= 0.1 && av < 10000) {
-                let s = parseFloat(v.toPrecision(3)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
-                return s;
+        const _expandExponentialString = s => {
+            const lower = String(s).toLowerCase();
+            if (!lower.includes('e')) return lower;
+            let [mantissa, expPart] = lower.split('e');
+            const exp = Number(expPart);
+            if (!Number.isFinite(exp)) return lower;
+            let sign = '';
+            if (mantissa.startsWith('-') || mantissa.startsWith('+')) {
+                sign = mantissa.startsWith('-') ? '-' : '';
+                mantissa = mantissa.slice(1);
             }
-            // Scientific notation with HTML superscript
-            const exp = Math.floor(Math.log10(av));
-            const mantissa = v / Math.pow(10, exp);
-            let m;
-            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
-                m = Math.round(mantissa).toString();
-            } else {
-                m = parseFloat(mantissa.toPrecision(2)).toString();
+            const [whole, frac = ''] = mantissa.split('.');
+            const digits = whole + frac;
+            const decimalPos = whole.length + exp;
+            if (decimalPos <= 0) {
+                return sign + '0.' + '0'.repeat(-decimalPos) + digits;
             }
-            return m + '<span class="exp">e' + exp + '</span>';
+            if (decimalPos >= digits.length) {
+                return sign + digits + '0'.repeat(decimalPos - digits.length);
+            }
+            return sign + digits.slice(0, decimalPos) + '.' + digits.slice(decimalPos);
         };
+        const _trimDecimalString = s => {
+            let out = String(s)
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '')
+                .replace(/\.$/, '');
+            if (out === '-0') out = '0';
+            return out;
+        };
+        const _formatPlainNumber = (v, sigDigits = 3) => {
+            if (!Number.isFinite(v)) return String(v);
+            if (Object.is(v, -0) || v === 0) return '0';
+            const digits = Math.max(1, Math.trunc(sigDigits) || 1);
+            return _trimDecimalString(_expandExponentialString(v.toExponential(digits - 1)));
+        };
+        const _cbFmt = v => _formatPlainNumber(v, 3);
         const _rangeStatusStr = (label, lo, hi) => {
             if (lo == null || hi == null) return `range: ${label}`;
             return `range: ${label}  [${_cbFmtPlain(lo)} … ${_cbFmtPlain(hi)}]`;
         };
-        const _cbFmtPlain = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            if (av >= 0.1 && av < 10000) {
-                let s = parseFloat(v.toPrecision(3)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
-                return s;
-            }
-            const exp = Math.floor(Math.log10(av));
-            const mantissa = v / Math.pow(10, exp);
-            let m;
-            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
-                m = Math.round(mantissa).toString();
-            } else {
-                m = parseFloat(mantissa.toPrecision(2)).toString();
-            }
-            return m + 'e' + exp;
-        };
+        const _cbFmtPlain = v => _formatPlainNumber(v, 3);
 
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
@@ -13150,12 +13148,7 @@
         }
 
         let _pixelHoverThrottle = false;
-        const _pixelFmt = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(3);
-            return parseFloat(v.toPrecision(4)).toString();
-        };
+        const _pixelFmt = v => _formatPlainNumber(v, 4);
         function fetchPixelInfo(opts) {
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
