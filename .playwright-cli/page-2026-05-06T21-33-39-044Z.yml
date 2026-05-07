@@ -1,0 +1,43 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4] [cursor=pointer]: x/96
+      - text: ·
+      - generic [ref=e5] [cursor=pointer]: y/96
+      - text: ·
+      - generic [ref=e6] [cursor=pointer]: 1/1
+      - text: ·
+      - generic [ref=e7] [cursor=pointer]: 1/3
+    - generic [ref=e8]:
+      - generic:
+        - generic: "The histogram and percentile limits are computed over a volume, not just the current 2D slice. A dim can be fully included in that volume (scoped), or only its current position counts. Dims that aren't fully included can either recompute limits when scrolled, or stay frozen. Click a dim to cycle: scoped → recompute → frozen."
+        - generic:
+          - generic: IN SCOPE
+          - generic:
+            - strong: Full range in volume. Scrolling doesn't change limits.
+        - generic:
+          - generic: RECOMPUTE
+          - generic:
+            - strong: Current position only. Scrolling recalculates limits.
+        - generic:
+          - generic: FROZEN
+          - generic:
+            - strong: Current position only. Limits stay fixed.
+      - generic [ref=e10]:
+        - img:
+          - generic: x
+          - generic: "y"
+      - generic [ref=e15]:
+        - generic [ref=e16]: "2.8e-2"
+        - generic [ref=e19]: "2.97"
+      - generic:
+        - img
+        - generic: arrayview_qmri_fix.npy
+    - textbox [active] [ref=e21]
+    - generic [ref=e22] [cursor=pointer]: "?"
+    - generic "Open tools (/)" [ref=e23] [cursor=pointer]: /
+  - generic [ref=e25]:
+    - generic [ref=e26]: Snapshots
+    - generic [ref=e27]: "0"
+    - button "⤓" [ref=e28] [cursor=pointer]
+    - button "×" [ref=e29] [cursor=pointer]

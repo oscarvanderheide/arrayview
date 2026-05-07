@@ -415,6 +415,15 @@ def _get_slice_pool() -> _futures.ThreadPoolExecutor:
     return _SLICE_POOL
 
 
+def _coalesce_slice_pane_key(msg: dict):
+    """Key used to collapse stale slice requests in stdio transport.
+
+    Multi-pane qMRI requests can share dim_x/dim_y while still targeting
+    different parameter maps, so they may supply an explicit pane_key.
+    """
+    return msg.get("pane_key") or (msg.get("sid"), msg.get("dim_x", -1), msg.get("dim_y", -1))
+
+
 def _build_slice_payload(msg: dict) -> bytes:
     """Render a slice and return its binary payload.
 
@@ -708,10 +717,9 @@ def run_stdio_server() -> None:
                 else:
                     deferred.append((next_type, next_msg))
 
-            # Find the latest arrival index for each pane
             latest_for_pane: dict = {}
             for i, s in enumerate(pending_slices):
-                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                pane_key = _coalesce_slice_pane_key(s)
                 latest_for_pane[pane_key] = i
 
             # Submit non-stale renders to the thread pool so multi-pane modes
@@ -720,7 +728,7 @@ def run_stdio_server() -> None:
             pool = _get_slice_pool() if len(pending_slices) > 1 else None
             payload_futures: dict[int, _futures.Future] = {}
             for i, s in enumerate(pending_slices):
-                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                pane_key = _coalesce_slice_pane_key(s)
                 if latest_for_pane[pane_key] != i:
                     continue
                 payload_futures[i] = (
@@ -730,7 +738,7 @@ def run_stdio_server() -> None:
             # Write responses in arrival order to match the extension's FIFO
             # callback matching.
             for i, s in enumerate(pending_slices):
-                pane_key = (s.get("dim_x", -1), s.get("dim_y", -1))
+                pane_key = _coalesce_slice_pane_key(s)
                 if latest_for_pane[pane_key] != i:
                     _write_skip_response(s)
                     continue

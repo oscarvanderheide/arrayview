@@ -317,6 +317,8 @@ def test_compare_qmri_populates_modemanager(loaded_viewer, sid_4d):
     assert result.get("count", 0) > 0
 
 
+
+
 def test_mip_mode_populates_modemanager(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     page.wait_for_timeout(500)

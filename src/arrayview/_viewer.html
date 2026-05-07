@@ -10,30 +10,42 @@
             --border: #2c2c2c; --border-subtle: rgba(255,255,255,0.06);
             --text: #d8d8d8; --muted: #5a5a5a; --subtle: #333;
             --highlight: #fff; --canvas-border: rgba(255,255,255,0.06);
-            --active-dim: #f5c842; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #9b72cf; --vfield-t-dim: #88c0d0;
+            --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #777;
+            --dim-hover: #777; --surface-shadow: none; --surface-shadow-strong: 0 20px 60px rgba(0,0,0,0.45);
+            --layout-shadow: 0 12px 48px rgba(0,0,0,0.45); --button-shadow: none;
+            --button-shadow-hover: none; --pane-shadow: none;
         }
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
             --border: #d4d4d4; --border-subtle: rgba(0,0,0,0.07);
-            --text: #1a1a1a; --muted: #999; --subtle: #c8c8c8;
+            --text: #1a1a1a; --muted: #727272; --subtle: #9f9f9f;
             --highlight: #000; --canvas-border: rgba(0,0,0,0.08);
-            --active-dim: #c47d00; --playing-dim: #c05020; --spatial-dim: #c8c8c8; --q-dim-color: #c8c8c8; --vfield-t-dim: #5e81ac;
+            --active-dim: #d08770; --playing-dim: #bf616a; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #81a1c1;
             --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
-            --dim-hover: #888;
+            --dim-hover: #888; --surface-shadow: 0 14px 36px rgba(0,0,0,0.11), 0 3px 10px rgba(0,0,0,0.06);
+            --surface-shadow-strong: 0 24px 54px rgba(0,0,0,0.16), 0 6px 18px rgba(0,0,0,0.08);
+            --layout-shadow: 0 24px 54px rgba(0,0,0,0.16), 0 6px 18px rgba(0,0,0,0.08);
+            --button-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 4px 10px rgba(0,0,0,0.05);
+            --button-shadow-hover: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.08);
+            --pane-shadow: 0 16px 32px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.08);
         }
         :root.solarized {
             --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
             --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
-            --text: #657b83; --muted: #93a1a1; --subtle: #d0c8a6;
+            --text: #657b83; --muted: #7f8f8f; --subtle: #b7b08f;
             --highlight: #073642; --canvas-border: rgba(0,0,0,0.08);
-            --active-dim: #b58900; --playing-dim: #cb4b16; --spatial-dim: #6c71c4; --q-dim-color: #6c71c4; --vfield-t-dim: #268bd2;
+            --active-dim: #a3be8c; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #5e81ac;
             --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #8a8a7a;
+            --dim-hover: #8a8a7a; --surface-shadow: 0 14px 36px rgba(88,110,117,0.14), 0 3px 10px rgba(88,110,117,0.07);
+            --surface-shadow-strong: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
+            --layout-shadow: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
+            --button-shadow: 0 1px 2px rgba(88,110,117,0.1), 0 4px 10px rgba(88,110,117,0.05);
+            --button-shadow-hover: 0 2px 4px rgba(88,110,117,0.12), 0 8px 16px rgba(88,110,117,0.08);
+            --pane-shadow: 0 16px 32px rgba(88,110,117,0.16), 0 3px 10px rgba(88,110,117,0.08);
         }
         :root.nord {
             --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
@@ -74,6 +86,7 @@
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             position: relative;
             transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             --fly-y: 0px;
@@ -147,12 +160,16 @@
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
         }
-        .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--canvas-border); }
+        .canvas-bordered canvas { outline: 1px solid var(--canvas-border); }
+        .canvas-bordered {
+            outline: 1px solid var(--canvas-border);
+            box-shadow: var(--pane-shadow);
+        }
         /* Rounded panes — Shift+B toggles; default on unless config viewer.rounded_panes=false.
            Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
         body.rounded-panes #canvas-viewport,
         body.rounded-panes .mv-pane,
-        body.rounded-panes .qv-canvas-wrap {
+        body.rounded-panes .qv-canvas-clip {
             border-radius: 10px;
             overflow: hidden;
         }
@@ -185,6 +202,7 @@
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             display: flex; align-items: center; gap: 8px;
             box-sizing: border-box;
             --fly-y: 0px;
@@ -216,6 +234,7 @@
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             padding: calc(var(--cb-base-pad-top) + var(--cb-extra-top)) var(--cb-base-pad-x) var(--cb-base-pad-bottom);
             margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top));
             transition: background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
@@ -252,6 +271,7 @@
         .cb-canvas {
             display: block; width: 100%; border-radius: 3px; border: none; cursor: default;
             position: absolute; bottom: 0; left: 0; background: transparent;
+            box-shadow: 0 0 0 1px var(--canvas-border);
         }
         .cb-tri-zone {
             position: absolute; bottom: 0; left: 0; width: 100%;
@@ -270,7 +290,7 @@
             color: var(--muted);
             letter-spacing: 0.01em;
         }
-        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; }
+        #slim-cb { display: block; width: 100%; border-radius: 3px; border: none; cursor: default; user-select: none; background: transparent; box-shadow: 0 0 0 1px var(--canvas-border); }
         #slim-cb-col { flex: 1; min-width: 60px; display: flex; flex-direction: column; position: relative; }
         #slim-cb-tri-zone { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; overflow: visible; pointer-events: none; z-index: 1; }
         .slim-cb-tri {
@@ -1054,14 +1074,15 @@
             font-family: inherit; font-size: 11px; letter-spacing: 0;
             cursor: pointer; white-space: nowrap;
             display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms;
+            box-shadow: var(--button-shadow);
+            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms, box-shadow 120ms;
             position: relative;
         }
         .save-btn svg { width: 22px; height: 22px; }
         .save-btn[data-save-id="url"] svg { width: 18px; height: 18px; }
-        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); }
+        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); box-shadow: var(--button-shadow-hover); }
         .save-btn:disabled { opacity: 0.3; cursor: default; }
-        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); }
+        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); box-shadow: var(--button-shadow); }
         .save-btn svg { flex-shrink: 0; }
         .save-btn[data-tip]::after {
             content: attr(data-tip);
@@ -1366,6 +1387,7 @@
             font-size: 11px; color: var(--text); font-family: var(--mono);
             display: none; z-index: 5; min-width: 300px; max-width: 360px;
             max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden;
+            box-shadow: var(--surface-shadow);
             transition: opacity 0.3s ease;
             cursor: grab; user-select: none;
             scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
@@ -1388,7 +1410,7 @@
             border-radius: 14px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             background: rgba(18, 18, 18, 0.94);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+            box-shadow: var(--surface-shadow-strong);
             padding: 0;
             cursor: default;
         }
@@ -1917,9 +1939,10 @@
             font-family: inherit; font-size: 10px; letter-spacing: 0;
             cursor: pointer; white-space: nowrap;
             display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-            transition: background 120ms, border-color 120ms, color 120ms;
+            box-shadow: var(--button-shadow);
+            transition: background 120ms, border-color 120ms, color 120ms, box-shadow 120ms;
         }
-        .ob-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
+        .ob-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); box-shadow: var(--button-shadow-hover); }
         .ob-btn.on { background: var(--active-dim); color: var(--bg, #111); border-color: var(--active-dim); }
         .ob-btn.on:hover { background: #ffe285; }
         .ob-lock-shackle { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: 8px 7.5px; }
@@ -1983,7 +2006,7 @@
         }
         #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -1994,7 +2017,7 @@
         .mv-canvas-box { position: relative; display: inline-flex; overflow: hidden; }
         /* In ortho the border should frame the full square pane, including the
            empty background area, so draw it on the pane itself. */
-        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
         #mv-panes.mv-crosshair-active .mv-pane::after {
             content: ''; position: absolute; inset: 0; z-index: 4;
             box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1.5px) var(--mv-plane-border, var(--active-dim));
@@ -2125,7 +2148,8 @@
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
-        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
+        .compare-canvas-clip.canvas-bordered canvas { outline: none; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-source-pane-badge {
             position: absolute;
@@ -2237,15 +2261,30 @@
             display: none !important;
         }
         #qmri-view-wrap { display: none; width: 100%; }
-        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; }
+        #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; margin-top: -4px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
         .qv-row.cq-row { position: relative; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+        .qmri-pane { position: relative; }
         .qv-placeholder { visibility: hidden; pointer-events: none; }
         .qv-label { font-size: 16px; color: var(--fg); flex-shrink: 0; letter-spacing: 0.05em; }
+        .qmri-pane > .qv-label {
+            position: absolute; top: 8px; left: 10px; z-index: 3;
+            font-size: 12px; line-height: 1; padding: 5px 9px;
+            color: var(--text); background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border-radius: 999px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+            pointer-events: none;
+        }
         .qv-canvas-area { display: flex; align-items: center; justify-content: center; }
         .qv-canvas { image-rendering: pixelated; cursor: crosshair; }
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
+        .qv-canvas-clip { position: relative; display: inline-flex; overflow: hidden; }
+        .qv-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
+        .qv-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
+        .qv-canvas-clip.canvas-bordered canvas { outline: none; }
         .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; }
         .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
         .qv-cb-labels { display: none; }
@@ -2345,6 +2384,8 @@
         body.zen-mode #slim-cb-wrap, body.zen-mode #mode-eggs,
         body.zen-mode #help-hint, body.zen-mode #tool-hint, body.zen-mode #status,
         body.zen-mode #toast { opacity:0 !important; transition:opacity 0.6s ease; pointer-events:none !important; }
+        body.zen-mode .qv-cb-island,
+        body.zen-mode .qmri-pane > .qv-label { opacity:0 !important; transition:opacity 0.6s ease !important; pointer-events:none !important; }
 
         /* ── Fullscreen mode (K key) ────────────────────────────── */
         /* ── CSS: Immersive, Fullscreen, and Compact Mode ─────────── */
@@ -2460,13 +2501,9 @@
         }
         body.fullscreen-mode .qv-cb-island.fs-overlay > * { pointer-events: auto; }
         /* qMRI pane titles as glass corner labels in immersive */
-        body.fullscreen-mode .qv-pane { position: relative; }
-        body.fullscreen-mode .qv-label {
-            position: absolute; top: 4px; left: 4px; z-index: 3;
-            font-size: 12px; padding: 2px 8px; color: #d8d8d8;
-            background: rgba(30, 30, 30, 0.6);
-            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-            border-radius: 0 0 6px 0;
+        body.fullscreen-mode .qmri-pane > .qv-label {
+            top: 4px; left: 4px;
+            padding: 2px 8px;
         }
         /* qMRI immersive: no extra padding — dimbar overlays the panes */
         body.fullscreen-mode #qmri-view-wrap.active {
@@ -2498,20 +2535,67 @@
 
         /* ── Non-immersive: strip island styling, show bare chrome ─ */
         body:not(.fullscreen-mode) #info {
-            background-color: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) #slim-cb-wrap {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) #mv-cb-wrap {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         body:not(.fullscreen-mode) .cb-island {
-            background: rgba(30,30,30,0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.04); border-radius: 14px;
+            background: transparent !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        body:not(.fullscreen-mode) #info .dim-label:not(.active-dim):not(.playing-dim):not(.vfield-t-dim):not(.spatial-dim) {
+            color: var(--text);
+            opacity: 0.54;
+        }
+        body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
+            opacity: 0.64;
+        }
+        :root.light body:not(.fullscreen-mode) #info .spatial-dim.dim-label,
+        :root.solarized body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
+            opacity: 0.92;
+        }
+        body:not(.fullscreen-mode) #info .dim-size {
+            opacity: 0.42;
+        }
+        :root.light body:not(.fullscreen-mode) #info .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .dim-size {
+            opacity: 0.6;
+        }
+        body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+            opacity: 0.82;
+        }
+        :root.light body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        :root.light body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .active-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .playing-dim .dim-size,
+        :root.solarized body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+            opacity: 0.9;
+        }
+        body:not(.fullscreen-mode) #info .dim-sep {
+            color: var(--text);
+            opacity: 0.24;
+        }
+        :root.light body:not(.fullscreen-mode) #info .dim-sep,
+        :root.solarized body:not(.fullscreen-mode) #info .dim-sep {
+            opacity: 0.38;
         }
 
         /* ── Colormap preview strip ──────────────────────────────── */
@@ -2531,7 +2615,7 @@
         .cmap-thumb.active span { color:var(--fg); }
 
         /* ── Colormap picker: integrated preview inside colorbar island ──
-           The grid is absolute-positioned inside #slim-cb-wrap, in the space
+           The menu is absolute-positioned inside #slim-cb-wrap, in the space
            opened up by animating the wrap's top padding (--cb-extra-top).
            Swatches fade in only after the island finishes extending. */
         #slim-cb-preview,
@@ -2585,6 +2669,75 @@
         #slim-cb-preview .cmh-cell.active canvas,
         .cmap-hold-preview .cmh-cell.active canvas { border-color: var(--active-dim); }
 
+        #slim-cb-preview.cmap-wheel,
+        .cmap-hold-preview.cmap-wheel {
+            --cmap-wheel-size: min(198px, calc(100vw - 128px));
+            left: 50%;
+            right: auto;
+            width: var(--cmap-wheel-size);
+            height: calc(var(--cmap-wheel-size) + 18px);
+            display: block;
+            transform: translateX(-50%);
+            overflow: visible;
+        }
+        #slim-cb-preview.cmap-wheel::before,
+        .cmap-hold-preview.cmap-wheel::before {
+            content: '';
+            position: absolute;
+            inset: 12px;
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            opacity: 0.42;
+            width: calc(var(--cmap-wheel-size) - 24px);
+            height: calc(var(--cmap-wheel-size) - 24px);
+            box-sizing: border-box;
+        }
+        #slim-cb-preview.cmap-wheel .cmap-wheel-canvas,
+        .cmap-hold-preview.cmap-wheel .cmap-wheel-canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: var(--cmap-wheel-size);
+            height: var(--cmap-wheel-size);
+            background: transparent !important;
+            cursor: pointer;
+        }
+        #slim-cb-preview.cmap-wheel .cmh-cell,
+        .cmap-hold-preview.cmap-wheel .cmh-cell {
+            display: none;
+        }
+        #slim-cb-preview.cmap-wheel .cmh-cell span,
+        .cmap-hold-preview.cmap-wheel .cmh-cell span {
+            display: none;
+        }
+        .cmap-wheel-label {
+            position: absolute;
+            left: 50%;
+            top: calc(var(--cmap-wheel-size) - 2px);
+            min-width: 74px;
+            height: 18px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: translateX(-50%);
+            border: 0;
+            background: transparent;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+        .cmap-wheel-label-text {
+            max-width: 96px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--active-dim);
+            font-family: monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            text-align: center;
+            white-space: nowrap;
+        }
+
         /* ── Hold-g grid layout picker ──────────────────────────── */
         .layout-picker {
             position: fixed;
@@ -2601,7 +2754,7 @@
             z-index: 40;
             font-family: monospace;
             color: var(--fg);
-            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+            box-shadow: var(--layout-shadow);
         }
         .layout-picker.is-visible { opacity: 1; pointer-events: auto; }
         :root.light .layout-picker { background: rgba(245, 245, 245, 0.88); border-color: rgba(0,0,0,0.08); }
@@ -3291,6 +3444,7 @@
         const _postMessageChannels = new Map();
         let _pendingFetches = new Map();
         let _fetchSeq = 0;
+        let _qmriRenderGeneration = 0;
 
         function resolveServerPath(path) {
             if (!path || postMessageTransport) return path;
@@ -3313,7 +3467,7 @@
 
                 if (msg.type === 'slice-data') {
                     const channel = _postMessageChannels.get(msg.channelId);
-                    if (channel && channel.onmessage) {
+                    if (channel && channel.readyState === WebSocket.OPEN && channel.onmessage) {
                         // Buffer may arrive as Uint8Array (VS Code structured clone).
                         // Ensure we pass a plain ArrayBuffer to the binary parser.
                         let buf = msg.buffer;
@@ -3363,7 +3517,10 @@
                     send(data) {
                         _vscodeApi.postMessage({ type: 'ws-send', channelId, sid: transportSid, data: JSON.parse(data) });
                     },
-                    close() { t.readyState = WebSocket.CLOSED; },
+                    close() {
+                        t.readyState = WebSocket.CLOSED;
+                        _postMessageChannels.delete(channelId);
+                    },
                     onopen: onOpen || null,
                     onmessage: onMessage || null,
                     onclose: onClose || null,
@@ -3534,6 +3691,9 @@
         let _lebesgueFetchCtrl = null;  // AbortController for in-flight Lebesgue fetch
         let _hoverPrefetchTimer = null; // debounce for hover prefetch during rapid scrolling
         let _lastLebesgueBin = -1;      // tracks which histogram bin is currently highlighted
+        let _lastLebesgueSource = '';   // ColorBar id/source for the last highlighted bin
+        let _lastLebesgueColorBar = null; // last ColorBar that drove the highlight
+        let _colorbarLebesgueHover = false; // true while colorbar hover should drive Lebesgue highlighting
         let _lebesgueSliceW = 0, _lebesgueSliceH = 0; // dimensions of cached raw slice
         let rgbMode = false;
         let compareFocusMode = false;
@@ -6055,50 +6215,48 @@
 
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
-        const _cbFmt = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            // Normal range: show as-is with limited precision
-            if (av >= 0.1 && av < 10000) {
-                let s = parseFloat(v.toPrecision(3)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
-                return s;
+        const _expandExponentialString = s => {
+            const lower = String(s).toLowerCase();
+            if (!lower.includes('e')) return lower;
+            let [mantissa, expPart] = lower.split('e');
+            const exp = Number(expPart);
+            if (!Number.isFinite(exp)) return lower;
+            let sign = '';
+            if (mantissa.startsWith('-') || mantissa.startsWith('+')) {
+                sign = mantissa.startsWith('-') ? '-' : '';
+                mantissa = mantissa.slice(1);
             }
-            // Scientific notation with HTML superscript
-            const exp = Math.floor(Math.log10(av));
-            const mantissa = v / Math.pow(10, exp);
-            let m;
-            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
-                m = Math.round(mantissa).toString();
-            } else {
-                m = parseFloat(mantissa.toPrecision(2)).toString();
+            const [whole, frac = ''] = mantissa.split('.');
+            const digits = whole + frac;
+            const decimalPos = whole.length + exp;
+            if (decimalPos <= 0) {
+                return sign + '0.' + '0'.repeat(-decimalPos) + digits;
             }
-            return m + '<span class="exp">e' + exp + '</span>';
+            if (decimalPos >= digits.length) {
+                return sign + digits + '0'.repeat(decimalPos - digits.length);
+            }
+            return sign + digits.slice(0, decimalPos) + '.' + digits.slice(decimalPos);
         };
+        const _trimDecimalString = s => {
+            let out = String(s)
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '')
+                .replace(/\.$/, '');
+            if (out === '-0') out = '0';
+            return out;
+        };
+        const _formatPlainNumber = (v, sigDigits = 3) => {
+            if (!Number.isFinite(v)) return String(v);
+            if (Object.is(v, -0) || v === 0) return '0';
+            const digits = Math.max(1, Math.trunc(sigDigits) || 1);
+            return _trimDecimalString(_expandExponentialString(v.toExponential(digits - 1)));
+        };
+        const _cbFmt = v => _formatPlainNumber(v, 3);
         const _rangeStatusStr = (label, lo, hi) => {
             if (lo == null || hi == null) return `range: ${label}`;
             return `range: ${label}  [${_cbFmtPlain(lo)} … ${_cbFmtPlain(hi)}]`;
         };
-        const _cbFmtPlain = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            if (av >= 0.1 && av < 10000) {
-                let s = parseFloat(v.toPrecision(3)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(2)).toString();
-                if (s.length > 5) s = parseFloat(v.toPrecision(1)).toString();
-                return s;
-            }
-            const exp = Math.floor(Math.log10(av));
-            const mantissa = v / Math.pow(10, exp);
-            let m;
-            if (Math.abs(mantissa - Math.round(mantissa)) < 0.05) {
-                m = Math.round(mantissa).toString();
-            } else {
-                m = parseFloat(mantissa.toPrecision(2)).toString();
-            }
-            return m + 'e' + exp;
-        };
+        const _cbFmtPlain = v => _formatPlainNumber(v, 3);
 
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
@@ -6473,6 +6631,7 @@
 
                 // Hover / drag state
                 this._hoverFrac = -1;
+                this._hoverY = -1;
                 this._mouseOver = false;
                 this._hoverTimer = null;
                 this._dragActive = false;
@@ -6660,6 +6819,44 @@
                 const range = this._getHoverRange();
                 if (!range) return null;
                 return range.vmin + frac * (range.vmax - range.vmin);
+            }
+
+            /** Return the histogram bin index for a data value, or -1. */
+            _histBinIndexForValue(val) {
+                const hd = this._histData;
+                const counts = hd?.counts;
+                const edges = hd?.edges;
+                if (!counts || !edges || !counts.length || edges.length !== counts.length + 1 || val == null) return -1;
+                if (val <= edges[0]) return 0;
+                if (val >= edges[edges.length - 1]) return counts.length - 1;
+                for (let i = 0; i < counts.length; i++) {
+                    const hi = edges[i + 1] + (i === counts.length - 1 ? 1e-9 : 0);
+                    if (val >= edges[i] && val < hi) return i;
+                }
+                return -1;
+            }
+
+            /** Return the histogram bin index at hover fraction frac, or -1. */
+            _hoverBinIndexAt(frac) {
+                return this._histBinIndexForValue(this._hoverValueAt(frac));
+            }
+
+            /** Return the visible colorbar-strip value at hover fraction frac. */
+            _hoverBarValueAt(frac) {
+                const win = this.opts.getWindow ? this.opts.getWindow() : null;
+                if (win && Number.isFinite(win.vmin) && Number.isFinite(win.vmax)) {
+                    return win.vmin + frac * (win.vmax - win.vmin);
+                }
+                return this._hoverValueAt(frac);
+            }
+
+            /** Preserve histogram hover semantics, but map the colorbar strip
+             *  through the visible windowed range when expanded. */
+            _hoverBinIndexForPoint(frac, y, cssH) {
+                if (!this._histData || frac < 0 || frac > 1) return -1;
+                const isBarStrip = y >= Math.max(0, cssH - CB_COLLAPSED_H);
+                if (isBarStrip) return this._histBinIndexForValue(this._hoverBarValueAt(frac));
+                return this._hoverBinIndexAt(frac);
             }
 
             /** Return the cumulative percentile (0..1) at value `val`. */
@@ -6940,7 +7137,6 @@
                 const labelH = CB_LABEL_H * aT;
                 const histTop = labelH;
                 const histH = cssH - histTop;
-
                 for (let px = 0; px < cssW; px++) {
                     const t = px / cssW;
                     const inRange = t >= effVmin && t <= effVmax;
@@ -7167,12 +7363,7 @@
                 this._expanded = true;
                 if (this.triZone) this.triZone.classList.add('expanded');
                 this.updateLabels();
-                if (this.opts.fetchHistogram) {
-                    this._histFetching = true;
-                    this._histData = await this.opts.fetchHistogram();
-                    this._histFetching = false;
-                }
-                this._buildKDE();
+                await this.ensureHistogramData();
                 this.startAnim(true);
                 if (this.opts.onExpand) this.opts.onExpand();
                 if (this._syncWith && !this._syncing) {
@@ -7214,6 +7405,31 @@
                 this._histFetching = false;
                 this._buildKDE();
                 this.draw();
+            }
+
+            /** Ensure histogram data exists without forcing the bar open. */
+            async ensureHistogramData() {
+                if (this._histData || this._histFetching || !this.opts.fetchHistogram) return this._histData;
+                this._histFetching = true;
+                try {
+                    this._histData = await this.opts.fetchHistogram();
+                } finally {
+                    this._histFetching = false;
+                }
+                this._buildKDE();
+                if (this === primaryCb && this._histData) {
+                    _histData = this._histData;
+                    _kdeSmooth = this._kdeSmooth;
+                }
+                this.draw();
+                if (this._onBinHover && this._mouseOver && this._hoverFrac >= 0 && this.orientation === 'horizontal') {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const cssH = rect.height || this.canvas.clientHeight || CB_COLLAPSED_H;
+                    const hoverY = this._hoverY >= 0 ? this._hoverY : cssH - 1;
+                    const binIdx = this._hoverBinIndexForPoint(this._hoverFrac, hoverY, cssH);
+                    this._onBinHover(binIdx, this._hoverFrac);
+                }
+                return this._histData;
             }
 
             /** Auto-collapse after a delay (ms). */
@@ -7357,12 +7573,14 @@
                 // Mouseenter/leave on wrap
                 this.wrap.addEventListener('mouseenter', () => {
                     this._mouseOver = true;
+                    if (this._onBinHover) this.ensureHistogramData();
                     if (this.opts.onMouseEnter) this.opts.onMouseEnter();
                 });
                 this.wrap.addEventListener('mouseleave', () => {
                     this._mouseOver = false;
                     if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
+                        this._hoverY = -1;
                         this.draw();
                         if (this.tooltip) this.tooltip.style.display = 'none';
                         if (this._onBinHover) this._onBinHover(-1, -1);
@@ -7475,12 +7693,13 @@
                     const inCanvas = x >= 0 && x <= cssW;
                     if (inCanvas) {
                         this._hoverFrac = frac;
+                        this._hoverY = e.clientY - rect.top;
                         const hit = this._expanded ? this._hitTest(x) : null;
                         this.canvas.style.cursor = hit ? 'ew-resize' : 'crosshair';
                         this.draw();
                         // Show floating tooltip with value above the colorbar,
                         // even when the histogram is collapsed.
-                        const hoverVal = this._hoverValueAt(frac);
+                        const hoverVal = this._hoverBarValueAt(frac);
                         if (this.tooltip && hoverVal != null) {
                             this.tooltip.classList.remove('percentile');
                             this.tooltip.textContent = _cbFmtPlain(hoverVal);
@@ -7497,12 +7716,16 @@
                             this.tooltip.style.display = 'none';
                         }
                         if (this._onBinHover && this._histData && this._hoverFrac >= 0) {
-                            const nBins = this._histData.counts?.length || 64;
-                            const binIdx = Math.min(nBins - 1, Math.max(0, Math.floor(this._hoverFrac * nBins)));
+                            const binIdx = this._hoverBinIndexForPoint(
+                                this._hoverFrac,
+                                e.clientY - rect.top,
+                                rect.height || this.canvas.clientHeight || CB_COLLAPSED_H
+                            );
                             this._onBinHover(binIdx, this._hoverFrac);
                         }
                     } else if (this._hoverFrac >= 0) {
                         this._hoverFrac = -1;
+                        this._hoverY = -1;
                         this.canvas.style.cursor = '';
                         this.draw();
                         if (this.tooltip) {
@@ -7513,6 +7736,7 @@
                     }
                 } else if (this._hoverFrac >= 0) {
                     this._hoverFrac = -1;
+                    this._hoverY = -1;
                     this.draw();
                     if (this._onBinHover) this._onBinHover(-1, -1);
                 }
@@ -8327,11 +8551,13 @@
                 lebesgueMode = false;
                 _clearLebesgueOverlay();
                 _lastLebesgueBin = -1;
+                _lastLebesgueSource = '';
                 const _cbTip = document.getElementById('slim-cb-tooltip');
                 if (_cbTip) _cbTip.style.display = 'none';
                 _redrawActiveColorbar();
             },
             onMouseEnter: () => {
+                _startColorbarLebesgueHover();
                 // Pause the 'd'-key auto-dismiss timer while the user hovers
                 if (!_lebesgueManual && _histAutoDismissTimer) {
                     clearTimeout(_histAutoDismissTimer);
@@ -8339,26 +8565,14 @@
                 }
             },
             onMouseLeave: () => {
+                _stopColorbarLebesgueHover();
                 // Restart fresh 3-second timer when mouse leaves after 'd'-key open
                 if (!_lebesgueManual && lebesgueMode && primaryCb._expanded) {
                     _restartHistAutoDismiss();
                 }
             },
             onBinHover: (binIdx, frac) => {
-                if (!lebesgueMode) return;
-                if (binIdx < 0) { _clearLebesgueOverlay(); _lastLebesgueBin = -1; return; }
-                if (binIdx !== _lastLebesgueBin) {
-                    _lastLebesgueBin = binIdx;
-                    if (primaryCb._histData) {
-                        const { edges, counts } = primaryCb._histData;
-                        if (edges && counts) {
-                            const binLow = edges[binIdx];
-                            const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
-                            _drawLebesgueHighlight(binLow, binHigh);
-                            _highlightHistBin(binIdx);
-                        }
-                    }
-                }
+                _drawLebesgueHighlightForColorbar(primaryCb, binIdx);
             },
         });
         let _cbWindowChangeRafId = null;
@@ -8790,6 +9004,14 @@
             } catch (_) { return null; }
         }
 
+        function _hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
+            return fetchSid + ':' + fetchIndices.join(',') + ':' + fetchDimX + ':' + fetchDimY + ':' + complexMode + ':' + logScale;
+        }
+
+        function _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices) {
+            return _hoverSliceCache[_hoverSliceCacheKey(fetchSid, fetchDimX, fetchDimY, fetchIndices)] || null;
+        }
+
         function _prefetchHoverSlices() {
             if (qmriActive) {
                 qmriViews.forEach(v => {
@@ -8881,6 +9103,29 @@
                 }
             } catch (_) { /* aborted or network error */ }
             if (_lebesgueFetchCtrl === ctrl) _lebesgueFetchCtrl = null;
+            if (_colorbarLebesgueHoverActive() && _lastLebesgueBin >= 0 && _lastLebesgueColorBar) {
+                _drawLebesgueHighlightForColorbar(_lastLebesgueColorBar, _lastLebesgueBin, true);
+            }
+        }
+
+        function _colorbarLebesgueHoverActive() {
+            return lebesgueMode || _colorbarLebesgueHover;
+        }
+
+        function _startColorbarLebesgueHover() {
+            _colorbarLebesgueHover = true;
+            _fetchLebesgueSlice();
+            _prefetchHoverSlices();
+        }
+
+        function _stopColorbarLebesgueHover() {
+            _colorbarLebesgueHover = false;
+            _lastLebesgueSource = '';
+            _lastLebesgueColorBar = null;
+            if (!lebesgueMode) {
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
+            }
         }
 
         function _clearLebesgueOverlay() {
@@ -8894,6 +9139,8 @@
                 const ctx = el.getContext('2d');
                 if (ctx) ctx.clearRect(0, 0, el.width, el.height);
             });
+            _lastLebesgueSource = '';
+            _lastLebesgueColorBar = null;
         }
 
         /** Highlight a single histogram bin region on the morph with a bright column. */
@@ -8964,6 +9211,60 @@
             return overlay;
         }
 
+        function _drawLebesgueHighlightOnCanvas(targetCv, sliceEntry, binLow, binHigh) {
+            if (!targetCv || !sliceEntry || !sliceEntry.slice || !sliceEntry.w || !sliceEntry.h) return false;
+            const overlay = _getLebesgueOverlay(targetCv);
+            if (!overlay) return false;
+            _drawLebesgueOnCanvas(overlay, targetCv, sliceEntry.slice, sliceEntry.w, sliceEntry.h, binLow, binHigh);
+            return true;
+        }
+
+        function _drawLebesgueHighlightForCachedSlice(targetCv, fetchSid, fetchDimX, fetchDimY, fetchIndices, binLow, binHigh) {
+            return _drawLebesgueHighlightOnCanvas(
+                targetCv,
+                _getCachedHoverSlice(fetchSid, fetchDimX, fetchDimY, fetchIndices),
+                binLow,
+                binHigh,
+            );
+        }
+
+        function _drawLebesgueHighlightForQmriPane(view, binLow, binHigh) {
+            if (!view?.canvas) return;
+            if (compareQmriActive && view.sid) {
+                const qIdx = [...indices];
+                qIdx[compareQmriDim] = view.qmriIdx;
+                _drawLebesgueHighlightForCachedSlice(view.canvas, view.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                return;
+            }
+            if (qmriActive) {
+                const qIdx = [...indices];
+                qIdx[qmriDim] = view.qmriIdx;
+                _drawLebesgueHighlightForCachedSlice(view.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
+            }
+        }
+
+        function _drawLebesgueHighlightForColorbar(cb, binIdx, force = false) {
+            if (!_colorbarLebesgueHoverActive()) return;
+            const hd = cb?._histData;
+            const counts = hd?.counts;
+            const edges = hd?.edges;
+            if (!counts || !edges || binIdx < 0 || binIdx >= counts.length) {
+                _clearLebesgueOverlay();
+                _lastLebesgueBin = -1;
+                return;
+            }
+            const sourceId = cb?.id || '';
+            if (!force && binIdx === _lastLebesgueBin && sourceId === _lastLebesgueSource) return;
+            _lastLebesgueBin = binIdx;
+            _lastLebesgueSource = sourceId;
+            _lastLebesgueColorBar = cb || null;
+            const binLow = edges[binIdx];
+            const binHigh = edges[binIdx + 1] + (binIdx === counts.length - 1 ? 1e-9 : 0);
+            if (cb?._lebesgueView) _drawLebesgueHighlightForQmriPane(cb._lebesgueView, binLow, binHigh);
+            else _drawLebesgueHighlight(binLow, binHigh);
+            if (cb === primaryCb) _highlightHistBin(binIdx);
+        }
+
         /** Get or create a vector field overlay canvas for a multi-view pane. */
         function _getMvVfieldCanvas(targetCv) {
             const parent = targetCv.parentElement;
@@ -8986,17 +9287,31 @@
                     const cv = compareCanvases[i];
                     if (!cv) return;
                     const entry = _lebesguePerSession[s];
-                    if (!entry) return;
-                    const overlay = _getLebesgueOverlay(cv);
-                    if (overlay) _drawLebesgueOnCanvas(overlay, cv, entry.slice, entry.w, entry.h, binLow, binHigh);
+                    _drawLebesgueHighlightOnCanvas(cv, entry, binLow, binHigh);
+                });
+            } else if (compareQmriActive) {
+                compareQmriViews.forEach(v => {
+                    if (!v.canvas) return;
+                    const qIdx = [...indices];
+                    qIdx[compareQmriDim] = v.qmriIdx;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, dim_x, dim_y, qIdx, binLow, binHigh);
+                });
+            } else if (compareMvActive) {
+                compareMvViews.forEach(v => {
+                    if (!v.canvas) return;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, v.sid, v.dimX, v.dimY, indices, binLow, binHigh);
+                });
+            } else if (qmriActive) {
+                qmriViews.forEach(v => {
+                    if (!v.canvas) return;
+                    const qIdx = [...indices];
+                    qIdx[qmriDim] = v.qmriIdx;
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, dim_x, dim_y, qIdx, binLow, binHigh);
                 });
             } else if (multiViewActive) {
-                // Highlight on all multiview panes (same session/slice)
-                if (!_lebesgueSlice || !_lebesgueSliceW) return;
                 mvViews.forEach(v => {
                     if (!v.canvas) return;
-                    const overlay = _getLebesgueOverlay(v.canvas);
-                    if (overlay) _drawLebesgueOnCanvas(overlay, v.canvas, _lebesgueSlice, _lebesgueSliceW, _lebesgueSliceH, binLow, binHigh);
+                    _drawLebesgueHighlightForCachedSlice(v.canvas, sid, v.dimX, v.dimY, indices, binLow, binHigh);
                 });
             } else {
                 // Normal single-view mode — use the existing #lebesgue-canvas
@@ -12229,13 +12544,13 @@
         function dimSlash(pct, active, playing, isVfieldT) {
             const style = getComputedStyle(document.documentElement);
             const muted = style.getPropertyValue('--muted').trim();
-            const border = style.getPropertyValue('--border').trim();
+            const subtle = style.getPropertyValue('--subtle').trim();
             let fill;
             if (isVfieldT) fill = style.getPropertyValue('--vfield-t-dim').trim();
             else if (playing) fill = style.getPropertyValue('--playing-dim').trim();
             else if (active) fill = style.getPropertyValue('--active-dim').trim();
             else fill = muted;
-            const unfilled = (active || playing || isVfieldT) ? muted : border;
+            const unfilled = (active || playing || isVfieldT) ? muted : subtle;
             return slashFill(pct, fill, unfilled);
         }
         /* ── JS: Info Bar and Pixel Display ───────────────────────── */
@@ -12855,12 +13170,7 @@
         }
 
         let _pixelHoverThrottle = false;
-        const _pixelFmt = v => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            if (av >= 1e4 || (av < 1e-2 && av > 0)) return v.toExponential(3);
-            return parseFloat(v.toPrecision(4)).toString();
-        };
+        const _pixelFmt = v => _formatPlainNumber(v, 4);
         function fetchPixelInfo(opts) {
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
@@ -19473,10 +19783,10 @@ if (typeof gsap !== 'undefined') {
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
+                    onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                    onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
-                        if (!lebesgueMode) return;
-                        if (binIdx < 0) { _clearLebesgueOverlay(); return; }
-                        _drawLebesgueHighlight(binIdx);
+                        _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
                 });
                 // Set IDs on ColorBar DOM elements for backward compatibility
@@ -20402,6 +20712,7 @@ if (typeof gsap !== 'undefined') {
 
         // --------------- qMRI mode ---------------
         function enterQmri() {
+            _qmriRenderGeneration++;
             // Auto-detect: if exactly one dim has size 3–6, use it; otherwise fall back to activeDim
             const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
@@ -20442,7 +20753,7 @@ if (typeof gsap !== 'undefined') {
                     const actualIdx = mapIndices[viewIdx]; // Actual index in the qmri dimension
                     const cmap = cmaps[viewIdx];
                     const pane = document.createElement('div');
-                    pane.className = 'qv-pane';
+                    pane.className = 'qv-pane qmri-pane';
                     const label = document.createElement('div');
                     label.className = 'qv-label';
                     label.textContent = QMRI_LABELS[cmap] || cmap;
@@ -20455,7 +20766,7 @@ if (typeof gsap !== 'undefined') {
                     // Tight box so axes-indicator's bottom:6px measures from the
                     // canvas, not from below the colorbar sibling in cvWrap.
                     const qvCvBox = document.createElement('div');
-                    qvCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    qvCvBox.className = 'qv-canvas-clip';
                     qvCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
@@ -20488,6 +20799,7 @@ if (typeof gsap !== 'undefined') {
                         _mosaicVcb: null, _mosaicColorBar: null,
                         _histData: null, _histFetching: false,
                         _colorBar: null,
+                        _qmriGeneration: _qmriRenderGeneration,
                     };
                     // Create ColorBar instance for this qMRI view
                     const _qvCb = new ColorBar({
@@ -20513,9 +20825,13 @@ if (typeof gsap !== 'undefined') {
                                 fixedIndices,
                             });
                         },
+                        onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                        onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_qvCb, binIdx); },
                         onWindowChange: () => { qvRender(view); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
                     });
+                    _qvCb._lebesgueView = view;
                     _qvCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _qvCb;
                     view.cbCanvas = _qvCb.canvas;
@@ -20712,6 +21028,7 @@ if (typeof gsap !== 'undefined') {
         }
 
         function exitQmri() {
+            _qmriRenderGeneration++;
             _qmriVisibleMaps = null;
             _qvRoiDragView = null;
             _endQmriLoupe();
@@ -20747,6 +21064,7 @@ if (typeof gsap !== 'undefined') {
         // Layout: rows = compared arrays, columns = parameter maps
         function enterCompareQmri() {
             if (!compareActive) return;
+            _qmriRenderGeneration++;
             // Detect qMRI dim
             const candidates = shape.map((s, i) => i).filter(i => [3, 4, 5, 6].includes(shape[i]));
             const targetDim = candidates.length === 1 ? candidates[0] : activeDim;
@@ -20818,7 +21136,7 @@ if (typeof gsap !== 'undefined') {
                     // Tight box so axes-indicator's bottom:6px measures from the
                     // canvas, not from below the colorbar sibling in cvWrap.
                     const cqCvBox = document.createElement('div');
-                    cqCvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    cqCvBox.className = 'qv-canvas-clip';
                     cqCvBox.appendChild(cv);
                     const qvPiEl = document.createElement('div');
                     qvPiEl.className = 'cv-pixel-info';
@@ -20846,6 +21164,7 @@ if (typeof gsap !== 'undefined') {
                         ws: null, seq: 0, rendering: false, pending: false,
                         lastW: 0, lastH: 0, lastImageData: null,
                         _colorBar: null,
+                        _qmriGeneration: _qmriRenderGeneration,
                     };
                     // Create ColorBar instance for this compare-qMRI view
                     const _cqCb = new ColorBar({
@@ -20868,9 +21187,13 @@ if (typeof gsap !== 'undefined') {
                                 fixedIndices,
                             });
                         },
+                        onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                        onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_cqCb, binIdx); },
                         onWindowChange: () => { compareQmriRender(view); },
                         onAnimFrame: () => { compareQmriScaleAllCanvases(); },
                     });
+                    _cqCb._lebesgueView = view;
                     _cqCb.wrap.classList.add('qv-cb-island');
                     view._colorBar = _cqCb;
                     view.cbCanvas = _cqCb.canvas;
@@ -20953,6 +21276,7 @@ if (typeof gsap !== 'undefined') {
         }
 
         function exitCompareQmri() {
+            _qmriRenderGeneration++;
             compareQmriActive = false;
             compareQmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } });
             compareQmriViews = [];
@@ -20994,6 +21318,7 @@ if (typeof gsap !== 'undefined') {
             v.ws.send(JSON.stringify({
                 seq: v.seq, dim_x, dim_y, dim_z: -1,
                 indices: qIndices, colormap: v.colormap,
+                pane_key: `compare-qmri:${v.sid}:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
                 log_scale: logScale && v.qmriIdx < 2,
                 slice_dim: current_slice_dim, direction: 1,
@@ -21035,6 +21360,7 @@ if (typeof gsap !== 'undefined') {
                     params.set('vmax_override', String(v.lockedVmax));
                 }
                 const frame = await fetchSliceFrame(params, v.sid);
+                if (!compareQmriActive || v._qmriGeneration !== _qmriRenderGeneration || !compareQmriViews.includes(v)) return;
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -21144,7 +21470,7 @@ if (typeof gsap !== 'undefined') {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
-            if (h32[0] === v.seq) {
+            if (h32[0] === v.seq && compareQmriActive && v._qmriGeneration === _qmriRenderGeneration && compareQmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
                 const rgba = new Uint8ClampedArray(buf.slice(20, 20 + width * height * 4));
@@ -21209,10 +21535,10 @@ if (typeof gsap !== 'undefined') {
                     },
                     fetchHistogram: () => _fetchVolumeHistogram(_volHistSpatialOpts()),
                     onWindowChange: () => { for (const v of compareMvViews) compareMvRender(v); _mipOnWindowChange(); },
+                    onMouseEnter: () => { _startColorbarLebesgueHover(); },
+                    onMouseLeave: () => { _stopColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
-                        if (!lebesgueMode) return;
-                        if (binIdx < 0) { _clearLebesgueOverlay(); return; }
-                        _drawLebesgueHighlight(binIdx);
+                        _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
                 });
                 window._mvColorBar.wrap.id = 'mv-cb-wrap';
@@ -21247,7 +21573,7 @@ if (typeof gsap !== 'undefined') {
                     cv.className = 'qv-canvas';
                     // Tight box: canvas + axes-indicator positioned relative to canvas
                     const cvBox = document.createElement('div');
-                    cvBox.style.cssText = 'position:relative;display:inline-flex;overflow:hidden;';
+                    cvBox.className = 'qv-canvas-clip';
                     cvBox.appendChild(cv);
                     // Axes indicator (same style as regular 3-plane view)
                     const _axLetters = ['x', 'y', 'z'];
@@ -21736,6 +22062,7 @@ if (typeof gsap !== 'undefined') {
             const _qmMsg = {
                 seq: v.seq, dim_x, dim_y, dim_z: qmriMosaicActive ? _qmriMosaicZDim : -1,
                 indices: qIndices, colormap: v.colormap,
+                pane_key: `qmri:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
                 // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
                 log_scale: logScale && v.qmriIdx < 2,
@@ -21782,6 +22109,7 @@ if (typeof gsap !== 'undefined') {
                 { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
                 if (overlay_sid) params.set('overlay_alpha', String(overlayAlpha));
                 const frame = await fetchSliceFrame(params);
+                if (!qmriActive || v._qmriGeneration !== _qmriRenderGeneration || !qmriViews.includes(v)) return;
                 v.vmin = frame.vmin;
                 v.vmax = frame.vmax;
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -22017,7 +22345,7 @@ if (typeof gsap !== 'undefined') {
             const colGap = 24;  // matches .qv-row gap
             const rowGap = 14;  // matches #qmri-view-wrap gap
             const sidePad = 120; // 40px padding + colorbar label flanks
-            const labelH = 24;  // qv-label above each canvas
+            const labelH = 0;   // qMRI labels are overlaid inside each pane
             // Reserve: colorbar strip + margin-top + label row + padding.
             // When any colorbar is expanded (histogram visible), reserve extra height.
             const anyExpanded = ready.some(v => v._colorBar && v._colorBar._expanded);
@@ -22088,7 +22416,7 @@ if (typeof gsap !== 'undefined') {
             const buf = event.data;
             const h32 = new Uint32Array(buf, 0, 3);
             const width = h32[1], height = h32[2];
-            if (h32[0] === v.seq) {
+            if (h32[0] === v.seq && qmriActive && v._qmriGeneration === _qmriRenderGeneration && qmriViews.includes(v)) {
                 const f32 = new Float32Array(buf, 12, 2);
                 v.vmin = f32[0]; v.vmax = f32[1];
                 if (v.lockedVmin === undefined || v.lockedVmin === null) {
@@ -23504,6 +23832,12 @@ if (typeof gsap !== 'undefined') {
         // ── 2. Zen / focus mode ───────────────────────────────────────
         let _zenActive = false;
         let _zenInactivityTimer = null;
+        function _setZenQmriChromeOpacity(value) {
+            document.querySelectorAll('.qv-cb-island, .qmri-pane > .qv-label').forEach(el => {
+                el.style.opacity = value;
+                el.style.pointerEvents = value === '0' ? 'none' : '';
+            });
+        }
         function _zenShowChrome() {
             clearTimeout(_zenInactivityTimer);
             if (!_zenActive) return;
@@ -23515,10 +23849,12 @@ if (typeof gsap !== 'undefined') {
             if (eggs) eggs.style.opacity = '';
             const hint = document.getElementById('help-hint');
             if (hint) hint.style.opacity = '';
+            _setZenQmriChromeOpacity('');
             _zenInactivityTimer = setTimeout(_zenHideChrome, 2500);
         }
         function _zenHideChrome() {
-            // Already hidden via body.zen-mode CSS; just let the CSS class do the work
+            if (!_zenActive) return;
+            _setZenQmriChromeOpacity('0');
         }
         function toggleZenMode() {
             _zenActive = !_zenActive;
@@ -23529,11 +23865,13 @@ if (typeof gsap !== 'undefined') {
                     || document.documentElement.mozRequestFullScreen;
                 if (req) req.call(document.documentElement).catch(() => {});
                 document.addEventListener('mousemove', _zenShowChrome);
+                _zenHideChrome();
                 showToast('zen mode — move mouse to reveal chrome · Z to exit');
             } else {
                 document.body.classList.remove('zen-mode');
                 clearTimeout(_zenInactivityTimer);
                 document.removeEventListener('mousemove', _zenShowChrome);
+                _setZenQmriChromeOpacity('');
                 if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
                 else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
             }
@@ -23544,6 +23882,7 @@ if (typeof gsap !== 'undefined') {
                 document.body.classList.remove('zen-mode');
                 clearTimeout(_zenInactivityTimer);
                 document.removeEventListener('mousemove', _zenShowChrome);
+                _setZenQmriChromeOpacity('');
             }
         });
 
@@ -24436,6 +24775,7 @@ if (typeof gsap !== 'undefined') {
             _reconcileLayout();
             _reconcileCompareState();
             _reconcileCbVisibility();
+            if (_zenActive) _setZenQmriChromeOpacity('0');
             renderToolMenu();
             if (_mainHoverPinEligible()) _renderHoverPins();
             else _clearHoverPins();
@@ -24465,7 +24805,7 @@ if (typeof gsap !== 'undefined') {
             // 5. Canvas borders — apply to all relevant containers based on user preference
             const vp = document.getElementById('canvas-viewport');
             if (vp) vp.classList.toggle('canvas-bordered', canvasBorders);
-            document.querySelectorAll('.qv-canvas-wrap, .compare-canvas-wrap, .mv-pane').forEach(el => {
+            document.querySelectorAll('.qv-canvas-clip, .compare-canvas-wrap, .mv-pane').forEach(el => {
                 el.classList.toggle('canvas-bordered', canvasBorders);
             });
             document.querySelectorAll('.compare-canvas-clip').forEach(el => {
@@ -24848,30 +25188,93 @@ if (typeof gsap !== 'undefined') {
             return Math.max(1, cols);
         }
 
+        function _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1) {
+            g.beginPath();
+            g.arc(cx, cy, outerR, a0, a1, false);
+            g.arc(cx, cy, innerR, a1, a0, true);
+            g.closePath();
+        }
+
+        function _cmapHoldDrawWheel() {
+            if (!_cmapHoldPreviewEl) return;
+            const cv = _cmapHoldPreviewEl.querySelector('.cmap-wheel-canvas');
+            if (!cv) return;
+            const pool = _cmapHoldPool || COLORMAPS;
+            const n = pool.length;
+            const g = cv.getContext('2d');
+            const cx = cv.width / 2;
+            const cy = cv.height / 2;
+            const baseOuter = cv.width * 0.425;
+            const baseInner = cv.width * 0.245;
+            const step = (Math.PI * 2) / Math.max(1, n);
+            const gap = Math.min(0.075, step * 0.18);
+            const start = -Math.PI / 2;
+            const rootStyle = getComputedStyle(document.documentElement);
+            const activeColor = rootStyle.getPropertyValue('--active-dim').trim();
+            g.clearRect(0, 0, cv.width, cv.height);
+            for (let i = 0; i < n; i++) {
+                const stops = COLORMAP_GRADIENT_STOPS[pool[i]];
+                if (!stops) continue;
+                const active = i === _cmapHoldSelIdx;
+                const mid = start + i * step;
+                const a0 = mid - step / 2 + gap;
+                const a1 = mid + step / 2 - gap;
+                const outerR = baseOuter + (active ? cv.width * 0.035 : 0);
+                const innerR = baseInner - (active ? cv.width * 0.008 : 0);
+                const tx = Math.cos(mid + Math.PI / 2);
+                const ty = Math.sin(mid + Math.PI / 2);
+                const grad = g.createLinearGradient(cx - tx * outerR, cy - ty * outerR, cx + tx * outerR, cy + ty * outerR);
+                stops.forEach(([r, gv, b], j) => {
+                    grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
+                });
+                g.save();
+                _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1);
+                g.clip();
+                g.fillStyle = grad;
+                g.fillRect(0, 0, cv.width, cv.height);
+                g.restore();
+                if (active && activeColor) {
+                    _cmapHoldWheelPath(g, cx, cy, innerR, outerR, a0, a1);
+                    g.lineWidth = 7;
+                    g.strokeStyle = activeColor;
+                    g.stroke();
+                }
+            }
+        }
+
         function _cmapHoldBuild() {
             if (!_cmapHoldPreviewEl) return;
             const pool = _cmapHoldPool || COLORMAPS;
             const n = pool.length;
-            let html = '';
+            let html = '<canvas class="cmap-wheel-canvas" width="420" height="420" aria-hidden="true"></canvas>';
             for (let i = 0; i < n; i++) {
-                html += `<div class="cmh-cell" data-cmh-idx="${i}"><canvas width="60" height="10"></canvas><span>${pool[i]}</span></div>`;
+                html += `<div class="cmh-cell" data-cmh-idx="${i}"><span>${pool[i]}</span></div>`;
             }
+            html += '<div class="cmap-wheel-label" aria-hidden="true"><div class="cmap-wheel-label-text"></div></div>';
+            _cmapHoldPreviewEl.classList.add('cmap-wheel');
             _cmapHoldPreviewEl.innerHTML = html;
-            // Paint gradient swatches and wire hover/click.
+            const wheelCanvas = _cmapHoldPreviewEl.querySelector('.cmap-wheel-canvas');
+            if (wheelCanvas) {
+                wheelCanvas.addEventListener('mousemove', (e) => {
+                    if (!_cmapHoldActive) return;
+                    const idx = _cmapHoldIndexFromPoint(e, wheelCanvas);
+                    if (idx < 0 || idx === _cmapHoldSelIdx) return;
+                    _cmapHoldSelIdx = idx;
+                    _cmapHoldHighlight();
+                    _cmapHoldApply(idx);
+                    _restartCmapAutoDismiss();
+                });
+                wheelCanvas.addEventListener('click', (e) => {
+                    if (!_cmapHoldActive) return;
+                    const idx = _cmapHoldIndexFromPoint(e, wheelCanvas);
+                    if (idx < 0) return;
+                    _cmapHoldSelIdx = idx;
+                    _cmapHoldCommit();
+                });
+            }
+            // Hidden cells preserve existing active state/query semantics.
             const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
             cells.forEach((cell, i) => {
-                const cv = cell.querySelector('canvas');
-                const stops = COLORMAP_GRADIENT_STOPS[pool[i]];
-                if (cv && stops) {
-                    const g = cv.getContext('2d');
-                    // whitelisted non-ColorBar use: colormap picker swatches
-                    const grad = g.createLinearGradient(0, 0, cv.width, 0);
-                    stops.forEach(([r, gv, b], j) => {
-                        grad.addColorStop(j / (stops.length - 1), `rgb(${r},${gv},${b})`);
-                    });
-                    g.fillStyle = grad;
-                    g.fillRect(0, 0, cv.width, cv.height);
-                }
                 cell.addEventListener('mouseover', () => {
                     if (!_cmapHoldActive) return;
                     _cmapHoldSelIdx = i;
@@ -24887,10 +25290,36 @@ if (typeof gsap !== 'undefined') {
             });
         }
 
+        function _cmapHoldIndexFromPoint(e, cv) {
+            const pool = _cmapHoldPool || COLORMAPS;
+            const n = pool.length;
+            if (!cv || !n) return -1;
+            const rect = cv.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * cv.width / rect.width;
+            const y = (e.clientY - rect.top) * cv.height / rect.height;
+            const dx = x - cv.width / 2;
+            const dy = y - cv.height / 2;
+            const r = Math.hypot(dx, dy);
+            const inner = cv.width * 0.22;
+            const outer = cv.width * 0.47;
+            if (r < inner || r > outer) return -1;
+            const step = (Math.PI * 2) / n;
+            const start = -Math.PI / 2;
+            const angle = Math.atan2(dy, dx);
+            return Math.round((angle - start) / step + n) % n;
+        }
+
         function _cmapHoldHighlight() {
             if (!_cmapHoldPreviewEl) return;
             const cells = _cmapHoldPreviewEl.querySelectorAll('.cmh-cell');
-            cells.forEach((cell, i) => cell.classList.toggle('active', i === _cmapHoldSelIdx));
+            const pool = _cmapHoldPool || COLORMAPS;
+            cells.forEach((cell, i) => {
+                const active = i === _cmapHoldSelIdx;
+                cell.classList.toggle('active', active);
+            });
+            _cmapHoldDrawWheel();
+            const label = _cmapHoldPreviewEl.querySelector('.cmap-wheel-label-text');
+            if (label) label.textContent = pool[_cmapHoldSelIdx] || '';
         }
 
         function _cmapHoldApply(idx) {
@@ -25009,15 +25438,9 @@ if (typeof gsap !== 'undefined') {
         function _cmapHoldNav(dx, dy) {
             if (!_cmapHoldActive) return;
             const n = (_cmapHoldPool || COLORMAPS).length;
-            const cols = _cmapHoldCols;
-            const row = Math.floor(_cmapHoldSelIdx / cols);
-            const col = _cmapHoldSelIdx % cols;
-            const rows = Math.ceil(n / cols);
-            // Clamp (safer than wrap for a small grid).
-            const nextRow = Math.max(0, Math.min(rows - 1, row + dy));
-            const nextCol = Math.max(0, Math.min(cols - 1, col + dx));
-            let next = nextRow * cols + nextCol;
-            if (next >= n) next = n - 1;  // last row may be short
+            let step = dx || 0;
+            if (dy) step = Math.max(1, Math.round(n / 4)) * dy;
+            const next = (_cmapHoldSelIdx + step + n) % n;
             if (next === _cmapHoldSelIdx) return;
             _cmapHoldSelIdx = next;
             _cmapHoldHighlight();
