@@ -2011,7 +2011,7 @@
         .mv-canvas-box { position: relative; display: inline-flex; overflow: hidden; }
         /* In ortho the border should frame the full square pane, including the
            empty background area, so draw it on the pane itself. */
-        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
+        .mv-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
         #mv-panes.mv-crosshair-active .mv-pane::after {
             content: ''; position: absolute; inset: 0; z-index: 4;
             box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1.5px) var(--mv-plane-border, var(--active-dim));
@@ -7513,6 +7513,7 @@
                         }
                     }
                     this._dragX = e.clientX;
+                    if (this.opts.onDragStart) this.opts.onDragStart();
                 });
 
                 // Dblclick toggles histogram expand/collapse
@@ -7628,6 +7629,7 @@
                 this._dragTarget = target;
                 this._dragActive = true;
                 document.body.style.cursor = 'ew-resize';
+                if (this.opts.onDragStart) this.opts.onDragStart();
                 const win = this.opts.getWindow();
                 const hd = this._histData;
                 if (hd) {
@@ -7741,6 +7743,7 @@
 
             /** Handle global mouseup — end any active drag. */
             _handleMouseUp(e) {
+                const wasDragging = this._dragTarget || this._dragX != null;
                 if (this._dragTarget) {
                     this._dragTarget = null;
                     this._dragActive = false;
@@ -7752,6 +7755,7 @@
                     if (this.opts.onWindowChange) this.opts.onWindowChange();
                 }
                 this._dragX = null;
+                if (wasDragging && this.opts.onDragEnd) this.opts.onDragEnd();
             }
 
             /** Mirror an interaction to the synced ColorBar. */
@@ -8568,6 +8572,8 @@
                     _restartHistAutoDismiss();
                 }
             },
+            onDragStart: () => { _stopColorbarLebesgueHover(); },
+            onDragEnd: () => { if (primaryCb._mouseOver) _startColorbarLebesgueHover(); },
             onBinHover: (binIdx, frac) => {
                 _drawLebesgueHighlightForColorbar(primaryCb, binIdx);
             },
@@ -12617,7 +12623,7 @@
                 const cls = tActive ? 'vfield-t-dim active-vfield-t dim-label' : 'vfield-t-dim dim-label';
                 idxStr += `<span class="dim-sep"> · </span><span class="${cls}" data-dim="${VFIELD_T_DIM}">${inner}</span>`;
             }
-            let text = idxStr;
+                        let text = idxStr;
             const _info = document.getElementById('info');
             _info.innerHTML = text;
             _applyHistPickerClasses();
@@ -20012,6 +20018,8 @@ if (typeof gsap !== 'undefined') {
                     onWindowChange: () => { for (const v of mvViews) mvRender(v); _mipOnWindowChange(); },
                     onMouseEnter: () => { _startColorbarLebesgueHover(); },
                     onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                    onDragStart: () => { _stopColorbarLebesgueHover(); },
+                    onDragEnd: () => { if (window._mvColorBar._mouseOver) _startColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
                         _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
@@ -21054,6 +21062,8 @@ if (typeof gsap !== 'undefined') {
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
                         onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onDragStart: () => { _stopColorbarLebesgueHover(); },
+                        onDragEnd: () => { if (_qvCb._mouseOver) _startColorbarLebesgueHover(); },
                         onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_qvCb, binIdx); },
                         onWindowChange: () => { qvRender(view); },
                         onAnimFrame: () => { qvScaleAllCanvases(); },
@@ -21416,6 +21426,8 @@ if (typeof gsap !== 'undefined') {
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
                         onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                        onDragStart: () => { _stopColorbarLebesgueHover(); },
+                        onDragEnd: () => { if (cqCb && cqCb._mouseOver) _startColorbarLebesgueHover(); },
                         onBinHover: (binIdx, frac) => { _drawLebesgueHighlightForColorbar(_cqCb, binIdx); },
                         onWindowChange: () => { compareQmriRender(view); },
                         onAnimFrame: () => { compareQmriScaleAllCanvases(); },
@@ -21764,6 +21776,8 @@ if (typeof gsap !== 'undefined') {
                     onWindowChange: () => { for (const v of compareMvViews) compareMvRender(v); _mipOnWindowChange(); },
                     onMouseEnter: () => { _startColorbarLebesgueHover(); },
                     onMouseLeave: () => { _stopColorbarLebesgueHover(); },
+                    onDragStart: () => { _stopColorbarLebesgueHover(); },
+                    onDragEnd: () => { if (window._cmpMvColorBar._mouseOver) _startColorbarLebesgueHover(); },
                     onBinHover: (binIdx, frac) => {
                         _drawLebesgueHighlightForColorbar(window._mvColorBar, binIdx);
                     },
