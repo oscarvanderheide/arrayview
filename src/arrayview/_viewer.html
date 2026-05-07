@@ -6797,20 +6797,53 @@
                 return range.vmin + frac * (range.vmax - range.vmin);
             }
 
-            /** Return the histogram bin index at hover fraction frac, or -1. */
-            _hoverBinIndexAt(frac) {
+            /** Return the histogram bin index for a data value, or -1. */
+            _histBinIndexForValue(val) {
                 const hd = this._histData;
                 const counts = hd?.counts;
                 const edges = hd?.edges;
-                const hoverVal = this._hoverValueAt(frac);
-                if (!counts || !edges || !counts.length || edges.length !== counts.length + 1 || hoverVal == null) return -1;
-                if (hoverVal <= edges[0]) return 0;
-                if (hoverVal >= edges[edges.length - 1]) return counts.length - 1;
+                if (!counts || !edges || !counts.length || edges.length !== counts.length + 1 || val == null) return -1;
+                if (val <= edges[0]) return 0;
+                if (val >= edges[edges.length - 1]) return counts.length - 1;
                 for (let i = 0; i < counts.length; i++) {
                     const hi = edges[i + 1] + (i === counts.length - 1 ? 1e-9 : 0);
-                    if (hoverVal >= edges[i] && hoverVal < hi) return i;
+                    if (val >= edges[i] && val < hi) return i;
                 }
                 return -1;
+            }
+
+            /** Return the histogram bin index at hover fraction frac, or -1. */
+            _hoverBinIndexAt(frac) {
+                return this._histBinIndexForValue(this._hoverValueAt(frac));
+            }
+
+            /** Return the visible colorbar-strip value at hover fraction frac. */
+            _hoverBarValueAt(frac) {
+                const hd = this._histData;
+                if (!hd) return this._hoverValueAt(frac);
+                const dmin = hd.vmin, dmax = hd.vmax;
+                const range = dmax - dmin || 1;
+                const win = this.opts.getWindow ? this.opts.getWindow() : null;
+                const wmin = Number.isFinite(win?.vmin) ? win.vmin : dmin;
+                const wmax = Number.isFinite(win?.vmax) ? win.vmax : dmax;
+                let vminFrac = (wmin - dmin) / range;
+                let vmaxFrac = (wmax - dmin) / range;
+                if (vminFrac <= 0) vminFrac = 0;
+                if (vmaxFrac >= 1) vmaxFrac = 1;
+                if (frac >= vminFrac && frac <= vmaxFrac && vmaxFrac - vminFrac > 1e-6) {
+                    const localFrac = (frac - vminFrac) / (vmaxFrac - vminFrac);
+                    return wmin + localFrac * (wmax - wmin);
+                }
+                return this._hoverValueAt(frac);
+            }
+
+            /** Preserve histogram hover semantics, but map the colorbar strip
+             *  through the visible windowed range when expanded. */
+            _hoverBinIndexForPoint(frac, y, cssH) {
+                if (!this._histData || frac < 0 || frac > 1) return -1;
+                const isBarStrip = y >= Math.max(0, cssH - CB_COLLAPSED_H);
+                if (isBarStrip) return this._histBinIndexForValue(this._hoverBarValueAt(frac));
+                return this._hoverBinIndexAt(frac);
             }
 
             /** Return the cumulative percentile (0..1) at value `val`. */
@@ -7091,9 +7124,6 @@
                 const labelH = CB_LABEL_H * aT;
                 const histTop = labelH;
                 const histH = cssH - histTop;
-                const hoverBinCount = this._histData?.counts?.length || 0;
-                const hoverBinIdx = this._hoverBinIndexAt(this._hoverFrac);
-
                 for (let px = 0; px < cssW; px++) {
                     const t = px / cssW;
                     const inRange = t >= effVmin && t <= effVmax;
@@ -7119,12 +7149,7 @@
 
                     const y = cssH - colH;
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
-                    let drawAlpha = alpha;
-                    if (hoverBinIdx >= 0) {
-                        const pxBinIdx = this._hoverBinIndexAt(t);
-                        if (pxBinIdx !== hoverBinIdx) drawAlpha *= 0.28;
-                    }
-                    ctx.fillStyle = `rgba(${r},${g},${b},${drawAlpha})`;
+                    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
                     ctx.fillRect(px, y, 1, colH);
                 }
 
@@ -7638,7 +7663,7 @@
                         this.draw();
                         // Show floating tooltip with value above the colorbar,
                         // even when the histogram is collapsed.
-                        const hoverVal = this._hoverValueAt(frac);
+                        const hoverVal = this._hoverBarValueAt(frac);
                         if (this.tooltip && hoverVal != null) {
                             this.tooltip.classList.remove('percentile');
                             this.tooltip.textContent = _cbFmtPlain(hoverVal);
@@ -7655,7 +7680,11 @@
                             this.tooltip.style.display = 'none';
                         }
                         if (this._onBinHover && this._histData && this._hoverFrac >= 0) {
-                            const binIdx = this._hoverBinIndexAt(this._hoverFrac);
+                            const binIdx = this._hoverBinIndexForPoint(
+                                this._hoverFrac,
+                                e.clientY - rect.top,
+                                rect.height || this.canvas.clientHeight || CB_COLLAPSED_H
+                            );
                             this._onBinHover(binIdx, this._hoverFrac);
                         }
                     } else if (this._hoverFrac >= 0) {
