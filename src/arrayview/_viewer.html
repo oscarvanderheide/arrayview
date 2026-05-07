@@ -13,7 +13,9 @@
             --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
             --help-key: #a0c4ff; --overlay-bg: rgba(0,0,0,0.72); --blur: blur(14px);
             --roi-bg: rgba(10,10,10,0.96); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #777;
+            --dim-hover: #777; --surface-shadow: none; --surface-shadow-strong: 0 20px 60px rgba(0,0,0,0.45);
+            --layout-shadow: 0 12px 48px rgba(0,0,0,0.45); --button-shadow: none;
+            --button-shadow-hover: none; --pane-shadow: none;
         }
         :root.light {
             --bg: #f0f0f0; --surface: #fff; --surface-2: #f6f6f6;
@@ -23,7 +25,12 @@
             --active-dim: #d08770; --playing-dim: #bf616a; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #81a1c1;
             --help-key: #2a6cb6; --overlay-bg: rgba(230,230,230,0.8); --blur: blur(14px);
             --roi-bg: rgba(248,248,248,0.97);
-            --dim-hover: #888;
+            --dim-hover: #888; --surface-shadow: 0 14px 36px rgba(0,0,0,0.11), 0 3px 10px rgba(0,0,0,0.06);
+            --surface-shadow-strong: 0 24px 54px rgba(0,0,0,0.16), 0 6px 18px rgba(0,0,0,0.08);
+            --layout-shadow: 0 24px 54px rgba(0,0,0,0.16), 0 6px 18px rgba(0,0,0,0.08);
+            --button-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 4px 10px rgba(0,0,0,0.05);
+            --button-shadow-hover: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.08);
+            --pane-shadow: 0 16px 32px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.08);
         }
         :root.solarized {
             --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
@@ -33,7 +40,12 @@
             --active-dim: #a3be8c; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #5e81ac;
             --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
             --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #8a8a7a;
+            --dim-hover: #8a8a7a; --surface-shadow: 0 14px 36px rgba(88,110,117,0.14), 0 3px 10px rgba(88,110,117,0.07);
+            --surface-shadow-strong: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
+            --layout-shadow: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
+            --button-shadow: 0 1px 2px rgba(88,110,117,0.1), 0 4px 10px rgba(88,110,117,0.05);
+            --button-shadow-hover: 0 2px 4px rgba(88,110,117,0.12), 0 8px 16px rgba(88,110,117,0.08);
+            --pane-shadow: 0 16px 32px rgba(88,110,117,0.16), 0 3px 10px rgba(88,110,117,0.08);
         }
         :root.nord {
             --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
@@ -74,6 +86,7 @@
             background-color: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             position: relative;
             transition: opacity 0.24s ease, transform 0.24s ease, background-color 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease;
             --fly-y: 0px;
@@ -147,7 +160,11 @@
             image-rendering: pixelated; outline: none; cursor: crosshair;
             background: var(--bg);
         }
-        .canvas-bordered canvas, .canvas-bordered { outline: 1px solid var(--canvas-border); }
+        .canvas-bordered canvas { outline: 1px solid var(--canvas-border); }
+        .canvas-bordered {
+            outline: 1px solid var(--canvas-border);
+            box-shadow: var(--pane-shadow);
+        }
         /* Rounded panes — Shift+B toggles; default on unless config viewer.rounded_panes=false.
            Clips each pane's image corners to a rounded rectangle. No surrounding chrome. */
         body.rounded-panes #canvas-viewport,
@@ -185,6 +202,7 @@
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             display: flex; align-items: center; gap: 8px;
             box-sizing: border-box;
             --fly-y: 0px;
@@ -216,6 +234,7 @@
             background: rgba(30, 30, 30, 0.8);
             backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: var(--surface-shadow);
             padding: calc(var(--cb-base-pad-top) + var(--cb-extra-top)) var(--cb-base-pad-x) var(--cb-base-pad-bottom);
             margin-top: calc(var(--cb-base-margin-top) - var(--cb-extra-top));
             transition: background 0.25s ease, border 0.25s ease, border-radius 0.25s ease, padding 0.25s ease, margin 0.25s ease;
@@ -1055,14 +1074,15 @@
             font-family: inherit; font-size: 11px; letter-spacing: 0;
             cursor: pointer; white-space: nowrap;
             display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms;
+            box-shadow: var(--button-shadow);
+            transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms, box-shadow 120ms;
             position: relative;
         }
         .save-btn svg { width: 22px; height: 22px; }
         .save-btn[data-save-id="url"] svg { width: 18px; height: 18px; }
-        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); }
+        .save-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: var(--active-dim); box-shadow: var(--button-shadow-hover); }
         .save-btn:disabled { opacity: 0.3; cursor: default; }
-        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); }
+        .save-btn:disabled:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); color: var(--text, #ddd); box-shadow: var(--button-shadow); }
         .save-btn svg { flex-shrink: 0; }
         .save-btn[data-tip]::after {
             content: attr(data-tip);
@@ -1367,6 +1387,7 @@
             font-size: 11px; color: var(--text); font-family: var(--mono);
             display: none; z-index: 5; min-width: 300px; max-width: 360px;
             max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden;
+            box-shadow: var(--surface-shadow);
             transition: opacity 0.3s ease;
             cursor: grab; user-select: none;
             scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
@@ -1389,7 +1410,7 @@
             border-radius: 14px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             background: rgba(18, 18, 18, 0.94);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+            box-shadow: var(--surface-shadow-strong);
             padding: 0;
             cursor: default;
         }
@@ -1918,9 +1939,10 @@
             font-family: inherit; font-size: 10px; letter-spacing: 0;
             cursor: pointer; white-space: nowrap;
             display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-            transition: background 120ms, border-color 120ms, color 120ms;
+            box-shadow: var(--button-shadow);
+            transition: background 120ms, border-color 120ms, color 120ms, box-shadow 120ms;
         }
-        .ob-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
+        .ob-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); box-shadow: var(--button-shadow-hover); }
         .ob-btn.on { background: var(--active-dim); color: var(--bg, #111); border-color: var(--active-dim); }
         .ob-btn.on:hover { background: #ffe285; }
         .ob-lock-shackle { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: 8px 7.5px; }
@@ -1984,7 +2006,7 @@
         }
         #mv-panes { display: flex; align-items: flex-start; align-self: center; justify-content: center; flex: 0 0 auto; gap: 16px; }
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
-        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); align-self: center; box-sizing: border-box; }
+        #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
         :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
@@ -1995,7 +2017,7 @@
         .mv-canvas-box { position: relative; display: inline-flex; overflow: hidden; }
         /* In ortho the border should frame the full square pane, including the
            empty background area, so draw it on the pane itself. */
-        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .mv-pane.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
         #mv-panes.mv-crosshair-active .mv-pane::after {
             content: ''; position: absolute; inset: 0; z-index: 4;
             box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1.5px) var(--mv-plane-border, var(--active-dim));
@@ -2126,7 +2148,7 @@
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
-        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
         .compare-canvas-clip.canvas-bordered canvas { outline: none; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-source-pane-badge {
@@ -2261,7 +2283,7 @@
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
         .qv-canvas-clip { position: relative; display: inline-flex; overflow: hidden; }
         .qv-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
-        .qv-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border); }
+        .qv-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
         .qv-canvas-clip.canvas-bordered canvas { outline: none; }
         .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; }
         .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
@@ -2732,7 +2754,7 @@
             z-index: 40;
             font-family: monospace;
             color: var(--fg);
-            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+            box-shadow: var(--layout-shadow);
         }
         .layout-picker.is-visible { opacity: 1; pointer-events: auto; }
         :root.light .layout-picker { background: rgba(245, 245, 245, 0.88); border-color: rgba(0,0,0,0.08); }
