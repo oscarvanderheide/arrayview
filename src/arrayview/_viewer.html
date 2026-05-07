@@ -6797,6 +6797,22 @@
                 return range.vmin + frac * (range.vmax - range.vmin);
             }
 
+            /** Return the histogram bin index at hover fraction frac, or -1. */
+            _hoverBinIndexAt(frac) {
+                const hd = this._histData;
+                const counts = hd?.counts;
+                const edges = hd?.edges;
+                const hoverVal = this._hoverValueAt(frac);
+                if (!counts || !edges || !counts.length || edges.length !== counts.length + 1 || hoverVal == null) return -1;
+                if (hoverVal <= edges[0]) return 0;
+                if (hoverVal >= edges[edges.length - 1]) return counts.length - 1;
+                for (let i = 0; i < counts.length; i++) {
+                    const hi = edges[i + 1] + (i === counts.length - 1 ? 1e-9 : 0);
+                    if (hoverVal >= edges[i] && hoverVal < hi) return i;
+                }
+                return -1;
+            }
+
             /** Return the cumulative percentile (0..1) at value `val`. */
             _percentileAtValue(val) {
                 const hd = this._histData;
@@ -7076,9 +7092,7 @@
                 const histTop = labelH;
                 const histH = cssH - histTop;
                 const hoverBinCount = this._histData?.counts?.length || 0;
-                const hoverBinIdx = (hoverBinCount > 0 && this._hoverFrac >= 0 && this._hoverFrac <= 1)
-                    ? Math.min(hoverBinCount - 1, Math.max(0, Math.floor(this._hoverFrac * hoverBinCount)))
-                    : -1;
+                const hoverBinIdx = this._hoverBinIndexAt(this._hoverFrac);
 
                 for (let px = 0; px < cssW; px++) {
                     const t = px / cssW;
@@ -7107,7 +7121,7 @@
                     const alpha = inRange ? 1 : (1 - 0.65 * aT);
                     let drawAlpha = alpha;
                     if (hoverBinIdx >= 0) {
-                        const pxBinIdx = Math.min(hoverBinCount - 1, Math.max(0, Math.floor(t * hoverBinCount)));
+                        const pxBinIdx = this._hoverBinIndexAt(t);
                         if (pxBinIdx !== hoverBinIdx) drawAlpha *= 0.28;
                     }
                     ctx.fillStyle = `rgba(${r},${g},${b},${drawAlpha})`;
@@ -7641,8 +7655,7 @@
                             this.tooltip.style.display = 'none';
                         }
                         if (this._onBinHover && this._histData && this._hoverFrac >= 0) {
-                            const nBins = this._histData.counts?.length || 64;
-                            const binIdx = Math.min(nBins - 1, Math.max(0, Math.floor(this._hoverFrac * nBins)));
+                            const binIdx = this._hoverBinIndexAt(this._hoverFrac);
                             this._onBinHover(binIdx, this._hoverFrac);
                         }
                     } else if (this._hoverFrac >= 0) {
