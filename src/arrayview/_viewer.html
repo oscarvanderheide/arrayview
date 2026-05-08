@@ -308,7 +308,7 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 28px; text-align: center; line-height: 1; cursor: default; }
+        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 9ch; text-align: center; line-height: 1; cursor: default; display: inline-block; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
         :root.solarized .slim-cb-val { color: #586e75; }
@@ -2142,7 +2142,7 @@
         .compare-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; }
         .compare-canvas-clip { position: relative; display: inline-block; overflow: hidden; }
         .compare-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
-        .compare-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
+        .compare-canvas-clip.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
         .compare-canvas-clip.canvas-bordered canvas { outline: none; }
         .compare-canvas-inner { position: relative; display: inline-block; }
         .compare-source-pane-badge {
@@ -2277,7 +2277,7 @@
         .qv-canvas-wrap { display: inline-flex; flex-direction: column; align-items: center; position: relative; }
         .qv-canvas-clip { position: relative; display: inline-flex; overflow: hidden; }
         .qv-canvas-wrap.canvas-bordered { outline: none; box-shadow: none; }
-        .qv-canvas-clip.canvas-bordered { outline: none; box-shadow: 0 0 0 1px var(--canvas-border), var(--pane-shadow); }
+        .qv-canvas-clip.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
         .qv-canvas-clip.canvas-bordered canvas { outline: none; }
         .qv-cb-island { margin-top: 4px; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; }
         .qv-cb { display: block; height: 11px; border-radius: 3px; border: none; pointer-events: none; flex: 1; min-width: 40px; }
@@ -6212,48 +6212,102 @@
 
         let cbHovered = false;
         const colorbarVisible = () => cbVisible && !rgbMode;
-        const _expandExponentialString = s => {
-            const lower = String(s).toLowerCase();
-            if (!lower.includes('e')) return lower;
-            let [mantissa, expPart] = lower.split('e');
-            const exp = Number(expPart);
-            if (!Number.isFinite(exp)) return lower;
-            let sign = '';
-            if (mantissa.startsWith('-') || mantissa.startsWith('+')) {
-                sign = mantissa.startsWith('-') ? '-' : '';
-                mantissa = mantissa.slice(1);
+        const _escapeHtml = s => String(s)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+        function formatValueGroup(values, options = {}) {
+            const finite = (Array.isArray(values) ? values : [values]).filter(Number.isFinite);
+            const cap = Math.max(0, Math.min(7, Math.trunc(options.maxDecimals ?? 6)));
+            const ordinaryLo = options.ordinaryLo ?? 1e-4;
+            const ordinaryHi = options.ordinaryHi ?? 1e6;
+            const fallback = {
+                decimals: 0,
+                exponent: null,
+                useScaled: false,
+                format(value) { return Number.isFinite(value) ? '0' : String(value); },
+                formatHTML(value) { return _escapeHtml(this.format(value)); },
+                measureText(value) { return this.format(value); },
+            };
+            if (!finite.length) return fallback;
+            const maxAbs = Math.max(...finite.map(v => Math.abs(v)));
+            if (!(maxAbs > 0)) return fallback;
+            const useScaled = maxAbs < ordinaryLo || maxAbs >= ordinaryHi;
+            const exponent = useScaled ? Math.floor(Math.log10(maxAbs)) : null;
+            const scale = useScaled ? Math.pow(10, exponent) : 1;
+            const scaled = finite.map(v => v / scale);
+            const uniqueScaled = [...new Set(scaled.map(v => v.toPrecision(15)))].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+            let minDiff = Infinity;
+            for (let i = 1; i < uniqueScaled.length; i++) {
+                const diff = Math.abs(uniqueScaled[i] - uniqueScaled[i - 1]);
+                if (diff > 0 && diff < minDiff) minDiff = diff;
             }
-            const [whole, frac = ''] = mantissa.split('.');
-            const digits = whole + frac;
-            const decimalPos = whole.length + exp;
-            if (decimalPos <= 0) {
-                return sign + '0.' + '0'.repeat(-decimalPos) + digits;
+            const tolFloor = useScaled ? 1e-9 : 1e-12;
+            let decimals = cap;
+            for (let d = 0; d <= cap; d++) {
+                const uniq = new Set();
+                let ok = true;
+                for (const val of scaled) {
+                    const rounded = Number(val.toFixed(d));
+                    const tol = Math.max(
+                        Number.isFinite(minDiff) ? minDiff * 0.24 : 0,
+                        Math.abs(val) * 0.001,
+                        tolFloor
+                    );
+                    if (Math.abs(rounded - val) > tol) { ok = false; break; }
+                    uniq.add(Object.is(rounded, -0) ? '0' : String(rounded));
+                }
+                if (ok && uniq.size >= uniqueScaled.length) {
+                    decimals = d;
+                    break;
+                }
             }
-            if (decimalPos >= digits.length) {
-                return sign + digits + '0'.repeat(decimalPos - digits.length);
-            }
-            return sign + digits.slice(0, decimalPos) + '.' + digits.slice(decimalPos);
+            const suffixText = useScaled ? ` x10^${exponent}` : '';
+            const suffixHtml = useScaled ? ` <span class="exp">&times;10<sup>${exponent}</sup></span>` : '';
+            const formatFixed = value => {
+                if (!Number.isFinite(value)) return String(value);
+                const scaledValue = value / scale;
+                let text = scaledValue.toFixed(decimals);
+                if (Object.is(Number(text), -0)) text = decimals > 0 ? (0).toFixed(decimals) : '0';
+                return text;
+            };
+            return {
+                decimals,
+                exponent,
+                useScaled,
+                suffixText,
+                suffixHtml,
+                format(value) {
+                    return Number.isFinite(value) ? `${formatFixed(value)}${suffixText}` : String(value);
+                },
+                formatHTML(value) {
+                    return Number.isFinite(value) ? `${_escapeHtml(formatFixed(value))}${suffixHtml}` : _escapeHtml(String(value));
+                },
+                measureText(value) {
+                    return Number.isFinite(value) ? `${formatFixed(value)}${suffixText}` : String(value);
+                },
+            };
+        }
+        const formatScalarValue = (value, options = {}) => {
+            const contextValues = Array.isArray(options.contextValues) ? options.contextValues.filter(Number.isFinite) : [];
+            const formatter = formatValueGroup([value, ...contextValues], options);
+            return options.html ? formatter.formatHTML(value) : formatter.format(value);
         };
-        const _trimDecimalString = s => {
-            let out = String(s)
-                .replace(/(\.\d*?[1-9])0+$/, '$1')
-                .replace(/\.0+$/, '')
-                .replace(/\.$/, '');
-            if (out === '-0') out = '0';
-            return out;
+        const _cbFmt = (v, contextValues = null, formatter = null) => {
+            const fmt = formatter || formatValueGroup(contextValues ? [v, ...contextValues] : [v]);
+            return fmt.formatHTML(v);
         };
-        const _formatPlainNumber = (v, sigDigits = 3) => {
-            if (!Number.isFinite(v)) return String(v);
-            if (Object.is(v, -0) || v === 0) return '0';
-            const digits = Math.max(1, Math.trunc(sigDigits) || 1);
-            return _trimDecimalString(_expandExponentialString(v.toExponential(digits - 1)));
-        };
-        const _cbFmt = v => _formatPlainNumber(v, 3);
         const _rangeStatusStr = (label, lo, hi) => {
             if (lo == null || hi == null) return `range: ${label}`;
-            return `range: ${label}  [${_cbFmtPlain(lo)} … ${_cbFmtPlain(hi)}]`;
+            const fmt = formatValueGroup([lo, hi]);
+            return `range: ${label}  [${fmt.format(lo)} … ${fmt.format(hi)}]`;
         };
-        const _cbFmtPlain = v => _formatPlainNumber(v, 3);
+        const _cbFmtPlain = (v, contextValues = null, formatter = null) => {
+            const fmt = formatter || formatValueGroup(contextValues ? [v, ...contextValues] : [v]);
+            return fmt.format(v);
+        };
 
         /* ── JS: Colorbar Rendering and Histogram ─────────────────── */
 
@@ -6324,8 +6378,10 @@
                 slimCbLabels.style.display = 'none';
                 const _cvmin = document.getElementById('slim-cb-vmin');
                 const _cvmax = document.getElementById('slim-cb-vmax');
-                if (_cvmin) { _cvmin.style.display = ''; _cvmin.innerHTML = _cbFmt(manualVmin ?? currentVmin); _cvmin.style.minWidth = ''; }
-                if (_cvmax) { _cvmax.style.display = ''; _cvmax.innerHTML = _cbFmt(manualVmax ?? currentVmax); _cvmax.style.minWidth = ''; }
+                const fullscreenVals = [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
+                const fullscreenFmt = formatValueGroup(fullscreenVals);
+                if (_cvmin) { _cvmin.style.display = ''; _cvmin.innerHTML = _cbFmt(fullscreenVals[0], fullscreenVals, fullscreenFmt); _cvmin.style.minWidth = ''; }
+                if (_cvmax) { _cvmax.style.display = ''; _cvmax.innerHTML = _cbFmt(fullscreenVals[1], fullscreenVals, fullscreenFmt); _cvmax.style.minWidth = ''; }
                 if (_cvmin && _cvmax) {
                     const _fmw = Math.max(_cvmin.offsetWidth, _cvmax.offsetWidth);
                     if (_fmw > _slimCbLabelHWM) _slimCbLabelHWM = _fmw;
@@ -6482,24 +6538,34 @@
             const slimVmin = document.getElementById('slim-cb-vmin');
             const slimVmax = document.getElementById('slim-cb-vmax');
             if (slimVmin && slimVmax) {
+                let labelValues;
                 if (compareActive) {
                     const sharedVmin = Math.min(...compareFrames.filter(Boolean).map(f => manualVmin ?? f.vmin));
                     const sharedVmax = Math.max(...compareFrames.filter(Boolean).map(f => manualVmax ?? f.vmax));
-                    slimVmin.innerHTML = _cbFmt(sharedVmin);
-                    slimVmax.innerHTML = _cbFmt(sharedVmax);
+                    labelValues = [sharedVmin, sharedVmax];
                 } else {
-                    slimVmin.innerHTML = _cbFmt(manualVmin ?? currentVmin);
-                    slimVmax.innerHTML = _cbFmt(manualVmax ?? currentVmax);
+                    labelValues = [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
                 }
+                const labelFmt = primaryCb && primaryCb._dragLabelFormatter
+                    ? primaryCb._dragLabelFormatter
+                    : formatValueGroup(labelValues);
+                slimVmin.innerHTML = _cbFmt(labelValues[0], labelValues, labelFmt);
+                slimVmax.innerHTML = _cbFmt(labelValues[1], labelValues, labelFmt);
                 // Equalize vmin/vmax span widths so gradient is centered.
                 // Use a session high-water mark so the colorbar doesn't flicker
                 // in width when digit count shifts between slices.
-                slimVmin.style.minWidth = '';
-                slimVmax.style.minWidth = '';
-                const natMw = Math.max(slimVmin.offsetWidth, slimVmax.offsetWidth);
-                if (natMw > _slimCbLabelHWM) _slimCbLabelHWM = natMw;
-                slimVmin.style.minWidth = _slimCbLabelHWM + 'px';
-                slimVmax.style.minWidth = _slimCbLabelHWM + 'px';
+                const frozenWidth = primaryCb && primaryCb._dragLabelWidthPx;
+                if (frozenWidth != null) {
+                    slimVmin.style.minWidth = frozenWidth + 'px';
+                    slimVmax.style.minWidth = frozenWidth + 'px';
+                } else {
+                    slimVmin.style.minWidth = '';
+                    slimVmax.style.minWidth = '';
+                    const natMw = Math.max(slimVmin.offsetWidth, slimVmax.offsetWidth);
+                    if (natMw > _slimCbLabelHWM) _slimCbLabelHWM = natMw;
+                    slimVmin.style.minWidth = _slimCbLabelHWM + 'px';
+                    slimVmax.style.minWidth = _slimCbLabelHWM + 'px';
+                }
             }
         }
 
@@ -6636,6 +6702,8 @@
                 this._dragX = null;
                 this._hitVminX = null;
                 this._hitVmaxX = null;
+                this._dragLabelFormatter = null;
+                this._dragLabelWidthPx = null;
 
                 // Auto-dismiss
                 this._autoDismissTimer = null;
@@ -7205,6 +7273,11 @@
                         const win = this.opts.getWindow();
                         const wVmin = win.vmin;
                         const wVmax = win.vmax;
+                        const groupValues = [dmin, dmax, wVmin, wVmax];
+                        if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
+                            groupValues.push(dmin + this._hoverFrac * (dmax - dmin));
+                        }
+                        const labelFormatter = this._dragLabelFormatter || formatValueGroup(groupValues);
                         const dimColor   = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
                         const brightColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)';
                         const hoverColor  = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
@@ -7212,20 +7285,20 @@
                         const charW = ctx.measureText('0').width;
                         const labelY = labelH - 3;
                         const labels = [];
-                        labels.push({ x: 1, text: _cbFmtPlain(dmin), align: 'start', color: dimColor, prio: 0 });
-                        labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax), align: 'end', color: dimColor, prio: 0 });
+                        labels.push({ x: 1, text: _cbFmtPlain(dmin, groupValues, labelFormatter), align: 'start', color: dimColor, prio: 0 });
+                        labels.push({ x: cssW - 1, text: _cbFmtPlain(dmax, groupValues, labelFormatter), align: 'end', color: dimColor, prio: 0 });
                         if (effVmin > 0.01 && effVmin < 0.99) {
                             const vx = Math.round(effVmin * cssW);
-                            labels.push({ x: vx, text: _cbFmtPlain(wVmin), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _cbFmtPlain(wVmin, groupValues, labelFormatter), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (effVmax > 0.01 && effVmax < 0.99) {
                             const vx = Math.round(effVmax * cssW);
-                            labels.push({ x: vx, text: _cbFmtPlain(wVmax), align: 'center', color: brightColor, prio: 1 });
+                            labels.push({ x: vx, text: _cbFmtPlain(wVmax, groupValues, labelFormatter), align: 'center', color: brightColor, prio: 1 });
                         }
                         if (this._hoverFrac >= 0 && this._hoverFrac <= 1) {
                             const hoverVal = dmin + this._hoverFrac * (dmax - dmin);
                             const hx = Math.round(this._hoverFrac * cssW);
-                            labels.push({ x: hx, text: _cbFmtPlain(hoverVal), align: 'center', color: hoverColor, prio: 2 });
+                            labels.push({ x: hx, text: _cbFmtPlain(hoverVal, groupValues, labelFormatter), align: 'center', color: hoverColor, prio: 2 });
                         }
                         labels.sort((a, b) => b.prio - a.prio);
                         const drawn = [];
@@ -7303,13 +7376,14 @@
                     ? this._labelVminFrom + (this._labelVminTarget - this._labelVminFrom) * t : vmin;
                 this._labelVmax = this._labelVmaxFrom != null
                     ? this._labelVmaxFrom + (this._labelVmaxTarget - this._labelVmaxFrom) * t : vmax;
+                const labelFormatter = this._dragLabelFormatter || formatValueGroup([this._labelVmin, this._labelVmax, vmin, vmax]);
 
                 if (this.vminLabel) {
-                    this.vminLabel.innerHTML = _cbFmt(this._labelVmin);
+                    this.vminLabel.innerHTML = _cbFmt(this._labelVmin, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
                     this.vminLabel.style.display = '';
                 }
                 if (this.vmaxLabel) {
-                    this.vmaxLabel.innerHTML = _cbFmt(this._labelVmax);
+                    this.vmaxLabel.innerHTML = _cbFmt(this._labelVmax, [this._labelVmin, this._labelVmax, vmin, vmax], labelFormatter);
                     this.vmaxLabel.style.display = '';
                 }
             }
@@ -7636,6 +7710,16 @@
                     const value = target === 'vmin'
                         ? (win.vmin != null ? win.vmin : hd.vmin)
                         : (win.vmax != null ? win.vmax : hd.vmax);
+                    this._dragLabelFormatter = formatValueGroup([hd.vmin, hd.vmax, win.vmin, win.vmax], { maxDecimals: 7 });
+                    if (this.vminLabel && this.vmaxLabel) {
+                        this.vminLabel.style.minWidth = '';
+                        this.vmaxLabel.style.minWidth = '';
+                        this._dragLabelWidthPx = Math.max(this.vminLabel.offsetWidth, this.vmaxLabel.offsetWidth);
+                        if (this._dragLabelWidthPx > 0) {
+                            this.vminLabel.style.minWidth = this._dragLabelWidthPx + 'px';
+                            this.vmaxLabel.style.minWidth = this._dragLabelWidthPx + 'px';
+                        }
+                    }
                     const range = hd.vmax - hd.vmin || 1;
                     const frac = Math.max(0, Math.min(1, (value - hd.vmin) / range));
                     this._showDragPercentileTooltip(frac, value);
@@ -7700,8 +7784,16 @@
                         // even when the histogram is collapsed.
                         const hoverVal = this._hoverBarValueAt(frac);
                         if (this.tooltip && hoverVal != null) {
+                            const hoverFormatter = this._dragLabelFormatter
+                                || formatValueGroup([
+                                    hoverVal,
+                                    this._histData?.vmin,
+                                    this._histData?.vmax,
+                                    this.opts.getWindow ? this.opts.getWindow()?.vmin : null,
+                                    this.opts.getWindow ? this.opts.getWindow()?.vmax : null,
+                                ]);
                             this.tooltip.classList.remove('percentile');
-                            this.tooltip.textContent = _cbFmtPlain(hoverVal);
+                            this.tooltip.textContent = _cbFmtPlain(hoverVal, null, hoverFormatter);
                             this.tooltip.style.display = 'block';
                             // Position relative to the canvas within the wrap
                             const cvsRect = this.canvas.getBoundingClientRect();
@@ -7747,6 +7839,8 @@
                 if (this._dragTarget) {
                     this._dragTarget = null;
                     this._dragActive = false;
+                    this._dragLabelFormatter = null;
+                    this._dragLabelWidthPx = null;
                     document.body.style.cursor = '';
                     if (this.tooltip) {
                         this.tooltip.classList.remove('percentile');
@@ -12905,7 +12999,7 @@
                         if (cached.w > pin.rawX && cached.h > pin.rawY) {
                             const val = cached.slice[pin.rawY * cached.w + pin.rawX];
                             if (Number.isFinite(val)) {
-                                pin.valueText = _pixelFmt(val);
+                                pin.valueText = _pixelFmt(val, _activeNumericContext());
                                 pin.version = version;
                             }
                         }
@@ -12933,7 +13027,7 @@
                     const data = await resp.json();
                     if (refreshToken !== _hoverPinsRefreshToken) return;
                     if (data && Number.isFinite(data.value)) {
-                        pin.valueText = _pixelFmt(data.value);
+                        pin.valueText = _pixelFmt(data.value, _activeNumericContext());
                         pin.version = version;
                     }
                 } catch (_) {}
@@ -13174,7 +13268,13 @@
         }
 
         let _pixelHoverThrottle = false;
-        const _pixelFmt = v => _formatPlainNumber(v, 4);
+        const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7 });
+        function _activeNumericContext(view = null) {
+            const vals = view && view.displayState
+                ? [view.displayState.vmin, view.displayState.vmax]
+                : [manualVmin ?? currentVmin, manualVmax ?? currentVmax];
+            return vals.filter(Number.isFinite);
+        }
         function fetchPixelInfo(opts) {
             const rect = opts.canvas.getBoundingClientRect();
             const px = Math.floor((opts.event.clientX - rect.left) * opts.imgW / rect.width);
@@ -13197,7 +13297,7 @@
                 if (rawX >= 0 && rawX < _fpW && rawY >= 0 && rawY < _fpH) {
                     const val = _fpSlice[rawY * _fpW + rawX];
                     if (Number.isFinite(val)) {
-                        showPixelInfo(opts.displayEl, { valueText: _pixelFmt(val), rawX, rawY }, opts.event.clientX, opts.event.clientY);
+                        showPixelInfo(opts.displayEl, { valueText: _pixelFmt(val, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, opts.event.clientX, opts.event.clientY);
                         if (opts.onResult) opts.onResult({ value: val }, rawX, rawY);
                         return true;
                     }
@@ -13225,7 +13325,7 @@
                     if (!d) return;
                     const rawX = flip_x ? (opts.imgW - 1 - px) : px;
                     const rawY = flip_y ? (opts.imgH - 1 - py) : py;
-                    showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value), rawX, rawY }, opts.event.clientX, opts.event.clientY);
+                    showPixelInfo(opts.displayEl, { valueText: _pixelFmt(d.value, opts.contextValues || _activeNumericContext(opts.view || null)), rawX, rawY }, opts.event.clientX, opts.event.clientY);
                     if (opts.onResult) opts.onResult(d, px, py);
                 })
                 .catch(() => {});
@@ -15155,7 +15255,7 @@ if (typeof gsap !== 'undefined') {
                     if (rawX >= 0 && rawX < cached.w && rawY >= 0 && rawY < cached.h) {
                         const val = cached.slice[rawY * cached.w + rawX];
                         if (Number.isFinite(val)) {
-                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(val), rawX, rawY }, e.clientX, e.clientY);
+                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(val, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }
                     }
                 } else if (!_pixelHoverThrottle) {
@@ -15175,7 +15275,7 @@ if (typeof gsap !== 'undefined') {
                             if (!d) return;
                             const rawX = flip_x ? (g.tileW - 1 - localX) : localX;
                             const rawY = flip_y ? (g.tileH - 1 - localY) : localY;
-                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(d.value), rawX, rawY }, e.clientX, e.clientY);
+                            showPixelInfo(document.getElementById('main-pixel-info'), { valueText: _pixelFmt(d.value, _activeNumericContext()), rawX, rawY }, e.clientX, e.clientY);
                         }).catch(() => {});
                 }
                 _updateDimbarHover(localX, localY, null, null, zIdx);
@@ -20235,6 +20335,7 @@ if (typeof gsap !== 'undefined') {
                         indices: indices,
                         imgW: view.lastW,
                         imgH: view.lastH,
+                        view,
                         displayEl: view.pixelInfoEl,
                         onResult: (d, px, py) => {
                             if (_pixelInfoVisible) {
@@ -21122,7 +21223,7 @@ if (typeof gsap !== 'undefined') {
                                     proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
                                             if (!rd) return;
-                                            showPixelInfo(v.pixelInfoEl, _pixelFmt(rd.value), e.clientX, e.clientY);
+                                            showPixelInfo(v.pixelInfoEl, _pixelFmt(rd.value, _activeNumericContext(v)), e.clientX, e.clientY);
                                         });
                                 });
                             },
@@ -21461,6 +21562,7 @@ if (typeof gsap !== 'undefined') {
                             indices: qIndices,
                             imgW: view.lastW,
                             imgH: view.lastH,
+                            view,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
                                 if (_pixelInfoVisible) _updateDimbarHover(px, py);
@@ -21924,6 +22026,7 @@ if (typeof gsap !== 'undefined') {
                             indices: indices,
                             imgW: view.lastW,
                             imgH: view.lastH,
+                            view,
                             displayEl: view.pixelInfoEl,
                             onResult: (d, px, py) => {
                                 if (_pixelInfoVisible) {
@@ -23952,6 +24055,7 @@ if (typeof gsap !== 'undefined') {
                     indices: indices,
                     imgW: cv.width,
                     imgH: cv.height,
+                    contextValues: [cmpManualVmin[i] ?? compareFrames[i]?.vmin, cmpManualVmax[i] ?? compareFrames[i]?.vmax].filter(Number.isFinite),
                     displayEl: piEl,
                     onResult: (d, px, py) => {
                         if (!_pixelInfoVisible) return;
@@ -23976,7 +24080,7 @@ if (typeof gsap !== 'undefined') {
                             const oRect = ocv.getBoundingClientRect();
                             const sx = oRect.left + (px + 0.5) * oRect.width / ocv.width;
                             const sy = oRect.top + (py + 0.5) * oRect.height / ocv.height;
-                            showPixelInfo(oPi, _pixelFmt(val), sx, sy);
+                            showPixelInfo(oPi, _pixelFmt(val, [cmpManualVmin[j] ?? compareFrames[j]?.vmin, cmpManualVmax[j] ?? compareFrames[j]?.vmax].filter(Number.isFinite)), sx, sy);
                         });
                     },
                 });
