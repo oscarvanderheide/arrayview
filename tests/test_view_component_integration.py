@@ -283,6 +283,33 @@ def test_qmri_mosaic_updates_mode_name(loaded_viewer, sid_4d):
     assert result.get("afterMode") in ("qmri", "qmri-mosaic")
 
 
+def test_qmri_synthetic_contrast_adds_bottom_row(loaded_viewer, sid_4d):
+    page = loaded_viewer(sid_4d)
+    page.wait_for_timeout(500)
+    result = page.evaluate("""async () => {
+        if (typeof enterQmri !== 'function') return { error: 'no enterQmri' };
+        enterQmri();
+        await new Promise(r => setTimeout(r, 400));
+        if (typeof _islandToggleQmriSyntheticContrast !== 'function') return { error: 'no synth toggle' };
+        _islandToggleQmriSyntheticContrast('t1w');
+        await new Promise(r => setTimeout(r, 700));
+        const row = document.querySelector('#qmri-view-wrap .qv-synthetic-row');
+        const canvas = row ? row.querySelector('canvas') : null;
+        return {
+            mode: modeManager.modeName,
+            rowCount: document.querySelectorAll('#qmri-view-wrap .qv-synthetic-row').length,
+            synthCount: row ? row.querySelectorAll('.qmri-synthetic-pane').length : 0,
+            canvasW: canvas ? canvas.width : 0,
+            canvasH: canvas ? canvas.height : 0,
+        };
+    }""")
+    assert result.get("mode") == "qmri"
+    assert result.get("rowCount") == 1
+    assert result.get("synthCount") == 1
+    assert result.get("canvasW", 0) > 0
+    assert result.get("canvasH", 0) > 0
+
+
 def test_compare_mv_populates_modemanager(loaded_viewer, sid_3d):
     page = loaded_viewer(sid_3d)
     page.wait_for_timeout(500)

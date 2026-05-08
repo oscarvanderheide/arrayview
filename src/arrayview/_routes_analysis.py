@@ -24,11 +24,12 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         px: int,
         py: int,
         complex_mode: int = 0,
+        qmri_role: str = "",
         session=Depends(get_session_or_404),
     ):
         return {
             "value": _pixel_value(
-                session, dim_x, dim_y, indices, px, py, complex_mode
+                session, dim_x, dim_y, indices, px, py, complex_mode, qmri_role
             )
         }
 
@@ -352,9 +353,12 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         indices: str,
         complex_mode: int = 0,
         bins: int = 128,
+        qmri_role: str = "",
         session=Depends(get_session_or_404),
     ):
-        return _slice_histogram(session, dim_x, dim_y, indices, complex_mode, bins)
+        return _slice_histogram(
+            session, dim_x, dim_y, indices, complex_mode, bins, qmri_role
+        )
 
     @app.get("/volume-histogram/{sid}")
     def get_volume_histogram(
@@ -366,6 +370,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
         fixed_indices: str = "",
         complex_mode: int = 0,
         bins: int = 64,
+        qmri_role: str = "",
         session=Depends(get_session_or_404),
     ):
         return _volume_histogram(
@@ -377,6 +382,7 @@ def register_analysis_routes(app, get_session_or_404) -> None:
             fixed_indices,
             complex_mode,
             bins,
+            qmri_role,
         )
 
     @app.get("/volume_data/{sid}")

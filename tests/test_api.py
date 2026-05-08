@@ -968,6 +968,86 @@ class TestSlice:
         assert c[0] > c[2] + 20
 
 
+class TestSyntheticQmri:
+    def _register_qmri(self, client, tmp_path, n=5, seconds=False):
+        y, x = np.mgrid[0:24, 0:32].astype(np.float32)
+        t1 = 900.0 + x * 20.0
+        t2 = 70.0 + y * 2.0
+        pd = 0.6 + x / 80.0 + y / 120.0
+        maps = []
+        if n == 3:
+            maps = [t1, t2, pd]
+        elif n == 4:
+            maps = [t1, t2, pd, np.zeros_like(pd)]
+        elif n == 5:
+            maps = [t1, t2, np.ones_like(pd), pd, np.zeros_like(pd)]
+        elif n == 6:
+            maps = [t1, t2, np.ones_like(pd), np.zeros_like(pd), pd, np.zeros_like(pd)]
+        else:
+            raise AssertionError(n)
+        if seconds:
+            maps[0] = maps[0] / 1000.0
+            maps[1] = maps[1] / 1000.0
+        arr = np.stack(maps).astype(np.float32)
+        path = tmp_path / f"qmri{n}_{'s' if seconds else 'ms'}.npy"
+        np.save(path, arr)
+        return client.post("/load", json={"filepath": str(path), "name": path.stem}).json()["sid"]
+
+    def test_qmri_role_order_for_supported_sizes(self):
+        from arrayview._synthetic_mri import qmri_roles_for_size
+
+        assert qmri_roles_for_size(3) == ["t1", "t2", "pd"]
+        assert qmri_roles_for_size(4) == ["t1", "t2", "pd", "phase"]
+        assert qmri_roles_for_size(5) == ["t1", "t2", "b1", "pd", "phase"]
+        assert qmri_roles_for_size(6) == ["t1", "t2", "b1", "db0", "pd", "phase"]
+
+    def test_qmri_seconds_are_displayed_as_milliseconds(self, client, tmp_path):
+        sid = self._register_qmri(client, tmp_path, n=3, seconds=True)
+        params = {
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "px": 10,
+            "py": 10,
+            "qmri_role": "t1",
+        }
+        value = client.get(f"/pixel/{sid}", params=params).json()["value"]
+        assert value > 1000
+
+    def test_synthetic_render_changes_with_te(self, client, tmp_path):
+        sid = self._register_qmri(client, tmp_path, n=5, seconds=False)
+        base = {
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "qmri_dim": 0,
+            "synthetic_mri": "t2w",
+            "tr": 4500,
+        }
+        a = client.get(f"/slice/{sid}", params={**base, "te": 40})
+        b = client.get(f"/slice/{sid}", params={**base, "te": 160})
+        assert a.status_code == 200
+        assert b.status_code == 200
+        assert a.content != b.content
+
+    def test_synthetic_render_rejects_missing_pd_role(self, client, tmp_path):
+        arr = np.ones((2, 24, 32), dtype=np.float32)
+        path = tmp_path / "bad_qmri.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path), "name": "bad"}).json()["sid"]
+        r = client.get(
+            f"/slice/{sid}",
+            params={
+                "dim_x": 2,
+                "dim_y": 1,
+                "indices": "0,0,0",
+                "qmri_dim": 0,
+                "synthetic_mri": "t1w",
+            },
+        )
+        assert r.status_code == 422
+
+
 class TestProjection:
     """Tests for statistical projection rendering (p key feature)."""
 

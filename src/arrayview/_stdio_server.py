@@ -36,9 +36,11 @@ from arrayview._diff import _compute_diff, _diff_histogram, _render_diff_rgba
 from arrayview._io import load_data_with_meta
 from arrayview._overlays import _composite_overlays
 from arrayview._render import (
+    LUTS,
     _ensure_lut,
     _init_luts,
     _prepare_display,
+    apply_colormap_rgba,
     extract_projection,
     extract_slice,
     render_mosaic,
@@ -48,6 +50,12 @@ from arrayview._render import (
     _setup_rgb,
 )
 from arrayview._session import SESSIONS, Session
+from arrayview._synthetic_mri import (
+    qmri_display_slice,
+    render_qmri_mosaic_rgba,
+    synthetic_qmri_slice,
+    synthetic_window,
+)
 from arrayview._vectorfield import _compute_vfield_arrows
 
 
@@ -83,6 +91,16 @@ def _write_skip_response(msg: dict) -> None:
     vminmax = np.array([0.0, 0.0], dtype=np.float32).tobytes()
     pixel = b"\x00\x00\x00\x00"  # transparent RGBA
     _write_response(header + vminmax + pixel)
+
+
+def _render_rgba_from_data(data, colormap, vmin, vmax):
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    return lut[(normalized * 255).astype(np.uint8)]
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +187,13 @@ def _handle_histogram(sid: str, params: dict[str, str]) -> None:
     indices_str = params.get("indices", "")
     complex_mode = int(params.get("complex_mode", "0"))
     bins = max(8, min(int(params.get("bins", "128")), 512))
+    qmri_role = params.get("qmri_role", "")
 
-    _write_json(_slice_histogram(session, dim_x, dim_y, indices_str, complex_mode, bins))
+    _write_json(
+        _slice_histogram(
+            session, dim_x, dim_y, indices_str, complex_mode, bins, qmri_role
+        )
+    )
 
 
 def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
@@ -186,6 +209,7 @@ def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
     fixed_indices_str = params.get("fixed_indices", "")
     complex_mode = int(params.get("complex_mode", "0"))
     bins = max(8, min(int(params.get("bins", "64")), 512))
+    qmri_role = params.get("qmri_role", "")
 
     _write_json(
         _volume_histogram(
@@ -197,6 +221,7 @@ def _handle_volume_histogram(sid: str, params: dict[str, str]) -> None:
             fixed_indices_str,
             complex_mode,
             bins,
+            qmri_role,
         )
     )
 
@@ -260,9 +285,10 @@ def _handle_pixel(sid: str, params: dict) -> None:
     px = int(params.get("px", 0))
     py = int(params.get("py", 0))
     complex_mode = int(params.get("complex_mode", 0))
+    qmri_role = params.get("qmri_role", "")
     _write_json({
         "value": _pixel_value(
-            session, dim_x, dim_y, indices, px, py, complex_mode
+            session, dim_x, dim_y, indices, px, py, complex_mode, qmri_role
         )
     })
 
@@ -455,22 +481,60 @@ def _build_slice_payload(msg: dict) -> bytes:
     mosaic_cols = int(_mc) if _mc is not None else None
     projection_mode = int(msg.get("projection_mode", 0))
     projection_dim = int(msg.get("projection_dim", -1))
+    qmri_dim = int(msg.get("qmri_dim", -1))
+    qmri_role = str(msg.get("qmri_role", ""))
+    synthetic_mri = str(msg.get("synthetic_mri", ""))
 
-    if session.rgb_axis is not None:
+    if synthetic_mri:
+        te = msg.get("te")
+        tr = msg.get("tr")
+        ti = msg.get("ti")
+        raw = synthetic_qmri_slice(
+            session,
+            dim_x,
+            dim_y,
+            idx_tuple,
+            qmri_dim,
+            synthetic_mri,
+            te=float(te) if te is not None else None,
+            tr=float(tr) if tr is not None else None,
+            ti=float(ti) if ti is not None else None,
+        )
+        vmin, vmax = synthetic_window(raw, synthetic_mri)
+        rgba = _render_rgba_from_data(raw, "gray", vmin, vmax)
+        h, w = rgba.shape[:2]
+    elif session.rgb_axis is not None:
         rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))
         h, w = rgba.shape[:2]
         vmin, vmax = 0.0, 255.0
     elif dim_z >= 0:
-        rgba = render_mosaic(
-            session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr,
-            complex_mode, log_scale, mosaic_cols=mosaic_cols,
-        )
-        h, w = rgba.shape[:2]
-        raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
-        _, vmin, vmax = _prepare_display(
-            session, raw, complex_mode, dr, log_scale,
-            vmin_override=vmin_override, vmax_override=vmax_override,
-        )
+        if qmri_role:
+            rgba, vmin, vmax = render_qmri_mosaic_rgba(
+                session,
+                dim_x,
+                dim_y,
+                dim_z,
+                idx_tuple,
+                colormap,
+                qmri_role,
+                complex_mode,
+                log_scale,
+                mosaic_cols=mosaic_cols,
+                vmin_override=vmin_override,
+                vmax_override=vmax_override,
+            )
+            h, w = rgba.shape[:2]
+        else:
+            rgba = render_mosaic(
+                session, dim_x, dim_y, dim_z, idx_tuple, colormap, dr,
+                complex_mode, log_scale, mosaic_cols=mosaic_cols,
+            )
+            h, w = rgba.shape[:2]
+            raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+            _, vmin, vmax = _prepare_display(
+                session, raw, complex_mode, dr, log_scale,
+                vmin_override=vmin_override, vmax_override=vmax_override,
+            )
     elif projection_mode > 0 and projection_dim >= 0:
         rgba = render_projection_rgba(
             session, dim_x, dim_y, idx_tuple, projection_dim, projection_mode,
@@ -485,12 +549,29 @@ def _build_slice_payload(msg: dict) -> bytes:
             vmin_override=vmin_override, vmax_override=vmax_override,
         )
     else:
-        rgba = render_rgba(
-            session, dim_x, dim_y, idx_tuple, colormap, dr,
-            complex_mode, log_scale, vmin_override, vmax_override,
-        )
+        if qmri_role:
+            raw = qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+            rgba = apply_colormap_rgba(
+                session,
+                raw,
+                colormap,
+                dr,
+                complex_mode,
+                log_scale,
+                vmin_override=vmin_override,
+                vmax_override=vmax_override,
+            )
+        else:
+            rgba = render_rgba(
+                session, dim_x, dim_y, idx_tuple, colormap, dr,
+                complex_mode, log_scale, vmin_override, vmax_override,
+            )
         h, w = rgba.shape[:2]
-        raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+        raw = (
+            qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+            if qmri_role
+            else extract_slice(session, dim_x, dim_y, list(idx_tuple))
+        )
         _, vmin, vmax = _prepare_display(
             session, raw, complex_mode, dr, log_scale,
             vmin_override=vmin_override, vmax_override=vmax_override,

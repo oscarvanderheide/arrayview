@@ -13,6 +13,7 @@ from arrayview._render import (
     _ensure_lut,
     _init_luts,
     _prepare_display,
+    apply_colormap_rgba,
     apply_complex_mode,
     extract_projection,
     extract_slice,
@@ -22,9 +23,47 @@ from arrayview._render import (
     render_rgba,
 )
 from arrayview._session import HEAVY_OP_LIMIT_BYTES, SESSIONS
+from arrayview._synthetic_mri import (
+    qmri_display_slice,
+    render_qmri_mosaic_rgba,
+    synthetic_qmri_slice,
+    synthetic_window,
+)
 
 
 from arrayview._imaging import ensure_image as _pil_image
+
+
+def render_rgba_from_prepared(
+    session,
+    raw,
+    colormap,
+    dr,
+    complex_mode=0,
+    log_scale=False,
+    vmin_override=None,
+    vmax_override=None,
+):
+    return apply_colormap_rgba(
+        session,
+        raw,
+        colormap,
+        dr,
+        complex_mode,
+        log_scale,
+        vmin_override=vmin_override,
+        vmax_override=vmax_override,
+    )
+
+
+def render_rgba_from_data(data, colormap, vmin, vmax):
+    if vmax > vmin:
+        normalized = np.clip((data - vmin) / (vmax - vmin), 0, 1)
+    else:
+        normalized = np.zeros_like(data)
+    _ensure_lut(colormap)
+    lut = LUTS.get(colormap, LUTS["gray"])
+    return lut[(normalized * 255).astype(np.uint8)]
 
 
 def register_rendering_routes(app, *, get_session_or_404) -> None:
@@ -48,10 +87,33 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         mosaic_cols: int | None = None,
         projection_mode: int = 0,
         projection_dim: int = -1,
+        qmri_dim: int = -1,
+        qmri_role: str = "",
+        synthetic_mri: str = "",
+        te: float | None = None,
+        tr: float | None = None,
+        ti: float | None = None,
         session=Depends(get_session_or_404),
     ):
         idx_tuple = tuple(int(x) for x in indices.split(","))
-        if projection_mode > 0 and projection_dim >= 0:
+        if synthetic_mri:
+            try:
+                raw = synthetic_qmri_slice(
+                    session,
+                    dim_x,
+                    dim_y,
+                    idx_tuple,
+                    qmri_dim,
+                    synthetic_mri,
+                    te=te,
+                    tr=tr,
+                    ti=ti,
+                )
+            except ValueError as exc:
+                return Response(status_code=422, content=str(exc))
+            vmin, vmax = synthetic_window(raw, synthetic_mri)
+            rgba = render_rgba_from_data(raw, "gray", vmin, vmax)
+        elif projection_mode > 0 and projection_dim >= 0:
             rgba = render_projection_rgba(
                 session,
                 dim_x,
@@ -79,63 +141,97 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 vmax_override=vmax_override,
             )
         elif dim_z >= 0:
-            rgba = render_mosaic(
-                session,
-                dim_x,
-                dim_y,
-                dim_z,
-                idx_tuple,
-                colormap,
-                dr,
-                complex_mode,
-                log_scale,
-                mosaic_cols=mosaic_cols,
-                vmin_override=vmin_override,
-                vmax_override=vmax_override,
-            )
-            if vmin_override is not None and vmax_override is not None:
-                vmin, vmax = float(vmin_override), float(vmax_override)
-            else:
-                frames_raw = [
-                    extract_slice(
-                        session,
-                        dim_x,
-                        dim_y,
-                        [
-                            i if j == dim_z else idx_tuple[j]
-                            for j in range(len(session.shape))
-                        ],
-                    )
-                    for i in range(session.shape[dim_z])
-                ]
-                frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
-                if log_scale:
-                    frames = [
-                        np.log1p(np.abs(frame)).astype(np.float32) for frame in frames
-                    ]
-                    all_data = np.stack(frames)
-                    vmin = float(np.percentile(all_data, 1))
-                    vmax = float(np.percentile(all_data, 99))
-                else:
-                    vmin, vmax = _compute_vmin_vmax(
-                        session, np.stack(frames), dr, complex_mode
-                    )
-        else:
-            if session.rgb_axis is not None:
-                rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))
-                vmin, vmax = 0.0, 255.0
-            else:
-                rgba = render_rgba(
+            if qmri_role:
+                rgba, vmin, vmax = render_qmri_mosaic_rgba(
                     session,
                     dim_x,
                     dim_y,
+                    dim_z,
+                    idx_tuple,
+                    colormap,
+                    qmri_role,
+                    complex_mode,
+                    log_scale,
+                    mosaic_cols=mosaic_cols,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
+            else:
+                rgba = render_mosaic(
+                    session,
+                    dim_x,
+                    dim_y,
+                    dim_z,
                     idx_tuple,
                     colormap,
                     dr,
                     complex_mode,
                     log_scale,
-                    vmin_override,
-                    vmax_override,
+                    mosaic_cols=mosaic_cols,
+                    vmin_override=vmin_override,
+                    vmax_override=vmax_override,
+                )
+                if vmin_override is not None and vmax_override is not None:
+                    vmin, vmax = float(vmin_override), float(vmax_override)
+                else:
+                    frames_raw = [
+                        extract_slice(
+                            session,
+                            dim_x,
+                            dim_y,
+                            [
+                                i if j == dim_z else idx_tuple[j]
+                                for j in range(len(session.shape))
+                            ],
+                        )
+                        for i in range(session.shape[dim_z])
+                    ]
+                    frames = [apply_complex_mode(frame, complex_mode) for frame in frames_raw]
+                    if log_scale:
+                        frames = [
+                            np.log1p(np.abs(frame)).astype(np.float32) for frame in frames
+                        ]
+                        all_data = np.stack(frames)
+                        vmin = float(np.percentile(all_data, 1))
+                        vmax = float(np.percentile(all_data, 99))
+                    else:
+                        vmin, vmax = _compute_vmin_vmax(
+                            session, np.stack(frames), dr, complex_mode
+                        )
+        else:
+            if session.rgb_axis is not None:
+                rgba = render_rgb_rgba(session, dim_x, dim_y, list(idx_tuple))
+                vmin, vmax = 0.0, 255.0
+            else:
+                raw = (
+                    qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+                    if qmri_role
+                    else extract_slice(session, dim_x, dim_y, list(idx_tuple))
+                )
+                rgba = (
+                    render_rgba_from_prepared(
+                        session,
+                        raw,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
+                    )
+                    if qmri_role
+                    else render_rgba(
+                        session,
+                        dim_x,
+                        dim_y,
+                        idx_tuple,
+                        colormap,
+                        dr,
+                        complex_mode,
+                        log_scale,
+                        vmin_override,
+                        vmax_override,
+                    )
                 )
                 rgba = _composite_overlays(
                     rgba,
@@ -147,7 +243,6 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                     idx_tuple,
                     rgba.shape[:2],
                 )
-                raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
                 _, vmin, vmax = _prepare_display(
                     session,
                     raw,
