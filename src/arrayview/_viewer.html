@@ -308,7 +308,7 @@
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
-        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 9ch; text-align: center; line-height: 1; cursor: default; display: inline-block; }
+        .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: default; display: inline-block; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
         :root.solarized .slim-cb-val { color: #586e75; }
@@ -6220,7 +6220,8 @@
             .replaceAll("'", '&#39;');
         function formatValueGroup(values, options = {}) {
             const finite = (Array.isArray(values) ? values : [values]).filter(Number.isFinite);
-            const cap = Math.max(0, Math.min(7, Math.trunc(options.maxDecimals ?? 6)));
+            const cap = Math.max(0, Math.min(8, Math.trunc(options.maxDecimals ?? 7)));
+            const minDecimals = Math.max(0, Math.min(cap, Math.trunc(options.minDecimals ?? 2)));
             const ordinaryLo = options.ordinaryLo ?? 1e-4;
             const ordinaryHi = options.ordinaryHi ?? 1e6;
             const fallback = {
@@ -6246,7 +6247,7 @@
             }
             const tolFloor = useScaled ? 1e-9 : 1e-12;
             let decimals = cap;
-            for (let d = 0; d <= cap; d++) {
+            for (let d = minDecimals; d <= cap; d++) {
                 const uniq = new Set();
                 let ok = true;
                 for (const val of scaled) {
