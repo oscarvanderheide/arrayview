@@ -2024,7 +2024,7 @@
         .mv-pane.canvas-bordered { outline: 1px solid var(--canvas-border); box-shadow: var(--pane-shadow); }
         #mv-panes.mv-crosshair-active .mv-pane::after {
             content: ''; position: absolute; inset: 0; z-index: 4;
-            box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1.5px) var(--mv-plane-border, var(--active-dim));
+            box-shadow: inset 0 0 0 var(--mv-plane-border-width, 1px) var(--mv-plane-border, var(--active-dim));
             border-radius: inherit; box-sizing: border-box;
             pointer-events: none;
         }
@@ -4290,6 +4290,39 @@
             _qmriVisibleMaps = savedMaps;
             enterQmri();
             if (toolMenuOpen) renderToolMenu();
+        }
+
+        function _rebuildQmriWithFade(savedMaps = null) {
+            const fadeEls = [
+                document.getElementById('qmri-view-wrap'),
+                document.getElementById('info'),
+                document.getElementById('array-name'),
+            ].filter(Boolean);
+            for (const el of fadeEls) {
+                el.style.transition = 'opacity 0.12s ease';
+                el.style.opacity = '0';
+            }
+            setTimeout(() => {
+                _qmriSyntheticRebuilding = true;
+                exitQmri();
+                _qmriSyntheticRebuilding = false;
+                if (savedMaps) _qmriVisibleMaps = savedMaps;
+                enterQmri();
+                requestAnimationFrame(() => {
+                    const fadeBackEls = [
+                        document.getElementById('qmri-view-wrap'),
+                        document.getElementById('info'),
+                        document.getElementById('array-name'),
+                    ].filter(Boolean);
+                    for (const el of fadeBackEls) el.style.opacity = '1';
+                    setTimeout(() => {
+                        for (const el of fadeBackEls) {
+                            el.style.removeProperty('transition');
+                            el.style.removeProperty('opacity');
+                        }
+                    }, 150);
+                });
+            }, 120);
         }
 
         function _unionVisibleRects(elements) {
@@ -12712,37 +12745,7 @@
             const savedMaps = [..._qmriVisibleMaps];
             // Update pills immediately so user sees instant feedback
             renderIsland();
-            // Fade out the qMRI grid + dimbar + array-name, rebuild, then fade back in
-            const fadeEls = [
-                document.getElementById('qmri-view-wrap'),
-                document.getElementById('info'),
-                document.getElementById('array-name'),
-            ].filter(Boolean);
-            for (const el of fadeEls) {
-                el.style.transition = 'opacity 0.12s ease';
-                el.style.opacity = '0';
-            }
-            setTimeout(() => {
-                _qmriSyntheticRebuilding = true;
-                exitQmri(); // resets _qmriVisibleMaps to null
-                _qmriSyntheticRebuilding = false;
-                _qmriVisibleMaps = savedMaps; // restore before re-entering
-                enterQmri();
-                requestAnimationFrame(() => {
-                    const fadeBackEls = [
-                        document.getElementById('qmri-view-wrap'),
-                        document.getElementById('info'),
-                        document.getElementById('array-name'),
-                    ].filter(Boolean);
-                    for (const el of fadeBackEls) { el.style.opacity = '1'; }
-                    setTimeout(() => {
-                        for (const el of fadeBackEls) {
-                            el.style.removeProperty('transition');
-                            el.style.removeProperty('opacity');
-                        }
-                    }, 150);
-                });
-            }, 120);
+            _rebuildQmriWithFade(savedMaps);
         }
         window._islandToggleQmriMap = _islandToggleQmriMap;
 
@@ -18489,7 +18492,7 @@ if (typeof gsap !== 'undefined') {
             if (!_qmriSyntheticState[id]) return;
             _qmriSyntheticState[id].enabled = !_qmriSyntheticState[id].enabled;
             _qmriSyntheticEnabled = _qmriSyntheticActiveIds().length > 0;
-            _qmriRefreshSyntheticRows();
+            _rebuildQmriWithFade(_qmriVisibleMaps ? [..._qmriVisibleMaps] : null);
             renderToolMenu();
         };
 
@@ -22638,7 +22641,7 @@ if (typeof gsap !== 'undefined') {
             const firstRow = compareMvViews.slice(0, 3);
             const jx = firstRow.findIndex(v2 => v2.sliceDir === v.dimX);
             const jy = firstRow.findIndex(v2 => v2.sliceDir === v.dimY);
-            _chCtx.lineWidth = 1.5;
+            _chCtx.lineWidth = 1;
             _chCtx.strokeStyle = MV_PLANE_STROKES[jx >= 0 ? jx : 0];
             _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, __cssH); _chCtx.stroke();
             _chCtx.strokeStyle = MV_PLANE_STROKES[jy >= 0 ? jy : 1];
@@ -23108,13 +23111,14 @@ if (typeof gsap !== 'undefined') {
                     if (qvCbW != null) v._colorBar.wrap.style.width = qvCbW + 'px';
                 }
             }
-            // For n=5: size the invisible placeholder to match a real pane so rows are equal width
-            if (n === 5) {
-                const ph = document.querySelector('#qmri-view-wrap .qv-placeholder');
-                if (ph && ready.length > 0) {
-                    ph.style.width = ready[0].canvas.style.width;
+            // Size all invisible placeholders to a real pane width so partial
+            // rows preserve the same left-aligned column grid as the rows above.
+            if (ready.length > 0) {
+                const placeholderWidth = ready[0].canvas.style.width;
+                document.querySelectorAll('#qmri-view-wrap .qv-placeholder').forEach(ph => {
+                    ph.style.width = placeholderWidth;
                     ph.style.height = '1px';
-                }
+                });
             }
             fixWrapperAlignment();
             requestAnimationFrame(() => {
@@ -23643,7 +23647,7 @@ if (typeof gsap !== 'undefined') {
                         const cssLen = Math.sqrt(dh*dh + dv*dv);
                         const ext = Math.max(_cssW, _cssH) * 2;
                         const ndh = dh / cssLen * ext, ndv = dv / cssLen * ext;
-                        _chCtx.lineWidth = 1.5;
+                        _chCtx.lineWidth = 1;
                         _chCtx.strokeStyle = _mvPlaneColorForDim(mvViews[j]?.sliceDir);
                         _chCtx.beginPath();
                         _chCtx.moveTo(chx - ndh, chy - ndv);
@@ -23656,7 +23660,7 @@ if (typeof gsap !== 'undefined') {
                     const cy = fy ? (v.lastH - indices[v.dimY] - 0.5) : (indices[v.dimY] + 0.5);
                     // Convert to CSS coords
                     const cssCx = cx * scaleX, cssCy = cy * scaleY;
-                    _chCtx.lineWidth = 1.5;
+                    _chCtx.lineWidth = 1;
                     _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimX);
                     _chCtx.beginPath(); _chCtx.moveTo(cssCx, 0); _chCtx.lineTo(cssCx, _cssH); _chCtx.stroke();
                     _chCtx.strokeStyle = _mvPlaneColorForDim(v.dimY);
