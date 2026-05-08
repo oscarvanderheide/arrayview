@@ -585,7 +585,7 @@
             top: -62px;
         }
         #main-loupe {
-            position: absolute;
+            position: fixed;
             left: 0;
             top: 0;
             width: 166px;
@@ -12997,8 +12997,9 @@
             const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
             if (!pt) return;
             _drawMainLoupe(pt);
-            const targetX = Math.max(8, Math.min(pt.cssX + 18, (parseInt(canvas.style.width) || canvas.width) - 174));
-            const targetY = Math.max(8, Math.min(pt.cssY - 92, (parseInt(canvas.style.height) || canvas.height) - 174));
+            const L = 166;
+            const targetX = Math.max(8, Math.min(e.clientX + 18, window.innerWidth - L - 8));
+            const targetY = Math.max(8, Math.min(e.clientY - 92, window.innerHeight - L - 8));
             gsap.set(mainLoupe, { x: targetX, y: targetY });
         }
         function _maybeActivateMainLoupe(e) {
