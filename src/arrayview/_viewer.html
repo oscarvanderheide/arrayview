@@ -1565,12 +1565,12 @@
             border-top: none;
             padding-top: 0;
         }
-        #dynamic-island.tool-list .section-label {
-            margin: 12px 0 6px;
-            font-size: 9px;
-            letter-spacing: 0.22em;
-            text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.36);
+        #dynamic-island .section-label {
+            margin: 16px 0 10px;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            text-transform: none;
+            color: rgba(255, 255, 255, 0.72);
         }
 
         /* ── Unavailable toggle ── */
@@ -1750,9 +1750,13 @@
         #dynamic-island .island-row.hidden .island-name { opacity: 0.35; }
         #dynamic-island .island-slider-row {
             display: flex; align-items: center; gap: 8px;
-            padding: 4px 2px; font-size: 10px; color: #999;
+            padding: 5px 2px; font-size: 12px; color: #999;
         }
-        #dynamic-island .island-slider-label { min-width: 48px; color: #888; }
+        #dynamic-island .island-slider-label {
+            min-width: 48px;
+            font-size: 12px;
+            color: #b3b3b3;
+        }
         #dynamic-island .island-slider {
             flex: 1; -webkit-appearance: none; appearance: none;
             height: 14px; background: transparent;
@@ -1774,7 +1778,13 @@
             width: 10px; height: 10px; border-radius: 50%;
             background: #f0c674; cursor: pointer; border: none;
         }
-        #dynamic-island .island-slider-value { min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+        #dynamic-island .island-slider-value {
+            min-width: 44px;
+            font-size: 12px;
+            text-align: right;
+            color: #b3b3b3;
+            font-variant-numeric: tabular-nums;
+        }
         #dynamic-island .island-add-row {
             display: flex; align-items: center; gap: 6px;
             padding: 5px 6px; margin-top: 4px;
@@ -2257,6 +2267,7 @@
         #qmri-view-wrap { display: none; width: 100%; }
         #qmri-view-wrap.active { display: flex; flex-direction: column; align-items: center; overflow-x: auto; gap: 14px; padding: 0 40px; margin-top: -4px; }
         .qv-row { display: flex; flex-direction: row; gap: 24px; justify-content: center; align-items: center; }
+        .qv-synthetic-row { justify-content: flex-start; }
         .qv-row.cq-row { position: relative; }
         .qv-pane { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
         .qmri-pane { position: relative; }
@@ -4183,6 +4194,10 @@
         let qmriViews = [];
         let _hoveredQmriView = null; // which qmriViews[] entry the mouse is over (null = none)
         let _qmriVisibleMaps = null; // null = show all; array of visible map indices (at least 1 must remain)
+        let _qmriSyntheticEnabled = false;
+        let _qmriSyntheticExpanded = false;
+        let _qmriSyntheticViews = [];
+        let _qmriSyntheticRebuilding = false;
         let qmriMosaicActive = false;  // true when Z mosaic is active in qMRI mode
         let _qmriMosaicZDim = -1;      // which dimension is z in qMRI mosaic
         const MIN_MOSAIC_TILE_PX = 40; // min tile width before switching to overflow/pan
@@ -4208,12 +4223,74 @@
             5: ['lipari', 'navia', 'viridis', 'gray', 'twilight_shifted'],
             6: ['lipari', 'navia', 'viridis', 'RdBu_r', 'gray', 'twilight_shifted'],
         };
+        const QMRI_ROLES = {
+            3: ['t1', 't2', 'pd'],
+            4: ['t1', 't2', 'pd', 'phase'],
+            5: ['t1', 't2', 'b1', 'pd', 'phase'],
+            6: ['t1', 't2', 'b1', 'db0', 'pd', 'phase'],
+        };
         const QMRI_LABELS = {
             lipari: 'T\u2081', navia: 'T\u2082', gray: '|PD|',
             twilight_shifted: '\u2220PD', viridis: 'B\u2081\u207A', RdBu_r: '\u0394B\u2080',
         };
         // Maps hidden by default — auxiliary parameters that clutter the initial view
         const QMRI_DEFAULT_HIDDEN = new Set(['viridis', 'RdBu_r', 'twilight_shifted']);
+        const QMRI_SYNTH_PRESETS = {
+            t1w: { label: 'T1W', te: 10, tr: 650, params: ['te', 'tr'] },
+            t2w: { label: 'T2W', te: 100, tr: 4500, params: ['te', 'tr'] },
+            pdw: { label: 'PDW', te: 10, tr: 8000, params: ['te', 'tr'] },
+            t2flair: { label: 'T2-FLAIR', te: 90, tr: 15000, ti: 3100, params: ['te', 'tr', 'ti'] },
+            stir: { label: 'STIR', te: 100, tr: 15000, ti: 300, params: ['te', 'tr', 'ti'] },
+            psir: { label: 'PSIR', te: 10, tr: 6000, ti: 500, params: ['te', 'tr', 'ti'] },
+        };
+        const QMRI_SYNTH_ORDER = ['t1w', 't2w', 'pdw', 't2flair', 'stir', 'psir'];
+        const QMRI_SYNTH_PARAM_META = {
+            te: { label: 'TE', min: 1, max: 250, step: 1 },
+            tr: { label: 'TR', min: 50, max: 20000, step: 50 },
+            ti: { label: 'TI', min: 10, max: 5000, step: 10 },
+        };
+        const _qmriSyntheticState = {};
+        QMRI_SYNTH_ORDER.forEach(id => {
+            _qmriSyntheticState[id] = Object.assign({ enabled: false }, QMRI_SYNTH_PRESETS[id]);
+        });
+
+        function _qmriRoleForIndex(paramSize, idx) {
+            const roles = QMRI_ROLES[paramSize] || [];
+            return roles[idx] || '';
+        }
+
+        function _qmriSyntheticActiveIds() {
+            return QMRI_SYNTH_ORDER.filter(id => _qmriSyntheticState[id]?.enabled);
+        }
+
+        function _qmriSyntheticApplyParams(target, id) {
+            const st = _qmriSyntheticState[id];
+            if (!st) return;
+            const setVal = (key, val) => {
+                if (target instanceof URLSearchParams) target.set(key, String(val));
+                else target[key] = val;
+            };
+            setVal('te', st.te);
+            setVal('tr', st.tr);
+            if (Array.isArray(st.params) && st.params.includes('ti')) setVal('ti', st.ti);
+        }
+
+        function _qmriSyntheticCanRun() {
+            const n = shape?.[qmriDim];
+            const roles = QMRI_ROLES[n] || [];
+            return roles.includes('t1') && roles.includes('t2') && roles.includes('pd');
+        }
+
+        function _qmriRefreshSyntheticRows() {
+            if (!qmriActive || qmriMosaicActive) return;
+            const savedMaps = _qmriVisibleMaps ? [..._qmriVisibleMaps] : null;
+            _qmriSyntheticRebuilding = true;
+            exitQmri();
+            _qmriSyntheticRebuilding = false;
+            _qmriVisibleMaps = savedMaps;
+            enterQmri();
+            if (toolMenuOpen) renderToolMenu();
+        }
 
         function _unionVisibleRects(elements) {
             let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
@@ -8714,7 +8791,8 @@
                 fixedIndices = parts.join(',');
             }
             const sdKey = scrollDims.slice().sort((a, b) => a - b).join(',');
-            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}`;
+            const qmriRole = opts.qmriRole || '';
+            const cacheKey = `${fetchDimX}:${fetchDimY}:${sdKey}:${fixedIndices}:${cMode}:${qmriRole}`;
 
             if (_volHistCache[cacheKey]) {
                 _histDataVersion = cacheKey;
@@ -8729,6 +8807,7 @@
             });
             if (scrollDims.length) params.set('scroll_dims', scrollDims.join(','));
             if (fixedIndices) params.set('fixed_indices', fixedIndices);
+            if (qmriRole) params.set('qmri_role', qmriRole);
             try {
                 const resp = await proxyFetch(`/volume-histogram/${sid}?${params}`);
                 if (!resp.ok) return null;
@@ -10760,6 +10839,25 @@
             }
             _reconcileUI();
 
+            // Multi-array .npz: show picker immediately so the user can select
+            // the array they want, regardless of how the file was opened.
+            // Skip if we already reloaded for an npz key selection.
+            if (!urlParams.has('_npz') && data.npz_keys && Array.isArray(data.npz_keys) && data.npz_keys.length > 1) {
+                (async () => {
+                    const key = await showNpzPicker(data.npz_keys, '');
+                    if (key) {
+                        await proxyFetch(`/session/${sid}/reload-npz`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ key }),
+                        });
+                        const u = new URL(window.location.href);
+                        u.searchParams.set('_npz', '1');
+                        window.location.href = u.href;
+                    }
+                })();
+            }
+
             // Shell-lite: when viewer is top-level (not in shell iframe), listen for
             // new-tab signals so CLI tab injection still works.
             if (window === window.top && !postMessageTransport) {
@@ -12359,6 +12457,19 @@
                 else drawVectorOverlay();
                 saveState();
             });
+            document.querySelectorAll('.qmri-synth-slider').forEach(slider => {
+                _wireIslandSlider(slider, (v) => {
+                    const id = slider.dataset.synth;
+                    const param = slider.dataset.param;
+                    const st = _qmriSyntheticState[id];
+                    if (!st || !param) return;
+                    const num = Number(v);
+                    st[param] = num;
+                    const lbl = document.getElementById(`qmri-synth-${id}-${param}-value`);
+                    if (lbl) lbl.textContent = `${num} ms`;
+                    qmriViews.filter(qv => qv.syntheticId === id).forEach(qv => qvRender(qv));
+                });
+            });
         }
 
         function _wireIslandSlider(el, apply) {
@@ -12612,7 +12723,9 @@
                 el.style.opacity = '0';
             }
             setTimeout(() => {
+                _qmriSyntheticRebuilding = true;
                 exitQmri(); // resets _qmriVisibleMaps to null
+                _qmriSyntheticRebuilding = false;
                 _qmriVisibleMaps = savedMaps; // restore before re-entering
                 enterQmri();
                 requestAnimationFrame(() => {
@@ -13269,7 +13382,7 @@
         }
 
         let _pixelHoverThrottle = false;
-        const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7 });
+        const _pixelFmt = (v, contextValues = null) => formatScalarValue(v, { contextValues, maxDecimals: 7, minDecimals: 3 });
         function _activeNumericContext(view = null) {
             const vals = view && view.displayState
                 ? [view.displayState.vmin, view.displayState.vmax]
@@ -13283,11 +13396,11 @@
             if (px < 0 || px >= opts.imgW || py < 0 || py >= opts.imgH) return false;
 
             // Fast path: use cached raw slice for instant local lookup (never throttled)
-            const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale;
+            const ver = opts.indices.join(',') + ':' + opts.dimX + ':' + opts.dimY + ':' + complexMode + ':' + logScale + ':' + (opts.qmriRole || '');
             let _fpSlice = null, _fpW = 0, _fpH = 0;
-            if (_lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
+            if (!opts.qmriRole && _lebesgueSlice && _lebesgueSliceW > 0 && _lebesgueSliceH > 0 && _lebesgueVersion === ver) {
                 _fpSlice = _lebesgueSlice; _fpW = _lebesgueSliceW; _fpH = _lebesgueSliceH;
-            } else {
+            } else if (!opts.qmriRole) {
                 const hkey = (opts.sid || sid) + ':' + ver;
                 const cached = _hoverSliceCache[hkey];
                 if (cached && cached.w > 0 && cached.h > 0) { _fpSlice = cached.slice; _fpW = cached.w; _fpH = cached.h; }
@@ -13319,6 +13432,7 @@
                 complex_mode: complexMode,
             });
             if (logScale) params.set('log_scale', '1');
+            if (opts.qmriRole) params.set('qmri_role', opts.qmriRole);
 
             proxyFetch('/pixel/' + opts.sid + '?' + params)
                 .then(r => r.ok ? r.json() : null)
@@ -13458,6 +13572,121 @@
                     if (e.key === 'Escape') { e.preventDefault(); cancel(); }
                 };
             });
+        }
+
+        function showNpzPicker(keys, filepath) {
+            return new Promise(resolve => {
+                const basename = filepath ? filepath.split('/').pop().split('\\').pop() : '';
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;'
+                    + 'background:rgba(0,0,0,0.55);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);';
+                const box = document.createElement('div');
+                box.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:16px;'
+                    + 'padding:24px 28px 20px;min-width:420px;max-width:560px;max-height:72vh;display:flex;flex-direction:column;gap:14px;'
+                    + 'box-shadow:0 24px 56px rgba(0,0,0,0.55);';
+                const hdr = document.createElement('div');
+                hdr.style.cssText = 'font-size:16px;color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-weight:600;letter-spacing:-0.01em;';
+                hdr.textContent = basename || `${keys.length} arrays`;
+                box.appendChild(hdr);
+                const sub = document.createElement('div');
+                sub.style.cssText = 'font-size:12px;color:var(--muted);font-family:monospace;margin-top:-10px;';
+                sub.textContent = 'Select an array to load';
+                box.appendChild(sub);
+                const list = document.createElement('div');
+                list.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:380px;overflow-y:auto;';
+                let chosen = null;
+                const items = [];
+                keys.forEach((k, i) => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 14px;'
+                        + 'border-radius:10px;cursor:pointer;border:1px solid transparent;user-select:none;'
+                        + 'transition:background 0.1s,border-color 0.1s;color:var(--text);';
+                    row.dataset.idx = i;
+                    const left = document.createElement('div');
+                    left.style.cssText = 'display:flex;flex-direction:column;gap:3px;min-width:0;';
+                    const keyEl = document.createElement('span');
+                    keyEl.style.cssText = 'font-size:14px;font-family:monospace;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                    keyEl.textContent = k.key;
+                    left.appendChild(keyEl);
+                    const meta = document.createElement('span');
+                    meta.style.cssText = 'font-size:11px;color:var(--muted);font-family:monospace;white-space:nowrap;';
+                    meta.textContent = `${k.shape.join(' × ')}  ·  ${k.dtype}`;
+                    left.appendChild(meta);
+                    row.appendChild(left);
+                    const enter = document.createElement('span');
+                    enter.style.cssText = 'font-size:10px;color:var(--subtle);flex-shrink:0;opacity:0;transition:opacity 0.1s;';
+                    enter.textContent = '⏎';
+                    row.appendChild(enter);
+                    row.onclick = () => { chosen = k.key; cleanup(); };
+                    row.onmouseenter = () => { if (!row.classList.contains('npz-active')) { row.style.background = 'rgba(255,255,255,0.04)'; row.style.borderColor = 'rgba(255,255,255,0.06)'; enter.style.opacity = '0.6'; } };
+                    row.onmouseleave = () => { if (!row.classList.contains('npz-active')) { row.style.background = 'transparent'; row.style.borderColor = 'transparent'; enter.style.opacity = '0'; } };
+                    list.appendChild(row);
+                    items.push(row);
+                });
+                box.appendChild(list);
+                const footer = document.createElement('div');
+                footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;padding-top:2px;';
+                const cancelBtn = document.createElement('button');
+                cancelBtn.style.cssText = 'padding:7px 20px;border-radius:10px;border:1px solid var(--border);'
+                    + 'background:transparent;color:var(--muted);font:13px system-ui,sans-serif;cursor:pointer;transition:background 0.1s,border-color 0.1s;';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.onclick = () => { cleanup(); };
+                cancelBtn.onmouseenter = () => { cancelBtn.style.borderColor = 'var(--muted)'; cancelBtn.style.background = 'rgba(255,255,255,0.04)'; };
+                cancelBtn.onmouseleave = () => { cancelBtn.style.borderColor = 'var(--border)'; cancelBtn.style.background = 'transparent'; };
+                footer.appendChild(cancelBtn);
+                box.appendChild(footer);
+                overlay.appendChild(box);
+                document.body.appendChild(overlay);
+
+                let activeIdx = 0;
+                function setActive(idx) {
+                    items.forEach((r, i) => {
+                        const isActive = i === idx;
+                        r.classList.toggle('npz-active', isActive);
+                        r.style.background = isActive ? 'rgba(255,255,255,0.07)' : 'transparent';
+                        r.style.borderColor = isActive ? 'var(--active-dim)' : 'transparent';
+                        const e = r.querySelector('span:last-child');
+                        if (e) e.style.opacity = isActive ? '1' : '0';
+                    });
+                    activeIdx = idx;
+                    if (items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
+                }
+                setActive(0);
+
+                function cleanup() {
+                    document.removeEventListener('keydown', onKey);
+                    overlay.remove();
+                    resolve(chosen);
+                }
+
+                function onKey(e) {
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(); }
+                    else if (e.key === 'Enter') { e.preventDefault(); if (keys[activeIdx]) { chosen = keys[activeIdx].key; cleanup(); } }
+                    else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, keys.length - 1)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
+                }
+                document.addEventListener('keydown', onKey);
+                overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
+            });
+        }
+
+        async function _loadWithNpzSupport(filepath, name) {
+            const r = await proxyFetch('/load', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filepath, name }),
+            });
+            const data = await r.json();
+            if (data.error) return data;
+            if (data.npz_keys) {
+                const key = await showNpzPicker(data.npz_keys, filepath);
+                if (!key) return { error: 'cancelled' };
+                const r2 = await proxyFetch('/load', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filepath, name, key }),
+                });
+                return r2.json();
+            }
+            return data;
         }
 
         /* ── JS: State Persistence and Restore ────────────────────── */
@@ -16236,6 +16465,10 @@ if (typeof gsap !== 'undefined') {
                     if (activeDim === VFIELD_T_DIM) { showStatus('time dim (vector field)'); return; } // kept inline: emits toast
                     if (multiViewActive) { showStatus('mosaic: not available in multi-view'); return; } // kept inline: emits toast
                     if (qmriActive) {
+                        if (!qmriMosaicActive && _qmriSyntheticViews.length) {
+                            showStatus('qMRI mosaic: turn synthetic MRI off first');
+                            return;
+                        }
                         // Toggle qMRI mosaic — or, if already active and the
                         // user presses `z` with a different valid activeDim
                         // selected, switch to that dim instead of toggling off.
@@ -18063,6 +18296,7 @@ if (typeof gsap !== 'undefined') {
                 const n = shape[qDim];
                 const allCmaps = QMRI_COLORMAPS[n];
                 const visibleSet = new Set(_qmriVisibleMaps !== null ? _qmriVisibleMaps : Array.from({length: n}, (_, i) => i));
+                body += `<div class="section-label">Quantitative maps</div>`;
                 body += `<div class="island-pills">`;
                 for (let i = 0; i < allCmaps.length; i++) {
                     const label = QMRI_LABELS[allCmaps[i]] || allCmaps[i];
@@ -18072,6 +18306,31 @@ if (typeof gsap !== 'undefined') {
                     body += `<div class="island-pill ${pillCls}" onclick="${isOnly ? '' : `_islandToggleQmriMap(${i})`}">${label}</div>`;
                 }
                 body += `</div>`;
+                if (!compareQmriActive) {
+                    const canSynth = _qmriSyntheticCanRun();
+                    body += `<div class="section-label">Synthesized contrasts</div>`;
+                    if (!canSynth) {
+                        body += `<div class="tool-footer-hint">needs T1, T2, and PD maps</div>`;
+                    } else {
+                        body += `<div class="island-pills">`;
+                        for (const sid2 of QMRI_SYNTH_ORDER) {
+                            const st = _qmriSyntheticState[sid2];
+                            const pillCls2 = st.enabled ? 'on' : 'off';
+                            body += `<div class="island-pill ${pillCls2}" onclick="_islandToggleQmriSyntheticContrast('${sid2}')">${st.label}</div>`;
+                        }
+                        body += `</div>`;
+                        for (const sid2 of QMRI_SYNTH_ORDER) {
+                            const st = _qmriSyntheticState[sid2];
+                            if (!st.enabled) continue;
+                            body += `<div class="section-label">${st.label}</div>`;
+                            for (const p of st.params) {
+                                const meta = QMRI_SYNTH_PARAM_META[p];
+                                const val = Number(st[p] || 0);
+                                body += `<div class="island-slider-row"><span class="island-slider-label">${meta.label}</span><input type="range" class="island-slider qmri-synth-slider" data-synth="${sid2}" data-param="${p}" min="${meta.min}" max="${meta.max}" step="${meta.step}" value="${val}"><span class="island-slider-value" id="qmri-synth-${sid2}-${p}-value">${val} ms</span></div>`;
+                            }
+                        }
+                    }
+                }
             } else if (id === 'roi' || id === 'segmentation') {
                 const isRoi = id === 'roi';
                 const isSegLoading = !isRoi && _segActivating && !_segMode;
@@ -18224,6 +18483,13 @@ if (typeof gsap !== 'undefined') {
         window.closeToolPanel = closeToolPanel;
         window._toggleMoreTools = function() {
             _moreToolsExpanded = !_moreToolsExpanded;
+            renderToolMenu();
+        };
+        window._islandToggleQmriSyntheticContrast = function(id) {
+            if (!_qmriSyntheticState[id]) return;
+            _qmriSyntheticState[id].enabled = !_qmriSyntheticState[id].enabled;
+            _qmriSyntheticEnabled = _qmriSyntheticActiveIds().length > 0;
+            _qmriRefreshSyntheticRows();
             renderToolMenu();
         };
 
@@ -19607,9 +19873,7 @@ if (typeof gsap !== 'undefined') {
                                 if (mode === 'overlay') {
                                     item.classList.add('cp-item-loading');
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    proxyFetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ filepath: f.path, name: f.name, notify: false }),
-                                    }).then(r => r.json()).then(async data => {
+                                    _loadWithNpzSupport(f.path, f.name).then(async data => {
                                         if (data.error === 'insufficient_memory') {
                                             item.classList.remove('cp-item-loading');
                                             await _showRamBlockDialog(
@@ -19618,7 +19882,7 @@ if (typeof gsap !== 'undefined') {
                                             );
                                             return;
                                         }
-                                        if (data.error) { showToast(`load error: ${data.error}`); finish(null); return; }
+                                        if (data.error) { if (data.error !== 'cancelled') showToast(`load error: ${data.error}`); finish(null); return; }
                                         finish({ action: 'add-overlay', sid: data.sid, name: data.name || f.name });
                                     }).catch(() => { showToast('load failed'); finish(null); });
                                     return;
@@ -19627,9 +19891,7 @@ if (typeof gsap !== 'undefined') {
                                     // Open directly
                                     item.classList.add('cp-item-loading');
                                     item.querySelector('.cp-item-right').innerHTML += `<span class="cp-item-warn">loading…</span>`;
-                                    proxyFetch('/load', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ filepath: f.path, name: f.name }),
-                                    }).then(r => r.json()).then(async data => {
+                                    _loadWithNpzSupport(f.path, f.name).then(async data => {
                                         if (data.error === 'insufficient_memory') {
                                             item.classList.remove('cp-item-loading');
                                             await _showRamBlockDialog(
@@ -19681,11 +19943,7 @@ if (typeof gsap !== 'undefined') {
                     for (const [key, item] of items) {
                         if (item.sid) continue;
                         try {
-                            const r = await proxyFetch('/load', {
-                                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ filepath: item.filepath, name: item.name }),
-                            });
-                            const data = await r.json();
+                            const data = await _loadWithNpzSupport(item.filepath, item.name);
                             if (data.error === 'insufficient_memory') {
                                 await _showRamBlockDialog(
                                     document.getElementById('uni-picker-box'),
@@ -19694,7 +19952,7 @@ if (typeof gsap !== 'undefined') {
                                 _selected.delete(key);
                                 return false;
                             }
-                            if (data.error) { showToast(`load error: ${data.error}`); _selected.delete(key); return false; }
+                            if (data.error) { if (data.error !== 'cancelled') showToast(`load error: ${data.error}`); _selected.delete(key); return false; }
                             item.sid = data.sid;
                             item.name = data.name || item.name;
                         } catch { showToast('load failed'); _selected.delete(key); return false; }
@@ -21126,7 +21384,7 @@ if (typeof gsap !== 'undefined') {
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
                     const view = {
-                        colormap: cmap, qmriIdx: actualIdx,
+                        colormap: cmap, qmriIdx: actualIdx, qmriRole: _qmriRoleForIndex(n, actualIdx),
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         _cvWrap: cvWrap,
                         roiOverlay: null, roiCtx: null,
@@ -21161,6 +21419,7 @@ if (typeof gsap !== 'undefined') {
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
                                 fixedIndices,
+                                qmriRole: view.qmriRole,
                             });
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
@@ -21204,6 +21463,8 @@ if (typeof gsap !== 'undefined') {
                             imgW: view.lastW,
                             imgH: view.lastH,
                             displayEl: view.pixelInfoEl,
+                            qmriRole: view.qmriRole,
+                            view,
                             onResult: (d, px, py) => {
                                 if (_pixelInfoVisible) {
                                     _updateDimbarHover(px, py);
@@ -21220,6 +21481,7 @@ if (typeof gsap !== 'undefined') {
                                         px: String(px), py: String(py),
                                         complex_mode: complexMode,
                                     });
+                                    if (v.qmriRole) params.set('qmri_role', v.qmriRole);
                                     if (logScale) params.set('log_scale', '1');
                                     proxyFetch('/pixel/' + sid + '?' + params)
                                         .then(r => r.ok ? r.json() : null).then(rd => {
@@ -21338,6 +21600,88 @@ if (typeof gsap !== 'undefined') {
                 ph.className = 'qv-pane qv-placeholder';
                 _qmriLastRow.appendChild(ph);
             }
+            _qmriSyntheticViews = [];
+            const syntheticIds = _qmriSyntheticCanRun() ? _qmriSyntheticActiveIds() : [];
+            if (syntheticIds.length) {
+                const synRow = document.createElement('div');
+                synRow.className = 'qv-row qv-synthetic-row';
+                syntheticIds.forEach((synId) => {
+                    const preset = QMRI_SYNTH_PRESETS[synId];
+                    const pane = document.createElement('div');
+                    pane.className = 'qv-pane qmri-pane qmri-synthetic-pane';
+                    const label = document.createElement('div');
+                    label.className = 'qv-label';
+                    label.textContent = preset.label;
+                    const area = document.createElement('div');
+                    area.className = 'qv-canvas-area';
+                    const cvWrap = document.createElement('div');
+                    cvWrap.className = 'qv-canvas-wrap';
+                    const qvCvBox = document.createElement('div');
+                    qvCvBox.className = 'qv-canvas-clip';
+                    const cv = document.createElement('canvas');
+                    cv.className = 'qv-canvas';
+                    qvCvBox.appendChild(cv);
+                    const qvPiEl = document.createElement('div');
+                    qvPiEl.className = 'cv-pixel-info';
+                    qvCvBox.appendChild(qvPiEl);
+                    cvWrap.appendChild(qvCvBox);
+                    area.appendChild(cvWrap);
+                    pane.appendChild(label);
+                    pane.appendChild(area);
+                    synRow.appendChild(pane);
+                    const view = {
+                        colormap: 'gray', syntheticId: synId, qmriRole: '',
+                        canvas: cv, ctx: cv.getContext('2d'), area,
+                        _cvWrap: cvWrap, pixelInfoEl: qvPiEl,
+                        vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
+                        ws: null, seq: 0, rendering: false, pending: false,
+                        lastW: shape[dim_x], lastH: shape[dim_y], lastImageData: null,
+                        _colorBar: null, _qmriGeneration: _qmriRenderGeneration,
+                    };
+                    const synCb = new ColorBar({
+                        container: cvWrap,
+                        id: 'qv-synth-' + synId,
+                        orientation: 'horizontal',
+                        interactive: true,
+                        getStops: () => COLORMAP_GRADIENT_STOPS.gray || [],
+                        getRange: () => ({ vmin: view.vmin, vmax: view.vmax }),
+                        getWindow: () => ({ vmin: view.lockedVmin ?? view.vmin, vmax: view.lockedVmax ?? view.vmax }),
+                        setWindow: (lo, hi) => { view.lockedVmin = lo; view.lockedVmax = hi; },
+                        onWindowChange: () => { qvRender(view); },
+                        onAnimFrame: () => { qvScaleAllCanvases(); },
+                    });
+                    synCb.wrap.classList.add('qv-cb-island');
+                    view._colorBar = synCb;
+                    view.cbCanvas = synCb.canvas;
+                    view.cbVmin = synCb.vminLabel;
+                    view.cbVmax = synCb.vmaxLabel;
+                    cv.addEventListener('wheel', (e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY > 0 ? -1 : 1;
+                        indices[current_slice_dim] = Math.max(0, Math.min(shape[current_slice_dim] - 1, indices[current_slice_dim] + delta));
+                        renderInfo();
+                        qmriViews.forEach(v => qvRender(v));
+                        saveState();
+                    }, { passive: false });
+                    if (!httpTransport) {
+                        view.ws = createTransport(sid,
+                            (event) => qvOnMessage(view, event),
+                            postMessageTransport ? null : () => qvRender(view),
+                            () => { view.rendering = false; },
+                            () => { view.rendering = false; if (view.ws) view.ws.close(); }
+                        );
+                    }
+                    _qmriSyntheticViews.push(view);
+                    qmriViews.push(view);
+                });
+                const synthColCount = nMaps >= 5 ? 3 : nMaps;
+                while (synRow.children.length < synthColCount) {
+                    const ph = document.createElement('div');
+                    ph.className = 'qv-pane qv-placeholder';
+                    synRow.appendChild(ph);
+                }
+                wrap.appendChild(synRow);
+            }
             // Pre-size canvases immediately so layout is correct before first frame arrives
             qvScaleAllCanvases();
             _kickInitialRenders(qmriViews, qvRender);
@@ -21370,6 +21714,11 @@ if (typeof gsap !== 'undefined') {
         function exitQmri() {
             _qmriRenderGeneration++;
             _qmriVisibleMaps = null;
+            if (!_qmriSyntheticRebuilding) {
+                _qmriSyntheticEnabled = false;
+                _qmriSyntheticExpanded = false;
+                QMRI_SYNTH_ORDER.forEach(id => { _qmriSyntheticState[id].enabled = false; });
+            }
             _qvRoiDragView = null;
             _endQmriLoupe();
             if (_qmriLoupeEl) { _qmriLoupeEl.remove(); _qmriLoupeEl = null; }
@@ -21381,23 +21730,26 @@ if (typeof gsap !== 'undefined') {
             qmriViews.forEach(v => { if (v.ws) { v.ws.onclose = null; v.ws.close(); } if (v._colorBar) { v._colorBar.destroy(); v._colorBar = null; } if (v._mosaicColorBar) { v._mosaicColorBar.destroy(); v._mosaicColorBar = null; } });
             const _hadRois = rectRoiMode && _rois.length;
             qmriViews = [];
+            _qmriSyntheticViews = [];
             _hoveredQmriView = null;
             const wrap = document.getElementById('qmri-view-wrap');
             wrap.innerHTML = '';
             wrap.className = '';
             userZoom = _qmriPrevZoom;  // restore prior zoom (mirrors exitMultiView line 10521)
-            updateView();
+            if (!_qmriSyntheticRebuilding) updateView();
             _reconcileUI();
             renderInfo();
             // Redraw ROIs on main canvas overlay if ROI mode persists
             if (_hadRois) _drawAllRois();
-            showStatus('qMRI mode: off');
-            renderIsland();
+            if (!_qmriSyntheticRebuilding) showStatus('qMRI mode: off');
+            if (!_qmriSyntheticRebuilding) renderIsland();
             // Phase 8: restore modeManager to normal
-            try {
-                const _sess = { sid: sid, ndim: shape.length, isComplex: isComplex };
-                modeManager.enterMode(new NormalLayout(), [_sess]);
-            } catch(e) { console.warn('Phase 8 exitQmri modeManager restore failed:', e); }
+            if (!_qmriSyntheticRebuilding) {
+                try {
+                    const _sess = { sid: sid, ndim: shape.length, isComplex: isComplex };
+                    modeManager.enterMode(new NormalLayout(), [_sess]);
+                } catch(e) { console.warn('Phase 8 exitQmri modeManager restore failed:', e); }
+            }
         }
 
         // --------------- Compare + qMRI combined mode ---------------
@@ -21497,7 +21849,7 @@ if (typeof gsap !== 'undefined') {
                     pane.appendChild(area);
                     rowDiv.appendChild(pane);
                     const view = {
-                        sid: sidVal, colormap: cmap, qmriIdx: actualIdx,
+                        sid: sidVal, colormap: cmap, qmriIdx: actualIdx, qmriRole: _qmriRoleForIndex(n, actualIdx),
                         canvas: cv, ctx: cv.getContext('2d'), area,
                         cbCanvas: null, cbLabels: null, cbVmin: null, cbVmax: null, pixelInfoEl: qvPiEl,
                         vmin: 0, vmax: 1, lockedVmin: null, lockedVmax: null,
@@ -21525,6 +21877,7 @@ if (typeof gsap !== 'undefined') {
                                 scrollDim: current_slice_dim,
                                 complexMode: complexMode,
                                 fixedIndices,
+                                qmriRole: view.qmriRole,
                             });
                         },
                         onMouseEnter: () => { _startColorbarLebesgueHover(); },
@@ -21565,6 +21918,7 @@ if (typeof gsap !== 'undefined') {
                             imgH: view.lastH,
                             view,
                             displayEl: view.pixelInfoEl,
+                            qmriRole: view.qmriRole,
                             onResult: (d, px, py) => {
                                 if (_pixelInfoVisible) _updateDimbarHover(px, py);
                             },
@@ -21663,7 +22017,9 @@ if (typeof gsap !== 'undefined') {
                 indices: qIndices, colormap: v.colormap,
                 pane_key: `compare-qmri:${v.sid}:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
-                log_scale: logScale && v.qmriIdx < 2,
+                qmri_dim: compareQmriDim,
+                qmri_role: v.qmriRole || '',
+                log_scale: logScale && (v.qmriRole === 't1' || v.qmriRole === 't2'),
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
@@ -21689,7 +22045,9 @@ if (typeof gsap !== 'undefined') {
                     colormap: v.colormap,
                     dr: '0',
                     complex_mode: String(complexMode),
-                    log_scale: String(logScale && v.qmriIdx < 2),
+                    qmri_dim: String(compareQmriDim),
+                    qmri_role: v.qmriRole || '',
+                    log_scale: String(logScale && (v.qmriRole === 't1' || v.qmriRole === 't2')),
                     slice_dim: String(current_slice_dim),
                 });
                 { const _visSid = _getVisibleOverlaySids(); if (_visSid) params.set('overlay_sid', _visSid); if (_visSid && overlay_colors) { const _visCol = _getVisibleOverlayColors(); if (_visCol) params.set('overlay_colors', _visCol); } }
@@ -22401,17 +22759,19 @@ if (typeof gsap !== 'undefined') {
             if (v.rendering) { v.pending = true; return; }
             v.rendering = true; v.seq++;
             const qIndices = [...indices];
-            qIndices[qmriDim] = v.qmriIdx;
+            if (!v.syntheticId) qIndices[qmriDim] = v.qmriIdx;
             const _qdpr = window.devicePixelRatio || 1;
             const _qcw = Math.round((parseInt(v.canvas.style.width)  || window.innerWidth)  * _qdpr);
             const _qch = Math.round((parseInt(v.canvas.style.height) || window.innerHeight) * _qdpr);
             const _qmMsg = {
                 seq: v.seq, dim_x, dim_y, dim_z: qmriMosaicActive ? _qmriMosaicZDim : -1,
                 indices: qIndices, colormap: v.colormap,
-                pane_key: `qmri:${v.qmriIdx}`,
+                pane_key: v.syntheticId ? `qmri-synth:${v.syntheticId}` : `qmri:${v.qmriIdx}`,
                 dr: 0, complex_mode: complexMode,
-                // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
-                log_scale: logScale && v.qmriIdx < 2,
+                qmri_dim: qmriDim,
+                qmri_role: v.qmriRole || '',
+                synthetic_mri: v.syntheticId || '',
+                log_scale: logScale && (v.qmriRole === 't1' || v.qmriRole === 't2'),
                 slice_dim: current_slice_dim, direction: 1,
                 overlay_sid: _getVisibleOverlaySids() || null,
                 overlay_colors: _getVisibleOverlayColors() || null,
@@ -22420,6 +22780,11 @@ if (typeof gsap !== 'undefined') {
                 projection_mode: projectionMode,
                 projection_dim: projectionMode > 0 ? projectionDim : -1,
             };
+            if (v.syntheticId) {
+                _qmriSyntheticApplyParams(_qmMsg, v.syntheticId);
+                _qmMsg.dim_z = -1;
+                _qmMsg.log_scale = false;
+            }
             if (qmriMosaicActive) _qmMsg.mosaic_cols = shape[_qmriMosaicZDim];
             if (v.lockedVmin != null) _qmMsg.vmin_override = v.lockedVmin;
             if (v.lockedVmax != null) _qmMsg.vmax_override = v.lockedVmax;
@@ -22432,20 +22797,23 @@ if (typeof gsap !== 'undefined') {
             v.seq++;
             try {
                 const qIndices = [...indices];
-                qIndices[qmriDim] = v.qmriIdx;
+                if (!v.syntheticId) qIndices[qmriDim] = v.qmriIdx;
                 const params = new URLSearchParams({
                     dim_x: String(dim_x),
                     dim_y: String(dim_y),
-                    dim_z: String(qmriMosaicActive ? _qmriMosaicZDim : -1),
+                    dim_z: String(v.syntheticId ? -1 : (qmriMosaicActive ? _qmriMosaicZDim : -1)),
                     indices: qIndices.join(','),
                     colormap: v.colormap,
                     dr: '0',
                     complex_mode: String(complexMode),
-                    // Log scale only makes sense for T1 (idx 0) and T2 (idx 1)
-                    log_scale: String(logScale && v.qmriIdx < 2),
+                    qmri_dim: String(qmriDim),
+                    qmri_role: v.qmriRole || '',
+                    synthetic_mri: v.syntheticId || '',
+                    log_scale: String(!v.syntheticId && logScale && (v.qmriRole === 't1' || v.qmriRole === 't2')),
                     slice_dim: String(current_slice_dim),
                 });
-                if (qmriMosaicActive) params.set('mosaic_cols', String(shape[_qmriMosaicZDim]));
+                if (v.syntheticId) _qmriSyntheticApplyParams(params, v.syntheticId);
+                if (!v.syntheticId && qmriMosaicActive) params.set('mosaic_cols', String(shape[_qmriMosaicZDim]));
                 if (v.lockedVmin != null) params.set('vmin_override', String(v.lockedVmin));
                 if (v.lockedVmax != null) params.set('vmax_override', String(v.lockedVmax));
                 if (projectionMode > 0) {
@@ -22684,10 +23052,12 @@ if (typeof gsap !== 'undefined') {
                 return null;
             }
 
-            // Normal (non-mosaic) qMRI layout
-            // n≤4 → single row; n=5 → [3,2]; n=6 → [3,3]
-            const cols = (n === 5 || n === 6) ? 3 : n;
-            const rows = (n === 5 || n === 6) ? 2 : 1;
+            // Normal (non-mosaic) qMRI layout. Use the actual DOM rows so
+            // optional synthetic panes reserve their own bottom row.
+            const domRows = Array.from(document.querySelectorAll('#qmri-view-wrap > .qv-row'));
+            const rowPaneCounts = domRows.map(r => Array.from(r.children).filter(el => !el.classList.contains('qv-placeholder')).length).filter(Boolean);
+            const rows = Math.max(1, rowPaneCounts.length || ((n === 5 || n === 6) ? 2 : 1));
+            const cols = Math.max(1, ...(rowPaneCounts.length ? rowPaneCounts : [((n === 5 || n === 6) ? 3 : n)]));
             const colGap = 24;  // matches .qv-row gap
             const rowGap = 14;  // matches #qmri-view-wrap gap
             const sidePad = 120; // 40px padding + colorbar label flanks

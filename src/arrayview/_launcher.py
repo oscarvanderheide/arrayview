@@ -2579,7 +2579,7 @@ def _serve_daemon(
     threading.Thread(target=_warm_luts, daemon=True).start()
 
     def _load():
-        from arrayview._io import load_data, load_data_with_meta
+        from arrayview._io import load_data, load_data_with_meta, list_npz_keys
 
         try:
             data, spatial_meta = load_data_with_meta(filepath)
@@ -2593,6 +2593,15 @@ def _serve_daemon(
             )
             session.sid = sid
             session.spatial_meta = spatial_meta
+            # Multi-array .npz: store keys so the viewer can show a picker
+            if filepath.endswith(".npz") and not cleanup:
+                try:
+                    keys = list_npz_keys(filepath)
+                    if len(keys) > 1:
+                        session.npz_keys = keys
+                        session.npz_filepath = filepath
+                except Exception:
+                    pass
             if spatial_meta is not None:
                 session.original_volume = data
             if rgb:

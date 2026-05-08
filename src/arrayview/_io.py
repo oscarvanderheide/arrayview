@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 
 import numpy as np
 
@@ -39,89 +38,28 @@ def _fix_mat_complex(arr):
     return arr
 
 
-def _select_npz_array(npz, filepath):
-    """Interactively select an array from a multi-array .npz file.
+def list_npz_keys(filepath):
+    """Return [{key, shape, dtype}] for each ndarray in an .npz file.
 
-    Uses curses for an arrow-key selector when available, falls back to a
-    simple numbered prompt otherwise.
+    Filters out 0-d arrays (scalars) and non-ndarray entries.
+    """
+    npz = np.load(filepath)
+    keys = []
+    for k in npz.files:
+        arr = npz[k]
+        if isinstance(arr, np.ndarray) and arr.ndim >= 1:
+            keys.append({"key": k, "shape": list(arr.shape), "dtype": str(arr.dtype)})
+    npz.close()
+    return keys
+
+
+def _select_npz_array(npz, filepath):
+    """Load the first array from a multi-array .npz file.
+
+    The in-viewer NPZ picker handles array selection — no terminal prompt.
     """
     keys = list(npz.keys())
-    filename = os.path.basename(filepath)
-
-    # Build display lines: "name  shape  dtype"
-    entries = []
-    for k in keys:
-        arr = npz[k]
-        entries.append(f"{k}  {arr.shape}  {arr.dtype}")
-
-    # --- curses UI ----------------------------------------------------------
-    try:
-        import curses
-
-        def _curses_select(stdscr):
-            curses.curs_set(0)
-            idx = 0
-            while True:
-                stdscr.clear()
-                stdscr.addstr(0, 0, f"Select array from {filename}:")
-                for i, line in enumerate(entries):
-                    y = i + 2
-                    if i == idx:
-                        stdscr.addstr(y, 2, f"> {line}", curses.A_REVERSE)
-                    else:
-                        stdscr.addstr(y, 4, line)
-                stdscr.addstr(len(entries) + 3, 0, "↑/↓ navigate  Enter select  q/Esc cancel")
-                stdscr.refresh()
-                ch = stdscr.getch()
-                if ch == curses.KEY_UP and idx > 0:
-                    idx -= 1
-                elif ch == curses.KEY_DOWN and idx < len(entries) - 1:
-                    idx += 1
-                elif ch in (curses.KEY_ENTER, 10, 13):
-                    return idx
-                elif ch in (ord("q"), 27):  # q or Escape
-                    return None
-
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            chosen = curses.wrapper(_curses_select)
-            if chosen is None:
-                raise SystemExit("Selection cancelled.")
-            return npz[keys[chosen]]
-
-    except ImportError:
-        # curses unavailable (e.g. Windows without windows-curses) — fall back
-        pass
-    except curses.error:
-        # terminal too small or not a real terminal — fall back
-        pass
-
-    # --- fallback numbered list ---------------------------------------------
-    if not sys.stdin.isatty():
-        raise ValueError(
-            f".npz contains multiple arrays: {keys}. "
-            "Load it manually and pass the array to view()."
-        )
-
-    print(f"\nSelect array from {filename}:\n")
-    for i, line in enumerate(entries):
-        print(f"  [{i + 1}] {line}")
-    print()
-
-    while True:
-        try:
-            raw = input(f"Enter number (1-{len(entries)}), or 'q' to cancel: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            raise SystemExit("Selection cancelled.")
-        if raw.lower() == "q":
-            raise SystemExit("Selection cancelled.")
-        try:
-            choice = int(raw)
-        except ValueError:
-            print("  Invalid input.")
-            continue
-        if 1 <= choice <= len(entries):
-            return npz[keys[choice - 1]]
-        print(f"  Please enter a number between 1 and {len(entries)}.")
+    return npz[keys[0]]
 
 
 def _load_nifti_with_meta(filepath):
@@ -179,17 +117,17 @@ def _load_nifti_with_meta(filepath):
     return arr, meta
 
 
-def load_data_with_meta(filepath):
+def load_data_with_meta(filepath, key=None):
     """Like load_data but also returns spatial metadata for NIfTI files.
 
     Returns (array, meta_or_None). meta is None for non-NIfTI formats.
     """
     if filepath.endswith(".nii") or filepath.endswith(".nii.gz"):
         return _load_nifti_with_meta(filepath)
-    return load_data(filepath), None
+    return load_data(filepath, key=key), None
 
 
-def load_data(filepath):
+def load_data(filepath, key=None):
     if filepath.endswith(".npy"):
         # Eager-load small-to-medium files into RAM.  mmap_mode="r" on a C-order
         # 4D+ array forces scattered page faults for every orthogonal slice
@@ -202,10 +140,15 @@ def load_data(filepath):
         return np.load(filepath, mmap_mode="r")
     elif filepath.endswith(".npz"):
         npz = np.load(filepath)
-        keys = list(npz.keys())
-        if len(keys) == 1:
-            return npz[keys[0]]
-        return _select_npz_array(npz, filepath)
+        try:
+            if key is not None:
+                return npz[key]
+            keys = list(npz.keys())
+            if len(keys) == 1:
+                return npz[keys[0]]
+            return _select_npz_array(npz, filepath)
+        finally:
+            npz.close()
     elif filepath.endswith(".nii.gz"):
         # Gzip streams aren't seekable, so nibabel's lazy dataobj decompresses
         # large portions of the file on every arbitrary slice access. Materialize

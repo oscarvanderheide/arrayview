@@ -8,6 +8,7 @@ import numpy as np
 
 from arrayview import _session as _session_mod
 from arrayview._render import apply_complex_mode, extract_slice
+from arrayview._synthetic_mri import qmri_display_slice
 from arrayview._vectorfield import _vfield_n_times
 
 
@@ -42,6 +43,8 @@ def _build_metadata(session) -> dict:
         meta["ras_resample_active"] = bool(
             getattr(session, "ras_resample_active", False)
         )
+    if getattr(session, "npz_keys", None):
+        meta["npz_keys"] = session.npz_keys
     return meta
 
 
@@ -94,6 +97,7 @@ def _slice_histogram(
     indices,
     complex_mode: int = 0,
     bins: int = 128,
+    qmri_role: str = "",
 ) -> dict:
     """Return a histogram for one 2-D slice."""
     idx_tuple = (
@@ -101,7 +105,11 @@ def _slice_histogram(
         if isinstance(indices, str)
         else tuple(indices)
     )
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    raw = (
+        qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+        if qmri_role
+        else extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    )
     data = apply_complex_mode(raw, complex_mode)
     finite = data.ravel()
     finite = finite[np.isfinite(finite)]
@@ -156,6 +164,7 @@ def _volume_histogram(
     fixed_indices: str = "",
     complex_mode: int = 0,
     bins: int = 64,
+    qmri_role: str = "",
 ) -> dict:
     """Return a sampled volume histogram."""
     fixed = _parse_fixed_indices(fixed_indices)
@@ -163,7 +172,14 @@ def _volume_histogram(
         session, dim_x, dim_y, scroll_dim, scroll_dims
     )
 
-    cache_key = (dim_x, dim_y, tuple(agg_dims), tuple(sorted(fixed.items())), complex_mode)
+    cache_key = (
+        dim_x,
+        dim_y,
+        tuple(agg_dims),
+        tuple(sorted(fixed.items())),
+        complex_mode,
+        qmri_role,
+    )
     if not hasattr(session, "_volume_hist_cache"):
         session._volume_hist_cache = {}
     cached = session._volume_hist_cache.get(cache_key)
@@ -196,7 +212,11 @@ def _volume_histogram(
             idx_list[d] = si
         for d, v in fixed.items():
             idx_list[d] = v
-        raw = extract_slice(session, dim_x, dim_y, idx_list)
+        raw = (
+            qmri_display_slice(session, dim_x, dim_y, idx_list, qmri_role)
+            if qmri_role
+            else extract_slice(session, dim_x, dim_y, idx_list)
+        )
         data = apply_complex_mode(raw, complex_mode)
         finite = data.ravel()
         finite = finite[np.isfinite(finite)]
@@ -243,6 +263,7 @@ def _pixel_value(
     px: int,
     py: int,
     complex_mode: int = 0,
+    qmri_role: str = "",
 ) -> float | None:
     """Return a finite pixel value or None."""
     if session.rgb_axis is not None:
@@ -252,7 +273,11 @@ def _pixel_value(
         if isinstance(indices, str)
         else tuple(indices)
     )
-    raw = extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    raw = (
+        qmri_display_slice(session, dim_x, dim_y, list(idx_tuple), qmri_role)
+        if qmri_role
+        else extract_slice(session, dim_x, dim_y, list(idx_tuple))
+    )
     data = apply_complex_mode(raw, complex_mode)
     h, w = data.shape
     if 0 <= py < h and 0 <= px < w:

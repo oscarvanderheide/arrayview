@@ -112,15 +112,27 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
                 except ImportError:
                     pass
         try:
-            from ._io import load_data_with_meta
+            from ._io import load_data_with_meta, list_npz_keys
 
-            data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath)
+            # Multi-array .npz: if no key provided, return the key list so the
+            # client can show a picker instead of blocking on terminal input.
+            _key = body.get("key")
+            _npz_keys = None
+            if filepath.endswith(".npz"):
+                _npz_keys = await asyncio.to_thread(list_npz_keys, filepath)
+                if len(_npz_keys) > 1 and not _key:
+                    return {"npz_keys": _npz_keys, "filepath": filepath}
+
+            data, spatial_meta = await asyncio.to_thread(load_data_with_meta, filepath, key=_key)
         except Exception as e:
             return {"error": str(e)}
         session = await asyncio.to_thread(Session, data, filepath=filepath, name=name)
         if spatial_meta is not None:
             session.spatial_meta = spatial_meta
             session.original_volume = data
+        if _npz_keys and len(_npz_keys) > 1:
+            session.npz_keys = _npz_keys
+            session.npz_filepath = filepath
         if body.get("rgb"):
             try:
                 await asyncio.to_thread(setup_rgb, session)
@@ -156,6 +168,37 @@ def register_loading_routes(app, *, notify_shells, setup_rgb) -> None:
             wait=wait,
         )
         return {"sid": session.sid, "name": name, "notified": notified}
+
+    @app.post("/session/{sid}/reload-npz")
+    async def reload_npz_key(sid: str, request: Request):
+        """Reload a session's data from an .npz file with a different key."""
+        session = SESSIONS.get(sid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        npz_filepath = getattr(session, "npz_filepath", None)
+        if not npz_filepath:
+            raise HTTPException(status_code=400, detail="Session is not an npz")
+        body = await request.json()
+        key = body.get("key")
+        if not key:
+            raise HTTPException(status_code=400, detail="key is required")
+        try:
+            from ._io import load_data
+            data = await asyncio.to_thread(load_data, npz_filepath, key=key)
+        except Exception as e:
+            return {"error": str(e)}
+        session.data = data
+        session.shape = data.shape
+        session.data_version += 1
+        session.raw_cache.clear()
+        session.rgba_cache.clear()
+        session.mosaic_cache.clear()
+        session._raw_bytes = 0
+        session._rgba_bytes = 0
+        session._mosaic_bytes = 0
+        session._estimated_mem = session._estimate_memory()
+        # Keep npz_keys so the user can switch again, but don't auto-prompt
+        return {"ok": True}
 
     @app.get("/fs/list")
     def fs_list(
