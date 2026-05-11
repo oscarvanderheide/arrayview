@@ -25107,6 +25107,20 @@ if (typeof gsap !== 'undefined') {
                 return;
             }
             if (!immersiveTl) _buildImmersiveTl();
+            // Inline embeds can start in settled immersive mode without ever
+            // building a reverse timeline. In that state, exiting needs to
+            // snap back to normal instead of trying to tween 0 -> 0.
+            if (targetP <= 0.0001 && _fullscreenActive
+                && (!immersiveTl || immersiveTl.progress() <= 0.0001)) {
+                if (immersiveTl) { immersiveTl.kill(); immersiveTl = null; }
+                _scrubRequestedZoom = null;
+                _exitImmersive();
+                _resetImmersiveTransforms();
+                _crossfadeCollapseP = 0;
+                _crossfadeP = 0;
+                try { ModeRegistry.scaleAll(); } catch (_) {}
+                return;
+            }
             if (!immersiveTl) {
                 _scrubRequestedZoom = null;
                 const entering = targetP >= 0.5;

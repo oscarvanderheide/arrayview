@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-05-05
+last_updated: 2026-05-11
 ---
 
 # Project State
@@ -39,6 +39,7 @@ last_updated: 2026-05-05
 
 ## Recently Completed
 
+- Jupyter inline auto-immersive startup now exits correctly on `Shift+F`: inline embeds used to start with `_fullscreenActive=true` but no reverse immersive timeline, so the first exit attempted a no-op `0 -> 0` tween and left `fullscreen-mode` stuck on. Exit now snaps cleanly back to normal in that startup-only state, and browser coverage now includes the inline `?inline=1` regression path.
 - Architecture followthrough: `_server.py` route extraction is complete. Feature domains now live in `_routes_analysis.py`, `_routes_loading.py`, `_routes_persistence.py`, `_routes_segmentation.py`, `_routes_state.py`, `_routes_query.py`, `_routes_export.py`, `_routes_preload.py`, `_routes_vectorfield.py`, `_routes_rendering.py`, and `_routes_websocket.py`. `_server.py` is now the intended assembly surface: FastAPI app setup, shared dependency injection, HTML/template helpers, and the small infrastructure routes for health/UI/assets/colormap metadata.
 - Focused API coverage now directly guards segmentation activate/scribble/click-accept/export paths, export/preload/vectorfield routes, slice/projection/diff/grid/gif rendering, large-array grid/gif guardrails, and websocket metadata plus shell-close cleanup.
 

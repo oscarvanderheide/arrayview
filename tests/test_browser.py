@@ -2015,11 +2015,33 @@ class TestKeyboard:
     def test_fullscreen_toggle(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)
         _focus_kb(page)
-        page.keyboard.press("Shift+K")
-        page.wait_for_timeout(200)
+        page.keyboard.press("Shift+F")
+        page.wait_for_function(
+            "() => document.body.classList.contains('fullscreen-mode')",
+            timeout=5000,
+        )
         assert "fullscreen-mode" in (page.locator("body").get_attribute("class") or "")
-        page.keyboard.press("Shift+K")
-        page.wait_for_timeout(200)
+        page.keyboard.press("Shift+F")
+        page.wait_for_function(
+            "() => !document.body.classList.contains('fullscreen-mode')",
+            timeout=5000,
+        )
+        assert "fullscreen-mode" not in (page.locator("body").get_attribute("class") or "")
+
+    def test_inline_embed_can_exit_auto_immersive(self, page, server_url, sid_3d):
+        page.goto(f"{server_url}/?sid={sid_3d}&inline=1")
+        page.wait_for_selector("#canvas-wrap", state="visible", timeout=15_000)
+        page.wait_for_timeout(400)
+
+        assert "fullscreen-mode" in (page.locator("body").get_attribute("class") or "")
+
+        _focus_kb(page)
+        page.keyboard.press("Shift+F")
+        page.wait_for_function(
+            "() => !document.body.classList.contains('fullscreen-mode')",
+            timeout=5000,
+        )
+
         assert "fullscreen-mode" not in (page.locator("body").get_attribute("class") or "")
 
 
