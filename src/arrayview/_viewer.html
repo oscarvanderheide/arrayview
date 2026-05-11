@@ -3691,8 +3691,9 @@
         let _hoverPins = []; // [{id, rawX, rawY, valueText, version}]
         let _hoverPinsRefreshToken = 0;
         let _hoverPinNextId = 1;
-        let _mainLoupeDrag = null; // {startClientX,startClientY,active}
-        let _qmriLoupeDrag = null; // {startClientX,startClientY,active,canvas,ctx}
+        let _loupeModifierActive = false;
+        let _mainLoupeDrag = null; // {active}
+        let _qmriLoupeDrag = null; // {active,canvas,view}
         let currentVmin = 0, currentVmax = 1;
         let manualVmin = null, manualVmax = null;
         // manualVmin / manualVmax: regular variables; all write sites dual-write to displayState
@@ -4660,6 +4661,8 @@
         // and dblclick expand/collapse. onWindowChange callback handles updateView.
 
         window.addEventListener('mousemove', (e) => {
+            _lastMouseX = e.clientX; _lastMouseY = e.clientY;
+            _syncLoupeModifierState(e);
             _maybeActivateMainLoupe(e);
             _updateMainLoupe(e);
             _maybeActivateQmriLoupe(e);
@@ -4710,6 +4713,9 @@
             _endMainLoupe();
             _endQmriLoupe();
         });
+        window.addEventListener('keydown', (e) => { _syncLoupeModifierState(e); }, true);
+        window.addEventListener('keyup', (e) => { _syncLoupeModifierState(e); }, true);
+        window.addEventListener('blur', () => { _syncLoupeModifierState(); });
 
         const sink = document.getElementById('keyboard-sink');
 
@@ -13201,22 +13207,63 @@
             mainLoupeCtx.drawImage(src, sx, sy, srcW, srcH, 0, 0, size, size);
             
         }
-        function _updateMainLoupe(e) {
-            if (!_mainLoupeDrag || !_mainLoupeDrag.active || !mainLoupe) return;
-            const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
-            if (!pt) return;
-            _drawMainLoupe(pt);
-            const L = 166;
-            const targetX = Math.max(8, Math.min(e.clientX + 18, window.innerWidth - L - 8));
-            const targetY = Math.max(8, Math.min(e.clientY - 92, window.innerHeight - L - 8));
-            gsap.set(mainLoupe, { x: targetX, y: targetY });
+        function _loupeModifierHeld(e = null) {
+            if (e) return !!(e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
+            return _loupeModifierActive;
         }
-        function _maybeActivateMainLoupe(e) {
-            if (!_mainLoupeDrag || _mainLoupeDrag.active || !_mainLoupeEligible()) return;
-            const dx = e.clientX - _mainLoupeDrag.startClientX;
-            const dy = e.clientY - _mainLoupeDrag.startClientY;
-            if (Math.hypot(dx, dy) < 3) return;
-            if (_mainLoupeDrag.holdTimer) { clearTimeout(_mainLoupeDrag.holdTimer); _mainLoupeDrag.holdTimer = null; }
+        function _loupeClientInsideCanvas(clientX, clientY, paneCanvas) {
+            if (!paneCanvas) return false;
+            const rect = paneCanvas.getBoundingClientRect();
+            if (!rect.width || !rect.height) return false;
+            return clientX >= rect.left && clientX <= rect.right
+                && clientY >= rect.top && clientY <= rect.bottom;
+        }
+        function _loupePaneViewForCanvas(paneCanvas) {
+            if (!paneCanvas) return null;
+            return mvViews.find(v => v.canvas === paneCanvas)
+                || compareMvViews.find(v => v.canvas === paneCanvas)
+                || qmriViews.find(v => v.canvas === paneCanvas)
+                || compareQmriViews.find(v => v.canvas === paneCanvas)
+                || null;
+        }
+        function _refreshLoupeFromLastMouse() {
+            if (!_loupeModifierHeld()) return;
+            const hoverEvent = {
+                clientX: _lastMouseX,
+                clientY: _lastMouseY,
+                buttons: 0,
+                ctrlKey: true,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+            };
+            if (_seedMainLoupeDrag(hoverEvent)) {
+                _updateMainLoupe(hoverEvent);
+                return;
+            }
+            const hoveredEl = document.elementFromPoint(_lastMouseX, _lastMouseY);
+            const hoveredCanvas = hoveredEl && hoveredEl.closest ? hoveredEl.closest('canvas') : null;
+            const paneView = _loupePaneViewForCanvas(hoveredCanvas);
+            if (paneView && _seedPaneLoupeDrag(hoverEvent, hoveredCanvas, paneView)) {
+                _updateQmriLoupe(hoverEvent);
+                return;
+            }
+            _endMainLoupe();
+            _endQmriLoupe();
+        }
+        function _syncLoupeModifierState(e = null) {
+            const next = _loupeModifierHeld(e);
+            if (_loupeModifierActive === next) return;
+            _loupeModifierActive = next;
+            if (!next) {
+                _endMainLoupe();
+                _endQmriLoupe();
+                return;
+            }
+            _refreshLoupeFromLastMouse();
+        }
+        function _activateMainLoupe(e) {
+            if (!_mainLoupeDrag || !_mainLoupeEligible()) return;
             _mainLoupeDrag.active = true;
             const piEl = document.getElementById('main-pixel-info');
             if (piEl) piEl.style.display = 'none';
@@ -13231,6 +13278,43 @@
                 }
             }
             _updateMainLoupe(e);
+        }
+        function _seedMainLoupeDrag(e) {
+            if (!_mainLoupeEligible() || !_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0) return false;
+            if (!_mainCanvasPointFromClient(e.clientX, e.clientY)) return false;
+            _syncLoupeModifierState(e);
+            if (_mainLoupeDrag && _mainLoupeDrag.active) return true;
+            _mainLoupeDrag = { active: true };
+            _activateMainLoupe(e);
+            return true;
+        }
+        function _seedPaneLoupeDrag(e, paneCanvas, view = null) {
+            if (!paneCanvas || !_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0) return false;
+            if (!_loupeClientInsideCanvas(e.clientX, e.clientY, paneCanvas)) return false;
+            _syncLoupeModifierState(e);
+            if (_qmriLoupeDrag && _qmriLoupeDrag.active && _qmriLoupeDrag.canvas === paneCanvas) return true;
+            _qmriLoupeDrag = {
+                active: true,
+                canvas: paneCanvas,
+                view,
+            };
+            _activateQmriLoupe(e);
+            return true;
+        }
+        function _updateMainLoupe(e) {
+            if (!_mainLoupeDrag || !_mainLoupeDrag.active || !mainLoupe) return;
+            if (!_mainLoupeEligible() || !_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0) { _endMainLoupe(); return; }
+            const pt = _mainCanvasPointFromClient(e.clientX, e.clientY);
+            if (!pt) { _endMainLoupe(); return; }
+            _drawMainLoupe(pt);
+            const L = 166;
+            const targetX = Math.max(8, Math.min(e.clientX + 18, window.innerWidth - L - 8));
+            const targetY = Math.max(8, Math.min(e.clientY - 92, window.innerHeight - L - 8));
+            gsap.set(mainLoupe, { x: targetX, y: targetY });
+        }
+        function _maybeActivateMainLoupe(e) {
+            if (_mainLoupeDrag && _mainLoupeDrag.active) return;
+            if (!_seedMainLoupeDrag(e)) _endMainLoupe();
         }
         function _endMainLoupe() {
             if (_mainLoupeDrag && _mainLoupeDrag.holdTimer) { clearTimeout(_mainLoupeDrag.holdTimer); _mainLoupeDrag.holdTimer = null; }
@@ -13298,6 +13382,7 @@
         }
         function _updateQmriLoupe(e) {
             if (!_qmriLoupeDrag || !_qmriLoupeDrag.active || !_qmriLoupeEl) return;
+            if (!_loupeModifierHeld(e) || (e.buttons ?? 0) !== 0 || !_loupeClientInsideCanvas(e.clientX, e.clientY, _qmriLoupeDrag.canvas)) { _endQmriLoupe(); return; }
             _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
             if (typeof gsap !== 'undefined') {
                 gsap.set(_qmriLoupeEl, { x: e.clientX + 18, y: e.clientY - 92 });
@@ -13317,13 +13402,7 @@
             _drawQmriLoupe(_qmriLoupeDrag.canvas, e.clientX, e.clientY);
         }
         function _maybeActivateQmriLoupe(e) {
-            if (!_qmriLoupeDrag || _qmriLoupeDrag.active) return;
-            const dx = e.clientX - _qmriLoupeDrag.startClientX;
-            const dy = e.clientY - _qmriLoupeDrag.startClientY;
-            if (Math.hypot(dx, dy) < 3) return;
-            if (_qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
-            _qmriLoupeDrag.active = true;
-            _activateQmriLoupe(e);
+            if (_qmriLoupeDrag && _qmriLoupeDrag.active) return;
         }
         function _endQmriLoupe() {
             if (_qmriLoupeDrag && _qmriLoupeDrag.holdTimer) { clearTimeout(_qmriLoupeDrag.holdTimer); _qmriLoupeDrag.holdTimer = null; }
@@ -14791,34 +14870,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                 y: (e.clientY - rect.top) * canvas.height / rect.height,
             };
             if (_roiShape === 'freehand') _roiFreehandPts = [[roiStart.x, roiStart.y]];
-            if (e.button === 0 && _mainLoupeEligible()) {
-                _mainLoupeDrag = {
-                    startClientX: e.clientX,
-                    startClientY: e.clientY,
-                    active: false,
-                    holdTimer: setTimeout(() => {
-                        if (_mainLoupeDrag && !_mainLoupeDrag.active) {
-                            const fakeE = { clientX: e.clientX, clientY: e.clientY };
-                            _mainLoupeDrag.active = true;
-                            const piEl = document.getElementById('main-pixel-info');
-                            if (piEl) piEl.style.display = 'none';
-                            if (mainLoupe) {
-                                mainLoupe.style.display = 'block';
-if (typeof gsap !== 'undefined') {
-                                        gsap.killTweensOf(mainLoupe);
-                                        gsap.fromTo(mainLoupe,
-                                            { opacity: 0 },
-                                            { opacity: 1, duration: 0.12, overwrite: 'auto' }
-                                        );
-                                    }
-                            }
-                            _updateMainLoupe(fakeE);
-                        }
-                    }, 150),
-                };
-            } else {
-                _mainLoupeDrag = null;
-            }
         });
         const _roiColors = [
             {fill:'rgba(255,255,100,0.10)', stroke:'rgba(255,255,100,0.85)'},
@@ -20557,6 +20608,7 @@ if (typeof gsap !== 'undefined') {
                 });
                 cv.addEventListener('mousemove', (e) => {
                     if (!view.lastW || !view.lastH) return;
+                    _seedPaneLoupeDrag(e, cv, view);
                     const rect = cv.getBoundingClientRect();
                     const px = (e.clientX - rect.left) * view.lastW / rect.width;
                     const py = (e.clientY - rect.top) * view.lastH / rect.height;
@@ -20615,6 +20667,7 @@ if (typeof gsap !== 'undefined') {
                     });
                 });
                 cv.addEventListener('mouseleave', () => {
+                    if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                     if (!mvDraggingView && view.pixelInfoEl) view.pixelInfoEl.style.display = 'none';
                     if (_pixelInfoVisible) _resetDimbarHover();
                 });
@@ -21450,6 +21503,7 @@ if (typeof gsap !== 'undefined') {
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
+                        _seedPaneLoupeDrag(e, cv, view);
                         // Use the hovered view's indices for fetchPixelInfo (throttle + coord calc),
                         // then fetch all other qmri views at the same pixel in onResult.
                         const qIdx0 = [...indices];
@@ -21494,6 +21548,7 @@ if (typeof gsap !== 'undefined') {
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
+                        if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         qmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         if (_pixelInfoVisible) _resetDimbarHover();
                     });
@@ -21564,21 +21619,6 @@ if (typeof gsap !== 'undefined') {
                         };
                         window.addEventListener('mousemove', onMove);
                         window.addEventListener('mouseup', onUp);
-                    });
-                    cv.addEventListener('mousedown', (e2) => {
-                        if (e2.button !== 0 || e2.shiftKey || e2.metaKey || e2.ctrlKey || e2.altKey) return;
-                        if (rectRoiMode || _segMode || _segActivating || _cropActive) return;
-                        if (!_qmriLoupeEl) _ensureQmriLoupeEl();
-                        if (_qmriLoupeDrag) _endQmriLoupe();
-                        _qmriLoupeDrag = {
-                            startClientX: e2.clientX, startClientY: e2.clientY, active: false,
-                            canvas: cv, view,
-                            holdTimer: setTimeout(() => {
-                                if (!_qmriLoupeDrag || _qmriLoupeDrag.active) return;
-                                _qmriLoupeDrag.active = true;
-                                _activateQmriLoupe(e2);
-                            }, 150),
-                        };
                     });
                     if (!httpTransport) {
                         view.ws = createTransport(sid,
@@ -21906,6 +21946,7 @@ if (typeof gsap !== 'undefined') {
                     }, { passive: false });
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
+                        _seedPaneLoupeDrag(e, cv, view);
                         const qIndices = [...indices];
                         qIndices[compareQmriDim] = view.qmriIdx;
                         fetchPixelInfo({
@@ -21926,6 +21967,7 @@ if (typeof gsap !== 'undefined') {
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
+                        if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         compareQmriViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         if (_pixelInfoVisible) _resetDimbarHover();
                     });
@@ -22089,6 +22131,7 @@ if (typeof gsap !== 'undefined') {
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _refreshLoupeFromLastMouse();
         }
 
         function compareQmriScaleAllCanvases() {
@@ -22354,6 +22397,7 @@ if (typeof gsap !== 'undefined') {
                     });
                     cv.addEventListener('mousemove', (e) => {
                         if (!view.lastW || !view.lastH) return;
+                        _seedPaneLoupeDrag(e, cv, view);
                         // Active crop drag on this pane.
                         if (_cropDrag && _cropDrag.pane === view) {
                             const rect = cv.getBoundingClientRect();
@@ -22405,6 +22449,7 @@ if (typeof gsap !== 'undefined') {
                         });
                     });
                     cv.addEventListener('mouseleave', () => {
+                        if (_qmriLoupeDrag && _qmriLoupeDrag.canvas === cv) _endQmriLoupe();
                         if (!cmvDraggingView) {
                             compareMvViews.forEach(v => { if (v.pixelInfoEl) v.pixelInfoEl.style.display = 'none'; });
                         }
@@ -22648,6 +22693,7 @@ if (typeof gsap !== 'undefined') {
             }
             drawMvOrientation();
             if (typeof _cropRenderMvOverlay === 'function') _cropRenderMvOverlay(v);
+            _refreshLoupeFromLastMouse();
         }
 
         function compareMvScaleAllCanvases() {
@@ -22852,6 +22898,7 @@ if (typeof gsap !== 'undefined') {
                 v.canvas.height = v.lastH;
             }
             v.ctx.putImageData(applyFlips(v.lastImageData, v.lastW, v.lastH), 0, 0);
+            _refreshLoupeFromLastMouse();
         }
 
         // Rebuild DOM layout for qMRI mosaic mode (1 row per parameter)
@@ -23671,6 +23718,7 @@ if (typeof gsap !== 'undefined') {
         }
 
         function mvOnMessage(v, event) {
+            _refreshLoupeFromLastMouse();
             // Skip text messages (e.g. metadata JSON push on new WS connections)
             if (typeof event.data === 'string') return;
             const buf = event.data;
@@ -24258,15 +24306,13 @@ if (typeof gsap !== 'undefined') {
                 }, 200);
                 return;
             }
-            // Ctrl / Cmd + scroll → zoom (clamped exponential, applied instantly).
-            // On macOS trackpads, a two-finger pinch gesture arrives as
-            // ctrl+wheel events, so this path also needs to anchor on the
-            // cursor — otherwise zooming pulls the image toward the viewport
-            // origin instead of the point under the fingers.
+            // Ctrl+scroll keeps the normal slice-scroll behavior so loupe
+            // inspection doesn't block wheel navigation.
+            // Cmd + scroll → zoom (clamped exponential, applied instantly).
             // Pure zoom only — immersive mode is opt-in via Shift+F (immersive.toggle),
             // not auto-entered on zoom threshold crossings. Auto-entry was buggy during
             // animation and surprised users.
-            if (e.ctrlKey || e.metaKey) {
+            if (e.metaKey && !e.ctrlKey) {
                 const anchor = _captureZoomAnchor(e.clientX, e.clientY);
                 const clamped = Math.max(-10, Math.min(10, e.deltaY));
                 const factor = Math.pow(2, -clamped * _zoomSensitivity);
@@ -24546,6 +24592,7 @@ if (typeof gsap !== 'undefined') {
                 _fadeCanvas.style.width = canvas.style.width || '';
                 _fadeCanvas.style.height = canvas.style.height || '';
             }
+            _refreshLoupeFromLastMouse();
         }
 
         // ── 2. Zen / focus mode ───────────────────────────────────────

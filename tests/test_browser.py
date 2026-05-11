@@ -2172,28 +2172,164 @@ class TestMinimapCursor:
 
 
 class TestNormalInspectInteractions:
-    def test_normal_drag_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
+    def test_ctrl_hover_shows_and_hides_loupe(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         canvas = page.locator("#viewer")
         cx, cy = _center_of(canvas)
 
         page.mouse.move(cx, cy)
-        page.mouse.down()
-        page.mouse.move(cx + 48, cy + 18, steps=8)
+        page.wait_for_timeout(120)
+
+        hidden_without_ctrl = page.evaluate(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display === 'none'"
+        )
+        assert hidden_without_ctrl, "loupe should stay hidden during a plain hover"
+
+        page.keyboard.down("Control")
         page.wait_for_timeout(120)
 
         visible = page.evaluate(
             "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
         )
-        assert visible, "loupe should appear during a normal-mode drag"
+        assert visible, "loupe should appear during a Control-hover"
 
-        page.mouse.up()
+        page.keyboard.up("Control")
         page.wait_for_timeout(220)
 
         hidden = page.evaluate(
             "() => getComputedStyle(document.getElementById('main-loupe')).display === 'none'"
         )
-        assert hidden, "loupe should collapse after the drag ends"
+        assert hidden, "loupe should collapse after Control is released"
+
+    def test_ctrl_hover_shows_loupe_in_multiview(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        canvas = page.locator(".mv-canvas").first
+        cx, cy = _center_of(canvas)
+
+        page.mouse.move(cx, cy)
+        page.wait_for_timeout(120)
+        page.keyboard.down("Control")
+        page.wait_for_timeout(120)
+
+        visible = page.evaluate(
+            "() => getComputedStyle(document.getElementById('qmri-loupe')).display !== 'none'"
+        )
+        assert visible, "loupe should appear during a Control-hover in multiview"
+
+        page.keyboard.up("Control")
+        page.wait_for_timeout(220)
+
+        hidden = page.evaluate(
+            "() => getComputedStyle(document.getElementById('qmri-loupe')).display === 'none'"
+        )
+        assert hidden, "multiview loupe should collapse after Control is released"
+
+    def test_ctrl_wheel_still_scrolls_main_view(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        canvas = page.locator("#viewer")
+        cx, cy = _center_of(canvas)
+
+        before = page.evaluate(
+            """() => {
+                const sliceDim = current_slice_dim;
+                indices[sliceDim] = 0;
+                renderInfo();
+                updateView();
+                return { sliceDim, index: indices[sliceDim], zoom: userZoom };
+            }"""
+        )
+
+        page.mouse.move(cx, cy)
+        page.keyboard.down("Control")
+        page.wait_for_timeout(120)
+
+        visible_before = page.evaluate(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
+        )
+        loupe_before = page.evaluate(
+            "() => document.getElementById('main-loupe-canvas').toDataURL()"
+        )
+        assert visible_before, "loupe should stay visible while Control is held over the main view"
+
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(220)
+
+        after = page.evaluate(
+            "() => ({ index: indices[current_slice_dim], zoom: userZoom, sliceDim: current_slice_dim })"
+        )
+        visible_after = page.evaluate(
+            "() => getComputedStyle(document.getElementById('main-loupe')).display !== 'none'"
+        )
+        loupe_after = page.evaluate(
+            "() => document.getElementById('main-loupe-canvas').toDataURL()"
+        )
+
+        page.keyboard.up("Control")
+
+        assert after["sliceDim"] == before["sliceDim"], (
+            f"Control-wheel should keep using the same slice dim, got before={before}, after={after}"
+        )
+        assert after["index"] == before["index"] + 1, (
+            f"Control-wheel should still scroll the main view, got before={before}, after={after}"
+        )
+        assert after["zoom"] == before["zoom"], (
+            f"Control-wheel should not change main-view zoom, got before={before}, after={after}"
+        )
+        assert visible_after, "loupe should remain visible while scrolling with Control held"
+        assert loupe_after != loupe_before, "main-view loupe should redraw after wheel-driven slice changes"
+
+    def test_ctrl_wheel_still_scrolls_multiview(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        _focus_kb(page)
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+
+        canvas = page.locator(".mv-canvas").first
+        cx, cy = _center_of(canvas)
+        before = page.evaluate(
+            """() => {
+                const view = mvViews[0];
+                indices[view.sliceDir] = 0;
+                renderInfo();
+                mvViews.forEach(v => { mvDrawFrame(v); mvRender(v); });
+                return { sliceDir: view.sliceDir, indices: [...indices] };
+            }"""
+        )
+
+        page.mouse.move(cx, cy)
+        page.keyboard.down("Control")
+        page.wait_for_timeout(120)
+
+        visible_before = page.evaluate(
+            "() => getComputedStyle(document.getElementById('qmri-loupe')).display !== 'none'"
+        )
+        loupe_before = page.evaluate(
+            "() => document.querySelector('#qmri-loupe canvas').toDataURL()"
+        )
+        assert visible_before, "loupe should stay visible while Control is held over a multiview pane"
+
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(220)
+
+        after = page.evaluate("() => [...indices]")
+        visible_after = page.evaluate(
+            "() => getComputedStyle(document.getElementById('qmri-loupe')).display !== 'none'"
+        )
+        loupe_after = page.evaluate(
+            "() => document.querySelector('#qmri-loupe canvas').toDataURL()"
+        )
+
+        page.keyboard.up("Control")
+
+        assert after[before["sliceDir"]] == before["indices"][before["sliceDir"]] + 1, (
+            f"Control-wheel should still scroll multiview slices, got before={before}, after={after}"
+        )
+        assert visible_after, "multiview loupe should remain visible while scrolling with Control held"
+        assert loupe_after != loupe_before, "multiview loupe should redraw after wheel-driven slice changes"
 
     def test_hover_info_click_pins_multiple_and_compare_does_not(self, loaded_viewer, sid_2d, client, arr_2d, tmp_path):
         partner_path = tmp_path / "arr2d_pin_partner.npy"
