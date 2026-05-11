@@ -568,10 +568,8 @@ K_PROJ_MEAN = [("p", 800)] * 3
 K_PROJ_STD = [("p", 800)] * 4
 K_PROJ_SOS = [("p", 800)] * 5
 
-# Theme: T cycles dark→light→solarized→nord
+# Theme: T cycles dark→light
 K_THEME_LIGHT = [("Shift+T", 400)]
-K_THEME_SOLARIZED = [("Shift+T", 400)] * 2
-K_THEME_NORD = [("Shift+T", 400)] * 3
 
 # Complex: m cycles mag→phase→real→imag (for complex arrays)
 K_COMPLEX_PHASE = [("m", 400)]
@@ -801,12 +799,6 @@ TIER2 = [
     Scenario("t2_theme_light", 2, ["theme", "display"],
              description="Single 3D, light theme",
              keys=list(K_THEME_LIGHT)),
-    Scenario("t2_theme_solarized", 2, ["theme", "display"],
-             description="Single 3D, solarized theme",
-             keys=list(K_THEME_SOLARIZED)),
-    Scenario("t2_theme_nord", 2, ["theme", "display"],
-             description="Single 3D, nord theme",
-             keys=list(K_THEME_NORD)),
 
     # --- qMRI mosaic ---
     Scenario("t2_qmri_mosaic", 2, ["qmri", "mosaic"],

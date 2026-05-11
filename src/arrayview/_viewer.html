@@ -32,31 +32,7 @@
             --button-shadow-hover: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.08);
             --pane-shadow: 0 16px 32px rgba(0,0,0,0.14), 0 3px 10px rgba(0,0,0,0.08);
         }
-        :root.solarized {
-            --bg: #fdf6e3; --surface: #eee8d5; --surface-2: #e4ddc8;
-            --border: #c5b882; --border-subtle: rgba(0,0,0,0.07);
-            --text: #657b83; --muted: #7f8f8f; --subtle: #b7b08f;
-            --highlight: #073642; --canvas-border: rgba(0,0,0,0.08);
-            --active-dim: #a3be8c; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #5e81ac;
-            --help-key: #268bd2; --overlay-bg: rgba(253,246,227,0.88); --blur: blur(14px);
-            --roi-bg: rgba(253,246,227,0.97); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #8a8a7a; --surface-shadow: 0 14px 36px rgba(88,110,117,0.14), 0 3px 10px rgba(88,110,117,0.07);
-            --surface-shadow-strong: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
-            --layout-shadow: 0 24px 54px rgba(88,110,117,0.18), 0 6px 18px rgba(88,110,117,0.1);
-            --button-shadow: 0 1px 2px rgba(88,110,117,0.1), 0 4px 10px rgba(88,110,117,0.05);
-            --button-shadow-hover: 0 2px 4px rgba(88,110,117,0.12), 0 8px 16px rgba(88,110,117,0.08);
-            --pane-shadow: 0 16px 32px rgba(88,110,117,0.16), 0 3px 10px rgba(88,110,117,0.08);
-        }
-        :root.nord {
-            --bg: #1e2130; --surface: #242938; --surface-2: #2e3446;
-            --border: #3b4252; --border-subtle: rgba(216,222,233,0.07);
-            --text: #d8dee9; --muted: #616e88; --subtle: #3b4252;
-            --highlight: #eceff4; --canvas-border: rgba(216,222,233,0.08);
-            --active-dim: #ebcb8b; --playing-dim: #d08770; --spatial-dim: #b48ead; --q-dim-color: #b48ead; --vfield-t-dim: #88c0d0;
-            --help-key: #88c0d0; --overlay-bg: rgba(16,20,34,0.85); --blur: blur(14px);
-            --roi-bg: rgba(16,20,34,0.97); --radius: 10px; --radius-lg: 14px;
-            --dim-hover: #7a8594;
-        }
+
         html, body {
             background: var(--bg); margin: 0; padding: 0;
             width: 100%; height: 100%; overflow: hidden;
@@ -123,14 +99,7 @@
             background-color: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
         }
-        :root.solarized #info {
-            background-color: rgba(238, 232, 213, 0.85);
-            border-color: rgba(0, 0, 0, 0.08);
-        }
-        :root.nord #info {
-            background-color: rgba(36, 41, 56, 0.85);
-            border-color: rgba(216, 222, 233, 0.07);
-        }
+
 
         #viewer-row {
             position: relative;
@@ -213,14 +182,7 @@
             background: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
         }
-        :root.solarized #slim-cb-wrap {
-            background: rgba(238, 232, 213, 0.85);
-            border-color: rgba(0, 0, 0, 0.08);
-        }
-        :root.nord #slim-cb-wrap {
-            background: rgba(36, 41, 56, 0.85);
-            border-color: rgba(216, 222, 233, 0.07);
-        }
+
         #slim-cb-wrap.cb-faded { opacity: 0.12; }
         /* Shared dynamic island glassmorphism for all colorbar containers */
         .cb-island {
@@ -243,14 +205,7 @@
             background: rgba(240, 240, 240, 0.85);
             border-color: rgba(0, 0, 0, 0.08);
         }
-        :root.solarized .cb-island {
-            background: rgba(238, 232, 213, 0.85);
-            border-color: rgba(0, 0, 0, 0.08);
-        }
-        :root.nord .cb-island {
-            background: rgba(36, 41, 56, 0.85);
-            border-color: rgba(216, 222, 233, 0.07);
-        }
+
         /* ── Hard UI invariants (structural enforcement) ──────── */
         /* ── CSS: ColorBar and Dynamic Islands ───────────────────── */
         .cb-island,
@@ -304,19 +259,17 @@
             opacity: 0;
         }
         :root.light .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
-        :root.solarized .slim-cb-tri { border-bottom-color: rgba(180,100,0,0.9); }
+
         #slim-cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         .cb-tri-zone.expanded .slim-cb-tri { opacity: 1; }
         #slim-cb-labels { display: none; /* vmin/vmax now shown as inline spans in the island */ }
         .slim-cb-val { font-size: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 5ch; text-align: center; line-height: 1; cursor: default; display: inline-block; }
         .slim-cb-val .exp { font-size: 0.7em; opacity: 0.5; vertical-align: baseline; letter-spacing: -0.3px; }
         :root.light .slim-cb-val { color: #1a1a1a; }
-        :root.solarized .slim-cb-val { color: #586e75; }
-        :root.nord .slim-cb-val { color: #d8dee9; }
+
         .slim-cb-val-input { font-size: 12px; font-family: system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; width: 52px; text-align: center; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 1px 2px; outline: none; line-height: 1; }
         :root.light .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #1a1a1a; border-color: rgba(0,0,0,0.2); }
-        :root.solarized .slim-cb-val-input { background: rgba(0,0,0,0.08); color: #586e75; border-color: rgba(0,0,0,0.15); }
-        :root.nord .slim-cb-val-input { background: rgba(216,222,233,0.1); color: #d8dee9; border-color: rgba(216,222,233,0.2); }
+
         .cb-val-popup-wrap { position: fixed; z-index: 10; filter: drop-shadow(0 0 0.5px rgba(255,255,255,0.5)) drop-shadow(0 0 1px rgba(255,255,255,0.3)) drop-shadow(0 4px 12px rgba(0,0,0,0.4)); pointer-events: auto; }
         .cb-val-popup { padding: 6px 8px; background: rgba(30,30,30,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: flex; align-items: center; gap: 6px; }
         .cb-val-popup .cb-val-label { font-size: 8px; color: rgba(255,255,255,0.45); font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
@@ -324,10 +277,7 @@
         :root.light .cb-val-popup-wrap { filter: drop-shadow(0 0 0.5px rgba(0,0,0,0.3)) drop-shadow(0 0 1px rgba(0,0,0,0.15)) drop-shadow(0 4px 12px rgba(0,0,0,0.2)); }
         :root.light .cb-val-popup { background: rgba(245,245,245,0.92); }
         :root.light .cb-val-popup .cb-val-label { color: rgba(0,0,0,0.4); }
-        :root.solarized .cb-val-popup { background: rgba(238,232,213,0.92); }
-        :root.solarized .cb-val-popup .cb-val-label { color: rgba(88,110,117,0.5); }
-        :root.nord .cb-val-popup { background: rgba(36,41,56,0.92); }
-        :root.nord .cb-val-popup .cb-val-label { color: rgba(216,222,233,0.4); }
+
         #slim-cb-tooltip { position: absolute; top: 0; left: 0; font-size: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace; color: var(--active-dim); background: none; border: none; padding: 2px 7px; border-radius: 5px; pointer-events: none; white-space: nowrap; display: none; z-index: 3; text-shadow: -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg), 1px 1px 0 var(--bg), 0 -1px 0 var(--bg), 0 1px 0 var(--bg), -1px 0 0 var(--bg), 1px 0 0 var(--bg); }
         #slim-cb-tooltip.percentile { font-size: 10px; color: var(--muted); letter-spacing: 0.01em; }
         #mv-cb { border: none; }
@@ -1050,8 +1000,7 @@
             box-sizing: border-box;
         }
         :root.light .save-flip-back { background: rgb(240, 240, 240); }
-        :root.solarized .save-flip-back { background: rgb(238, 232, 213); }
-        :root.nord .save-flip-back { background: rgb(36, 41, 56); }
+
         .save-flip-label {
             font-size: 11px; color: var(--active-dim);
             font-weight: 600; flex-shrink: 0; white-space: nowrap;
@@ -1927,8 +1876,7 @@
             overflow: hidden;
         }
         :root.light .oblique-flip-back { background: rgb(240, 240, 240); border-color: rgba(0,0,0,0.1); }
-        :root.solarized .oblique-flip-back { background: rgb(238, 232, 213); border-color: rgba(0,0,0,0.1); }
-        :root.nord .oblique-flip-back { background: rgb(36, 41, 56); border-color: rgba(216,222,233,0.08); }
+
         .ob-label {
             font-size: 10px; color: var(--active-dim);
             letter-spacing: normal; text-transform: none;
@@ -2012,8 +1960,7 @@
         #mv-cb { display: block; height: 11px; border-radius: 3px; transition: height 0.15s ease; }
         #mv-cb-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; --cb-extra-top: 0px; padding: calc(5px + var(--cb-extra-top)) 14px 5px; margin-top: calc(-1 * var(--cb-extra-top)); position: relative; transition: opacity 0.3s ease, padding 0.25s ease, margin 0.25s ease; border-radius: 14px; background: rgba(30, 30, 30, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: var(--surface-shadow); align-self: center; box-sizing: border-box; }
         :root.light #mv-cb-wrap { background: rgba(240, 240, 240, 0.85); border-color: rgba(0, 0, 0, 0.08); }
-        :root.solarized #mv-cb-wrap { background: rgba(238, 232, 213, 0.85); border-color: rgba(0, 0, 0, 0.08); }
-        :root.nord #mv-cb-wrap { background: rgba(36, 41, 56, 0.85); border-color: rgba(216, 222, 233, 0.07); }
+
         #mv-cb-labels { display: flex; justify-content: center; gap: 0; font-size: 15px; color: var(--muted); font-family: monospace; padding-top: 3px; margin: 0 auto; }
         .mv-pane { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; background: var(--mv-pane-fill, var(--bg)); overflow: hidden; transition: background-color 0.2s ease, box-shadow 0.16s ease; }
         .mv-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; }
@@ -2294,8 +2241,7 @@
         .qv-cb-labels { display: none; }
         .qv-cb-val { font-size: 11px; color: #fff; font-family: monospace; white-space: nowrap; flex-shrink: 0; min-width: 28px; }
         :root.light .compare-pane-cb-val, :root.light .qv-cb-val { color: #1a1a1a; }
-        :root.solarized .compare-pane-cb-val, :root.solarized .qv-cb-val { color: #586e75; }
-        :root.nord .compare-pane-cb-val, :root.nord .qv-cb-val { color: #d8dee9; }
+
         .qv-row.cq-inner-row .qv-cb-island { display: none !important; }
         .qv-row.cq-inner-row .qv-cb,
         .qv-row.cq-inner-row .qv-cb-labels { display: none !important; }
@@ -2568,15 +2514,13 @@
         body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
             opacity: 0.64;
         }
-        :root.light body:not(.fullscreen-mode) #info .spatial-dim.dim-label,
-        :root.solarized body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
+        :root.light body:not(.fullscreen-mode) #info .spatial-dim.dim-label {
             opacity: 0.92;
         }
         body:not(.fullscreen-mode) #info .dim-size {
             opacity: 0.42;
         }
-        :root.light body:not(.fullscreen-mode) #info .dim-size,
-        :root.solarized body:not(.fullscreen-mode) #info .dim-size {
+        :root.light body:not(.fullscreen-mode) #info .dim-size {
             opacity: 0.6;
         }
         body:not(.fullscreen-mode) #info .active-dim .dim-size,
@@ -2586,18 +2530,14 @@
         }
         :root.light body:not(.fullscreen-mode) #info .active-dim .dim-size,
         :root.light body:not(.fullscreen-mode) #info .playing-dim .dim-size,
-        :root.light body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size,
-        :root.solarized body:not(.fullscreen-mode) #info .active-dim .dim-size,
-        :root.solarized body:not(.fullscreen-mode) #info .playing-dim .dim-size,
-        :root.solarized body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
+        :root.light body:not(.fullscreen-mode) #info .vfield-t-dim .dim-size {
             opacity: 0.9;
         }
         body:not(.fullscreen-mode) #info .dim-sep {
             color: var(--text);
             opacity: 0.24;
         }
-        :root.light body:not(.fullscreen-mode) #info .dim-sep,
-        :root.solarized body:not(.fullscreen-mode) #info .dim-sep {
+        :root.light body:not(.fullscreen-mode) #info .dim-sep {
             opacity: 0.38;
         }
 
@@ -2761,8 +2701,7 @@
         }
         .layout-picker.is-visible { opacity: 1; pointer-events: auto; }
         :root.light .layout-picker { background: rgba(245, 245, 245, 0.88); border-color: rgba(0,0,0,0.08); }
-        :root.solarized .layout-picker { background: rgba(238, 232, 213, 0.88); border-color: rgba(0,0,0,0.08); }
-        :root.nord .layout-picker { background: rgba(36, 41, 56, 0.88); border-color: rgba(216,222,233,0.08); }
+
         .layout-picker__title {
             font-size: 11px; letter-spacing: 0.06em; text-transform: lowercase;
             color: var(--muted); padding: 0 4px;
@@ -3589,12 +3528,12 @@
         let lastDirection = 1;
         let isDark = true;
         let themeIdx = 0; // set immediately by applyTheme() below
-        const THEMES = ['dark', 'light', 'solarized', 'nord'];
+        const THEMES = ['dark', 'light'];
         function applyTheme(idx) {
             themeIdx = idx;
             const t = THEMES[idx];
-            isDark = t !== 'light' && t !== 'solarized';
-            document.documentElement.classList.remove('light', 'solarized', 'nord');
+            isDark = t !== 'light';
+            document.documentElement.classList.remove('light');
             if (t !== 'dark') document.documentElement.classList.add(t);
         }
         applyTheme(__DEFAULT_THEME_IDX__);
@@ -6522,11 +6461,11 @@
                     _cbAnchorBottom = _r.bottom;
                 }
             } else if (compareActive && _resolvedCompareLayoutMode() === 'vertical') {
-                const _visPanes = document.querySelectorAll('.compare-pane.active');
-                if (_visPanes.length) {
+                const _visClips = document.querySelectorAll('.compare-pane.active .compare-canvas-clip');
+                if (_visClips.length) {
                     let _maxBot = 0;
-                    _visPanes.forEach(p => {
-                        const r = p.getBoundingClientRect();
+                    _visClips.forEach(clip => {
+                        const r = clip.getBoundingClientRect();
                         if (r.bottom > _maxBot) _maxBot = r.bottom;
                     });
                     if (_maxBot > 0) _cbAnchorBottom = _maxBot;
@@ -6549,7 +6488,7 @@
                     const _gapBottom = _bottomRect.top;
                     const _gapH = _gapBottom - _gapTop;
                     if (_gapH > 0) {
-                        cbTop = _gapTop + Math.max(0, (_gapH - _targetH) / 2);
+                        cbTop = Math.min(_gapTop + 10, _gapBottom - _targetH);
                     }
                 } else if (_sharedDiffIsland && getComputedStyle(_sharedDiffIsland).display !== 'none') {
                     cbTop = _sharedDiffIsland.getBoundingClientRect().top;
@@ -7123,8 +7062,7 @@
                 };
 
                 const hasKDE = this._kdeSmooth && aT > 0;
-                const isDark = !document.documentElement.classList.contains('light')
-                            && !document.documentElement.classList.contains('solarized');
+                const isDark = !document.documentElement.classList.contains('light');
 
                 // For each row (py from top to bottom)
                 for (let py = 0; py < cssH; py++) {
@@ -17621,7 +17559,7 @@
                             { key: 'd', action: 'Open histogram / cycle percentile', hint: '1st tap opens the histogram · each subsequent tap cycles the percentile preset (full · 0.1–99.9% · 1–99% · 5–95% · 10–90%)' },
                             { key: 'Shift+D', action: 'Histogram dim picker (3-state)', hint: 'Click a dim to cycle scope → recompute → frozen. A legend stays visible while the picker is open: scope = does not change vmin/vmax · recompute = rebuild vmin/vmax on nav · frozen = keep vmin/vmax. Hover still shows per-dim detail. Shift+D or Esc closes.' },
                             { key: 'L', action: 'Toggle log scale', hint: 'when values span several orders of magnitude' },
-                            { key: 'T', action: 'Cycle theme', hint: 'dark, light, solarized, nord' },
+                            { key: 'T', action: 'Cycle theme', hint: 'dark, light' },
                             { key: 'b', action: 'Toggle canvas borders' },
                             { key: 'Shift+B', action: 'Toggle rounded panes' },
                         ]
@@ -23308,8 +23246,7 @@
             ctx.strokeStyle = getComputedStyle(cv).getPropertyValue('border-color') ||
                               'rgba(120,120,120,0.5)';
             // Use a slightly brighter border
-            const isDark = !document.documentElement.classList.contains('light') &&
-                           !document.documentElement.classList.contains('solarized');
+            const isDark = !document.documentElement.classList.contains('light');
             ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
             ctx.lineWidth = 0.75;
             const edges = [

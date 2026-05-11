@@ -50,7 +50,7 @@ last_updated: 2026-04-29
 - **No concurrent.futures for the render thread** — uses `threading.Thread` + `SimpleQueue` directly to avoid CPython's `_global_shutdown` executor cleanup racing with daemon threads during interpreter exit.
 - **No ORM / database** — sessions are in-memory Python dicts; no SQLAlchemy, no SQLite.
 - **No Redux or client-side state management library** — viewer state is plain JS variables in `_viewer.html`.
-- **No CSS framework** — all styles are custom properties in `:root`; the shipped themes are dark, light, solarized, and nord.
+- **No CSS framework** — all styles are custom properties in `:root`; the shipped themes are dark and light.
 
 ## Version Constraints
 

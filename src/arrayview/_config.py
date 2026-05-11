@@ -40,7 +40,7 @@ def get_viewer_colormaps() -> list[str] | None:
     return None
 
 
-_VALID_THEMES = {"dark", "light", "solarized", "nord"}
+_VALID_THEMES = {"dark", "light"}
 
 
 def get_viewer_theme() -> str | None:

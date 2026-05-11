@@ -20,7 +20,7 @@ Drag the colorbar to shift the window. Scroll on the colorbar to narrow or widen
 
 ## Themes
 
-`T` cycles: dark (default), light, solarized, nord.
+`T` cycles: dark (default), light.
 
 ## Masking
 

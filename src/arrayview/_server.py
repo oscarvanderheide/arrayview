@@ -180,7 +180,7 @@ def get_ui(sid: str = None):
     _init_luts()
     _cfg_colormaps = get_viewer_colormaps()
     _active_colormaps = _cfg_colormaps if _cfg_colormaps is not None else COLORMAPS
-    _theme_names = ["dark", "light", "solarized", "nord"]
+    _theme_names = ["dark", "light"]
     _cfg_theme = get_viewer_theme()
     _default_theme_idx = _theme_names.index(_cfg_theme) if _cfg_theme in _theme_names else 0
     _cfg_rounded = get_viewer_rounded_panes()

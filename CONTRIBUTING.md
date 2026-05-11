@@ -25,8 +25,8 @@ Bug fixes and internal refactors can go straight to a PR.
    Never use sans-serif.
 
 3. **Colors via CSS custom properties.** Use `var(--surface)`, `var(--text)`,
-   `var(--active-dim)`, etc. Never hardcode hex values. The viewer ships four
-   themes (dark, light, solarized, nord) and all must work.
+    `var(--active-dim)`, etc. Never hardcode hex values. The viewer ships two
+    themes (dark, light) and both must work.
 
 4. **Yellow for active state.** `--active-dim` (#f5c842 in dark theme) marks
    the currently active element. Don't introduce new accent colors.

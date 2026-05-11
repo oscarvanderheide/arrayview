@@ -528,10 +528,6 @@ def run_smoke(page, base, client, tmp):
     _focus(page)
     _press(page, "Shift+T")
     _shot(page, "26a_theme_light")
-    _press(page, "Shift+T")
-    _shot(page, "26b_theme_solarized")
-    _press(page, "Shift+T")
-    _shot(page, "26c_theme_nord")
     _press(page, "Shift+T")  # back to dark
 
     # ── 27: data info overlay (i) ────────────────────────────────────────────
