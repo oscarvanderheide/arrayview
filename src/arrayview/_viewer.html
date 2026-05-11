@@ -3391,8 +3391,6 @@
         const isInlineEmbed = urlParams.get('inline') === '1';
         if (isInlineEmbed) {
             document.body.classList.add('inline-embed');
-            // Start inline embeds in immersive mode for maximum vertical space
-            document.body.classList.add('fullscreen-mode');
         }
         const sid = urlParams.get('sid');
         window.currentSid = sid;  // expose for page.evaluate() access in tests and embeds
@@ -4931,7 +4929,9 @@
                 ? 0
                 : Math.round(NORMAL_BOTTOM_RESERVE * Math.max(0, 1 - _crossfadeCollapseP));
             const minPt = _fullscreenActive ? 0 : 14;
-            const pt = Math.max(minPt, Math.floor((window.innerHeight - bottomReserve - childrenH) / 2));
+            const pt = isInlineEmbed
+                ? minPt
+                : Math.max(minPt, Math.floor((window.innerHeight - bottomReserve - childrenH) / 2));
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.paddingTop = pt + 'px';
         }
@@ -24606,7 +24606,7 @@ if (typeof gsap !== 'undefined') {
         });
 
         // ── 2b. Fullscreen / Immersive mode (K key or auto on zoom) ──
-        let _fullscreenActive = isInlineEmbed;
+        let _fullscreenActive = document.body.classList.contains('fullscreen-mode');
 
         function _positionFullscreenInfo() {
             _positionFullscreenChrome();

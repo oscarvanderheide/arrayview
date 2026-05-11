@@ -3114,6 +3114,13 @@ class TestComplexProjections:
 class TestViewValidation:
     """Pure validation tests for view() — no server or display needed."""
 
+    def test_default_inline_height_is_600(self):
+        import inspect
+
+        from arrayview._launcher import view
+
+        assert inspect.signature(view).parameters["height"].default == 600
+
     def test_zero_arrays_raises(self):
         from arrayview._launcher import view
 

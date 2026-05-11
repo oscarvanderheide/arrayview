@@ -1635,7 +1635,7 @@ def view(
     name=None,
     port: int = 8123,
     inline: bool | None = None,
-    height: int = 500,
+    height: int = 600,
     window: str | bool | None = None,
     rgb: bool | list = False,
     overlay=None,
@@ -1662,6 +1662,8 @@ def view(
       - ``'browser'``  open in the system browser
       - ``'vscode'``   open in a VS Code tab
       - ``'inline'``   return an inline IFrame (Jupyter / VS Code notebook)
+
+        ``height`` sets the pixel height of inline notebook IFrames.
 
     Persistent defaults can be set via ``arrayview config set window.<env> <mode>``
     where ``<env>`` is one of: terminal, vscode, jupyter, ssh, julia.
@@ -2332,7 +2334,7 @@ def _view_julia(
     port: int,
     window: bool,
     inline: bool = False,
-    height: int = 500,
+    height: int = 600,
     floating: bool = False,
 ):
     """Julia-specific view() path: run the server in a subprocess so it is
@@ -2362,7 +2364,7 @@ def _view_subprocess(
     port: int,
     window: bool,
     inline: bool = False,
-    height: int = 500,
+    height: int = 600,
     rgb: bool = False,
     force_vscode: bool = False,
     floating: bool = False,
