@@ -1745,6 +1745,46 @@ class TestKeyboard:
         assert state["colorbarBottomGap"] >= 36, f"multiview colorbar should clear the viewport bottom, got: {state}"
         assert state["centerDelta"] <= 2, f"multiview pane cluster should be horizontally centered, got: {state}"
 
+    def test_multiview_colorbar_gap_matches_normal_mode_in_big_left(self, loaded_viewer, sid_3d):
+        page = loaded_viewer(sid_3d)
+        page.set_viewport_size({"width": 1700, "height": 1100})
+        page.wait_for_timeout(200)
+        _focus_kb(page)
+
+        page.keyboard.press("v")
+        page.wait_for_selector("#multi-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(300)
+
+        def _mv_gap_state():
+            return page.evaluate(
+                """() => {
+                    const panes = document.querySelector('#mv-panes');
+                    const cb = document.querySelector('#mv-cb-wrap');
+                    if (!panes || !cb) return null;
+                    const panesRect = panes.getBoundingClientRect();
+                    const cbRect = cb.getBoundingClientRect();
+                    return {
+                        gap: Math.round(cbRect.top - panesRect.bottom),
+                        wrapGap: Math.round(parseFloat(getComputedStyle(document.getElementById('multi-view-wrap')).gap) || 0),
+                        orthoLayoutMode,
+                    };
+                }"""
+            )
+
+        horizontal = _mv_gap_state()
+        assert horizontal, "multiview colorbar gap should be measurable in horizontal layout"
+        assert abs(horizontal["gap"] - horizontal["wrapGap"]) <= 1, (
+            f"v-mode colorbar gap should match the multiview container gap with no extra wrapper offset, got: {horizontal}"
+        )
+
+        page.evaluate("""() => { _mvSetOrthoLayoutMode('big-left', { silent: true }); }""")
+        page.wait_for_timeout(300)
+        big_left = _mv_gap_state()
+        assert big_left, "multiview colorbar gap should be measurable in big-left layout"
+        assert abs(big_left["gap"] - big_left["wrapGap"]) <= 1, (
+            f"big-left multiview colorbar gap should match the multiview container gap with no extra wrapper offset, got: {big_left}"
+        )
+
     def test_multiview_auto_layout_picks_horizontal_on_jupyter_like_viewport_and_manual_override_sticks(
         self, loaded_viewer, sid_3d
     ):
