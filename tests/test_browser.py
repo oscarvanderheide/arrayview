@@ -1760,6 +1760,7 @@ class TestKeyboard:
             return page.evaluate(
                 """() => {
                     const row = document.querySelector('#mv-panes');
+                    const cb = document.querySelector('#mv-cb-wrap');
                     const panes = Array.from(document.querySelectorAll('#mv-panes > .mv-pane')).map(p => {
                         const r = p.getBoundingClientRect();
                         return {
@@ -1774,6 +1775,7 @@ class TestKeyboard:
                         orthoAutoLayoutMode: _orthoAutoLayoutMode,
                         rowPosition: row ? getComputedStyle(row).position : 'missing',
                         rowClass: row?.className || '',
+                        cbWidth: cb ? Math.round(cb.getBoundingClientRect().width) : -1,
                         panes,
                     };
                 }"""
@@ -1794,21 +1796,28 @@ class TestKeyboard:
         assert resized["rowPosition"] != "relative", f"resizing alone should not flip ortho layout out of horizontal flow, got: {resized}"
 
         page.keyboard.press("g")
-        page.wait_for_timeout(180)
-        page.keyboard.press("g")
         page.wait_for_timeout(500)
         overridden = _state()
         assert overridden["orthoLayoutMode"] == "big-left", f"manual g cycling should persist a concrete ortho preset override, got: {overridden}"
         assert overridden["rowPosition"] == "relative", f"big-left ortho override should switch mv panes into preset positioning, got: {overridden}"
         assert "mv-promote-enabled" in overridden["rowClass"], f"big-left ortho override should enable the promotable preset chrome, got: {overridden}"
+        assert abs(overridden["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g switches to big-left, got initial={initial}, overridden={overridden}"
         assert overridden["panes"][0]["width"] > overridden["panes"][1]["width"], f"big-left ortho override should make the first pane larger than the stacked panes, got: {overridden}"
         assert overridden["panes"][1]["top"] < overridden["panes"][2]["top"], f"big-left ortho override should stack the secondary panes vertically, got: {overridden}"
+
+        page.keyboard.press("g")
+        page.wait_for_timeout(500)
+        returned = _state()
+        assert returned["orthoLayoutMode"] == "horizontal", f"manual g cycling should now return directly to horizontal without vertical or big-top, got: {returned}"
+        assert returned["rowPosition"] != "relative", f"returning to horizontal should restore legacy row flow, got: {returned}"
+        assert "mv-promote-enabled" not in returned["rowClass"], f"horizontal ortho layout should clear promotable preset chrome, got: {returned}"
+        assert abs(returned["cbWidth"] - initial["cbWidth"]) <= 1, f"multiview colorbar width should stay stable when g returns to horizontal, got initial={initial}, returned={returned}"
 
         page.set_viewport_size({"width": 1280, "height": 760})
         page.wait_for_timeout(500)
         final = _state()
-        assert final["orthoLayoutMode"] == "big-left", f"manual ortho preset override should stay sticky after resizing back to a smaller viewport, got: {final}"
-        assert final["rowPosition"] == "relative", f"manual big-left ortho override should remain active after resize, got: {final}"
+        assert final["orthoLayoutMode"] == "horizontal", f"manual ortho preset override should stay sticky after resizing back to a smaller viewport, got: {final}"
+        assert final["rowPosition"] != "relative", f"manual horizontal ortho override should remain active after resize, got: {final}"
 
     def test_multiview_auto_layout_picks_big_left_on_large_viewport(self, loaded_viewer, sid_3d):
         page = loaded_viewer(sid_3d)

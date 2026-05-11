@@ -2925,41 +2925,6 @@
         .cmp-xhair-h, .cmp-xhair-v { position:absolute; pointer-events:none; z-index:5; display:none; }
         .cmp-xhair-h { height:1px; left:0; right:0; background:rgba(245,200,66,0.55); }
         .cmp-xhair-v { width:1px; top:0; bottom:0; background:rgba(245,200,66,0.55); }
-        /* ── Snapshot Gallery ────────────────────────────────────── */
-        .gallery-panel {
-            position: fixed; top: 0; right: 0; bottom: 0; width: 240px;
-            background: var(--surface); border-left: 1px solid var(--border);
-            transform: translateX(100%); transition: transform 0.25s ease;
-            z-index: 100; display: flex; flex-direction: column;
-            overflow-y: auto;
-        }
-        .gallery-panel.open { transform: translateX(0); }
-        .gallery-header {
-            display: flex; align-items: center; padding: 12px;
-            border-bottom: 1px solid var(--border); gap: 8px;
-            font-size: 13px; color: var(--text);
-        }
-        .gallery-count {
-            background: var(--active-dim); color: #000; border-radius: 10px;
-            padding: 1px 7px; font-size: 11px; min-width: 18px; text-align: center;
-        }
-        .gallery-thumb { width: 100%; border-radius: 4px; cursor: pointer; }
-        .gallery-item {
-            padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
-            position: relative;
-        }
-        .gallery-meta { font-size: 10px; color: var(--muted); font-family: monospace; margin-top: 4px; }
-        .gallery-remove {
-            position: absolute; top: 4px; right: 4px; background: none; border: none;
-            color: var(--muted); cursor: pointer; font-size: 14px; opacity: 0;
-            transition: opacity 0.15s;
-        }
-        .gallery-item:hover .gallery-remove { opacity: 1; }
-        .gallery-export, .gallery-close {
-            background: none; border: none; color: var(--muted); cursor: pointer;
-            font-size: 16px; padding: 2px 4px;
-        }
-        .gallery-export:hover, .gallery-close:hover { color: var(--text); }
     </style>
 </head>
 <body class="__BODY_CLASS__">
@@ -3366,15 +3331,6 @@
         <input id="cmap-picker-input" type="text" placeholder="colormaps" autocomplete="off" spellcheck="false">
         <div id="cmap-picker-list"></div>
     </div>
-</div>
-<div id="snapshot-gallery" class="gallery-panel">
-    <div class="gallery-header">
-        <span>Snapshots</span>
-        <span class="gallery-count">0</span>
-        <button class="gallery-export" title="Export HTML report">&#x2913;</button>
-        <button class="gallery-close" title="Close">&times;</button>
-    </div>
-    <div class="gallery-items"></div>
 </div>
     <script src="gsap.min.js"></script>
     <script>
@@ -14386,104 +14342,9 @@
                 filename = `slice_${indices.join('-')}.png`;
             }
             _downloadFile(dataUrl, filename);
-            _galleryAdd(dataUrl);
             setStatus('Screenshot saved to Downloads.');
             setTimeout(() => setStatus(''), 2000);
         }
-
-        // ── Snapshot Gallery ─────────────────────────────────────
-        const _gallerySnapshots = [];
-        function _galleryAdd(dataUrl) {
-            const now = new Date();
-            const ts = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const snap = {
-                dataUrl,
-                indices: [...indices],
-                colormap: currentColormap(),
-                dim_x, dim_y,
-                timestamp: ts,
-                label: document.getElementById('array-name-text')?.textContent?.trim() || ''
-            };
-            _gallerySnapshots.push(snap);
-            _galleryRenderItem(snap, _gallerySnapshots.length - 1);
-            _galleryUpdateCount();
-        }
-        function _galleryRenderItem(snap, idx) {
-            const container = document.querySelector('#snapshot-gallery .gallery-items');
-            if (!container) return;
-            const div = document.createElement('div');
-            div.className = 'gallery-item';
-            div.dataset.idx = idx;
-            const img = document.createElement('img');
-            img.className = 'gallery-thumb';
-            img.src = snap.dataUrl;
-            img.title = 'Click to open full size';
-            img.addEventListener('click', () => {
-                const w = window.open('');
-                if (w) { w.document.write('<img src="' + snap.dataUrl + '" style="max-width:100%">'); w.document.title = 'Snapshot'; }
-            });
-            const meta = document.createElement('div');
-            meta.className = 'gallery-meta';
-            const idxSpan = document.createElement('span');
-            idxSpan.className = 'gallery-idx';
-            idxSpan.textContent = '[' + snap.indices.join(', ') + ']';
-            const timeSpan = document.createElement('span');
-            timeSpan.className = 'gallery-time';
-            timeSpan.textContent = ' ' + snap.timestamp;
-            meta.appendChild(idxSpan);
-            meta.appendChild(timeSpan);
-            const rm = document.createElement('button');
-            rm.className = 'gallery-remove';
-            rm.title = 'Remove';
-            rm.textContent = '\u00d7';
-            rm.addEventListener('click', () => {
-                _gallerySnapshots[idx] = null;
-                div.remove();
-                _galleryUpdateCount();
-            });
-            div.appendChild(img);
-            div.appendChild(meta);
-            div.appendChild(rm);
-            container.appendChild(div);
-        }
-        function _galleryUpdateCount() {
-            const count = _gallerySnapshots.filter(s => s !== null).length;
-            const el = document.querySelector('#snapshot-gallery .gallery-count');
-            if (el) el.textContent = count;
-        }
-        function _galleryToggle() {
-            const panel = document.getElementById('snapshot-gallery');
-            if (panel) panel.classList.toggle('open');
-        }
-        function _galleryExport() {
-            const snaps = _gallerySnapshots.filter(s => s !== null);
-            if (!snaps.length) { showStatus('No snapshots to export'); return; }
-            const items = snaps.map(s => `
-                <div style="margin-bottom:24px;">
-                    <img src="${s.dataUrl}" style="max-width:100%; border-radius:6px;" />
-                    <div style="font-size:12px; color:#999; font-family:monospace; margin-top:6px;">
-                        idx: [${s.indices.join(', ')}] &middot; cmap: ${s.colormap} &middot; ${s.timestamp}
-                        ${s.label ? ' &middot; ' + s.label : ''}
-                    </div>
-                </div>`).join('\n');
-            const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>ArrayView Report</title>
-<style>body{background:#0c0c0c;color:#d8d8d8;font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;}
-h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style></head>
-<body><h1>ArrayView Report</h1>${items}</body></html>`;
-            const dataUrl = 'data:text/html;base64,' + btoa(unescape(encodeURIComponent(html)));
-            _downloadFile(dataUrl, 'arrayview-report.html');
-            showStatus('Report exported.');
-        }
-        // Wire gallery buttons
-        (function() {
-            const panel = document.getElementById('snapshot-gallery');
-            if (!panel) return;
-            const closeBtn = panel.querySelector('.gallery-close');
-            if (closeBtn) closeBtn.addEventListener('click', () => panel.classList.remove('open'));
-            const exportBtn = panel.querySelector('.gallery-export');
-            if (exportBtn) exportBtn.addEventListener('click', _galleryExport);
-        })();
 
         async function saveGif() {
             setStatus('Generating GIF...');
@@ -16748,13 +16609,11 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     saveGif();
                 },
             },
-            'compare.cycleLayoutOrGallery': {
-                title: 'Cycle compare layout / toggle gallery',
-                when: [],
+            'compare.cycleLayout': {
+                title: 'Cycle compare layout',
+                when: ['compareActive', '!compareMvActive', '!compareQmriActive'],
                 run: (ctx, e) => {
                     // Cycle compare layout: horizontal → vertical → grid (3–4 panes only) → horizontal
-                    // When not in compare mode, toggle snapshot gallery instead
-                    if (!compareActive || compareMvActive || compareQmriActive) { _galleryToggle(); return; }
                     if (_compareCenterLayoutEligible()) {
                         compareLayoutMode = _isCompareBigLeftLayout() ? 'horizontal' : 'big-left';
                         applyCompareLayout();
@@ -17624,7 +17483,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
             { key: 'A', command: 'nifti.toggleRasResample' },
             { key: 's', command: 'saveMenu.open' },
             { key: 'g', command: 'grid.holdOrTap' },
-            { key: 'G', command: 'compare.cycleLayoutOrGallery' },
+            { key: 'G', command: 'compare.cycleLayout' },
             { key: 'm', command: 'complex.cycleMode' },
             { key: 'C', command: 'colormap.promptCustom' },
             { key: 'd', command: 'histogram.openOrCycle' },
@@ -17816,7 +17675,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         title: 'Layout',
                         entries: [
                             { key: 'g (hold)', action: 'Open grid layout picker', hint: 'panes stack as cards · hover or arrows/hjkl to choose · release g to commit · Esc cancels' },
-                            { key: 'g (tap)', action: 'Cycle to next preset', hint: 'big-left → big-top → horizontal → vertical' },
+                            { key: 'g (tap)', action: 'Cycle to next preset', hint: 'horizontal ↔ big-left' },
                         ]
                     }
                 ]
@@ -23817,7 +23676,7 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
 
         function _mvPromotePane(view) {
             const activeOrthoLayout = _resolvedOrthoLayoutMode();
-            if (!multiViewActive || obliqueVecs || !view || (activeOrthoLayout !== 'big-left' && activeOrthoLayout !== 'big-top')) return;
+            if (!multiViewActive || obliqueVecs || !view || activeOrthoLayout !== 'big-left') return;
             const from = mvViews.indexOf(view);
             if (from <= 0) return;
             const panes = mvViews.map(v => v.pane).filter(Boolean);
@@ -23923,15 +23782,15 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         _mvPanesEl.style.width = clusterW + 'px';
                         _mvPanesEl.style.height = clusterH + 'px';
                         _mvPanesEl.style.display = 'block';
-                        _mvPanesEl.classList.toggle('mv-promote-enabled', _activePreset.id === 'big-left' || _activePreset.id === 'big-top');
+                        _mvPanesEl.classList.toggle('mv-promote-enabled', _activePreset.id === 'big-left');
                     }
                     const _presetPanStub = { x: 0, y: 0, clamp: () => {}, apply: () => {} };
                     // Rects are square (see ORTHO_PRESETS). Pane frame = rect
                     // so borders are square "as if stretch-to-square was on".
                     // Per-pane fit scales each canvas to fill its own square,
                     // keeping image aspect ratio — the big pane in big-left
-                    // / big-top is visibly bigger instead of clamped to the
-                    // smallest pane's scale.
+                    // is visibly bigger instead of clamped to the smallest
+                    // pane's scale.
                     ready.forEach((v, i) => {
                         const rt = rects[i];
                         if (!rt || !rt.w || !rt.h) return;
@@ -23954,17 +23813,16 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                             v.pane.style.top    = (rt.y - minY) + 'px';
                             v.pane.style.width  = rt.w + 'px';
                             v.pane.style.height = rt.h + 'px';
-                            v.pane.classList.toggle('mv-small-pane', i > 0 && (_activePreset.id === 'big-left' || _activePreset.id === 'big-top'));
+                            v.pane.classList.toggle('mv-small-pane', i > 0 && _activePreset.id === 'big-left');
                         }
                         if (v.wrap) {
                             v.wrap.style.width  = v.canvas.style.width;
                             v.wrap.style.height = v.canvas.style.height;
                         }
                     });
-                    const minPaneW = Math.min(...rects.filter(r => r && r.w).map(r => r.w));
                     const mvCbWp = document.getElementById('mv-cb-wrap');
                     if (mvCbWp) {
-                        const mvCbTarget = cbTargetWidth(minPaneW || T);
+                        const mvCbTarget = cbTargetWidth(T);
                         if (mvCbTarget == null) {
                             mvCbWp.style.display = 'none';
                         } else {
@@ -26292,9 +26150,8 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
         // the image's aspect. The whole cluster is centered in the container
         // so the panes stay pinned together as the window resizes (no drift).
         //
-        // big-left / big-top enforce big_side = 2·small_side + gap so the
-        // combined height (big-left) or width (big-top) of the small pair
-        // matches the big pane exactly — no empty gutter above/below/beside.
+        // big-left enforces big_side = 2·small_side + gap so the combined
+        // height of the small pair matches the big pane exactly.
         const ORTHO_PRESETS = [
             {
                 id: 'horizontal',
@@ -26313,27 +26170,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                     const out = [];
                     for (let i = 0; i < n; i++) {
                         out.push({ x: offX + i * (S + gap), y: offY, w: S, h: S });
-                    }
-                    return out;
-                },
-            },
-            {
-                id: 'vertical',
-                label: 'Vertical',
-                schematic: '<svg viewBox="0 0 24 36" width="24" height="36" aria-hidden="true">'
-                    + '<rect x="2" y="1" width="20" height="10" rx="1.5"/>'
-                    + '<rect x="2" y="13" width="20" height="10" rx="1.5"/>'
-                    + '<rect x="2" y="25" width="20" height="10" rx="1.5"/>'
-                    + '</svg>',
-                compute: (n, W, H, gap) => {
-                    if (n < 1) return [];
-                    const S = Math.max(1, Math.floor(Math.min(W, (H - gap * (n - 1)) / n)));
-                    const totalH = n * S + (n - 1) * gap;
-                    const offX = Math.round((W - S) / 2);
-                    const offY = Math.round((H - totalH) / 2);
-                    const out = [];
-                    for (let i = 0; i < n; i++) {
-                        out.push({ x: offX, y: offY + i * (S + gap), w: S, h: S });
                     }
                     return out;
                 },
@@ -26362,35 +26198,6 @@ h1{font-size:22px;border-bottom:1px solid #2c2c2c;padding-bottom:12px;}</style><
                         { x: offX, y: offY, w: L, h: L },
                         { x: offX + L + gap, y: offY, w: R, h: R },
                         { x: offX + L + gap, y: offY + R + gap, w: R, h: R },
-                    ];
-                    for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
-                    return out;
-                },
-            },
-            {
-                id: 'big-top',
-                label: 'Big top',
-                schematic: '<svg viewBox="0 0 36 24" width="36" height="24" aria-hidden="true">'
-                    + '<rect x="1" y="1" width="34" height="14" rx="1.5"/>'
-                    + '<rect x="1" y="17" width="16" height="6" rx="1.5"/>'
-                    + '<rect x="19" y="17" width="16" height="6" rx="1.5"/>'
-                    + '</svg>',
-                compute: (n, W, H, gap) => {
-                    if (n < 3) return null;
-                    // T = big square side. B = small square side. Constraint
-                    // T = 2B + gap so the two bottom squares match T across.
-                    // Column layout: [T] then below [B][gap][B] — column width
-                    // is T, total height = T + gap + B.
-                    const T = Math.max(2, Math.floor(Math.min(W, (2 * H - gap) / 3)));
-                    const B = Math.max(1, Math.floor((T - gap) / 2));
-                    const totalW = T;
-                    const totalH = T + gap + B;
-                    const offX = Math.round((W - totalW) / 2);
-                    const offY = Math.round((H - totalH) / 2);
-                    const out = [
-                        { x: offX, y: offY, w: T, h: T },
-                        { x: offX, y: offY + T + gap, w: B, h: B },
-                        { x: offX + B + gap, y: offY + T + gap, w: B, h: B },
                     ];
                     for (let i = 3; i < n; i++) out.push({ x: 0, y: 0, w: 0, h: 0 });
                     return out;
