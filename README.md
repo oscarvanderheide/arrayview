@@ -1,24 +1,21 @@
 # <img src="docs/logo.png" height="36"> arrayview
 
-This is my array viewer. There are many like it, but this one is mine.
+_This is my array viewer. There are many like it, but this one is mine._ 
 
-Load up `.npy`, `.nii`, `.h5`, `.mat` and friends. 
+And I think you might like it too. Fast, responsive scrolling
+through slices of multi-dimensional arrays. Feature rich with a modern, minimal UI that only shows what needs to be shown.
 
-Call from the terminal, Python/Julia/Matlab or Jupyter notebooks.
+It works wherever you work. The shell, scripts (Python/Julia/Matlab), or Jupyter notebooks. Local or remote. Easy to install.
 
-Opens in either a native window, browser tab, inline cell,
-or VS Code panel. 
+VS Code users can even open the viewer just by clicking an array in the explorer tab. 
 
-Follows you to SSH remotes and tunnels.
+And if you're using the VS Code remote extension to connect to a remote, it just works—no additional setup required.
 
-You can even click an array in the VS Code explorer to open up the viewer.
-
-Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
-
-For now, just try it out with
-
+Curious? Give it a try with
 ```bash
 uvx arrayview your_array.npy
 ```
-Click around, press some keys, there's more to it than meets the eye.
+Explore, there's more to it than meets the eye. 
+
+Check the [docs](https://oscarvanderheide.github.io/arrayview/) to learn more. 
 
