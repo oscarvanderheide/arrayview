@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-05-12
+last_updated: 2026-05-13
 ---
 
 # Project State
@@ -36,10 +36,12 @@ last_updated: 2026-05-12
 - Island collapse affordance: inline `~` at the island's top-right animates the panel into the bottom-left `~` hint circle; external `~` hint only visible while the island is actually collapsed. New `/` hint circle at bottom-right opens the tool menu
 - Compare center tool menu: `/` now re-opens the last-used compare center mode from the tool menu, while compare pane header buttons select diff / overlay / wipe directly. Eligible two-array compare layouts can switch into a big-left arrangement with a wider center pane, and the diff colorbar now matches that center-pane width.
 - Compare center + ortho auto-layout: layout choice is now auto-picked once on entry from a shared viewport-profile helper, stays stable across resize, and becomes sticky only after manual `G` / `g` override. Compare big-left also now supports in-pane A/B source badges and a shared source colorbar parked in the gap between the stacked source panes.
+- Detached compare-on-X: with a single array and a non-spatial active dimension, `X` now enters compare mode by treating two indices from that dimension as A/B sources. Pane titles switch to `i/N`, the dimbar marks the detached dimension with a purple `X`, `[` / `]` scrub the left pane index, `{` / `}` scrub the right pane index, and repeated `X` presses cycle the existing compare-center modes before exiting back to normal view. The split-index diff path now works in both FastAPI and stdio transports.
 
 ## Recently Completed
 
 - Shift+C colormap picker redesign: the old centered shortlist is now a narrow translucent right-edge drawer with a close button, a yellow `Colormaps` title plus a `Favorites` subtitle, and a plain 12-swatch two-column quick set that stays visible above the search field. Search matches render in a separate results area below the input, Enter first exits the search field before a second Enter commits, arrow-key movement follows the visible two-column grid, and repeated `c` presses cycle through the currently visible swatches while the picker is open.
+- Detached compare-on-X: single-array non-spatial dimensions now support the same compare-center family as two-array compare. The frontend reuses compare mode with per-pane detached indices, the dimbar shows a purple `X`, the compare titles show `i/N`, `[` / `]` control pane A, `{` / `}` control pane B, and repeated `X` exits detached compare after cycling the center modes. Focused coverage now includes a browser regression for detached entry/scrubbing/exit plus API coverage for split `/diff` indices on the same session.
 - Normal-mode dimbar readability: inactive non-spatial dims no longer get a blanket reduced parent opacity, so the current index reads bright while `/total` stays subdued via the existing child dim-size styling.
 - Multiview colorbar spacing now matches normal mode: entering ortho with `v` and switching to orthogonal `big-left` with `g` no longer increases the pane-to-colorbar gap. Focused browser coverage now compares the normal-view gap against both multiview layouts directly.
 - V-mode ortho layout cycling is now a two-state toggle: `g` only switches between `horizontal` and `big-left`. The old `vertical` and `big-top` multiview presets have been removed from the shared ortho preset table, the hold-`g` picker/help text, and the remaining big-pane promotion branches, and the shared multiview colorbar width now stays fixed when `g` toggles between the two surviving layouts.

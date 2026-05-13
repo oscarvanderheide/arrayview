@@ -272,6 +272,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         dim_x: int,
         dim_y: int,
         indices: str,
+        indices_a: str | None = None,
+        indices_b: str | None = None,
         dim_z: int = -1,
         dr: int = 1,
         complex_mode: int = 0,
@@ -297,6 +299,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 complex_mode,
                 log_scale,
                 diff_mode,
+                indices_a=indices_a,
+                indices_b=indices_b,
             )
         except Exception:
             return Response(status_code=422)
@@ -328,6 +332,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
         dim_x: int,
         dim_y: int,
         indices: str,
+        indices_a: str | None = None,
+        indices_b: str | None = None,
         dim_z: int = -1,
         dr: int = 1,
         complex_mode: int = 0,
@@ -351,6 +357,8 @@ def register_rendering_routes(app, *, get_session_or_404) -> None:
                 complex_mode,
                 log_scale,
                 diff_mode,
+                indices_a=indices_a,
+                indices_b=indices_b,
             )
         except Exception:
             return Response(status_code=422)

@@ -4022,6 +4022,10 @@
         let _flickerFps = 3;           // flicker rate in Hz (adjustable with [ / ])
         let _checkerSize = 32;         // tile size in image pixels for checkerboard
         let compareCenterMode = 0; // unified: 0=off,1=A-B,2=|A-B|,3=|A-B|/|A|,4=overlay,5=wipe,6=flicker,7=checker
+        let detachedDimMode = false;
+        let detachedDim = -1;
+        let detachedDimIndexA = 0;
+        let detachedDimIndexB = 0;
         let registrationAlpha = 0.5;
         let overlayAlpha = 0.45; // alpha for overlay_sid segmentation/heatmap
         let _overlayVisibility = 'all';  // 'all' | 'none' | 0 | 1 | 2 ... (index into overlay_sid list)
@@ -5578,6 +5582,48 @@
             return compareNameBySid[sidVal] || sidVal.slice(0, 8);
         }
 
+        function _resetDetachedDimState() {
+            detachedDimMode = false;
+            detachedDim = -1;
+            detachedDimIndexA = 0;
+            detachedDimIndexB = 0;
+        }
+
+        function _detachedDimPaneLabel(indexVal) {
+            if (!detachedDimMode || detachedDim < 0 || !Number.isInteger(indexVal)) return '';
+            return `${indexVal + 1}/${shape[detachedDim]}`;
+        }
+
+        function _canDetachDim(dim) {
+            if (!Number.isInteger(dim) || dim < 0 || dim >= shape.length) return false;
+            if (dim === dim_x || dim === dim_y || dim === dim_z) return false;
+            if ((qmriActive && dim === qmriDim) || (compareQmriActive && dim === compareQmriDim)) return false;
+            return Number(shape[dim]) >= 2;
+        }
+
+        function _bumpDetachedDimIndex(which, delta) {
+            if (!detachedDimMode || detachedDim < 0 || !Number.isFinite(delta)) return false;
+            const size = Number(shape[detachedDim]) || 0;
+            if (size < 2) return false;
+            const other = which === 'A' ? detachedDimIndexB : detachedDimIndexA;
+            let next = which === 'A' ? detachedDimIndexA : detachedDimIndexB;
+            let remaining = size;
+            while (remaining > 0) {
+                next = (next + delta + size) % size;
+                if (next !== other) break;
+                remaining -= 1;
+            }
+            if (next === other) return false;
+            if (which === 'A') detachedDimIndexA = next;
+            else detachedDimIndexB = next;
+            updateCompareTitles();
+            renderInfo();
+            compareRender();
+            saveState();
+            showStatus(`compare: dim ${detachedDim} detached · A ${_detachedDimPaneLabel(detachedDimIndexA)} · B ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            return true;
+        }
+
         function _updateHeaderNameForCompare() {
             const el = document.getElementById('array-name-text');
             if (!el) return;
@@ -5609,10 +5655,18 @@
             _normalizeCompareLayoutMode();
             const effectiveSids = (_compareExplicitSids && _compareExplicitSids.length)
                 ? _compareExplicitSids : compareDisplaySids;
-            const labels = effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
+            const labels = detachedDimMode
+                ? effectiveSids.map((_, idx) => {
+                    if (idx === 0) return _detachedDimPaneLabel(detachedDimIndexA);
+                    if (idx === 1) return _detachedDimPaneLabel(detachedDimIndexB);
+                    return '';
+                })
+                : effectiveSids.map(sidVal => comparePaneLabelForSid(sidVal));
             if (registrationMode && labels.length >= 2) {
-                labels[0] = compareBaseName || 'base';
-                labels[1] = compareName || 'other';
+                if (!detachedDimMode) {
+                    labels[0] = compareBaseName || 'base';
+                    labels[1] = compareName || 'other';
+                }
                 const blendLabels = document.getElementById('reg-blend-labels');
                 if (blendLabels) blendLabels.innerHTML = `<span>${labels[0]}</span><span>${labels[1]}</span>`;
                 drawRegBlendCb();
@@ -5623,7 +5677,8 @@
                 const sideTitle = _isCompareBigLeftLayout() && idx < 2;
                 el.classList.toggle('compare-side-title', sideTitle);
                 if (text) {
-                    el.innerHTML = (sideTitle ? '' : _logoSvg) + '<span>' + text.replace(/</g, '&lt;') + '</span>';
+                    const prefix = (!detachedDimMode && !sideTitle) ? _logoSvg : '';
+                    el.innerHTML = prefix + '<span>' + text.replace(/</g, '&lt;') + '</span>';
                 } else {
                     el.textContent = '';
                 }
@@ -9177,6 +9232,14 @@
                 diff_mode: String(diffMode),
                 bins: '64',
             });
+            if (detachedDimMode && detachedDim >= 0) {
+                const indicesA = [...indices];
+                const indicesB = [...indices];
+                indicesA[detachedDim] = detachedDimIndexA;
+                indicesB[detachedDim] = detachedDimIndexB;
+                params.set('indices_a', indicesA.join(','));
+                params.set('indices_b', indicesB.join(','));
+            }
             try {
                 const resp = await proxyFetch(`/diff-histogram/${sid_a}/${sid_b}?${params}`);
                 if (!resp.ok) return null;
@@ -10510,6 +10573,11 @@
                 const compareTimeoutMs = (!_reportedFirstFrame || isInlineEmbed) ? 5000 : 0;
                 const requests = renderSids.map((sidVal, i) => {
                     const reqParams = new URLSearchParams(params.toString());
+                    if (detachedDimMode && detachedDim >= 0 && i < 2) {
+                        const paneIndices = [...indices];
+                        paneIndices[detachedDim] = i === 0 ? detachedDimIndexA : detachedDimIndexB;
+                        reqParams.set('indices', paneIndices.join(','));
+                    }
                     // Shared global range for fair comparison (per-pane overrides respected for manual adjustments)
                     const pVmin = cmpManualVmin[i] ?? manualVmin;
                     const pVmax = cmpManualVmax[i] ?? manualVmax;
@@ -10547,6 +10615,10 @@
                 compareDisplaySids = renderSids;
                 currentVmin = compareFrames[0].vmin;
                 currentVmax = compareFrames[0].vmax;
+                if (detachedDimMode) {
+                    updateCompareTitles();
+                    renderInfo();
+                }
                 applyCompareLayout();
                 _reconcileCbVisibility();
                 drawCompareFramesFromCache();
@@ -10586,6 +10658,14 @@
                 log_scale: String(logScale),
                 diff_mode: String(diffMode),
             });
+            if (detachedDimMode && detachedDim >= 0) {
+                const indicesA = [...indices];
+                const indicesB = [...indices];
+                indicesA[detachedDim] = detachedDimIndexA;
+                indicesB[detachedDim] = detachedDimIndexB;
+                params.set('indices_a', indicesA.join(','));
+                params.set('indices_b', indicesB.join(','));
+            }
             if (_diffCenterColormap) params.set('diff_colormap', _diffCenterColormap);
             if (_diffManualVmin !== null) params.set('vmin_override', String(_diffManualVmin));
             if (_diffManualVmax !== null) params.set('vmax_override', String(_diffManualVmax));
@@ -12777,6 +12857,10 @@
                 const playing = (playingDim >= 0 && i === playingDim);
                 const dimCls = playing ? 'playing-dim' : 'active-dim';
                 const d = `data-dim="${i}"`;
+                if (detachedDimMode && i === detachedDim) {
+                    const cls = (active || playing) ? `${dimCls} dim-label` : 'dim-label';
+                    return `<span class="${cls}" ${d} style="color:var(--q-dim-color)">X<span class="dim-size">/${shape[i]}</span></span>`;
+                }
                 if ((qmriActive && i === qmriDim) || (compareQmriActive && i === compareQmriDim)) {
                     return (active || playing) ? `<span class="${dimCls} q-dim dim-label" ${d}>q</span>`
                                   : `<span class="q-dim dim-label" ${d}>q</span>`;
@@ -13791,8 +13875,8 @@
                 dim_z,
                 current_slice_dim,
                 activeDim,
-                compareSid,
-                compareSidList: [...compareSidList],
+                compareSid: detachedDimMode ? null : compareSid,
+                compareSidList: detachedDimMode ? [] : [...compareSidList],
                 compareName,
                 registrationMode,
                 compareCenterMode,
@@ -14025,8 +14109,8 @@
             params.set('sid', sid);
             if (overlay_sid) params.set('overlay_sid', overlay_sid);
             if (overlay_sid && overlay_colors) params.set('overlay_colors', overlay_colors);
-            if (compareSid) params.set('compare_sid', compareSid);
-            if (compareSidList.length && (compareLocked || compareSidList.length > 1)) {
+            if (compareSid && !detachedDimMode) params.set('compare_sid', compareSid);
+            if (!detachedDimMode && compareSidList.length && (compareLocked || compareSidList.length > 1)) {
                 params.set('compare_sids', compareSidList.join(','));
             }
             if (httpTransport) params.set('transport', 'http');
@@ -17436,13 +17520,39 @@
                 run: (ctx, e) => { _saveFullArrayNpy(); },
             },
             'compare.cycleCenterMode': {
-                when: ['compareActive', 'arraysLength>=2'],
+                when: ['compareActive'],
                 run: (ctx, e) => {
                     if (!_compareCenterSupported()) {
                         showToast('center-mode cycle: only available in 2-pane compare');
                         return;
                     }
-                    _setCompareCenterMode(_nextCompareCenterModeValue());
+                    const nextMode = _nextCompareCenterModeValue();
+                    if (detachedDimMode && nextMode === 0) {
+                        exitCompareMode();
+                        return;
+                    }
+                    _setCompareCenterMode(nextMode);
+                    return;
+                },
+            },
+            'compare.enterDetachedDimMode': {
+                when: ['!compareActive', 'canDetachActiveDim'],
+                run: async (ctx, e) => {
+                    await enterDetachedDimMode(activeDim);
+                    return;
+                },
+            },
+            'detachedDim.adjustIndexA': {
+                when: ['detachedDimMode'],
+                run: (ctx, e) => {
+                    _bumpDetachedDimIndex('A', e.key === ']' ? 1 : -1);
+                    return;
+                },
+            },
+            'detachedDim.adjustIndexB': {
+                when: ['detachedDimMode'],
+                run: (ctx, e) => {
+                    _bumpDetachedDimIndex('B', e.key === '}' ? 1 : -1);
                     return;
                 },
             },
@@ -17492,6 +17602,7 @@
             { key: '/', command: 'toolmenu.open' },
             { key: 'q', command: 'qmri.cycle' },
             { key: 'c', command: 'colormap.openOrCycle' },
+            { key: 'X', command: 'compare.enterDetachedDimMode' },
             { key: 'X', command: 'compare.cycleCenterMode' },
             { key: '+', command: 'zoom.in' },
             { key: '=', command: 'zoom.in' },
@@ -17501,8 +17612,12 @@
             { key: 'n', command: 'compare.cycleTarget' },
             { key: '<', command: 'playback.adjustFps' },
             { key: '>', command: 'playback.adjustFps' },
+            { key: '[', command: 'detachedDim.adjustIndexA' },
+            { key: ']', command: 'detachedDim.adjustIndexA' },
             { key: '[', command: 'ui.adjustBracket' },
             { key: ']', command: 'ui.adjustBracket' },
+            { key: '{', command: 'detachedDim.adjustIndexB' },
+            { key: '}', command: 'detachedDim.adjustIndexB' },
             { key: '{', command: 'vfield.adjustLength' },
             { key: '}', command: 'vfield.adjustLength' },
             { key: 'i', command: 'hoverinfo.toggle' },
@@ -17570,6 +17685,8 @@
                 qmriActive: qmriActive,
                 compareQmriActive: compareQmriActive,
                 compareActive: compareActive,
+                detachedDimMode: detachedDimMode,
+                canDetachActiveDim: _canDetachDim(activeDim),
                 rgbMode: rgbMode,
                 arraysLength: (typeof compareDisplaySids !== 'undefined' && compareDisplaySids) ? compareDisplaySids.length : 0,
                 isPlaying: (typeof isPlaying !== 'undefined') ? isPlaying : false,
@@ -17737,8 +17854,9 @@
                         title: 'Operations (requires exactly 2 arrays)',
                         entries: [
                             { key: '/ x', action: 'Toggle compare center', hint: 'opens the last-used center mode from the tool menu; click the mode buttons in the tool or center-pane header for direct selection' },
-                            { key: 'X', action: 'Cycle compare operation', hint: 'keyboard fallback: off → A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
-                            { key: '[ ]', action: 'Adjust operation parameter', hint: 'blend amount, flicker speed, or checkerboard tile size' },
+                            { key: 'X', action: 'Cycle compare operation', hint: 'with one array on a non-spatial dim, enters detached compare first; then cycles A−B → |A−B| → relative → overlay → wipe → flicker → checkerboard' },
+                            { key: '[ ]', action: 'Adjust operation parameter / detached A index', hint: 'in detached compare, scrubs the left pane index instead of blend, wipe, flicker, or checker size' },
+                            { key: '{ }', action: 'Adjust detached B index', hint: 'in detached compare, scrubs the right pane index' },
                             { key: 'Z', action: 'Zen focus — hide the two source panes', hint: 'available when X activated a center operation; outside compare, Z toggles full zen mode' },
                         ]
                     }
@@ -19620,6 +19738,36 @@
 
 
         // --------------- Side-by-side compare ---------------
+        async function enterDetachedDimMode(dim) {
+            if (!_canDetachDim(dim)) {
+                showStatus('compare: choose a non-spatial dimension with at least 2 indices');
+                return false;
+            }
+            detachedDimMode = true;
+            detachedDim = dim;
+            detachedDimIndexA = Math.max(0, Math.min(shape[dim] - 1, Number(indices[dim]) || 0));
+            detachedDimIndexB = (detachedDimIndexA + 1) % shape[dim];
+            if (detachedDimIndexB === detachedDimIndexA) {
+                detachedDimIndexB = (detachedDimIndexB + 1) % shape[dim];
+            }
+            compareNameBySid[sid] = _sessionName;
+            const ok = await enterCompareModeByMultipleSids([sid, sid]);
+            if (!ok) {
+                _resetDetachedDimState();
+                return false;
+            }
+            compareSid = sid;
+            compareName = _sessionName;
+            compareBaseName = _sessionName;
+            compareDisplaySids = [sid, sid];
+            updateCompareTitles();
+            renderInfo();
+            _setCompareCenterMode(1);
+            showStatus(`compare: dim ${detachedDim} detached · A ${_detachedDimPaneLabel(detachedDimIndexA)} · B ${_detachedDimPaneLabel(detachedDimIndexB)}`);
+            saveState();
+            return true;
+        }
+
         async function enterCompareModeBySid(targetSid, targetNameHint = '') {
             if (!targetSid || targetSid === sid) {
                 showStatus('compare: choose a different session');
@@ -20375,6 +20523,7 @@
             _wipeActive = false;
             _flickerActive = false;
             _checkerActive = false;
+            _resetDetachedDimState();
             if (_flickerTimer) { clearInterval(_flickerTimer); _flickerTimer = null; }
             _diffCenterColormap = '';
             _diffCenterColormapStops = null;
@@ -20384,6 +20533,7 @@
             drawSlimColorbar(cbMarkerFrac);
             renderEggs();
             _updateHeaderNameForCompare();
+            renderInfo();
             updateView();
             showStatus('compare: off');
             // Phase 4: sync modeManager back to normal (same shallow pattern as exitMultiView)

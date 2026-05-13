@@ -95,13 +95,22 @@ def _compute_diff(
     complex_mode,
     log_scale,
     diff_mode,
+    indices_a=None,
+    indices_b=None,
 ):
     """Return raw diff, display range, colormap, and optional separator mask."""
-    idx_tuple = tuple(int(x) for x in indices.split(",")) if isinstance(indices, str) else indices
+    def _parse_indices(raw_indices):
+        if raw_indices is None:
+            return ()
+        if isinstance(raw_indices, str):
+            return tuple(int(x) for x in raw_indices.split(",") if x != "")
+        return tuple(int(x) for x in raw_indices)
+
+    idx_tuple = _parse_indices(indices)
     ndim_a = len(session_a.shape)
     ndim_b = len(session_b.shape)
-    idx_a = idx_tuple[:ndim_a]
-    idx_b = idx_tuple[:ndim_b]
+    idx_a = _parse_indices(indices_a)[:ndim_a] if indices_a is not None else idx_tuple[:ndim_a]
+    idx_b = _parse_indices(indices_b)[:ndim_b] if indices_b is not None else idx_tuple[:ndim_b]
     nan_mask = None
 
     if dim_z >= 0:

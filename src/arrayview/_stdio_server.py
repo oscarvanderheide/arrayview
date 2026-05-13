@@ -307,6 +307,8 @@ def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
     dim_x = int(params.get("dim_x", 0))
     dim_y = int(params.get("dim_y", 0))
     indices = params.get("indices", "")
+    indices_a = params.get("indices_a")
+    indices_b = params.get("indices_b")
     dim_z = int(params.get("dim_z", -1))
     dr = int(params.get("dr", 1))
     complex_mode = int(params.get("complex_mode", 0))
@@ -322,6 +324,7 @@ def _handle_diff(sid_a: str, sid_b: str, params: dict) -> None:
         raw, vmin, vmax, colormap, nan_mask = _compute_diff(
             session_a, session_b, dim_x, dim_y, indices,
             dim_z, dr, complex_mode, log_scale, diff_mode,
+            indices_a=indices_a, indices_b=indices_b,
         )
     except Exception as e:
         _write_json({"error": str(e)})
@@ -361,6 +364,8 @@ def _handle_diff_histogram(sid_a: str, sid_b: str, params: dict) -> None:
     dim_x = int(params.get("dim_x", 0))
     dim_y = int(params.get("dim_y", 0))
     indices = params.get("indices", "")
+    indices_a = params.get("indices_a")
+    indices_b = params.get("indices_b")
     dim_z = int(params.get("dim_z", -1))
     dr = int(params.get("dr", 1))
     complex_mode = int(params.get("complex_mode", 0))
@@ -372,6 +377,7 @@ def _handle_diff_histogram(sid_a: str, sid_b: str, params: dict) -> None:
         raw, _, _, _, _ = _compute_diff(
             session_a, session_b, dim_x, dim_y, indices,
             dim_z, dr, complex_mode, log_scale, diff_mode,
+            indices_a=indices_a, indices_b=indices_b,
         )
     except Exception as e:
         _write_json({"error": str(e)})

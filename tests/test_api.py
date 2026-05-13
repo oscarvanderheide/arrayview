@@ -2569,6 +2569,34 @@ class TestDiff:
         assert r.status_code == 200
         assert r.headers.get("X-ArrayView-Colormap") == "viridis"
 
+    def test_diff_accepts_split_indices_for_same_session(self, client, tmp_path):
+        base = np.linspace(0, 1, 16 * 16, dtype=np.float32).reshape(16, 16)
+        arr = np.stack([base, np.flipud(base)], axis=0)
+        path = tmp_path / "detached_diff.npy"
+        np.save(path, arr)
+        sid = client.post("/load", json={"filepath": str(path)}).json()["sid"]
+
+        same = client.get(f"/diff/{sid}/{sid}", params={
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "diff_mode": 1,
+        })
+        split = client.get(f"/diff/{sid}/{sid}", params={
+            "dim_x": 2,
+            "dim_y": 1,
+            "indices": "0,0,0",
+            "indices_a": "0,0,0",
+            "indices_b": "1,0,0",
+            "diff_mode": 1,
+        })
+
+        assert same.status_code == 200
+        assert split.status_code == 200
+        same_img = np.asarray(Image.open(io.BytesIO(same.content)))
+        split_img = np.asarray(Image.open(io.BytesIO(split.content)))
+        assert not np.array_equal(same_img, split_img)
+
     def test_unknown_sid_returns_404(self, client):
         r = client.get("/diff/nosid1/nosid2", params={
             "dim_x": 1, "dim_y": 0, "indices": "0,0", "diff_mode": 1,

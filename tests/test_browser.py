@@ -810,6 +810,85 @@ class TestKeyboard:
         assert state["minHeight"] == "26px", f"compare-center pill should stay compact outside fullscreen, got: {state}"
         assert state["minWidth"] == "52px", f"compare-center pill should keep a compact pill width outside fullscreen, got: {state}"
 
+    def test_x_enters_detached_compare_for_single_array(self, loaded_viewer, sid_4d):
+        page = loaded_viewer(sid_4d)
+        _focus_kb(page)
+        detached_state = page.evaluate(
+            """() => {
+                const dim = [...Array(shape.length).keys()].find(d => _canDetachDim(d));
+                activeDim = dim;
+                indices[dim] = Math.min(1, shape[dim] - 1);
+                renderInfo();
+                return { dim, size: shape[dim] };
+            }"""
+        )
+
+        assert detached_state["dim"] is not None
+        page.keyboard.press("X")
+        page.wait_for_selector("#compare-view-wrap.active", timeout=5_000)
+        page.wait_for_timeout(500)
+
+        assert page.inner_text(f'[data-dim="{detached_state["dim"]}"]').startswith("X")
+        left_title_before = page.inner_text("#compare-left-title")
+        right_title_before = page.inner_text("#compare-right-title")
+        assert f'/{detached_state["size"]}' in left_title_before
+        assert f'/{detached_state["size"]}' in right_title_before
+        assert left_title_before != right_title_before
+
+        left_sum_before = page.evaluate(
+            """() => {
+                const c = document.querySelector('canvas#compare-left-canvas');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                let sum = 0;
+                for (let i = 0; i < d.length; i += 64) sum += d[i] + d[i + 1] + d[i + 2];
+                return sum;
+            }"""
+        )
+        page.keyboard.press("]")
+        page.wait_for_timeout(350)
+        left_title_after = page.inner_text("#compare-left-title")
+        left_sum_after = page.evaluate(
+            """() => {
+                const c = document.querySelector('canvas#compare-left-canvas');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                let sum = 0;
+                for (let i = 0; i < d.length; i += 64) sum += d[i] + d[i + 1] + d[i + 2];
+                return sum;
+            }"""
+        )
+        assert left_title_after != left_title_before
+        assert left_sum_after != left_sum_before
+
+        right_sum_before = page.evaluate(
+            """() => {
+                const c = document.querySelector('canvas#compare-right-canvas');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                let sum = 0;
+                for (let i = 0; i < d.length; i += 64) sum += d[i] + d[i + 1] + d[i + 2];
+                return sum;
+            }"""
+        )
+        page.keyboard.press("}")
+        page.wait_for_timeout(350)
+        right_title_after = page.inner_text("#compare-right-title")
+        right_sum_after = page.evaluate(
+            """() => {
+                const c = document.querySelector('canvas#compare-right-canvas');
+                const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                let sum = 0;
+                for (let i = 0; i < d.length; i += 64) sum += d[i] + d[i + 1] + d[i + 2];
+                return sum;
+            }"""
+        )
+        assert right_title_after != right_title_before
+        assert right_sum_after != right_sum_before
+
+        for _ in range(7):
+            page.keyboard.press("X")
+            page.wait_for_timeout(150)
+        page.wait_for_timeout(300)
+        assert not page.is_visible("#compare-view-wrap.active")
+
     # test_B_is_locked_for_multi_array_launch removed: the B keybind has
     # been retired entirely, so "B is locked" is meaningless. The
     # multi-array URL launch path is still covered by
