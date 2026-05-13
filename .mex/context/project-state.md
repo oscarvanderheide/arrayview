@@ -7,7 +7,7 @@ triggers:
   - "recent work"
   - "active feature"
   - "shipped recently"
-last_updated: 2026-05-11
+last_updated: 2026-05-12
 ---
 
 # Project State
@@ -39,6 +39,7 @@ last_updated: 2026-05-11
 
 ## Recently Completed
 
+- Shift+C colormap picker redesign: the old centered shortlist is now a narrow translucent right-edge drawer with a close button, a yellow `Colormaps` title plus a `Favorites` subtitle, and a plain 12-swatch two-column quick set that stays visible above the search field. Search matches render in a separate results area below the input, Enter first exits the search field before a second Enter commits, arrow-key movement follows the visible two-column grid, and repeated `c` presses cycle through the currently visible swatches while the picker is open.
 - Normal-mode dimbar readability: inactive non-spatial dims no longer get a blanket reduced parent opacity, so the current index reads bright while `/total` stays subdued via the existing child dim-size styling.
 - Multiview colorbar spacing now matches normal mode: entering ortho with `v` and switching to orthogonal `big-left` with `g` no longer increases the pane-to-colorbar gap. Focused browser coverage now compares the normal-view gap against both multiview layouts directly.
 - V-mode ortho layout cycling is now a two-state toggle: `g` only switches between `horizontal` and `big-left`. The old `vertical` and `big-top` multiview presets have been removed from the shared ortho preset table, the hold-`g` picker/help text, and the remaining big-pane promotion branches, and the shared multiview colorbar width now stays fixed when `g` toggles between the two surviving layouts.

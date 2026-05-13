@@ -2137,31 +2137,90 @@ class TestColorbarWindowLevel:
 
 
 class TestCustomColormap:
-    def test_shift_c_picker_is_centered_and_shortlisted(self, loaded_viewer, sid_2d):
+    def test_shift_c_picker_uses_narrow_right_drawer_with_twelve_swatches(self, loaded_viewer, sid_2d):
         page = loaded_viewer(sid_2d)
         _focus_kb(page)
         page.keyboard.press("Shift+C")
         page.wait_for_selector("#cmap-picker.visible", timeout=2_000)
+        page.wait_for_timeout(250)
         picker = page.locator("#cmap-picker-box")
         box = picker.bounding_box()
         viewport = page.viewport_size
-        assert box is not None, "Colormap picker modal did not render"
+        assert box is not None, "Colormap picker drawer did not render"
         assert viewport is not None, "Viewport size unavailable"
-        modal_cx = box["x"] + box["width"] / 2
-        modal_cy = box["y"] + box["height"] / 2
-        assert abs(modal_cx - viewport["width"] / 2) < viewport["width"] * 0.12
-        assert abs(modal_cy - viewport["height"] / 2) < viewport["height"] * 0.14
-        page.wait_for_function(
-            "() => document.querySelector('#cmap-picker-summary')?.textContent?.includes('suggested colormaps')"
+        assert box["width"] < 300
+        assert box["x"] > viewport["width"] * 0.55
+        assert box["y"] < 20
+        assert box["x"] >= viewport["width"] - box["width"] - 32
+        visible_count = page.locator("#cmap-picker-swatches .cmap-picker-swatch").count()
+        assert visible_count == 12, f"Expected 12 quick swatches, saw {visible_count}"
+        left_positions = page.evaluate(
+            """() => [...document.querySelectorAll('#cmap-picker-swatches .cmap-picker-swatch')]
+                .map(el => el.offsetLeft)"""
         )
-        visible_count = page.locator("#cmap-picker-list .cmap-p-cell:not(.hidden)").count()
-        assert visible_count <= 16, f"Expected a shortlist, saw {visible_count} visible colormaps"
-        summary = page.inner_text("#cmap-picker-summary")
-        assert "suggested colormaps" in summary.lower()
-        page.keyboard.type("inferno", delay=20)
+        assert len(set(left_positions)) == 2, f"Expected two swatch columns, got: {left_positions}"
+        label_count = page.locator("#cmap-picker-swatches .cmap-picker-section-label").count()
+        assert label_count == 0, f"Expected no section labels, saw {label_count}"
+        title = page.inner_text("#cmap-picker-title")
+        assert title == "Colormaps"
+        swatches_bottom = page.evaluate(
+            """() => document.querySelector('#cmap-picker-swatches')?.getBoundingClientRect().bottom || 0"""
+        )
+        search_top = page.evaluate(
+            """() => document.querySelector('#cmap-picker-input')?.getBoundingClientRect().top || 0"""
+        )
+        assert search_top >= swatches_bottom - 1, "Search should sit below the quick swatches"
+        nav_state = page.evaluate(
+            """() => {
+                const items = [...document.querySelectorAll('#cmap-picker-swatches .cmap-picker-swatch-name')].map(el => el.textContent || '');
+                const active = document.querySelector('#cmap-picker-swatches .cmap-picker-swatch.active .cmap-picker-swatch-name')?.textContent || '';
+                const idx = items.indexOf(active);
+                return {
+                    active,
+                    expectedDown: idx >= 0 && items[idx + 2] ? items[idx + 2] : active,
+                };
+            }"""
+        )
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(80)
+        down_name = page.evaluate(
+            """() => document.querySelector('#cmap-picker-swatches .cmap-picker-swatch.active .cmap-picker-swatch-name')?.textContent || ''"""
+        )
+        assert nav_state["active"] != "", "Expected an active quick-swatch selection"
+        assert down_name == nav_state["expectedDown"], f"ArrowDown should move vertically, got {down_name!r} from {nav_state['active']!r}"
+        cycle_names = page.evaluate(
+            """() => ({
+                first: currentColormap(),
+                active: document.querySelector('#cmap-picker-swatches .cmap-picker-swatch.active .cmap-picker-swatch-name')?.textContent || '',
+            })"""
+        )
+        page.keyboard.press("c")
+        page.wait_for_timeout(120)
+        cycle_names["second"] = page.evaluate("() => currentColormap()")
+        page.keyboard.press("c")
+        page.wait_for_timeout(120)
+        cycle_names["third"] = page.evaluate("() => currentColormap()")
+        assert cycle_names["second"] != cycle_names["first"], "First c after opening should advance the open picker"
+        assert cycle_names["third"] != cycle_names["second"], "Repeated c presses should keep cycling through colormaps"
+        page.fill("#cmap-picker-input", "inferno")
         page.wait_for_timeout(250)
+        page.wait_for_function(
+            "() => (document.querySelectorAll('#cmap-picker-results .cmap-picker-swatch').length || 0) >= 1"
+        )
+        quick_count_after_search = page.locator("#cmap-picker-swatches .cmap-picker-swatch").count()
+        assert quick_count_after_search == 12, f"Quick swatches should stay visible during search, saw {quick_count_after_search}"
+        results_count = page.locator("#cmap-picker-results .cmap-picker-swatch").count()
+        assert results_count >= 1, "Expected search matches below the search input"
+        results_top = page.evaluate(
+            """() => document.querySelector('#cmap-picker-results')?.getBoundingClientRect().top || 0"""
+        )
+        search_bottom = page.evaluate(
+            """() => document.querySelector('#cmap-picker-input')?.getBoundingClientRect().bottom || 0"""
+        )
+        assert results_top >= search_bottom - 1, "Search matches should render below the search input"
         filtered_box = picker.bounding_box()
         assert filtered_box is not None
+        assert abs(filtered_box["x"] - box["x"]) < 2, "Picker box shifted horizontally while filtering"
         assert abs(filtered_box["y"] - box["y"]) < 2, "Picker box shifted vertically while filtering"
 
     def test_C_key_with_valid_colormap_changes_canvas(self, loaded_viewer, sid_2d):
@@ -2172,6 +2231,10 @@ class TestCustomColormap:
         page.wait_for_selector("#cmap-picker.visible", timeout=2_000)
         page.keyboard.type("inferno", delay=30)
         page.wait_for_timeout(400)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(120)
+        picker_still_open = page.is_visible("#cmap-picker.visible")
+        assert picker_still_open, "First Enter should leave the search input without closing the picker"
         page.keyboard.press("Enter")
         page.wait_for_timeout(1200)
         after = page.evaluate(_JS_CENTER_PIXEL)

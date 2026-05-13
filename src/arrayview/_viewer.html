@@ -746,13 +746,19 @@
         #cmd-palette-list .cmd-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
         #cmd-palette-list .cmd-key { color: #e8b84b; font-size: 11px; margin-left: auto; }
         #cmap-picker {
-            display: block; position: fixed; inset: 0;
+            display: flex;
+            justify-content: flex-end;
+            align-items: stretch;
+            position: fixed;
+            inset: 0;
+            padding: 14px;
             background: transparent;
             z-index: 51;
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transition: opacity 0.16s ease, visibility 0s linear 0.16s;
+            transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+            box-sizing: border-box;
         }
         #cmap-picker.visible {
             opacity: 1;
@@ -761,43 +767,108 @@
             transition-delay: 0s;
         }
         #cmap-picker-box {
-            background: rgba(30,30,30,0.78); border: 1px solid rgba(255,255,255,0.08);
+            width: min(278px, calc(100vw - 28px));
+            height: calc(100vh - 28px);
+            max-height: calc(100vh - 28px);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+            background: color-mix(in srgb, var(--surface) 78%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
             border-radius: var(--radius-lg);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            width: fit-content; max-width: calc(100vw - 40px); max-height: min(58vh, 460px);
-            display: flex; flex-direction: column; gap: 2px;
-            padding: 10px 18px 14px;
-            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
-            color: var(--text); overflow: visible;
-            position: fixed;
             box-sizing: border-box;
             pointer-events: auto;
+            overflow: hidden;
+            font-family: 'SF Mono', ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+            color: var(--text);
+            box-shadow: var(--layout-shadow);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             opacity: 0;
-            transform: translateY(6px) scale(0.985);
-            transition: opacity 0.16s ease, transform 0.16s ease;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            transform: translateX(26px);
+            transition: opacity 0.18s ease, transform 0.22s ease;
         }
-        #cmap-picker.visible #cmap-picker-box { opacity: 1; transform: translateY(0) scale(1); }
+        #cmap-picker.visible #cmap-picker-box {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .cmap-picker-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .cmap-picker-head-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+        }
+        #cmap-picker-title {
+            font-size: 16px;
+            line-height: 1.15;
+            color: var(--active-dim);
+        }
+        .cmap-picker-subtitle {
+            font-size: 10px;
+            line-height: 1.2;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        #cmap-picker-close {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            font-size: 15px;
+            cursor: pointer;
+            flex: 0 0 auto;
+            transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+        }
+        #cmap-picker-close:hover {
+            border-color: var(--active-dim);
+            color: var(--active-dim);
+            background: color-mix(in srgb, var(--active-dim) 10%, transparent);
+        }
         #cmap-picker-swatches {
-            display: flex; align-items: stretch; justify-content: flex-start;
-            gap: 8px;
-            overflow-x: auto; overflow-y: visible;
-            padding: 10px 4px 4px;
-            min-height: 110px;
-            transition: opacity 0.14s ease, transform 0.14s ease;
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow: visible;
+            margin-bottom: 8px;
+        }
+        .cmap-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 105px));
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
         }
         .cmap-picker-swatch {
             position: relative;
-            display: flex; align-items: stretch; justify-content: center;
+            display: flex;
+            align-items: stretch;
+            justify-content: center;
+            width: 105px;
+            height: 21px;
             padding: 0;
             border-radius: 6px;
             border: 1px solid var(--border);
             background: transparent;
             cursor: pointer;
-            flex: 0 0 auto;
-            width: 21px;
-            height: 105px;
+            overflow: hidden;
             box-sizing: border-box;
+            flex: 0 0 auto;
             transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease, transform 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
         .cmap-picker-swatch:hover:not(.active) {
@@ -806,32 +877,49 @@
         .cmap-picker-swatch.active {
             border-color: var(--active-dim);
             box-shadow: 0 0 0 1px color-mix(in srgb, var(--active-dim) 40%, transparent);
-            transform: scale(1.12);
+            transform: scale(1.06);
             z-index: 1;
         }
         .cmap-picker-swatch canvas {
             display: block;
-            width: 100%; height: 100%;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
             border-radius: 5px;
         }
         .cmap-picker-swatch-name {
             position: absolute;
-            left: 50%;
-            bottom: 4px;
-            display: block;
+            left: 6px;
+            right: 6px;
+            top: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.92);
             font-size: 9px;
             font-weight: 600;
             letter-spacing: 0.01em;
-            line-height: 1;
-            writing-mode: vertical-rl;
-            transform: translateX(-50%) rotate(180deg);
             white-space: nowrap;
-            max-height: calc(100% - 10px);
+            overflow: hidden;
+            text-overflow: ellipsis;
             pointer-events: none;
-            color: rgba(255,255,255,0.92);
-            -webkit-text-stroke: 1.3px rgba(0,0,0,0.4);
+            -webkit-text-stroke: 1.1px rgba(0,0,0,0.35);
             paint-order: stroke fill;
             text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+        }
+        .cmap-picker-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 96px;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius);
+            color: var(--muted);
+            font-size: 12px;
+            text-align: center;
+            padding: 0 14px;
         }
         #cmap-picker-input {
             background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 12px center;
@@ -840,7 +928,16 @@
             color: var(--text); font: inherit; font-size: 13px;
             padding: 8px 12px 8px 34px; outline: none; width: 100%; box-sizing: border-box;
         }
-        #cmap-picker-input:focus { border-color: var(--active-dim); }
+        #cmap-picker-input:focus { border-color: var(--border); }
+        #cmap-picker-results {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            padding: 4px 2px 2px 0;
+        }
         #cmap-picker-list {
             display: none;
         }
@@ -3265,8 +3362,16 @@
 </div>
 <div id="cmap-picker">
     <div id="cmap-picker-box" role="dialog" aria-modal="true">
+        <div class="cmap-picker-head">
+            <div class="cmap-picker-head-copy">
+                <div id="cmap-picker-title">Colormaps</div>
+                <div class="cmap-picker-subtitle">Favorites</div>
+            </div>
+            <button id="cmap-picker-close" type="button" aria-label="Close colormap picker">&#x2715;</button>
+        </div>
         <div id="cmap-picker-swatches"></div>
-        <input id="cmap-picker-input" type="text" placeholder="colormaps" autocomplete="off" spellcheck="false">
+        <input id="cmap-picker-input" type="text" placeholder="Search colormaps" autocomplete="off" spellcheck="false">
+        <div id="cmap-picker-results"></div>
         <div id="cmap-picker-list"></div>
     </div>
 </div>
@@ -15779,7 +15884,7 @@
                 run: (ctx, e) => {
                     if (rgbMode) return;
                     if (_cmapPickerOpen && document.activeElement !== document.getElementById('cmap-picker-input')) {
-                        _cmapPickerBrowseMove(1);
+                        _cmapPickerCycleAll(1);
                         return;
                     }
                     if (_cmapHoldMenuEligible()) {
@@ -18640,15 +18745,14 @@
 
         // ── Colormap Picker (c / Shift+C) ──────────────────────────────
         let _cmapPickerOpen = false;
-        const _CMAP_PICKER_RECOMMENDED = [
-            'gray', 'Greys', 'viridis', 'magma', 'inferno', 'plasma',
-            'cividis', 'coolwarm', 'RdBu_r', 'Spectral', 'turbo', 'cubehelix',
-        ];
+        const _CMAP_PICKER_DEFAULT_COUNT = 12;
         let _cmapPickerAllNames = null;   // full list from server
         let _cmapPickerVisible = [];      // filtered indices into _cmapPickerAllNames
         let _cmapPickerActiveVisIdx = 0;
         let _cmapPickerGradStops = Object.assign({}, COLORMAP_GRADIENT_STOPS || {});
-        let _cmapPickerSwatchEls = new Map();
+        let _cmapPickerBrowseSwatchEls = new Map();
+        let _cmapPickerSearchSwatchEls = new Map();
+        let _cmapPickerBrowsePool = [];
         let _cmapPickerBrowseNames = [];
         let _cmapPickerBrowseIdx = 0;
         let _cmapPickerSearchFocused = false;
@@ -18749,9 +18853,10 @@
         function _cmapPickerFilter(q) {
             if (!_cmapPickerAllNames) return;
             const query = (q || '').trim().toLowerCase();
-            const strip = document.getElementById('cmap-picker-swatches');
-            if (!strip) return;
             if (!query) {
+                _cmapPickerVisible = [];
+                _cmapPickerActiveVisIdx = 0;
+                _cmapPickerClearSearchResults();
                 _cmapPickerBuildBrowseSwatches();
                 return;
             }
@@ -18767,31 +18872,15 @@
             });
             const prevGlobalIdx = _cmapPickerVisible.length > 0 ? _cmapPickerVisible[_cmapPickerActiveVisIdx] : null;
             _cmapPickerVisible = scored.map(item => item.idx);
-            strip.innerHTML = '';
-            _cmapPickerSwatchEls = new Map();
+            _cmapPickerSetMeta(`${_cmapPickerVisible.length} match${_cmapPickerVisible.length === 1 ? '' : 'es'} · Enter to apply · Esc to cancel`);
             if (_cmapPickerVisible.length === 0) {
-                const msg = document.createElement('div');
-                msg.textContent = `No colormaps matched "${query}".`;
-                msg.style.cssText = 'color:var(--muted);font-size:12px;width:100%;text-align:center;padding:12px 0;white-space:nowrap;';
-                strip.appendChild(msg);
+                _cmapPickerRenderSearchResults([], `No colormaps matched "${query}".`);
                 _cmapPickerActiveVisIdx = 0;
                 _cmapPickerHighlight();
                 return;
             }
             const visibleSet = new Set(_cmapPickerVisible);
-            _cmapPickerVisible.forEach((idx, visIdx) => {
-                const name = _cmapPickerAllNames[idx];
-                const swatch = _cmapPickerMakeSwatchEl(name);
-                swatch.addEventListener('mouseenter', () => {
-                    _cmapPickerActiveVisIdx = visIdx;
-                    _cmapPickerHighlight();
-                });
-                swatch.addEventListener('click', () => {
-                    _cmapPickerCommitName(name);
-                });
-                _cmapPickerSwatchEls.set(name, swatch);
-                strip.appendChild(swatch);
-            });
+            _cmapPickerRenderSearchResults(_cmapPickerVisible.map(idx => _cmapPickerAllNames[idx]));
             const currentName = _cmapPickerSpec && typeof _cmapPickerSpec.currentName === 'function'
                 ? _cmapPickerSpec.currentName()
                 : _cmapPickerCurrentName();
@@ -18806,12 +18895,82 @@
             _cmapPickerHighlight();
         }
 
+        function _cmapPickerUniqueNames(names) {
+            const out = [];
+            const seen = new Set();
+            (names || []).forEach(name => {
+                if (!name || seen.has(name)) return;
+                seen.add(name);
+                out.push(name);
+            });
+            return out;
+        }
+
+        function _cmapPickerSetMeta(text) {
+            const meta = document.getElementById('cmap-picker-list');
+            if (meta) meta.textContent = text || '';
+        }
+
+        function _cmapPickerMoveGridIndex(currentIdx, rowDelta, colDelta, count) {
+            if (!count) return 0;
+            const cols = 2;
+            const current = Math.max(0, Math.min(count - 1, currentIdx));
+            const currentRow = Math.floor(current / cols);
+            const currentCol = current % cols;
+            const targetRow = Math.max(0, currentRow + rowDelta);
+            const targetCol = Math.max(0, Math.min(cols - 1, currentCol + colDelta));
+            const targetIdx = targetRow * cols + targetCol;
+            if (targetIdx >= count) {
+                if (rowDelta !== 0) return current;
+                const rowStart = targetRow * cols;
+                const rowEnd = Math.min(count - 1, rowStart + cols - 1);
+                return Math.max(rowStart, Math.min(rowEnd, count - 1));
+            }
+            return targetIdx;
+        }
+
+        function _cmapPickerMoveSearch(rowDelta, colDelta) {
+            if (!_cmapPickerVisible.length) return;
+            _cmapPickerActiveVisIdx = _cmapPickerMoveGridIndex(
+                _cmapPickerActiveVisIdx,
+                rowDelta,
+                colDelta,
+                _cmapPickerVisible.length,
+            );
+            _cmapPickerHighlight();
+        }
+
+        function _cmapPickerMoveBrowse(rowDelta, colDelta) {
+            if (!_cmapPickerBrowseNames.length) return;
+            _cmapPickerBrowseIdx = _cmapPickerMoveGridIndex(
+                _cmapPickerBrowseIdx,
+                rowDelta,
+                colDelta,
+                _cmapPickerBrowseNames.length,
+            );
+            _cmapPickerHighlightBrowse();
+        }
+
+        function _cmapPickerCycleAll(delta) {
+            if (_cmapPickerSearchQuery && _cmapPickerVisible.length > 0) {
+                const n = _cmapPickerVisible.length;
+                _cmapPickerActiveVisIdx = (_cmapPickerActiveVisIdx + delta + n) % n;
+                _cmapPickerHighlight();
+                return;
+            }
+            if (_cmapPickerBrowseNames.length > 0) {
+                const n = _cmapPickerBrowseNames.length;
+                _cmapPickerBrowseIdx = (_cmapPickerBrowseIdx + delta + n) % n;
+                _cmapPickerHighlightBrowse();
+            }
+        }
+
         function _cmapPickerMakeSwatchEl(name) {
             const cell = document.createElement('button');
             cell.type = 'button';
             cell.className = 'cmap-picker-swatch';
             const cv = document.createElement('canvas');
-            cv.width = 21; cv.height = 105;
+            cv.width = 105; cv.height = 21;
             const label = document.createElement('span');
             label.className = 'cmap-picker-swatch-name';
             label.textContent = name;
@@ -18819,13 +18978,72 @@
             cell.appendChild(label);
             const stops = _cmapPickerGradStops[name] || COLORMAP_GRADIENT_STOPS[name];
             if (stops) {
-                _cmapPickerPaintSwatch(cv, stops, true);
+                _cmapPickerPaintSwatch(cv, stops);
             } else {
                 _fetchNamedColormapStops(name).then(loaded => {
-                    if (loaded) _cmapPickerPaintSwatch(cv, loaded, true);
+                    if (loaded) _cmapPickerPaintSwatch(cv, loaded);
                 });
             }
             return cell;
+        }
+
+        function _cmapPickerRenderGrid(container, names, mode, emptyMessage = '') {
+            if (!container) return new Map();
+            container.innerHTML = '';
+            if (!names.length) {
+                if (emptyMessage) {
+                    const msg = document.createElement('div');
+                    msg.className = 'cmap-picker-empty';
+                    msg.textContent = emptyMessage;
+                    container.appendChild(msg);
+                }
+                return new Map();
+            }
+            const grid = document.createElement('div');
+            grid.className = 'cmap-picker-grid';
+            const swatchEls = new Map();
+            let browseIdx = 0;
+            let searchIdx = 0;
+            names.forEach(name => {
+                const swatch = _cmapPickerMakeSwatchEl(name);
+                if (mode === 'browse') {
+                    const ownIdx = browseIdx;
+                    swatch.addEventListener('mouseenter', () => {
+                        _cmapPickerBrowseIdx = ownIdx;
+                        _cmapPickerHighlightBrowse();
+                    });
+                    swatch.addEventListener('click', () => {
+                        _cmapPickerBrowseIdx = ownIdx;
+                        _cmapPickerCommitName(name);
+                    });
+                    browseIdx += 1;
+                } else {
+                    const ownIdx = searchIdx;
+                    swatch.addEventListener('mouseenter', () => {
+                        _cmapPickerActiveVisIdx = ownIdx;
+                        _cmapPickerHighlight();
+                    });
+                    swatch.addEventListener('click', () => {
+                        _cmapPickerCommitName(name);
+                    });
+                    searchIdx += 1;
+                }
+                swatchEls.set(name, swatch);
+                grid.appendChild(swatch);
+            });
+            container.appendChild(grid);
+            return swatchEls;
+        }
+
+        function _cmapPickerRenderSearchResults(names, emptyMessage = '') {
+            const results = document.getElementById('cmap-picker-results');
+            _cmapPickerSearchSwatchEls = _cmapPickerRenderGrid(results, names, 'search', emptyMessage);
+        }
+
+        function _cmapPickerClearSearchResults() {
+            const results = document.getElementById('cmap-picker-results');
+            if (results) results.innerHTML = '';
+            _cmapPickerSearchSwatchEls = new Map();
         }
 
         function _cmapPickerApplySearchFocusState() {
@@ -18836,13 +19054,13 @@
         }
 
         function _cmapPickerHighlight() {
-            _cmapPickerSwatchEls.forEach(el => el.classList.remove('active'));
+            _cmapPickerSearchSwatchEls.forEach(el => el.classList.remove('active'));
             if (_cmapPickerVisible.length === 0) return;
             if (_cmapPickerActiveVisIdx < 0) _cmapPickerActiveVisIdx = 0;
             if (_cmapPickerActiveVisIdx >= _cmapPickerVisible.length) _cmapPickerActiveVisIdx = _cmapPickerVisible.length - 1;
             const idx = _cmapPickerVisible[_cmapPickerActiveVisIdx];
             const name = _cmapPickerAllNames ? _cmapPickerAllNames[idx] : '';
-            const el = _cmapPickerSwatchEls.get(name);
+            const el = _cmapPickerSearchSwatchEls.get(name);
             if (!el) return;
             el.classList.add('active');
             el.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -18857,12 +19075,12 @@
         }
 
         function _cmapPickerHighlightBrowse() {
-            _cmapPickerSwatchEls.forEach(el => el.classList.remove('active'));
+            _cmapPickerBrowseSwatchEls.forEach(el => el.classList.remove('active'));
             if (!_cmapPickerBrowseNames.length) return;
             if (_cmapPickerBrowseIdx < 0) _cmapPickerBrowseIdx = 0;
             if (_cmapPickerBrowseIdx >= _cmapPickerBrowseNames.length) _cmapPickerBrowseIdx = _cmapPickerBrowseNames.length - 1;
             const name = _cmapPickerBrowseNames[_cmapPickerBrowseIdx];
-            const el = _cmapPickerSwatchEls.get(name);
+            const el = _cmapPickerBrowseSwatchEls.get(name);
             if (!el) return;
             el.classList.add('active');
             el.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -18886,6 +19104,7 @@
 
         function _cmapPickerPaintSwatch(canvas, stops, vertical = false) {
             const g = canvas.getContext('2d');
+            g.clearRect(0, 0, canvas.width, canvas.height);
             const grad = vertical
                 ? g.createLinearGradient(0, canvas.height, 0, 0)
                 : g.createLinearGradient(0, 0, canvas.width, 0);
@@ -18898,23 +19117,15 @@
 
         function _cmapPickerBuildBrowseSwatches() {
             const strip = document.getElementById('cmap-picker-swatches');
-            if (!strip) return;
-            strip.innerHTML = '';
-            _cmapPickerSwatchEls = new Map();
-            const names = _cmapPickerBrowseNames.slice();
-            names.forEach((name, i) => {
-                const swatch = _cmapPickerMakeSwatchEl(name);
-                swatch.addEventListener('mouseenter', () => {
-                    _cmapPickerBrowseIdx = i;
-                    _cmapPickerHighlightBrowse();
-                });
-                swatch.addEventListener('click', () => {
-                    _cmapPickerBrowseIdx = i;
-                    _cmapPickerCommitName(name);
-                });
-                _cmapPickerSwatchEls.set(name, swatch);
-                strip.appendChild(swatch);
-            });
+            const pool = _cmapPickerBrowsePool.slice();
+            const currentName = _cmapPickerSpec && typeof _cmapPickerSpec.currentName === 'function'
+                ? _cmapPickerSpec.currentName()
+                : _cmapPickerCurrentName();
+            _cmapPickerBrowseNames = _cmapPickerUniqueNames([currentName, ...pool]).slice(0, Math.min(pool.length, _CMAP_PICKER_DEFAULT_COUNT));
+            _cmapPickerSetMeta('');
+            _cmapPickerBrowseSwatchEls = _cmapPickerRenderGrid(strip, _cmapPickerBrowseNames, 'browse');
+            const currentIdx = _cmapPickerBrowseNames.indexOf(currentName);
+            _cmapPickerBrowseIdx = currentIdx >= 0 ? currentIdx : 0;
             _cmapPickerHighlightBrowse();
         }
 
@@ -18922,17 +19133,10 @@
             if (!_cmapPickerOpen || !_cmapPickerSpec || !_cmapPickerSpec.host) return;
             const box = document.getElementById('cmap-picker-box');
             if (!box) return;
-            const rect = _cmapPickerSpec.host.getBoundingClientRect();
-            const boxW = Math.min(box.offsetWidth || 720, window.innerWidth - 24);
-            const boxH = Math.min(box.offsetHeight || 420, window.innerHeight - 24);
-            const left = Math.max(12, Math.min(window.innerWidth - boxW - 12, rect.left + rect.width / 2 - boxW / 2));
-            const preferAbove = rect.top > (boxH + 24);
-            if (preferAbove) {
-                box.style.top = Math.max(12, rect.top - boxH - 12) + 'px';
-            } else {
-                box.style.top = Math.min(window.innerHeight - boxH - 12, rect.bottom + 12) + 'px';
-            }
-            box.style.left = left + 'px';
+            box.style.top = '';
+            box.style.left = '';
+            box.style.right = '';
+            box.style.bottom = '';
         }
 
         function _cmapPickerRestore() {
@@ -18969,27 +19173,55 @@
                 }
                 return true;
             }
-            if (e.key === 'Enter') {
-                e.preventDefault(); e.stopPropagation();
-                if (_cmapPickerSearchQuery && _cmapPickerVisible.length > 0) {
-                    _cmapPickerCommit(_cmapPickerVisible[_cmapPickerActiveVisIdx]);
-                } else if (_cmapPickerBrowseNames.length > 0) {
-                    _cmapPickerCommitName(_cmapPickerBrowseNames[_cmapPickerBrowseIdx]);
-                }
-                return true;
-            }
             if (document.activeElement === document.getElementById('cmap-picker-input')) {
+                if (e.key === 'Enter') {
+                    e.preventDefault(); e.stopPropagation();
+                    _cmapPickerSearchFocused = false;
+                    _cmapPickerApplySearchFocusState();
+                    try { sink.focus({ preventScroll: true }); } catch (_) { try { sink.focus(); } catch (_) {} }
+                    return true;
+                }
                 if (_cmapPickerVisible.length > 0) {
-                    if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'l' || e.key === 'ArrowRight') {
+                    if (e.key === 'ArrowDown' || e.key === 'j') {
                         e.preventDefault(); e.stopPropagation();
-                        _cmapPickerActiveVisIdx++;
-                        _cmapPickerHighlight();
+                        _cmapPickerMoveSearch(1, 0);
                         return true;
                     }
-                    if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'h' || e.key === 'ArrowLeft') {
+                    if (e.key === 'ArrowUp' || e.key === 'k') {
                         e.preventDefault(); e.stopPropagation();
-                        _cmapPickerActiveVisIdx--;
-                        _cmapPickerHighlight();
+                        _cmapPickerMoveSearch(-1, 0);
+                        return true;
+                    }
+                    if (e.key === 'ArrowLeft' || e.key === 'h') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveSearch(0, -1);
+                        return true;
+                    }
+                    if (e.key === 'ArrowRight' || e.key === 'l') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveSearch(0, 1);
+                        return true;
+                    }
+                }
+                if (!_cmapPickerSearchQuery && _cmapPickerBrowseNames.length > 0) {
+                    if (e.key === 'ArrowDown' || e.key === 'j') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveBrowse(1, 0);
+                        return true;
+                    }
+                    if (e.key === 'ArrowUp' || e.key === 'k') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveBrowse(-1, 0);
+                        return true;
+                    }
+                    if (e.key === 'ArrowLeft' || e.key === 'h') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveBrowse(0, -1);
+                        return true;
+                    }
+                    if (e.key === 'ArrowRight' || e.key === 'l') {
+                        e.preventDefault(); e.stopPropagation();
+                        _cmapPickerMoveBrowse(0, 1);
                         return true;
                     }
                 }
@@ -18999,40 +19231,66 @@
                 e.stopPropagation();
                 return false;
             }
+            if (e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation();
+                if (_cmapPickerSearchQuery && _cmapPickerVisible.length > 0) {
+                    _cmapPickerCommit(_cmapPickerVisible[_cmapPickerActiveVisIdx]);
+                } else if (_cmapPickerBrowseNames.length > 0) {
+                    _cmapPickerCommitName(_cmapPickerBrowseNames[_cmapPickerBrowseIdx]);
+                }
+                return true;
+            }
             if (_cmapPickerSearchQuery && _cmapPickerVisible.length > 0) {
                 if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
                     e.preventDefault(); e.stopPropagation();
-                    _cmapPickerActiveVisIdx++;
-                    _cmapPickerHighlight();
+                    _cmapPickerCycleAll(1);
                     return true;
                 }
-                if (e.key === 'h' || e.key === 'ArrowLeft' || e.key === 'k' || e.key === 'ArrowUp') {
+                if (e.key === 'ArrowLeft' || e.key === 'h') {
                     e.preventDefault(); e.stopPropagation();
-                    _cmapPickerActiveVisIdx--;
-                    _cmapPickerHighlight();
+                    _cmapPickerMoveSearch(0, -1);
                     return true;
                 }
-                if (e.key === 'l' || e.key === 'ArrowRight' || e.key === 'j' || e.key === 'ArrowDown') {
+                if (e.key === 'ArrowRight' || e.key === 'l') {
                     e.preventDefault(); e.stopPropagation();
-                    _cmapPickerActiveVisIdx++;
-                    _cmapPickerHighlight();
+                    _cmapPickerMoveSearch(0, 1);
+                    return true;
+                }
+                if (e.key === 'ArrowUp' || e.key === 'k') {
+                    e.preventDefault(); e.stopPropagation();
+                    _cmapPickerMoveSearch(-1, 0);
+                    return true;
+                }
+                if (e.key === 'ArrowDown' || e.key === 'j') {
+                    e.preventDefault(); e.stopPropagation();
+                    _cmapPickerMoveSearch(1, 0);
                     return true;
                 }
                 return false;
             }
             if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
                 e.preventDefault(); e.stopPropagation();
-                _cmapPickerBrowseMove(1);
+                _cmapPickerCycleAll(1);
                 return true;
             }
-            if (e.key === 'h' || e.key === 'ArrowLeft' || e.key === 'k' || e.key === 'ArrowUp') {
+            if (e.key === 'ArrowLeft' || e.key === 'h') {
                 e.preventDefault(); e.stopPropagation();
-                _cmapPickerBrowseMove(-1);
+                _cmapPickerMoveBrowse(0, -1);
                 return true;
             }
-            if (e.key === 'l' || e.key === 'ArrowRight' || e.key === 'j' || e.key === 'ArrowDown') {
+            if (e.key === 'ArrowRight' || e.key === 'l') {
                 e.preventDefault(); e.stopPropagation();
-                _cmapPickerBrowseMove(1);
+                _cmapPickerMoveBrowse(0, 1);
+                return true;
+            }
+            if (e.key === 'ArrowUp' || e.key === 'k') {
+                e.preventDefault(); e.stopPropagation();
+                _cmapPickerMoveBrowse(-1, 0);
+                return true;
+            }
+            if (e.key === 'ArrowDown' || e.key === 'j') {
+                e.preventDefault(); e.stopPropagation();
+                _cmapPickerMoveBrowse(1, 0);
                 return true;
             }
             return false;
@@ -19055,15 +19313,14 @@
             if (paletteOpen) closeCommandPalette();
             _cmapPickerSpec = spec;
             _cmapPickerPrevState = typeof spec.captureState === 'function' ? spec.captureState() : null;
-            _cmapPickerBrowseNames = Array.isArray(spec.pool) ? spec.pool.slice() : COLORMAPS.slice();
-            const currentName = typeof spec.currentName === 'function' ? spec.currentName() : _cmapPickerCurrentName();
-            _cmapPickerBrowseIdx = Math.max(0, _cmapPickerBrowseNames.indexOf(currentName));
+            _cmapPickerBrowsePool = Array.isArray(spec.pool) ? spec.pool.slice() : COLORMAPS.slice();
             _cmapPickerSearchFocused = !!(opts && opts.focusSearch);
             _cmapPickerSearchQuery = '';
             _cmapPickerOpen = true;
             root.classList.add('visible');
             box.classList.remove('search-active', 'has-query');
             input.value = '';
+            _cmapPickerSetMeta('12 swatches · Search to browse the full library.');
 
             const loadAndShow = (names) => {
                 _cmapPickerAllNames = names;
@@ -19072,7 +19329,6 @@
                 _cmapPickerApplySearchFocusState();
                 requestAnimationFrame(() => {
                     _cmapPickerPosition();
-                    box.style.width = box.offsetWidth + 'px';
                     if (_cmapPickerSearchFocused) input.focus();
                     else sink.focus();
                 });
@@ -19100,9 +19356,9 @@
                     .then(d => {
                         if (d && d.gradient_stops) {
                             _cmapPickerGradStops[name] = d.gradient_stops;
-                            const swatch = _cmapPickerSwatchEls.get(name);
+                            const swatch = _cmapPickerSearchSwatchEls.get(name) || _cmapPickerBrowseSwatchEls.get(name);
                             const cv = swatch ? swatch.querySelector('canvas') : null;
-                            if (cv) _cmapPickerPaintSwatch(cv, d.gradient_stops, true);
+                            if (cv) _cmapPickerPaintSwatch(cv, d.gradient_stops);
                         }
                     }).catch(() => {})
             )).then(() => {
@@ -19123,8 +19379,15 @@
             _cmapPickerSpec = null;
             _cmapPickerPrevState = null;
             _cmapPickerFocusLock = false;
-            const box = document.getElementById('cmap-picker-box');
-            if (box) box.style.width = '';
+            _cmapPickerBrowsePool = [];
+            _cmapPickerBrowseNames = [];
+            _cmapPickerVisible = [];
+            _cmapPickerBrowseSwatchEls = new Map();
+            _cmapPickerSearchSwatchEls = new Map();
+            _cmapPickerClearSearchResults();
+            _cmapPickerSetMeta('');
+            const input = document.getElementById('cmap-picker-input');
+            if (input) input.blur();
             document.getElementById('cmap-picker').classList.remove('visible');
             try { sink.focus(); } catch (_) {}
         }
@@ -19133,7 +19396,8 @@
             const input = document.getElementById('cmap-picker-input');
             const root = document.getElementById('cmap-picker');
             const box = document.getElementById('cmap-picker-box');
-            if (!input || !root || !box) return;
+            const closeBtn = document.getElementById('cmap-picker-close');
+            if (!input || !root || !box || !closeBtn) return;
             box.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
             });
@@ -19177,6 +19441,10 @@
             });
             input.addEventListener('keydown', (e) => { _cmapPickerKey(e); }, true);
             box.addEventListener('keydown', (e) => { _cmapPickerKey(e); }, true);
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeCmapPicker(false);
+            });
             root.addEventListener('mousedown', (e) => {
                 if (e.target === root) closeCmapPicker(false);
             });
